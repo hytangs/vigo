@@ -7,10 +7,20 @@ compile_error!(
 #[cfg(any(feature = "node", test))]
 mod basemap_tiles;
 pub mod compiler;
+#[cfg(any(feature = "node", test))]
+mod decimal_rounding;
 mod edge_attachment;
 pub(crate) mod fares;
 #[cfg(any(feature = "node", test))]
+mod network_overview;
+#[cfg(any(feature = "node", test))]
 mod network_tiles;
+#[cfg(feature = "node")]
+pub use network_overview::node::{NetworkOverviewTask, network_overview, network_overview_sync};
+#[cfg(any(feature = "node", test))]
+mod reach_boundaries;
+#[cfg(feature = "node")]
+pub use reach_boundaries::reach_boundary_areas;
 pub(crate) mod route_alternatives;
 use bincode::Options;
 #[cfg(all(feature = "standalone", not(feature = "node")))]

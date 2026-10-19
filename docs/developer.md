@@ -224,6 +224,14 @@ For current admission budgets, restart behavior, and test coverage, see
 
 ### Desktop and Network
 
+The [Poros readiness audit](reference/poros-v1-readiness.md) distinguishes
+completed migrations from the remaining platform and release gates. Studio
+uses a native async City overview reader and native Reach boundaries. The
+removed JS overview SQL and boundary algorithms are covered by retained outputs
+and independent topology checks. The capped legacy preview, per-route timetable
+analysis, vehicle interpolation and local search remain active application code.
+
+
 `public/main.mjs` owns windows, menus, dialogs, and the `vigo://studio` resource scheme. `public/preload.cjs` exposes a small desktop bridge to an isolated renderer without Node access. Engine runs in a utility process; packaged Studio has no TCP listener. Packaging copies the shared `public/` distribution once.
 
 Network shares one route/station selection across its tabs, map, and line diagram. Known feed namespaces resolve against the City timetable; ambiguous bare IDs cannot select an agency. Station scope includes platforms, while a platform keeps its own events. Observation refreshes do not move the map.

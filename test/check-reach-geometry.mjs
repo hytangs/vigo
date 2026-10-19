@@ -1,11 +1,24 @@
 import assert from 'node:assert/strict'
 import './check-reach-blocks.mjs'
-import { rasterBoundaryAreas as rasterAreas, boundaryContoursFromAreas } from '../src/server/reach-boundaries.mjs'
+import { rasterBoundaryAreas as rasterAreas, boundaryContoursFromAreas } from '../src/server/reach.mjs'
 import { rasterAreas as cellAreas, rasterContours as publicContours } from '../src/server/reach.mjs'
 import { createSsrTestServer } from './helpers/ssr-test-server.mjs'
 
+for (const args of [
+  [[0], 0, 1, [0, 0, 1, 1], [1], 'baseline'],
+  [[0], 2, 1, [0, 0, 1, 1], [1], 'baseline'],
+  [[0], 1, 1, [0, 0, NaN, 1], [1], 'baseline'],
+  [[0], 1, 1, [0, 0, 1, 1], [Infinity], 'baseline'],
+  [[0], 1, 1, [0, 0, 1, 1], Array(33).fill(1), 'baseline'],
+  [new Float64Array(new SharedArrayBuffer(8)), 1, 1, [0, 0, 1, 1], [1], 'baseline'],
+]) assert.throws(() => rasterAreas(...args), /Reach|raster|cutoffs/)
+
 const polygonsOf = collection => collection.features.flatMap(feature => feature.geometry.type === 'Polygon'
   ? [feature.geometry.coordinates] : feature.geometry.coordinates)
+const halfwayBounds = [0.0078125, 0.0078125, 0.0234375, 0.0234375]
+const halfwayCoordinates = polygonsOf(cellAreas([0], 1, 1, halfwayBounds, [1], 'baseline')).flat(3)
+assert.equal(Math.min(...halfwayCoordinates), Number(halfwayBounds[0].toFixed(6)), 'Native coordinates preserve JS exact-half decimal rounding')
+assert.equal(Math.max(...halfwayCoordinates), Number(halfwayBounds[2].toFixed(6)))
 function inRing([x, y], ring) {
   let inside = false
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {

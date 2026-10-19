@@ -6,7 +6,7 @@ import type { HealthResponse, ProjectDraft, SetupDraft, VigoRuntimeConfig } from
 import type { SearchResult } from '../features/search/searchModel'
 import type { VigoProject } from '../domain'
 import { clearAnalysisState, invalidateAnalyzeResult } from './analyze'
-import { cancelProjectDetail, city, replaceProject, routingMerge, startCitySelection } from './city'
+import { cancelProjectDetail, city, invalidateProjectRefresh, replaceProject, routingMerge, startCitySelection } from './city'
 import {
   applyNetworkMapDefaults,
   browseAgencyEntities,
@@ -29,6 +29,7 @@ export function applyCitySelection(projectId: string) {
     route.set({ routeScenarioId: '' })
     clearAnalysisState()
     clearAgencyMap()
+    city.set({ isImporting: false, isOsmImporting: false, gtfsImportJobId: '', osmImportJobId: '', importMessage: '', osmStreetMessage: '' })
   }
   city.set({ selectedProjectId: projectId, activeFeedId: bundleFeedId, statusFilter: 'all' })
   network.set({
@@ -95,6 +96,7 @@ export async function loadProjects() {
 
 /** Apply a City whose sources were removed or reset by the engine. */
 export function applyCityReset(cleanedProject: VigoProject) {
+  invalidateProjectRefresh(cleanedProject.id)
   cancelProjectDetail(cleanedProject.id)
   city.set(({ projects }) => ({ projects: projects.map((project) => project.id === cleanedProject.id ? cleanedProject : project) }))
   if (city.get().selectedProjectId !== cleanedProject.id) return
@@ -394,8 +396,9 @@ export async function deleteProject(projectId: string, options: { confirm?: bool
     return false
   }
 
-  const selectedProjectId = city.get().selectedProjectId
   const applyDeletion = (nextProjects: VigoProject[]) => {
+    const selectedProjectId = city.get().selectedProjectId
+    invalidateProjectRefresh(projectId)
     city.set({ projects: nextProjects })
     const nextSelectedId = preferredProjectId(nextProjects, selectedProjectId === projectId ? '' : selectedProjectId)
     cancelProjectDetail(projectId)

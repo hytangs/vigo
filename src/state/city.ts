@@ -28,9 +28,9 @@ export type CityState = {
   gtfsImportJobId: string
   osmImportJobId: string
   pendingPreparations: Record<string, PreparationTask>
-  preparationErrors: Record<string, string>
+  preparationErrors: Record<string, Record<string, string>>
   /** Frequent job ticks, kept apart from the feeds used to build the map. */
-  preparationJobUpdates: Record<string, JobRecord>
+  preparationJobUpdates: Record<string, Record<string, JobRecord>>
   streetPreparation: StreetPreparationState
   routingMergeRetryNonce: number
 }
@@ -81,6 +81,7 @@ type ProjectDetailRequest = {
 }
 
 const projectDetailRequests = new Map<string, ProjectDetailRequest>()
+const projectRefreshes = new Map<string, symbol>()
 let citySelectionVersion = 0
 let activeCityProjectId = ''
 
@@ -116,9 +117,15 @@ export function cancelProjectDetail(projectId: string) {
   }
 }
 
+/** A source reset, replacement or deletion supersedes earlier background reads. */
+export function invalidateProjectRefresh(projectId: string) {
+  projectRefreshes.delete(projectId)
+}
+
 export function resetCity() {
   for (const request of projectDetailRequests.values()) request.controller.abort()
   projectDetailRequests.clear()
+  projectRefreshes.clear()
   // The selection version keeps counting so a late answer cannot match a new selection.
   activeCityProjectId = ''
   routingMerge.requestKey = ''
@@ -157,6 +164,7 @@ export function startCitySelection(projectId: string, applySelection: (projectId
 }
 
 export function replaceProject(nextProject: VigoProject) {
+  invalidateProjectRefresh(nextProject.id)
   cancelProjectDetail(nextProject.id)
   city.set(({ projects }) => {
     const existingProject = projects.find((project) => project.id === nextProject.id)
@@ -169,8 +177,19 @@ export function replaceProject(nextProject: VigoProject) {
 }
 
 export async function refreshImportedProject(projectId: string, hydrate = true) {
+  const generation = Symbol(projectId)
+  projectRefreshes.set(projectId, generation)
   const detail = hydrate ? '?detail=catalog' : '?detail=metadata'
-  const projectResult = await apiJson<{ project: VigoProject }>(`/api/projects/${encodeURIComponent(projectId)}${detail}`)
-  replaceProject(projectResult.project)
-  return projectResult.project
+  try {
+    const projectResult = await apiJson<{ project: VigoProject }>(`/api/projects/${encodeURIComponent(projectId)}${detail}`)
+    if (projectRefreshes.get(projectId) !== generation) return projectResult.project
+    cancelProjectDetail(projectId)
+    // Import/preparation completion refreshes the library, never navigation.
+    // A late response must not switch Cities or resurrect a deleted City.
+    updateProjects((projects) => projects.map((project) => project.id === projectId
+      ? mergeProjectState(project, projectResult.project) : project))
+    return projectResult.project
+  } finally {
+    if (projectRefreshes.get(projectId) === generation) projectRefreshes.delete(projectId)
+  }
 }

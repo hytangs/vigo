@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
-import { areaPolygons, boundaryContoursFromAreas, rasterBoundaryAreas, stitchAreaSegments } from './reach-boundaries.mjs'
+import { nativeRasterAreas } from './native-routing-kernel.mjs'
+export { nativeRasterAreas as rasterBoundaryAreas } from './native-routing-kernel.mjs'
 import { blockInteriorEstimates } from './reach-blocks.mjs'
 import { reachChangeCounts, reachChangeStats } from './reach-comparison.mjs'
 import { resolveServiceDay } from './service-day.mjs'
@@ -491,60 +492,25 @@ function encodeRaster(values) {
   return buffer.toString('base64')
 }
 
-function gridCoordinate(bounds, width, height, x, y) {
-  const [west, south, east, north] = bounds
-  return [
-    round(west + x / width * (east - west), 6),
-    round(north - y / height * (north - south), 6),
-  ]
+// Fill and outline share one topology. Only GeoJSON presentation stays in JS.
+export function boundaryContoursFromAreas(areas) {
+  return featureCollection(areas.features.map(feature => ({
+    ...feature,
+    id: `${feature.properties.surface}-${feature.properties.cutoffMinutes}`,
+    properties: { ...feature.properties, id: `${feature.properties.surface}-${feature.properties.cutoffMinutes}` },
+    geometry: {
+      type: 'MultiLineString',
+      coordinates: feature.geometry.type === 'Polygon' ? feature.geometry.coordinates : feature.geometry.coordinates.flat(),
+    },
+  })))
 }
 
 export function rasterContours(values, width, height, bounds, cutoffsMinutes, surface) {
-  return boundaryContoursFromAreas(rasterBoundaryAreas(values, width, height, bounds, cutoffsMinutes, surface))
-}
-
-function areaBoundarySegments(values, width, height, bounds, threshold) {
-  const reachable = (x, y) => (
-    x >= 0
-    && x < width
-    && y >= 0
-    && y < height
-    && Number.isFinite(values[y * width + x])
-    && values[y * width + x] <= threshold
-  )
-  const segments = []
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      if (!reachable(x, y)) continue
-      if (!reachable(x, y - 1)) segments.push([gridCoordinate(bounds, width, height, x, y), gridCoordinate(bounds, width, height, x + 1, y)])
-      if (!reachable(x + 1, y)) segments.push([gridCoordinate(bounds, width, height, x + 1, y), gridCoordinate(bounds, width, height, x + 1, y + 1)])
-      if (!reachable(x, y + 1)) segments.push([gridCoordinate(bounds, width, height, x + 1, y + 1), gridCoordinate(bounds, width, height, x, y + 1)])
-      if (!reachable(x - 1, y)) segments.push([gridCoordinate(bounds, width, height, x, y + 1), gridCoordinate(bounds, width, height, x, y)])
-    }
-  }
-  return segments
+  return boundaryContoursFromAreas(nativeRasterAreas(values, width, height, bounds, cutoffsMinutes, surface))
 }
 
 export function rasterAreas(values, width, height, bounds, cutoffsMinutes, surface) {
-  return featureCollection(cutoffsMinutes.flatMap((cutoffMinutes) => {
-    const rings = stitchAreaSegments(
-      areaBoundarySegments(values, width, height, bounds, cutoffMinutes),
-    )
-    const polygons = areaPolygons(rings)
-    if (!polygons.length) return []
-    return [{
-      type: 'Feature',
-      id: `${surface}-area-${cutoffMinutes}`,
-      properties: {
-        id: `${surface}-area-${cutoffMinutes}`,
-        surface,
-        cutoffMinutes,
-      },
-      geometry: polygons.length === 1
-        ? { type: 'Polygon', coordinates: polygons[0] }
-        : { type: 'MultiPolygon', coordinates: polygons },
-    }]
-  }))
+  return nativeRasterAreas(values, width, height, bounds, cutoffsMinutes, surface, true)
 }
 
 // Baseline outlines repeat with the cached baseline range they come from.
@@ -562,7 +528,7 @@ function displayBoundarySurfaces(baseline, scenario, request, readWater, baselin
     blockEstimates[surface] = { width: size, height: size, bounds: raster.areaBounds,
       values: encodeRaster(estimates), scale: rasterScale, nodata: rasterNoData }
     const displayValues = Float64Array.from(raster.areaValues, (value, index) => Math.min(value, estimates[index]))
-    return rasterBoundaryAreas(displayValues, size, size, raster.areaBounds, request.cutoffsMinutes, surface)
+    return nativeRasterAreas(displayValues, size, size, raster.areaBounds, request.cutoffsMinutes, surface)
   }
   const retained = memo?.get(memoKey)
   let baselineAreas

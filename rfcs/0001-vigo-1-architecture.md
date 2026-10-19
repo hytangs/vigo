@@ -310,7 +310,11 @@ in the original crate; M1's full exit is therefore still pending.
 M3 uses the Rust GTFS connection operator unconditionally. Its superseded JavaScript operator and selector are removed; retained table hashes, City checks and the frozen corpus cover regression. Raw admission and the remaining City build stages still use JavaScript, so M3 is incomplete.
 
 The Agency research surfaces are removed from Studio and the API: briefings, providers, notebook, operations ledger, replay and LAMP readers. Live Network inspection remains. Stored research data is untouched; saved observations migrate read-only into separate Network connection storage.
-Studio redesign and saved scenarios are integrated, but M5's acceptance against
+Studio redesign, saved scenarios, Rust transit tiles, async native City overviews
+and native Reach display boundaries are integrated. Obsolete JS overview SQL
+and boundary construction are removed, with retained semantic fixtures. City
+refresh/import ownership is covered by cancellation and switching tests. See
+[Poros readiness](../docs/reference/poros-v1-readiness.md). M5's acceptance against
 the future unified Rust server remains pending. M2, M4 and M6 have not met their
 exit criteria. The capability milestones in RFC 0002 are not implied complete
 by this architecture work. See the developer guide for current validation.

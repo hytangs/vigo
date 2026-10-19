@@ -38,6 +38,7 @@
     {"id": "project", "title": "Project"}
   ],
   "pages": [
+    {"id": "poros-readiness", "title": "Poros preview readiness", "group": "project", "source": "docs/reference/poros-v1-readiness.md"},
     {"id": "overview", "title": "Welcome", "group": "start", "source": "docs/guide.md", "section": "build-a-network-answer-a-transport-question"},
     {"id": "install", "title": "Install", "heading": "Install VIGO", "group": "start", "source": "docs/guide.md", "section": "install-vigo"},
     {"id": "quickstart", "title": "Quickstart", "heading": "Quickstart: Boston in ten minutes", "group": "start", "source": "docs/guide.md", "section": "quickstart"},

@@ -528,8 +528,9 @@ fn convert_minutes(v: &Value) -> Value {
             .map_or(Value::Null, |n| json!((n * 60.).round() as i64))
     }
 }
-/// Both transports and the Node addon call this exact projection. The raw
-/// result stays intact; `format_owned` produces the same output without copies.
+/// Standalone callers that retain the raw result use a borrowing projection.
+/// Node transfers ownership to `format_owned` instead of cloning its payload.
+#[cfg(any(feature = "standalone", test))]
 pub fn format(kind: &str, request: &Value, raw: &Value) -> Value {
     format_owned(kind, request, raw.clone())
 }

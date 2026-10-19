@@ -105,7 +105,7 @@ export function StudioSettings({ appearance, basemap, localBasemapAvailable, run
             <div><dt>Connection</dt><dd>See how a network joins up, and what a planned line or a remix of timetables would connect.</dd></div>
             <div><dt>Foundation</dt><dd>Build on exact data: each City is prepared once on this computer, then every answer is offline and reproducible.</dd></div>
           </dl>
-          <p className="settings-note">This release is VIGO 1 Poros (2026), named for an island in the Saronic Gulf whose name means a passage, a way through.</p>
+          <p className="settings-note">This is the VIGO 1 Poros development preview (2026), named for an island in the Saronic Gulf whose name means a passage, a way through.</p>
           <p className="settings-note">Timetables, streets, and routing stay on this computer. Live feeds and online maps use the internet.</p>
         </section>
         <section className="settings-section" aria-labelledby="settings-health-title">

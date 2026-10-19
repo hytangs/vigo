@@ -2436,3 +2436,22 @@ export function describeNativePlaces(streetStorePath, routingStorePath, coordina
   if (typeof binding.describePlaces !== 'function') throw new Error('Rust routing binding lacks place descriptions. Rebuild the native kernel.')
   return binding.describePlaces(streetStorePath ?? '', routingStorePath ?? '', coordinates.flatMap(([lon, lat]) => [Number(lon), Number(lat)]))
 }
+
+// Geometry executes inside the existing Reach worker/CLI. No JS fallback: a
+// stale addon must fail explicitly instead of silently restoring old topology.
+export function nativeRasterAreas(values, width, height, bounds, cutoffs, surface, cells = false) {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width * height !== values.length || values.length > 1_048_576) {
+    throw new Error('Invalid Reach raster dimensions')
+  }
+  if (typeof SharedArrayBuffer !== 'undefined' && values.buffer instanceof SharedArrayBuffer) throw new Error('Reach boundaries require an owned raster buffer')
+  const raster = values instanceof Float64Array ? values : Float64Array.from(values, value => Number.isFinite(value) ? value : Infinity)
+  const binding = loadNativeBinding()
+  if (typeof binding.reachBoundaryAreas !== 'function') throw new Error('Rust routing binding lacks Reach boundaries. Rebuild the native kernel.')
+  return JSON.parse(binding.reachBoundaryAreas(raster, width, height, bounds, cutoffs, surface, cells))
+}
+
+export function nativeNetworkOverview(storePath, sourceScope, asynchronous = false) {
+  const binding = loadNativeBinding()
+  if (typeof binding.networkOverview !== 'function') throw new Error('Rust routing binding lacks City overviews. Rebuild the native kernel.')
+  return asynchronous ? binding.networkOverview(storePath, sourceScope) : binding.networkOverviewSync(storePath, sourceScope)
+}

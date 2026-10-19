@@ -101,12 +101,14 @@ export function storageRecoveryRequired() {
   return Boolean(runtimeConfig && !runtimeConfig.setupRequired && !runtimeConfig.offline.storageWritable)
 }
 
+const noPreparationUpdates = {}
+const noPreparationErrors = {}
 const preparationJobsOf = memoizeLast((jobs: JobRecord[], updates: Record<string, JobRecord>) => (
   jobs.map((job) => updates[job.id] ?? job)
 ))
 
 /** The selected City's jobs with their latest polled status. */
-export const preparationJobs = () => preparationJobsOf(selectedProject().jobs, city.get().preparationJobUpdates)
+export const preparationJobs = () => preparationJobsOf(selectedProject().jobs, city.get().preparationJobUpdates[selectedProject().id] ?? noPreparationUpdates)
 
 const latestJobOf = (jobs: JobRecord[], kind: string) => [...jobs]
   .filter((job) => job.kind === kind)
@@ -148,7 +150,7 @@ export function visiblePreparationTasks() {
     state.pendingPreparations,
     state.cityPreviewLoadingProjectId,
     state.streetPreparation.task,
-    state.preparationErrors,
+    state.preparationErrors[project.id] ?? noPreparationErrors,
   )
 }
 

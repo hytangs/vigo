@@ -212,9 +212,11 @@ tile. A focused route still draws its full patterns from
 `gtfs-route-analysis`, fetched when the route is selected. Until that detail
 arrives, the route's own tiles stand in.
 
-The catalog still includes stops for search and selection. The server still
-constructs the overview from SQLite on first open; vector tiles remove repeated
-geometry transfer and client-side GeoJSON construction, not that initial work.
+The catalog still includes stops for search and selection. Rust constructs the
+complete overview from read-only SQLite on first open, using the libuv pool.
+The small capped compatibility preview and route catalog still use Node SQLite.
+Geometry transfer and client-side GeoJSON construction are avoided by the tiles;
+per-route timetable detail remains a separate migration.
 
 Three behaviors differ by design:
 
@@ -375,17 +377,50 @@ Search ranks exact station names before service matches and collapses service
 variants. `node test/check-search-ranking.mjs` retains a public, synthetic
 station/shuttle fixture; ranking still runs in TypeScript.
 
+## Native overview and Reach geometry
+
+`network_overview.rs` owns the complete overview's read-only SQLite traversal,
+shape retention, representative-trip recovery and service statistics. Studio
+awaits its native worker task. Locale-sensitive display names, colors and stop
+ordering remain in JavaScript. A read transaction keeps the queries on one
+snapshot. Missing stores are never created; row/coordinate limits reject an
+oversized overview explicitly instead of returning a truncated network.
+`test/fixtures/gtfs-overview-e2fa31a.json` retains outputs from the removed JS
+implementation for historical/current catalogs and scoped/empty feeds.
+
+`reach_boundaries.rs` owns marching squares, cell boundaries, ring stitching,
+holes and nested islands. A bounding-volume index replaces the quadratic
+all-pairs containment scan on fragmented rasters. Raw raster times and masks are
+unchanged; display estimates remain separately labeled. GeoJSON metadata and
+outline projection are presentation work. The obsolete `reach-boundaries.mjs`
+and JS cell-edge construction are removed. These calls run in the existing
+Reach worker or CLI; they are not new work on the Studio main thread.
+
+`node test/check-reach-geometry.mjs` checks every 3×3 no-data mask, seeded
+geographic rasters, equal cutoffs, holes, winding, represented cell areas and
+input preservation. `node scripts/profile-reach-boundaries.mjs` measures public
+synthetic rasters; it does not measure routing, HTTP or map rendering.
+
+## City and preparation lifecycle
+
+A background refresh updates its City without changing selection, library order
+or another City's active feed. Request generations discard older refreshes and
+responses from a reset Studio. Deleted Cities are not resurrected. GTFS and OSM
+imports, uploads and retries share one completion owner for messages and flags.
+Polling includes City identity and is aborted on Studio reset.
+`check-city-refresh.mjs` and `check-preparation-ownership.mjs` cover these races;
+`check-studio-stores-runtime.mjs` exercises the connected application.
+
 ## Next for V1
 
-1. **Overview in Rust.** Build the route and stop overview from the routing
-   store in the kernel, removing the first-open SQLite pass in Node. Then
-   consider a compact stop catalog or kernel-side search instead of the
-   stop list.
-2. **Vehicle positions in Rust.** Compute scheduled trajectories per service
-   day in the kernel; the client only interpolates.
-3. **Search in Rust.** A ranked index of stations, stops, lines and places that
-   preserves the station-first ranking already used in Studio.
-4. **Reach contours in Rust.** Move marching squares and polygonization next
-   to the raster the kernel already produces.
-5. **Finish the token migration.** Move remaining component rules to canonical
-   tokens and retire the aliases.
+1. **Vehicle positions in Rust.** Compile scheduled trajectories per service
+   day; avoid merging the full day's patterns into browser state.
+2. **Search in Rust.** Preserve station-first ranking and source identities,
+   then replace the full stop catalog with a bounded query interface.
+3. **Remaining geometry and timetable reads.** Migrate per-route analysis,
+   block-interior display estimates and the capped compatibility preview,
+   preserving their distinct evidence and display semantics.
+4. **Finish the token migration.** Retire component aliases after verifying
+   both appearances and map overlays.
+5. **Release acceptance.** Complete the platform milestones and sustained
+   real-City validation in [Poros readiness](poros-v1-readiness.md).

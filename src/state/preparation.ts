@@ -13,9 +13,24 @@ export function registerStreetRetry(retry: () => void) {
   streetControl.retry = retry
 }
 
-const importPollingPromises = new Map<string, Promise<JobRecord>>()
+const importPollingPromises = new Map<string, { promise: Promise<JobRecord>; controller: AbortController }>()
+let preparationGeneration = 0
+const pollingKey = (projectId: string, jobId: string) => JSON.stringify([projectId, jobId])
 
-export const resetPreparation = () => importPollingPromises.clear()
+export function resetPreparation() {
+  preparationGeneration += 1
+  for (const entry of importPollingPromises.values()) entry.controller.abort()
+  importPollingPromises.clear()
+}
+
+function pollingPause(signal: AbortSignal) {
+  signal.throwIfAborted()
+  return new Promise<void>((resolve, reject) => {
+    const aborted = () => { clearTimeout(timer); reject(signal.reason) }
+    const timer = setTimeout(() => { signal.removeEventListener('abort', aborted); resolve() }, 250)
+    signal.addEventListener('abort', aborted, { once: true })
+  })
+}
 
 export async function waitForImportJob(
   projectId: string,
@@ -23,28 +38,36 @@ export async function waitForImportJob(
   onProgress: (message: string) => void,
   failureLabel: string,
 ) {
-  const existing = importPollingPromises.get(jobId)
-  if (existing) return existing
+  const key = pollingKey(projectId, jobId)
+  const existing = importPollingPromises.get(key)
+  if (existing) return existing.promise
+  const controller = new AbortController()
+  const { signal } = controller
   const polling = (async () => {
     let firstPoll = true
     while (true) {
-      if (!firstPoll) await new Promise((resolve) => window.setTimeout(resolve, 250))
+      if (!firstPoll) await pollingPause(signal)
+      signal.throwIfAborted()
       firstPoll = false
       const result = await apiJson<{ job: JobRecord }>(
         `/api/projects/${encodeURIComponent(projectId)}/national-gtfs-job?jobId=${encodeURIComponent(jobId)}`,
+        { signal },
       ).catch((error) => {
+        if (signal.aborted) throw error
         city.set(({ preparationErrors }) => ({
-          preparationErrors: { ...preparationErrors, [jobId]: error instanceof Error ? error.message : 'Task status is unavailable.' },
+          preparationErrors: { ...preparationErrors, [projectId]: { ...preparationErrors[projectId], [jobId]: error instanceof Error ? error.message : 'Task status is unavailable.' } },
         }))
         throw error
       })
+      signal.throwIfAborted()
       // Keep frequent job ticks separate from the feeds used to build the map.
-      city.set(({ preparationJobUpdates }) => ({ preparationJobUpdates: { ...preparationJobUpdates, [jobId]: result.job } }))
+      city.set(({ preparationJobUpdates }) => ({ preparationJobUpdates: { ...preparationJobUpdates, [projectId]: { ...preparationJobUpdates[projectId], [jobId]: result.job } } }))
       updateProjects((current) => current.find((project) => project.id === projectId)?.jobs.some((job) => job.id === jobId)
         ? current : updateProjectJob(current, projectId, result.job))
       city.set(({ preparationErrors }) => {
-        if (!preparationErrors[jobId]) return {}
-        const next = { ...preparationErrors }; delete next[jobId]; return { preparationErrors: next }
+        if (!preparationErrors[projectId]?.[jobId]) return {}
+        const next = { ...preparationErrors[projectId] }; delete next[jobId]
+        return { preparationErrors: { ...preparationErrors, [projectId]: next } }
       })
       if (selectedProject().id === projectId) onProgress([result.job.phase, result.job.detail].filter(Boolean).join(' · '))
       if (result.job.status === 'failed' || result.job.status === 'cancelled') {
@@ -54,28 +77,30 @@ export async function waitForImportJob(
       if (result.job.status === 'complete') return result.job
     }
   })()
-  importPollingPromises.set(jobId, polling)
+  importPollingPromises.set(key, { promise: polling, controller })
   try {
     return await polling
   } finally {
-    if (importPollingPromises.get(jobId) === polling) importPollingPromises.delete(jobId)
+    if (importPollingPromises.get(key)?.promise === polling) importPollingPromises.delete(key)
   }
 }
 
-async function startPreparation(kind: string, label: string, submit: () => Promise<{ id: string }>) {
-  const projectId = selectedProject().id
+async function startPreparation(projectId: string, kind: string, label: string, submit: () => Promise<{ id: string }>) {
+  const generation = preparationGeneration
   const key = `${projectId}:${kind}`
   const task: PreparationTask = { id: key, kind, label, status: 'running', phase: 'Loading source data', createdAt: new Date().toISOString() }
   updatePendingPreparations((current) => ({ ...current, [key]: task }))
   shell.set({ backgroundTasksOpen: true })
   try {
     const result = await submit()
+    if (generation !== preparationGeneration) throw new DOMException('Studio reset', 'AbortError')
     updateProjects((current) => updateProjectJob(current, projectId, {
       ...task, status: 'queued', progress: 0, phase: 'Waiting for processing status', ...result,
     }))
     updatePendingPreparations((current) => { const next = { ...current }; delete next[key]; return next })
     return result
   } catch (error) {
+    if (generation !== preparationGeneration) throw error
     updatePendingPreparations((current) => ({ ...current, [key]: { ...task, status: 'failed', error: error instanceof Error ? error.message : 'Could not load source data.' } }))
     throw error
   }
@@ -97,8 +122,9 @@ export async function reconnectPreparation(task: PreparationTask) {
 /** Follow every running import of the selected City until it settles. */
 export function followActivePreparationJobs() {
   const projectId = selectedProject().id
+  const generation = preparationGeneration
   for (const job of preparationJobs().filter((entry) => isPreparationJob(entry) && isActiveTask(entry))) {
-    if (importPollingPromises.has(job.id)) continue
+    if (importPollingPromises.has(pollingKey(projectId, job.id))) continue
     const kind = job.kind === 'national-osm-import' ? 'osm' : 'gtfs'
     void waitForImportJob(
       projectId,
@@ -106,15 +132,16 @@ export function followActivePreparationJobs() {
       kind === 'gtfs' ? setImportMessage : setOsmStreetMessage,
       kind === 'gtfs' ? 'GTFS indexing failed' : 'Street indexing failed',
     ).then(async (completed) => {
+      if (generation !== preparationGeneration) return
       await refreshImportedProject(projectId, true)
-      if (selectedProject().id === projectId && kind === 'gtfs' && completed.result?.feedId) setActiveFeedId(completed.result.feedId)
+      if (generation === preparationGeneration && selectedProject().id === projectId && kind === 'gtfs' && completed.result?.feedId) setActiveFeedId(completed.result.feedId)
     }).catch((error) => {
-      if (selectedProject().id !== projectId) return
+      if (generation !== preparationGeneration || selectedProject().id !== projectId) return
       const message = error instanceof Error ? error.message : 'Preparation failed.'
       if (kind === 'gtfs') setImportMessage(message)
       else setOsmStreetMessage(message)
     }).finally(() => {
-      if (selectedProject().id !== projectId) return
+      if (generation !== preparationGeneration || selectedProject().id !== projectId) return
       city.set(kind === 'gtfs' ? { isImporting: false } : { isOsmImporting: false })
     })
   }
@@ -136,23 +163,50 @@ export function syncImportFlags() {
   }
 }
 
+// All import entry points share one completion owner. Library/job updates may
+// finish in the background; feed selection and messages belong to the initiating
+// City and Studio generation only.
+async function runSourceImport(
+  projectId: string, kind: 'gtfs' | 'osm', label: string,
+  submit: () => Promise<{ id: string }>, initial: string, success: string,
+) {
+  const generation = preparationGeneration
+  const ownsView = () => generation === preparationGeneration && selectedProject().id === projectId
+  const message = kind === 'gtfs' ? setImportMessage : setOsmStreetMessage
+  city.set(kind === 'gtfs' ? { isImporting: true } : { isOsmImporting: true })
+  message(initial)
+  try {
+    const job = await startPreparation(projectId, kind === 'gtfs' ? 'national-gtfs-import' : 'national-osm-import', label, submit)
+    if (ownsView()) city.set(kind === 'gtfs' ? { gtfsImportJobId: job.id } : { osmImportJobId: job.id })
+    const completed = await waitForImportJob(projectId, job.id, message, `${kind === 'gtfs' ? 'GTFS' : 'Street'} indexing failed`)
+    if (generation !== preparationGeneration) return
+    await refreshImportedProject(projectId, true)
+    if (!ownsView()) return
+    if (kind === 'gtfs' && completed.result?.feedId) setActiveFeedId(completed.result.feedId)
+    message(success)
+  } catch (error) {
+    if (ownsView()) message(error instanceof Error ? error.message : 'Preparation failed.')
+  } finally {
+    if (ownsView()) city.set(kind === 'gtfs' ? { isImporting: false } : { isOsmImporting: false })
+  }
+}
+
 async function cancelImportJob(kind: 'gtfs' | 'osm') {
   const { gtfsImportJob, osmImportJob } = importJobs()
   const job = kind === 'gtfs' ? gtfsImportJob : osmImportJob
   if (!job?.id) return
-  const projectId = selectedProject().id
+  const projectId = selectedProject().id, generation = preparationGeneration
+  const ownsView = () => generation === preparationGeneration && selectedProject().id === projectId
+  const message = kind === 'gtfs' ? setImportMessage : setOsmStreetMessage
   try {
-    await apiJson<{ job: JobRecord }>(`/api/projects/${encodeURIComponent(projectId)}/national-job-cancel`, {
-      method: 'POST',
-      body: JSON.stringify({ jobId: job.id }),
+    await apiJson(`/api/projects/${encodeURIComponent(projectId)}/national-job-cancel`, {
+      method: 'POST', body: JSON.stringify({ jobId: job.id }),
     })
+    if (generation !== preparationGeneration) return
     await refreshImportedProject(projectId, false)
-    if (kind === 'gtfs') setImportMessage('GTFS preparation cancelled; the source is available to retry.')
-    else setOsmStreetMessage('OSM preparation cancelled; the source is available to retry.')
+    if (ownsView()) message(`${kind.toUpperCase()} preparation cancelled; the source is available to retry.`)
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Preparation could not be cancelled.'
-    if (kind === 'gtfs') setImportMessage(message)
-    else setOsmStreetMessage(message)
+    if (ownsView()) message(error instanceof Error ? error.message : 'Preparation could not be cancelled.')
   }
 }
 
@@ -161,34 +215,10 @@ async function retryImportJob(kind: 'gtfs' | 'osm') {
   const job = kind === 'gtfs' ? gtfsImportJob : osmImportJob
   if (!job?.id) return
   const projectId = selectedProject().id
-  if (kind === 'gtfs') city.set({ isImporting: true, importMessage: 'Retrying GTFS preparation…' })
-  else city.set({ isOsmImporting: true, osmStreetMessage: 'Retrying OSM preparation…' })
-  try {
-    const nextJob = await startPreparation(job.kind, job.label, async () => (await apiJson<{ job: JobRecord }>(`/api/projects/${encodeURIComponent(projectId)}/national-job-retry`, {
-      method: 'POST',
-      body: JSON.stringify({ jobId: job.id }),
-    })).job)
-    city.set(kind === 'gtfs' ? { gtfsImportJobId: nextJob.id } : { osmImportJobId: nextJob.id })
-    const completed = await waitForImportJob(
-      projectId,
-      nextJob.id,
-      kind === 'gtfs' ? setImportMessage : setOsmStreetMessage,
-      kind === 'gtfs' ? 'GTFS indexing failed' : 'Street indexing failed',
-    )
-    await refreshImportedProject(projectId, true)
-    if (kind === 'gtfs') {
-      if (completed.result?.feedId) setActiveFeedId(completed.result.feedId)
-      setImportMessage('GTFS SQLite routing store ready')
-    } else {
-      setOsmStreetMessage('Pedestrian SQLite street index ready')
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Preparation retry failed.'
-    if (kind === 'gtfs') setImportMessage(message)
-    else setOsmStreetMessage(message)
-  } finally {
-    city.set(kind === 'gtfs' ? { isImporting: false } : { isOsmImporting: false })
-  }
+  await runSourceImport(projectId, kind, job.label, async () => (await apiJson<{ job: { id: string } }>(
+    `/api/projects/${encodeURIComponent(projectId)}/national-job-retry`, {
+      method: 'POST', body: JSON.stringify({ jobId: job.id }),
+    })).job, `Retrying ${kind.toUpperCase()} preparation…`, `${kind.toUpperCase()} routing store ready`)
 }
 
 async function uploadProjectSourceFile(
@@ -225,86 +255,35 @@ export async function handleFiles(filesLike: FileList | File[]) {
     shell.set({ page: 'projects' })
     return
   }
-
-  city.set({ isImporting: true })
-  try {
-    setImportMessage(`Staging ${file.name} for SQLite indexing...`)
-    const job = await startPreparation('national-gtfs-import', file.name, () => uploadProjectSourceFile(projectId, file, 'national-gtfs-upload'))
-    city.set({ gtfsImportJobId: job.id })
-    const completed = await waitForImportJob(projectId, job.id, setImportMessage, 'GTFS indexing failed')
-    await refreshImportedProject(projectId, true)
-    if (completed.result?.feedId) setActiveFeedId(completed.result.feedId)
-    setImportMessage(`${file.name} / SQLite routing store ready`)
-  } catch (error) {
-    setImportMessage(error instanceof Error ? error.message : 'GTFS indexing failed')
-  } finally {
-    city.set({ isImporting: false })
-  }
+  await runSourceImport(projectId, 'gtfs', file.name, () => uploadProjectSourceFile(projectId, file, 'national-gtfs-upload'),
+    `Staging ${file.name} for SQLite indexing...`, `${file.name} / SQLite routing store ready`)
 }
 
 export async function handleNationalGtfsPath(sourcePath: string) {
   if (!sourcePath || city.get().isImporting) return
   const projectId = selectedProject().id
-  city.set({ isImporting: true, importMessage: 'Starting local GTFS index' })
-  try {
-    const job = await startPreparation('national-gtfs-import', sourcePath.split(/[\\/]/).pop() || 'GTFS feed', async () => (await apiJson<{ job: JobRecord }>(`/api/projects/${encodeURIComponent(projectId)}/national-gtfs-import`, {
-      method: 'POST',
-      body: JSON.stringify({
-        sourcePath,
-        replaceProjectSchedule: false,
-        preloadServiceDate: clock.get().serviceDate,
-        preloadServiceDay: serviceDay(),
-      }),
-    })).job)
-    city.set({ gtfsImportJobId: job.id })
-    const completed = await waitForImportJob(projectId, job.id, setImportMessage, 'GTFS indexing failed')
-    await refreshImportedProject(projectId, true)
-    if (completed.result?.feedId) setActiveFeedId(completed.result.feedId)
-    setImportMessage('GTFS SQLite routing store ready')
-  } catch (error) {
-    setImportMessage(error instanceof Error ? error.message : 'GTFS indexing failed')
-  } finally {
-    city.set({ isImporting: false })
-  }
+  await runSourceImport(projectId, 'gtfs', sourcePath.split(/[\\/]/).pop() || 'GTFS feed', async () => (await apiJson<{ job: { id: string } }>(
+    `/api/projects/${encodeURIComponent(projectId)}/national-gtfs-import`, {
+      method: 'POST', body: JSON.stringify({ sourcePath, replaceProjectSchedule: false,
+        preloadServiceDate: clock.get().serviceDate, preloadServiceDay: serviceDay() }),
+    })).job, 'Starting local GTFS index', 'GTFS SQLite routing store ready')
 }
 
 export async function handleNationalOsmPath(sourcePath: string, privateAccess: 'public' | 'endpoints' = 'public') {
   if (!sourcePath || city.get().isOsmImporting) return
   const projectId = selectedProject().id
-  city.set({ isOsmImporting: true, osmStreetMessage: 'Starting local street index' })
-  try {
-    const job = await startPreparation('national-osm-import', sourcePath.split(/[\\/]/).pop() || 'OSM streets', async () => (await apiJson<{ job: JobRecord }>(`/api/projects/${encodeURIComponent(projectId)}/national-osm-import`, {
-      method: 'POST',
-      body: JSON.stringify({ sourcePath, privateAccess }),
-    })).job)
-    city.set({ osmImportJobId: job.id })
-    await waitForImportJob(projectId, job.id, setOsmStreetMessage, 'Street indexing failed')
-    await refreshImportedProject(projectId, true)
-    setOsmStreetMessage('Pedestrian SQLite street index ready')
-  } catch (error) {
-    setOsmStreetMessage(error instanceof Error ? error.message : 'Street indexing failed')
-  } finally {
-    city.set({ isOsmImporting: false })
-  }
+  await runSourceImport(projectId, 'osm', sourcePath.split(/[\\/]/).pop() || 'OSM streets', async () => (await apiJson<{ job: { id: string } }>(
+    `/api/projects/${encodeURIComponent(projectId)}/national-osm-import`, {
+      method: 'POST', body: JSON.stringify({ sourcePath, privateAccess }),
+    })).job, 'Starting local street index', 'Pedestrian SQLite street index ready')
 }
 
 export async function handleOsmFiles(filesLike: FileList | File[], privateAccess: 'public' | 'endpoints' = 'public') {
   const file = Array.from(filesLike).find((candidate) => /\.pbf$/i.test(candidate.name))
   if (!file || city.get().isOsmImporting) return
   const projectId = selectedProject().id
-  city.set({ isOsmImporting: true })
-  try {
-    setOsmStreetMessage(`Staging ${file.name} for SQLite street indexing...`)
-    const job = await startPreparation('national-osm-import', file.name, () => uploadProjectSourceFile(projectId, file, 'national-osm-upload', privateAccess))
-    city.set({ osmImportJobId: job.id })
-    await waitForImportJob(projectId, job.id, setOsmStreetMessage, 'Street indexing failed')
-    await refreshImportedProject(projectId, true)
-    setOsmStreetMessage(`${file.name} / SQLite street index ready`)
-  } catch (error) {
-    setOsmStreetMessage(error instanceof Error ? error.message : 'Street indexing failed')
-  } finally {
-    city.set({ isOsmImporting: false })
-  }
+  await runSourceImport(projectId, 'osm', file.name, () => uploadProjectSourceFile(projectId, file, 'national-osm-upload', privateAccess),
+    `Staging ${file.name} for SQLite street indexing...`, `${file.name} / SQLite street index ready`)
 }
 
 export const cancelGtfsImport = () => { void cancelImportJob('gtfs') }

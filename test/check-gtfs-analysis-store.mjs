@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { importTestModules } from './helpers/import-test-modules.mjs'
-import { readGtfsNetworkOverview, readGtfsRouteAnalysis } from '../src/server/gtfs-analysis-store.mjs'
+import { readGtfsNetworkOverview, readGtfsNetworkOverviewAsync, readGtfsRouteAnalysis } from '../src/server/gtfs-analysis-store.mjs'
 
 const [{ scheduledVehiclesAtTime, scheduledVehicleDiagnostics }] = await importTestModules('scheduledVehicles.ts')
 
@@ -96,6 +96,22 @@ try {
   db.prepare('INSERT INTO calendar VALUES(?,?,?,?,?,?,?,?,?,?)').run('SAT', 0, 0, 0, 0, 0, 1, 0, 20260901, 20260930)
   db.close()
 
+  const retained = JSON.parse(await fs.readFile(new URL('./fixtures/gtfs-overview-e2fa31a.json', import.meta.url), 'utf8'))
+  for (const catalog of [false, true]) {
+    if (catalog) {
+      const upgrade = new DatabaseSync(storePath)
+      upgrade.exec(`CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT); INSERT INTO metadata VALUES('routeServiceCatalogVersion','"vigo.routing.route-services.v2"');`)
+      upgrade.close()
+    }
+    for (const fixture of retained.cases.filter(entry => Boolean(entry.catalog) === catalog)) {
+      const actual = readGtfsNetworkOverview(storePath, { sourceScope: fixture.sourceScope })
+      assert.deepEqual(actual, fixture.result, 'Rust overview matches retained JS source semantics')
+      assert.deepEqual(await readGtfsNetworkOverviewAsync(storePath, { sourceScope: fixture.sourceScope }), fixture.result, 'Async overview preserves the same result')
+    }
+  }
+  const downgrade = new DatabaseSync(storePath); downgrade.exec('DROP TABLE metadata'); downgrade.close()
+  await assert.rejects(readGtfsNetworkOverviewAsync(storePath + '.missing'), /unable to open/)
+  await assert.rejects(fs.access(storePath + '.missing'))
   const overview = readGtfsNetworkOverview(storePath)
   assert.equal(overview.routes.length, 4, 'Distinct same-name route IDs must remain separate; inactive definitions are excluded.')
   assert.equal(overview.coverage.routeGeometryIndexed, 4)
@@ -179,6 +195,12 @@ try {
   assert.equal(scheduledVehiclesAtTime(noService, 877, '2026-09-13').length, 0)
   assert.equal(scheduledVehicleDiagnostics(noService, [], 877, '2026-09-13').title, 'No service on this date')
 
+  const roundingDb = new DatabaseSync(storePath)
+  roundingDb.exec("UPDATE connections SET arrival=departure+450 WHERE trip_id='T4'")
+  roundingDb.close()
+  const roundedRoute = readGtfsNetworkOverview(storePath).routes.find(route => route.id === 'R2')
+  assert.equal(roundedRoute.serviceHours, Number((450 / 3600).toFixed(2)), 'Exact-half service hours retain JS decimal rounding')
+  assert.equal(roundedRoute.spanHours, 0.13)
   console.log(`GTFS analysis store check passed (${overview.routes.length} complete services, ${analysis.routes.length + branchAnalysis.routes.length} focused patterns).`)
 } finally {
   await fs.rm(temporaryDirectory, { recursive: true, force: true })

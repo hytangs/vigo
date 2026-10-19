@@ -15,7 +15,7 @@ import { Duplex, PassThrough } from 'node:stream'
 import { PreparationProcess } from './runtime/preparation-process.mjs'
 import { vigoCapabilities } from '../capabilities.mjs'
 import { createAgencyService } from './agency-api.mjs'
-import { readGtfsNetworkOverview, readGtfsRouteAnalysis } from './gtfs-analysis-store.mjs'
+import { readGtfsNetworkOverviewAsync, readGtfsRouteAnalysis } from './gtfs-analysis-store.mjs'
 import { applyLocalCors, assertLocalBindHost, localRequestAccess } from './local-http-security.mjs'
 import {
   disposeNationalGtfsStore,
@@ -1089,7 +1089,7 @@ async function refreshNationalFeedPreview(projectId, feed, options = {}) {
         routeLimit: projectTransportAtlasBudgets.routes,
         representativeRouteIds,
       })
-      const completeOverview = readGtfsNetworkOverview(storePath, { sourceScope })
+      const completeOverview = await readGtfsNetworkOverviewAsync(storePath, { sourceScope })
       if (!completeOverview.routes.length) return undefined
       const previewByRoute = new Map(completeOverview.routes.map((route) => [route.routeId || route.id, route]))
       const hydratedRouteMetrics = routeMetrics.filter((route) => Number(route.tripCount ?? 0) > 0).map((route) => {

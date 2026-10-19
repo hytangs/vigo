@@ -1,0 +1,894 @@
+{
+  "sourceRevision": "e2fa31a76d7834e3d864a8c37ee52c5f7c962913",
+  "cases": [
+    {
+      "sourceScope": "",
+      "result": {
+        "routes": [
+          {
+            "id": "inner_rail\u001fBLUE",
+            "routeId": "inner_rail\u001fBLUE",
+            "patternId": "inner_rail\u001fBLUE",
+            "directionId": "0",
+            "shapeId": "S1",
+            "routeType": 1,
+            "shortName": "Blue",
+            "longName": "Blue Line",
+            "color": "#3776AB",
+            "tripCount": 1,
+            "stopCount": 3,
+            "headwayMinutes": 0,
+            "spanHours": 0.3,
+            "serviceHours": 0.3,
+            "serviceShare": 0.14285714285714285,
+            "frequencyClass": "low",
+            "patternRank": 1,
+            "serviceVariantCount": 1,
+            "geometrySource": "shape",
+            "distanceKm": 13.83,
+            "scheduledSpeedKph": 46.1,
+            "firstDepartureMinutes": 540,
+            "lastArrivalMinutes": 558,
+            "stopPairCount": 2,
+            "segmentCount": 2,
+            "status": "baseline",
+            "coordinates": [
+              [
+                -71.1,
+                42.3
+              ],
+              [
+                -71.075,
+                42.325
+              ],
+              [
+                -71.05,
+                42.35
+              ],
+              [
+                -71,
+                42.4
+              ]
+            ],
+            "points": [],
+            "stopIds": [
+              "A",
+              "B",
+              "C"
+            ]
+          },
+          {
+            "id": "R1A",
+            "routeId": "R1A",
+            "patternId": "R1A",
+            "directionId": "0",
+            "shapeId": "S1",
+            "routeType": 2,
+            "shortName": "Harbor",
+            "longName": "Alpha → Charlie",
+            "color": "#2457A6",
+            "tripCount": 4,
+            "stopCount": 3,
+            "headwayMinutes": 30,
+            "spanHours": 1.05,
+            "serviceHours": 1.2,
+            "serviceShare": 0.5714285714285714,
+            "frequencyClass": "medium",
+            "patternRank": 2,
+            "serviceVariantCount": 1,
+            "geometrySource": "shape",
+            "distanceKm": 13.83,
+            "scheduledSpeedKph": 46.1,
+            "firstDepartureMinutes": 360,
+            "lastArrivalMinutes": 423,
+            "stopPairCount": 2,
+            "segmentCount": 2,
+            "status": "baseline",
+            "coordinates": [
+              [
+                -71.1,
+                42.3
+              ],
+              [
+                -71.075,
+                42.325
+              ],
+              [
+                -71.05,
+                42.35
+              ],
+              [
+                -71,
+                42.4
+              ]
+            ],
+            "points": [],
+            "stopIds": [
+              "A",
+              "B",
+              "C"
+            ]
+          },
+          {
+            "id": "R1B",
+            "routeId": "R1B",
+            "patternId": "R1B",
+            "directionId": "1",
+            "shapeId": "S2",
+            "routeType": 2,
+            "shortName": "Harbor",
+            "longName": "Charlie → Echo",
+            "color": "#2457A6",
+            "tripCount": 1,
+            "stopCount": 3,
+            "headwayMinutes": 0,
+            "spanHours": 0.3,
+            "serviceHours": 0.3,
+            "serviceShare": 0.14285714285714285,
+            "frequencyClass": "low",
+            "patternRank": 3,
+            "serviceVariantCount": 1,
+            "geometrySource": "shape",
+            "distanceKm": 13.82,
+            "scheduledSpeedKph": 46.1,
+            "firstDepartureMinutes": 420,
+            "lastArrivalMinutes": 438,
+            "stopPairCount": 2,
+            "segmentCount": 2,
+            "status": "baseline",
+            "coordinates": [
+              [
+                -71,
+                42.4
+              ],
+              [
+                -70.975,
+                42.425
+              ],
+              [
+                -70.95,
+                42.45
+              ],
+              [
+                -70.9,
+                42.5
+              ]
+            ],
+            "points": [],
+            "stopIds": [
+              "C",
+              "D",
+              "E"
+            ]
+          },
+          {
+            "id": "R2",
+            "routeId": "R2",
+            "patternId": "R2",
+            "directionId": "0",
+            "routeType": 3,
+            "shortName": "20",
+            "longName": "Crosstown",
+            "color": "#2D7FF9",
+            "tripCount": 1,
+            "stopCount": 2,
+            "headwayMinutes": 0,
+            "spanHours": 0.13,
+            "serviceHours": 0.13,
+            "serviceShare": 0.14285714285714285,
+            "frequencyClass": "low",
+            "patternRank": 4,
+            "serviceVariantCount": 1,
+            "geometrySource": "stop_sequence",
+            "distanceKm": 13.82,
+            "scheduledSpeedKph": 103.7,
+            "firstDepartureMinutes": 480,
+            "lastArrivalMinutes": 488,
+            "stopPairCount": 1,
+            "segmentCount": 1,
+            "status": "baseline",
+            "coordinates": [
+              [
+                -71.05,
+                42.35
+              ],
+              [
+                -70.95,
+                42.45
+              ]
+            ],
+            "points": [],
+            "stopIds": [
+              "B",
+              "D"
+            ]
+          }
+        ],
+        "stops": [
+          {
+            "id": "B",
+            "name": "Bravo",
+            "lon": -71.05,
+            "lat": 42.35,
+            "x": 0,
+            "y": 0,
+            "locationType": 0,
+            "routes": [
+              "inner_rail\u001fBLUE",
+              "R1A",
+              "R2"
+            ],
+            "tripCount": 6,
+            "transferScore": 86.00672250690559
+          },
+          {
+            "id": "C",
+            "name": "Charlie",
+            "lon": -71,
+            "lat": 42.4,
+            "x": 0,
+            "y": 0,
+            "locationType": 0,
+            "routes": [
+              "inner_rail\u001fBLUE",
+              "R1A",
+              "R1B"
+            ],
+            "tripCount": 6,
+            "transferScore": 86.00672250690559
+          },
+          {
+            "id": "A",
+            "name": "Alpha",
+            "lon": -71.1,
+            "lat": 42.3,
+            "x": 0,
+            "y": 0,
+            "locationType": 0,
+            "routes": [
+              "inner_rail\u001fBLUE",
+              "R1A"
+            ],
+            "tripCount": 5,
+            "transferScore": 60.58146007804834
+          },
+          {
+            "id": "D",
+            "name": "Delta",
+            "lon": -70.95,
+            "lat": 42.45,
+            "x": 0,
+            "y": 0,
+            "locationType": 0,
+            "routes": [
+              "R1B",
+              "R2"
+            ],
+            "tripCount": 2,
+            "transferScore": 53.41853992195166
+          },
+          {
+            "id": "E",
+            "name": "Echo",
+            "lon": -70.9,
+            "lat": 42.5,
+            "x": 0,
+            "y": 0,
+            "locationType": 0,
+            "routes": [
+              "R1B"
+            ],
+            "tripCount": 1,
+            "transferScore": 24
+          }
+        ],
+        "stopPairs": [],
+        "coverage": {
+          "rawRouteRows": 5,
+          "publicRouteIdentities": 4,
+          "tripsIndexed": 7,
+          "stopTimesScanned": 7,
+          "stopsIndexed": 5,
+          "stopPairsIndexed": 0,
+          "capped": false,
+          "timetableDeferred": false,
+          "previewStrategy": "sqlite-complete-service-atlas-v1",
+          "tripCountStrategy": "route-identity-catalog",
+          "routeGeometryIndexed": 4,
+          "routeGeometryComplete": true,
+          "shapeGeometryIndexed": 3
+        }
+      }
+    },
+    {
+      "sourceScope": "inner_rail",
+      "result": {
+        "routes": [
+          {
+            "id": "inner_rail\u001fBLUE",
+            "routeId": "inner_rail\u001fBLUE",
+            "patternId": "inner_rail\u001fBLUE",
+            "directionId": "0",
+            "shapeId": "S1",
+            "routeType": 1,
+            "shortName": "Blue",
+            "longName": "Blue Line",
+            "color": "#3776AB",
+            "tripCount": 1,
+            "stopCount": 3,
+            "headwayMinutes": 0,
+            "spanHours": 0.3,
+            "serviceHours": 0.3,
+            "serviceShare": 1,
+            "frequencyClass": "low",
+            "patternRank": 1,
+            "serviceVariantCount": 1,
+            "geometrySource": "shape",
+            "distanceKm": 13.83,
+            "scheduledSpeedKph": 46.1,
+            "firstDepartureMinutes": 540,
+            "lastArrivalMinutes": 558,
+            "stopPairCount": 2,
+            "segmentCount": 2,
+            "status": "baseline",
+            "coordinates": [
+              [
+                -71.1,
+                42.3
+              ],
+              [
+                -71.075,
+                42.325
+              ],
+              [
+                -71.05,
+                42.35
+              ],
+              [
+                -71,
+                42.4
+              ]
+            ],
+            "points": [],
+            "stopIds": [
+              "A",
+              "B",
+              "C"
+            ]
+          }
+        ],
+        "stops": [
+          {
+            "id": "A",
+            "name": "Alpha",
+            "lon": -71.1,
+            "lat": 42.3,
+            "x": 0,
+            "y": 0,
+            "locationType": 0,
+            "routes": [
+              "inner_rail\u001fBLUE"
+            ],
+            "tripCount": 1,
+            "transferScore": 24
+          },
+          {
+            "id": "B",
+            "name": "Bravo",
+            "lon": -71.05,
+            "lat": 42.35,
+            "x": 0,
+            "y": 0,
+            "locationType": 0,
+            "routes": [
+              "inner_rail\u001fBLUE"
+            ],
+            "tripCount": 1,
+            "transferScore": 24
+          },
+          {
+            "id": "C",
+            "name": "Charlie",
+            "lon": -71,
+            "lat": 42.4,
+            "x": 0,
+            "y": 0,
+            "locationType": 0,
+            "routes": [
+              "inner_rail\u001fBLUE"
+            ],
+            "tripCount": 1,
+            "transferScore": 24
+          }
+        ],
+        "stopPairs": [],
+        "coverage": {
+          "rawRouteRows": 1,
+          "publicRouteIdentities": 1,
+          "tripsIndexed": 1,
+          "stopTimesScanned": 2,
+          "stopsIndexed": 3,
+          "stopPairsIndexed": 0,
+          "capped": false,
+          "timetableDeferred": false,
+          "previewStrategy": "sqlite-complete-service-atlas-v1",
+          "tripCountStrategy": "route-identity-catalog",
+          "sourceScope": "inner_rail",
+          "routeGeometryIndexed": 1,
+          "routeGeometryComplete": true,
+          "shapeGeometryIndexed": 1
+        }
+      }
+    },
+    {
+      "sourceScope": "missing",
+      "result": {
+        "routes": [],
+        "stops": [],
+        "stopPairs": [],
+        "coverage": {
+          "rawRouteRows": 0,
+          "publicRouteIdentities": 0,
+          "tripsIndexed": 0,
+          "stopTimesScanned": 0,
+          "stopsIndexed": 0,
+          "stopPairsIndexed": 0,
+          "capped": false,
+          "timetableDeferred": false,
+          "previewStrategy": "sqlite-complete-service-atlas-v1",
+          "tripCountStrategy": "route-identity-catalog",
+          "sourceScope": "missing",
+          "routeGeometryIndexed": 0,
+          "routeGeometryComplete": true,
+          "shapeGeometryIndexed": 0
+        }
+      }
+    },
+    {
+      "catalog": true,
+      "sourceScope": "",
+      "result": {
+        "routes": [
+          {
+            "id": "inner_rail\u001fBLUE",
+            "routeId": "inner_rail\u001fBLUE",
+            "patternId": "inner_rail\u001fBLUE",
+            "directionId": "0",
+            "shapeId": "S1",
+            "routeType": 1,
+            "shortName": "Blue",
+            "longName": "Blue Line",
+            "color": "#3776AB",
+            "tripCount": 1,
+            "stopCount": 3,
+            "headwayMinutes": 0,
+            "spanHours": 0.3,
+            "serviceHours": 0.3,
+            "serviceShare": 0.14285714285714285,
+            "frequencyClass": "low",
+            "patternRank": 1,
+            "serviceVariantCount": 1,
+            "geometrySource": "shape",
+            "distanceKm": 13.83,
+            "scheduledSpeedKph": 46.1,
+            "firstDepartureMinutes": 540,
+            "lastArrivalMinutes": 558,
+            "stopPairCount": 2,
+            "segmentCount": 2,
+            "status": "baseline",
+            "coordinates": [
+              [
+                -71.1,
+                42.3
+              ],
+              [
+                -71.075,
+                42.325
+              ],
+              [
+                -71.05,
+                42.35
+              ],
+              [
+                -71,
+                42.4
+              ]
+            ],
+            "points": [],
+            "stopIds": [
+              "A",
+              "B",
+              "C"
+            ]
+          },
+          {
+            "id": "R1A",
+            "routeId": "R1A",
+            "patternId": "R1A",
+            "directionId": "0",
+            "shapeId": "S1",
+            "routeType": 2,
+            "shortName": "Harbor",
+            "longName": "Alpha → Charlie",
+            "color": "#2457A6",
+            "tripCount": 4,
+            "stopCount": 3,
+            "headwayMinutes": 30,
+            "spanHours": 1.05,
+            "serviceHours": 1.2,
+            "serviceShare": 0.5714285714285714,
+            "frequencyClass": "medium",
+            "patternRank": 2,
+            "serviceVariantCount": 1,
+            "geometrySource": "shape",
+            "distanceKm": 13.83,
+            "scheduledSpeedKph": 46.1,
+            "firstDepartureMinutes": 360,
+            "lastArrivalMinutes": 423,
+            "stopPairCount": 2,
+            "segmentCount": 2,
+            "status": "baseline",
+            "coordinates": [
+              [
+                -71.1,
+                42.3
+              ],
+              [
+                -71.075,
+                42.325
+              ],
+              [
+                -71.05,
+                42.35
+              ],
+              [
+                -71,
+                42.4
+              ]
+            ],
+            "points": [],
+            "stopIds": [
+              "A",
+              "B",
+              "C"
+            ]
+          },
+          {
+            "id": "R1B",
+            "routeId": "R1B",
+            "patternId": "R1B",
+            "directionId": "1",
+            "shapeId": "S2",
+            "routeType": 2,
+            "shortName": "Harbor",
+            "longName": "Charlie → Echo",
+            "color": "#2457A6",
+            "tripCount": 1,
+            "stopCount": 3,
+            "headwayMinutes": 0,
+            "spanHours": 0.3,
+            "serviceHours": 0.3,
+            "serviceShare": 0.14285714285714285,
+            "frequencyClass": "low",
+            "patternRank": 3,
+            "serviceVariantCount": 1,
+            "geometrySource": "shape",
+            "distanceKm": 13.82,
+            "scheduledSpeedKph": 46.1,
+            "firstDepartureMinutes": 420,
+            "lastArrivalMinutes": 438,
+            "stopPairCount": 2,
+            "segmentCount": 2,
+            "status": "baseline",
+            "coordinates": [
+              [
+                -71,
+                42.4
+              ],
+              [
+                -70.975,
+                42.425
+              ],
+              [
+                -70.95,
+                42.45
+              ],
+              [
+                -70.9,
+                42.5
+              ]
+            ],
+            "points": [],
+            "stopIds": [
+              "C",
+              "D",
+              "E"
+            ]
+          },
+          {
+            "id": "R2",
+            "routeId": "R2",
+            "patternId": "R2",
+            "directionId": "0",
+            "routeType": 3,
+            "shortName": "20",
+            "longName": "Crosstown",
+            "color": "#2D7FF9",
+            "tripCount": 1,
+            "stopCount": 2,
+            "headwayMinutes": 0,
+            "spanHours": 0.13,
+            "serviceHours": 0.13,
+            "serviceShare": 0.14285714285714285,
+            "frequencyClass": "low",
+            "patternRank": 4,
+            "serviceVariantCount": 1,
+            "geometrySource": "stop_sequence",
+            "distanceKm": 13.82,
+            "scheduledSpeedKph": 103.7,
+            "firstDepartureMinutes": 480,
+            "lastArrivalMinutes": 488,
+            "stopPairCount": 1,
+            "segmentCount": 1,
+            "status": "baseline",
+            "coordinates": [
+              [
+                -71.05,
+                42.35
+              ],
+              [
+                -70.95,
+                42.45
+              ]
+            ],
+            "points": [],
+            "stopIds": [
+              "B",
+              "D"
+            ]
+          }
+        ],
+        "stops": [
+          {
+            "id": "B",
+            "name": "Bravo",
+            "lon": -71.05,
+            "lat": 42.35,
+            "x": 0,
+            "y": 0,
+            "locationType": 0,
+            "routes": [
+              "inner_rail\u001fBLUE",
+              "R1A",
+              "R2"
+            ],
+            "tripCount": 6,
+            "transferScore": 86.00672250690559
+          },
+          {
+            "id": "C",
+            "name": "Charlie",
+            "lon": -71,
+            "lat": 42.4,
+            "x": 0,
+            "y": 0,
+            "locationType": 0,
+            "routes": [
+              "inner_rail\u001fBLUE",
+              "R1A",
+              "R1B"
+            ],
+            "tripCount": 6,
+            "transferScore": 86.00672250690559
+          },
+          {
+            "id": "A",
+            "name": "Alpha",
+            "lon": -71.1,
+            "lat": 42.3,
+            "x": 0,
+            "y": 0,
+            "locationType": 0,
+            "routes": [
+              "inner_rail\u001fBLUE",
+              "R1A"
+            ],
+            "tripCount": 5,
+            "transferScore": 60.58146007804834
+          },
+          {
+            "id": "D",
+            "name": "Delta",
+            "lon": -70.95,
+            "lat": 42.45,
+            "x": 0,
+            "y": 0,
+            "locationType": 0,
+            "routes": [
+              "R1B",
+              "R2"
+            ],
+            "tripCount": 2,
+            "transferScore": 53.41853992195166
+          },
+          {
+            "id": "E",
+            "name": "Echo",
+            "lon": -70.9,
+            "lat": 42.5,
+            "x": 0,
+            "y": 0,
+            "locationType": 0,
+            "routes": [
+              "R1B"
+            ],
+            "tripCount": 1,
+            "transferScore": 24
+          }
+        ],
+        "stopPairs": [],
+        "coverage": {
+          "rawRouteRows": 5,
+          "publicRouteIdentities": 4,
+          "tripsIndexed": 7,
+          "stopTimesScanned": 7,
+          "stopsIndexed": 5,
+          "stopPairsIndexed": 0,
+          "capped": false,
+          "timetableDeferred": false,
+          "previewStrategy": "sqlite-complete-service-atlas-v1",
+          "tripCountStrategy": "route-identity-catalog",
+          "routeGeometryIndexed": 4,
+          "routeGeometryComplete": true,
+          "shapeGeometryIndexed": 3
+        }
+      }
+    },
+    {
+      "catalog": true,
+      "sourceScope": "inner_rail",
+      "result": {
+        "routes": [
+          {
+            "id": "inner_rail\u001fBLUE",
+            "routeId": "inner_rail\u001fBLUE",
+            "patternId": "inner_rail\u001fBLUE",
+            "directionId": "0",
+            "shapeId": "S1",
+            "routeType": 1,
+            "shortName": "Blue",
+            "longName": "Blue Line",
+            "color": "#3776AB",
+            "tripCount": 1,
+            "stopCount": 3,
+            "headwayMinutes": 0,
+            "spanHours": 0.3,
+            "serviceHours": 0.3,
+            "serviceShare": 1,
+            "frequencyClass": "low",
+            "patternRank": 1,
+            "serviceVariantCount": 1,
+            "geometrySource": "shape",
+            "distanceKm": 13.83,
+            "scheduledSpeedKph": 46.1,
+            "firstDepartureMinutes": 540,
+            "lastArrivalMinutes": 558,
+            "stopPairCount": 2,
+            "segmentCount": 2,
+            "status": "baseline",
+            "coordinates": [
+              [
+                -71.1,
+                42.3
+              ],
+              [
+                -71.075,
+                42.325
+              ],
+              [
+                -71.05,
+                42.35
+              ],
+              [
+                -71,
+                42.4
+              ]
+            ],
+            "points": [],
+            "stopIds": [
+              "A",
+              "B",
+              "C"
+            ]
+          }
+        ],
+        "stops": [
+          {
+            "id": "A",
+            "name": "Alpha",
+            "lon": -71.1,
+            "lat": 42.3,
+            "x": 0,
+            "y": 0,
+            "locationType": 0,
+            "routes": [
+              "inner_rail\u001fBLUE"
+            ],
+            "tripCount": 1,
+            "transferScore": 24
+          },
+          {
+            "id": "B",
+            "name": "Bravo",
+            "lon": -71.05,
+            "lat": 42.35,
+            "x": 0,
+            "y": 0,
+            "locationType": 0,
+            "routes": [
+              "inner_rail\u001fBLUE"
+            ],
+            "tripCount": 1,
+            "transferScore": 24
+          },
+          {
+            "id": "C",
+            "name": "Charlie",
+            "lon": -71,
+            "lat": 42.4,
+            "x": 0,
+            "y": 0,
+            "locationType": 0,
+            "routes": [
+              "inner_rail\u001fBLUE"
+            ],
+            "tripCount": 1,
+            "transferScore": 24
+          }
+        ],
+        "stopPairs": [],
+        "coverage": {
+          "rawRouteRows": 1,
+          "publicRouteIdentities": 1,
+          "tripsIndexed": 1,
+          "stopTimesScanned": 2,
+          "stopsIndexed": 3,
+          "stopPairsIndexed": 0,
+          "capped": false,
+          "timetableDeferred": false,
+          "previewStrategy": "sqlite-complete-service-atlas-v1",
+          "tripCountStrategy": "route-identity-catalog",
+          "sourceScope": "inner_rail",
+          "routeGeometryIndexed": 1,
+          "routeGeometryComplete": true,
+          "shapeGeometryIndexed": 1
+        }
+      }
+    },
+    {
+      "catalog": true,
+      "sourceScope": "missing",
+      "result": {
+        "routes": [],
+        "stops": [],
+        "stopPairs": [],
+        "coverage": {
+          "rawRouteRows": 0,
+          "publicRouteIdentities": 0,
+          "tripsIndexed": 0,
+          "stopTimesScanned": 0,
+          "stopsIndexed": 0,
+          "stopPairsIndexed": 0,
+          "capped": false,
+          "timetableDeferred": false,
+          "previewStrategy": "sqlite-complete-service-atlas-v1",
+          "tripCountStrategy": "route-identity-catalog",
+          "sourceScope": "missing",
+          "routeGeometryIndexed": 0,
+          "routeGeometryComplete": true,
+          "shapeGeometryIndexed": 0
+        }
+      }
+    }
+  ]
+}
