@@ -390,10 +390,19 @@ def specification(native):
         'boardings':seconds,'transfers':seconds,'legs':array(ref('PublicLeg')),
         'sharedLegAlternatives':ref('SharedLegAlternatives')},
         ['departureTime','arrivalTime','durationSeconds','walkingSeconds','waitingSeconds','ridingSeconds','boardings','transfers','legs'],strict=False)
+    schemas['SharedLegFrequency'] = obj({
+        'legIndex':number(0,integer=True), 'status':text('complete','incomplete'),
+        'scope':{'const':'shared_segment'},
+        'windowStartSeconds':number(0), 'windowEndSeconds':number(0),
+        'departureCount':number(0,integer=True), 'uniqueDepartureCount':number(0,integer=True),
+        'departureSeconds':array(number(0)),
+        **{k:nullable_number for k in ['departuresPerHour','meanHeadwaySeconds','minHeadwaySeconds','maxHeadwaySeconds']}},
+        ['legIndex','status','scope','windowStartSeconds','windowEndSeconds','departureCount','uniqueDepartureCount','departureSeconds','departuresPerHour','meanHeadwaySeconds','minHeadwaySeconds','maxHeadwaySeconds'],
+        description='Observed active, path-verified departures on one shared segment. Half-open window, at most 30 minutes within the query horizon. Seconds use journey.clockDate. Onward connections do not filter these counts. Simultaneous vehicles count separately but only distinct times define headways. Incomplete scans omit rates/headways; fewer than two times omit headways.')
     schemas['SharedLegAlternatives'] = obj({'coverage':{'const':'single_leg_substitutions'},
-        'windowMinutes':{'const':30}, 'truncated':boolean(), 'frequency':{'const':'not_calculated'},
+        'windowMinutes':{'const':30}, 'truncated':boolean(), 'frequency':{'const':'active_departures'}, 'frequencies':array(ref('SharedLegFrequency')),
         'options':array(obj({'legIndex':number(0,integer=True), 'journey':ref('PublicJourney')},['legIndex','journey']))},
-        ['coverage','windowMinutes','truncated','frequency','options'],description='At most 32 complete replacements per journey. Each changes one leg only; options are not combinable. Does not recursively enumerate replacements.')
+        ['coverage','windowMinutes','truncated','frequency','frequencies','options'],description='At most 32 complete replacements per journey. Each changes one leg only; options are not combinable. Does not recursively enumerate replacements.')
     public_common = {'schema':text(),'status':text('ok','not_found'),'mode':text('transit','walk','drive'),
         'accessibility':obj({'profile':{'const':'wheelchair-strict-v1'},'unknownData':{'const':'exclude'},'limitations':array(text())},['profile','unknownData','limitations'],strict=False),
         'query':{'type':'object'},'meta':obj({'engineVersion':text(),'cityRevision':{'type':['string','null']},'requestId':{},

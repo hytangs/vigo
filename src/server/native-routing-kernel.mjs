@@ -548,6 +548,10 @@ export function sharedNativeRideOptions(kernel, query) {
   return prepareNativeTimetableKernel(kernel).kernel.sharedRideOptions(query)
 }
 
+export function sharedNativeLegFrequency(departures, start, end, truncated) {
+  return JSON.parse(loadNativeBinding().sharedLegFrequency(departures, start, end, truncated))
+}
+
 export function sharedNativeLegPathsMatch(a, b) {
   const proven = (leg) => ['gtfs_shape', 'shape', 'scenario_plan'].includes(leg.geometrySource)
   return proven(a) && proven(b) && loadNativeBinding().sharedLegPathsMatch(a.coordinates.flat(), b.coordinates.flat())

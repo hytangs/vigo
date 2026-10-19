@@ -151,6 +151,7 @@ import {
   normalizeNativeMilliseconds,
   prepareNativeTimetableKernel,
   sharedNativeRideOptions,
+  sharedNativeLegFrequency,
   sharedNativeLegPathsMatch,
   rasterNativeStreetSurface,
   routeNativeAccessMemberPath,
@@ -5604,6 +5605,7 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
 
 function attachSharedLegAlternatives(store, kernel, search, context, plan) {
   const options = []
+  const frequencies = []
   let truncated = false
   for (const [chainIndex, step] of search.chain.entries()) {
     if (step.kind !== 'ride') continue
@@ -5620,23 +5622,48 @@ function attachSharedLegAlternatives(store, kernel, search, context, plan) {
     const onwardDeparture = next ? activeKernelTripConnections(kernel, next)[0]?.departure : undefined
     const lastRide = !next
     const egress = context.destinationStops[search.bestDestinationIndex]
+    const originalConnections = activeKernelTripConnections(kernel, step)
+    const windowStart = originalConnections[0].departure
+    const windowEnd = Math.min(windowStart + 1800, context.horizon)
     const result = sharedNativeRideOptions(kernel, {
       trip: step.kernelTripIndex, boardSequence: step.boardingStopSequence, alightSequence: step.alightingStopSequence,
-      earliestDeparture: leg.startMinutes * 60, latestDeparture: leg.startMinutes * 60 + 1800,
-      latestArrival: Math.min(context.horizon - (lastRide ? accessWalkSeconds(egress) : 0), leg.endMinutes * 60 + 1800),
+      earliestDeparture: windowStart, latestDeparture: windowEnd,
+      latestArrival: Math.min(context.horizon - (lastRide ? accessWalkSeconds(egress) : 0), originalConnections.at(-1).arrival + 1800),
       onwardDeparture, onwardStop: next ? kernel.stopIndex.get(next.fromStopId) : undefined,
       onwardWalkSeconds: transfers.reduce((n, s) => n + s.duration, 0),
     })
     truncated ||= result.truncated
     const routes = new Set([leg.routeId])
-    for (const candidate of result.options) {
+    const key = candidate => `${candidate.trip}:${candidate.boardSequence}`
+    const feasible = new Set(result.options.map(key))
+    const seen = new Set()
+    const departures = []
+    for (const candidate of [...result.options, ...result.departures]) {
+      if (seen.has(key(candidate))) continue
+      seen.add(key(candidate))
       const routeId = kernel.routeIds[candidate.trip]
-      if (routes.has(routeId) || context.request.excludedRouteIds?.includes(routeId)
+      if (context.request.excludedRouteIds?.includes(routeId)
         || context.request.excludedTripIds?.includes(kernel.tripIds[candidate.trip])) continue
-      const chain = search.chain.map(s => ({ ...s }))
-      chain[chainIndex] = { ...step, kernelTripIndex: candidate.trip, tripId: kernel.tripIds[candidate.trip],
+      if (candidate.trip === step.kernelTripIndex && candidate.boardSequence === step.boardingStopSequence) {
+        departures.push(candidate.departure)
+        continue
+      }
+      const candidateStep = { ...step, kernelTripIndex: candidate.trip, tripId: kernel.tripIds[candidate.trip],
         boardingStopSequence: candidate.boardSequence, alightingStopSequence: candidate.alightSequence,
         realtimeAdjusted: kernel.realtimeTripIndices?.has(candidate.trip) === true }
+      const connections = activeKernelTripConnections(kernel, candidateStep)
+      const geometry = nationalRideGeometry(store, connections, store.stopLookup)
+      const geometryLeg = { ...leg, ...geometry, routeId, tripId: candidateStep.tripId }
+      if (context.request[scenarioQueryContext]) {
+        decorateScenarioPlan({ legs: [geometryLeg] }, context.request[scenarioQueryContext])
+      }
+      if (!sharedNativeLegPathsMatch(leg, geometryLeg)) continue
+      departures.push(candidate.departure)
+      if (!feasible.has(key(candidate)) || routes.has(routeId)) continue
+      routes.add(routeId)
+      if (options.length === 32) { truncated = true; continue }
+      const chain = search.chain.map(s => ({ ...s }))
+      chain[chainIndex] = candidateStep
       let end = candidate.arrival
       for (let i = chainIndex + 1; i < chain.length && chain[i].kind === 'transfer'; i++) {
         end += chain[i].duration; chain[i].arrival = end
@@ -5644,20 +5671,17 @@ function attachSharedLegAlternatives(store, kernel, search, context, plan) {
       const replacement = materializeActiveServiceKernelPlan(store, kernel, { ...search, chain,
         bestArrival: lastRide ? end + accessWalkSeconds(egress) : search.bestArrival,
       }, { ...context, request: { ...context.request, sharedLegs: false } })
-      const replacedLeg = replacement?.legs[legIndex]
-      if (!replacedLeg || !sharedNativeLegPathsMatch(leg, replacedLeg)) continue
-      routes.add(routeId)
+      if (!replacement) continue
       replacement.recommended = false
       replacement.choiceLabel = 'Shared-leg service'
       // This is a feasible replacement witness, not a fresh optimum proof.
       replacement.diagnostics.optimality = 'feasible_shared_leg_substitution'
       options.push({ legIndex, plan: replacement })
-      if (options.length === 32) { truncated = true; break }
     }
-    if (options.length === 32) break
+    frequencies.push({ legIndex, ...sharedNativeLegFrequency(departures, windowStart, windowEnd, result.departuresTruncated) })
   }
   plan.sharedLegAlternatives = { coverage: 'single_leg_substitutions', windowMinutes: 30,
-    truncated, frequency: 'not_calculated', options }
+    truncated, frequency: 'active_departures', frequencies, options }
 }
 
 function normalizedReachScenarioOverlay(value) {

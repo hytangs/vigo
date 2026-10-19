@@ -82,6 +82,45 @@ mod tests {
     }
 
     #[test]
+    fn frequency_counts_segment_departures_independently_of_feasible_replacements() {
+        let kernel = kernel(258);
+        let mut q = query();
+        q.onward_stop = Some(1);
+        q.onward_departure = Some(25.);
+        let result = kernel.shared_ride_options(q).unwrap();
+        assert!(result.options.is_empty());
+        assert_eq!(result.departures.len(), 258);
+        assert!(!result.departures_truncated);
+        assert_eq!(result.departures[0].trip, 0);
+        let crowded = self::kernel(514).shared_ride_options(query()).unwrap();
+        assert_eq!(crowded.departures.len(), 512);
+        assert!(crowded.departures_truncated);
+    }
+
+    #[test]
+    fn observed_gaps_do_not_average_route_headways_or_double_count_simultaneous_times() {
+        let stats = shared_departure_frequency(
+            vec![10., 10., 70., 310., 1810., f64::NAN],
+            10.,
+            1810.,
+            false,
+        );
+        assert_eq!(stats.departure_count, 4);
+        assert_eq!(stats.unique_departure_count, 3);
+        assert_eq!(stats.departure_seconds, vec![10., 70., 310.]);
+        assert_eq!(stats.departures_per_hour, Some(8.));
+        assert_eq!(stats.mean_headway_seconds, Some(150.));
+        assert_eq!(stats.min_headway_seconds, Some(60.));
+        assert_eq!(stats.max_headway_seconds, Some(240.));
+        let sparse = shared_departure_frequency(vec![10., 10.], 10., 1810., false);
+        assert_eq!(sparse.mean_headway_seconds, None);
+        let partial = shared_departure_frequency(vec![10., 70.], 10., 1810., true);
+        assert_eq!(partial.status, "incomplete");
+        assert_eq!(partial.departures_per_hour, None);
+        assert_eq!(partial.mean_headway_seconds, None);
+    }
+
+    #[test]
     fn interchange_minimum_and_query_buffer_are_both_preserved() {
         let kernel = kernel(2);
         let mut q = query();
@@ -114,6 +153,10 @@ pub struct SharedRideOption {
 pub struct SharedRideResult {
     pub options: Vec<SharedRideOption>,
     pub truncated: bool,
+    /// All segment departures, including the selected trip and repeat services.
+    /// Independent of onward connections and the 256 replacement witness limit.
+    pub departures: Vec<SharedRideOption>,
+    pub departures_truncated: bool,
 }
 
 impl TimetableKernel {
@@ -157,6 +200,8 @@ impl TimetableKernel {
         let mut result = SharedRideResult {
             options: vec![],
             truncated: false,
+            departures: vec![],
+            departures_truncated: false,
         };
         let (Some(first), Some(last)) = (first, last) else {
             return Ok(result);
@@ -196,12 +241,7 @@ impl TimetableKernel {
                     continue;
                 }
                 let end = start + (last - first);
-                if end >= self.run_end[run] as usize
-                    || alight[end] == 0
-                    || f64::from(arr[end]) > latest
-                    || !seen.insert(start)
-                    || (trips[start] == q.trip && sequence[start] as f64 == q.board_sequence)
-                {
+                if end >= self.run_end[run] as usize || alight[end] == 0 || !seen.insert(start) {
                     continue;
                 }
                 if (first..=last).zip(start..=end).any(|(a, b)| {
@@ -213,17 +253,31 @@ impl TimetableKernel {
                 }) {
                     continue;
                 }
-                if result.options.len() == 256 {
-                    result.truncated = true;
-                    break 'events;
-                }
-                result.options.push(SharedRideOption {
+                let candidate = SharedRideOption {
                     trip: trips[start],
                     board_sequence: sequence[start] as f64,
                     alight_sequence: sequence[end] as f64,
                     departure: dep[start] as f64,
                     arrival: arr[end] as f64,
-                });
+                };
+                // A half-open interval avoids double counting adjacent windows.
+                if candidate.departure < q.latest_departure {
+                    if result.departures.len() == 512 {
+                        result.departures_truncated = true;
+                        result.truncated = true;
+                        break 'events;
+                    }
+                    result.departures.push(candidate.clone());
+                }
+                if candidate.arrival <= latest
+                    && !(trips[start] == q.trip && sequence[start] as f64 == q.board_sequence)
+                {
+                    if result.options.len() == 256 {
+                        result.truncated = true;
+                    } else {
+                        result.options.push(candidate);
+                    }
+                }
             }
         }
         result.options.sort_by(|a, b| {
@@ -234,5 +288,55 @@ impl TimetableKernel {
                 .then(a.board_sequence.total_cmp(&b.board_sequence))
         });
         Ok(result)
+    }
+}
+
+/// Summarize geometry-verified active departures. Callers retain trip identity
+/// while filtering; equal timestamps are distinct vehicles, not shorter gaps.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedDepartureFrequency {
+    pub status: String,
+    pub scope: String,
+    pub window_start_seconds: f64,
+    pub window_end_seconds: f64,
+    pub departure_count: u32,
+    pub unique_departure_count: u32,
+    pub departure_seconds: Vec<f64>,
+    pub departures_per_hour: Option<f64>,
+    pub mean_headway_seconds: Option<f64>,
+    pub min_headway_seconds: Option<f64>,
+    pub max_headway_seconds: Option<f64>,
+}
+
+pub fn shared_departure_frequency(
+    departures: Vec<f64>,
+    start: f64,
+    end: f64,
+    truncated: bool,
+) -> SharedDepartureFrequency {
+    let valid_window = start.is_finite() && end.is_finite() && start >= 0. && end > start;
+    let mut times: Vec<_> = departures
+        .into_iter()
+        .filter(|d| valid_window && d.is_finite() && *d >= start && *d < end)
+        .collect();
+    times.sort_by(f64::total_cmp);
+    let count = times.len() as u32;
+    times.dedup();
+    let complete = valid_window && !truncated;
+    let gaps: Vec<_> = times.windows(2).map(|pair| pair[1] - pair[0]).collect();
+    let has_gaps = complete && !gaps.is_empty();
+    SharedDepartureFrequency {
+        status: if complete { "complete" } else { "incomplete" }.into(),
+        scope: "shared_segment".into(),
+        window_start_seconds: start,
+        window_end_seconds: end,
+        departure_count: count,
+        unique_departure_count: times.len() as u32,
+        departure_seconds: times,
+        departures_per_hour: complete.then(|| f64::from(count) * 3600. / (end - start)),
+        mean_headway_seconds: has_gaps.then(|| gaps.iter().sum::<f64>() / gaps.len() as f64),
+        min_headway_seconds: has_gaps.then(|| gaps.iter().copied().fold(f64::INFINITY, f64::min)),
+        max_headway_seconds: has_gaps.then(|| gaps.iter().copied().fold(0., f64::max)),
     }
 }

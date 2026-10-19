@@ -361,6 +361,10 @@ export function normalizeReceivedRoutingPlan(plan: RoutingPlan): RoutingPlan {
   let normalizedPlan = deferInitialWalk(legNormalizedPlan, legs) ?? legNormalizedPlan
   if (plan.sharedLegAlternatives) {
     normalizedPlan = { ...normalizedPlan, sharedLegAlternatives: { ...plan.sharedLegAlternatives,
+      frequencies: plan.sharedLegAlternatives.frequencies?.flatMap(frequency => {
+        const legIndex = legs.indexOf(plan.legs[frequency.legIndex])
+        return legIndex < 0 ? [] : [{ ...frequency, legIndex }]
+      }),
       options: plan.sharedLegAlternatives.options.flatMap(option => {
         const original = plan.legs[option.legIndex]
         const legIndex = legs.indexOf(original)

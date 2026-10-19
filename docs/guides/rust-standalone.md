@@ -559,7 +559,7 @@ of the recommended journey, keeps the other rides fixed, and preserves feasible
 transfer times and the query deadline. It considers departures from the original
 leg's departure through 30 minutes later, with arrivals at most 30 minutes later
 than that leg. It returns the earliest-arriving feasible trip per alternate route
-ID, examines at most 256 matching rides per leg, and returns at most 32 options
+ID, retains at most 256 replacement candidates per leg, and returns at most 32 options
 per journey. `truncated: true` indicates that a bound was reached. These bounds
 are independent of the top-level journey limit. Options are complete witnesses;
 do not combine replacements from different options into an unverified journey.
@@ -567,9 +567,35 @@ do not combine replacements from different options into an unverified journey.
 The feature supports active scheduled and supplied realtime timetables,
 arrive-by requests, and journey windows. Earlier departures and combinations of
 several replacement legs are outside this initial coverage. Via points and
-street modes are rejected. No City rebuild is needed. Combined headway or
-frequency is **not** estimated (`frequency: "not_calculated"`); it requires a
-separate calculation from actual active departures.
+street modes are rejected. No City rebuild is needed.
+
+`frequency: "active_departures"` adds a `frequencies` entry per verified leg.
+Each entry counts actual active trip instances on the same ordered stops,
+permissions and directed path, including the selected route's repeat trips.
+Canceled, inactive, excluded and path-mismatched trips do not contribute;
+supplied realtime delays move departures before gaps are calculated. Non-exact
+GTFS frequency templates (`exact_times=0`) are not actual departures and remain
+excluded by the timetable importer.
+
+The half-open observation window starts at that leg's departure and ends 30
+minutes later, or at the query's timetable horizon if earlier. Window timestamps
+and `departureSeconds` use elapsed seconds on the journey's `clockDate`, including
+overnight service clocks. `departureCount` counts vehicles;
+`uniqueDepartureCount` and sorted `departureSeconds` count distinct times.
+`departuresPerHour` scales the observed count by the window duration.
+`meanHeadwaySeconds`, `minHeadwaySeconds`, and `maxHeadwaySeconds` summarize gaps
+between consecutive **distinct** departure times. Simultaneous vehicles add
+capacity, not shorter gaps. Fewer than two distinct times produce null headways.
+These are finite-window estimates, not a promise of regular service or expected
+waiting time; no per-route headways are averaged.
+
+Frequency has `scope: "shared_segment"`: onward connections do not filter the
+segment's departures. Only the separate journey options promise a feasible
+end-to-end substitution. The scan examines at most 512 segment departures per
+leg; if capped, frequency `status` is `incomplete`, counts are lower bounds, and
+all rate/headway estimates are null. Missing or unproven paths are conservatively
+excluded, so completeness applies only to path-verified services. The 32-option
+display limit never limits the departure count.
 
 ```json query=route
 {

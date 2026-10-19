@@ -10611,6 +10611,88 @@
         ],
         "additionalProperties": true
       },
+      "SharedLegFrequency": {
+        "type": "object",
+        "properties": {
+          "legIndex": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "complete",
+              "incomplete"
+            ]
+          },
+          "scope": {
+            "const": "shared_segment"
+          },
+          "windowStartSeconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "windowEndSeconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "departureCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "uniqueDepartureCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "departureSeconds": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "departuresPerHour": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "meanHeadwaySeconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "minHeadwaySeconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "maxHeadwaySeconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "legIndex",
+          "status",
+          "scope",
+          "windowStartSeconds",
+          "windowEndSeconds",
+          "departureCount",
+          "uniqueDepartureCount",
+          "departureSeconds",
+          "departuresPerHour",
+          "meanHeadwaySeconds",
+          "minHeadwaySeconds",
+          "maxHeadwaySeconds"
+        ],
+        "additionalProperties": false,
+        "description": "Observed active, path-verified departures on one shared segment. Half-open window, at most 30 minutes within the query horizon. Seconds use journey.clockDate. Onward connections do not filter these counts. Simultaneous vehicles count separately but only distinct times define headways. Incomplete scans omit rates/headways; fewer than two times omit headways."
+      },
       "SharedLegAlternatives": {
         "type": "object",
         "properties": {
@@ -10625,7 +10707,13 @@
             "default": false
           },
           "frequency": {
-            "const": "not_calculated"
+            "const": "active_departures"
+          },
+          "frequencies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SharedLegFrequency"
+            }
           },
           "options": {
             "type": "array",
@@ -10653,6 +10741,7 @@
           "windowMinutes",
           "truncated",
           "frequency",
+          "frequencies",
           "options"
         ],
         "additionalProperties": false,

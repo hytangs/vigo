@@ -129,7 +129,9 @@ window.checkStores = async () => {
     arriveMinutes:492, durationMinutes:12, waitMinutes:2,
     legs:[{...ride,routeId:'E',routeShortName:'Green E',tripId:'E-1',startMinutes:482,endMinutes:492}]}
   primary.sharedLegAlternatives = {coverage:'single_leg_substitutions',windowMinutes:30,truncated:false,
-    frequency:'not_calculated',options:[{legIndex:0,plan:alternate}]}
+    frequency:'active_departures',frequencies:[{legIndex:0,status:'complete',scope:'shared_segment',
+      windowStartSeconds:28800,windowEndSeconds:30600,departureCount:5,uniqueDepartureCount:4,
+      departureSeconds:[28800,28920,29040,29400],departuresPerHour:10,meanHeadwaySeconds:200,minHeadwaySeconds:120,maxHeadwaySeconds:360}],options:[{legIndex:0,plan:alternate}]}
   sharedFixture = primary
   flushSync(() => route.set({routingOrigin:{...primary.origin,source:'stop',stopId:'O'},routingDestination:{...primary.destination,source:'stop',stopId:'B'}}))
   await until(() => route.get().engine.choices[0]?.id === primary.id, 'Shared service response did not reach Studio')
@@ -139,6 +141,8 @@ window.checkStores = async () => {
   await until(() => document.querySelector('.journey-shared-services button'), 'Shared service missing from the detailed itinerary')
   flushSync(() => document.querySelector('.journey-shared-services summary').click())
   check(document.querySelector('.journey-shared-services button').textContent.includes('Green E'), 'Shared service label missing')
+  check(document.querySelector('.journey-combined-frequency')?.textContent.includes('5 departures at 4 distinct times'), 'Active departure count missing')
+  check(document.querySelector('.journey-combined-frequency')?.textContent.includes('Mean gap 3.3 min (range 2.0–6.0 min)'), 'Observed headway and variability missing')
   await pause(250)
   await new Promise(resolve => { window.sharedServicesCaptured = resolve; window.sharedServicesScreenshot = true })
   flushSync(() => document.querySelector('.journey-shared-services button').click())

@@ -138,12 +138,28 @@ export type RoutingLeg = {
   orderedSegmentIndex?: number
 }
 
+export type SharedLegFrequency = {
+  legIndex: number
+  status: 'complete' | 'incomplete'
+  scope: 'shared_segment'
+  windowStartSeconds: number
+  windowEndSeconds: number
+  departureCount: number
+  uniqueDepartureCount: number
+  departureSeconds: number[]
+  departuresPerHour: number | null
+  meanHeadwaySeconds: number | null
+  minHeadwaySeconds: number | null
+  maxHeadwaySeconds: number | null
+}
+
 export type RoutingPlan = {
   sharedLegAlternatives?: {
     coverage: 'single_leg_substitutions'
     windowMinutes: number
     truncated: boolean
-    frequency: 'not_calculated'
+    frequency: 'active_departures' | 'not_calculated'
+    frequencies?: SharedLegFrequency[]
     options: Array<{ legIndex: number; plan: RoutingPlan }>
   }
   id: string

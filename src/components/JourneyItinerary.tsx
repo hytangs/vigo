@@ -70,6 +70,8 @@ export function RoutingItinerary({ plan }: { plan: RoutingPlan }) {
         const wait = Math.max(0, leg.startMinutes - previousEnd)
         previousEnd = leg.endMinutes
         const ride = leg.type === 'ride'
+        const frequency = plan.sharedLegAlternatives?.frequencies?.find(f => f.legIndex === index)
+        const sharedOptions = plan.sharedLegAlternatives?.options.filter(option => option.legIndex === index) ?? []
         const previousLeg = plan.legs[index - 1]
         const immediateVehicleChange = ride && previousLeg?.type === 'ride'
           && previousLeg.tripId !== leg.tripId && wait === 0
@@ -85,11 +87,16 @@ export function RoutingItinerary({ plan }: { plan: RoutingPlan }) {
             {ride ? <><p className="journey-stop">{leg.fromName}</p><p className="journey-leg-meta">{leg.scenarioService ? <span className="journey-planned">Planned · {leg.scenarioService.scenarioName}</span> : null}{leg.stopCount > 0 ? `${leg.stopCount} ${leg.scenarioService ? 'planned' : 'scheduled'} stop${leg.stopCount === 1 ? '' : 's'}` : 'Transit ride'}</p><div className="journey-arrival"><span>{leg.toName}</span><time>{formatScheduleClock(leg.endMinutes)}</time></div></> : <p className="journey-leg-meta">{transfer ? 'Station connection' : `From ${leg.fromName}`}{leg.distanceKm > 0 ? ` · ${leg.distanceKm < 1 ? `${Math.round(leg.distanceKm * 1000)} m` : `${leg.distanceKm.toFixed(1)} km`}` : ''}</p>}
             {leg.stationAccessStatus !== 'unverified' && leg.transferSource === 'parent_station_fallback' ? <p className="journey-caution">Assumed station connection time</p> : null}
             {(ride && (leg.sourceEqualTime || !shapedRideGeometry(leg.geometrySource))) || leg.type === 'drive' ? <details className="journey-leg-evidence"><summary>Path &amp; timing</summary><p>{routingLegDetail(leg)}</p></details> : null}
-            {ride && plan.sharedLegAlternatives?.options.some(option => option.legIndex === index) ?
+            {ride && plan.sharedLegAlternatives && (frequency || sharedOptions.length > 0) ?
               <details className="journey-leg-evidence journey-shared-services">
-                <summary>Other services on this leg</summary>
-                <p>Same stops and path. Choose a service to see its complete journey and transfer times.</p>
-                {plan.sharedLegAlternatives.options.filter(option => option.legIndex === index).map(option => {
+                <summary>Services on this leg</summary>
+                {frequency ? <p className="journey-combined-frequency">
+                  {frequency.status === 'incomplete' ? 'Incomplete sample. At least ' : ''}
+                  {frequency.departureCount} departures at {frequency.uniqueDepartureCount} distinct times · {formatScheduleClock(frequency.windowStartSeconds / 60)}–{formatScheduleClock(frequency.windowEndSeconds / 60)}
+                  {frequency.meanHeadwaySeconds !== null ? <> · Mean gap {(frequency.meanHeadwaySeconds / 60).toFixed(1)} min{frequency.minHeadwaySeconds !== frequency.maxHeadwaySeconds ? ` (range ${((frequency.minHeadwaySeconds ?? 0) / 60).toFixed(1)}–${((frequency.maxHeadwaySeconds ?? 0) / 60).toFixed(1)} min)` : ''}</> : null}
+                </p> : null}
+                <p>{frequency ? 'Counts cover this leg.' : 'Same stops and path.'}{sharedOptions.length > 0 ? ' The choices below also meet your connection times and arrival deadline.' : ''}</p>
+                {sharedOptions.map(option => {
                   const alternate = option.plan.legs[index]
                   return <button type="button" key={option.plan.id} onClick={() => selectRoutingPlan(option.plan.id)}>
                     <strong>{alternate.routeShortName || alternate.routeId}</strong>

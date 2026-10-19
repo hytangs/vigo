@@ -63,3 +63,12 @@ mod tests {
         assert!(!shared_leg_paths_match(a, vec![]));
     }
 }
+
+#[cfg(feature = "node")]
+#[napi]
+pub fn shared_leg_frequency(departures: Vec<f64>, start: f64, end: f64, truncated: bool) -> String {
+    serde_json::to_string(&vigo_route::timetable::shared_departure_frequency(
+        departures, start, end, truncated,
+    ))
+    .expect("finite shared-leg frequency")
+}
