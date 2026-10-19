@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<mc:messageContainer xmlns:mc="http://datex2.eu/schema/3/messageContainer" xmlns:roa="http://datex2.eu/schema/3/roadTrafficData" xmlns:com="http://datex2.eu/schema/3/common" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" modelBaseVersion="3">
+<mc:payload xsi:type="roa:MeasuredDataPublication"><com:publicationTime>2026-10-19T06:07:00Z</com:publicationTime><roa:headerInformation><com:informationStatus>real</com:informationStatus></roa:headerInformation><roa:measurementSiteTableReference id="TEST_TRAVELTIME" version="latest" targetClass="roa:MeasurementSiteTable"/>
+<roa:siteMeasurements><roa:measurementSiteReference id="TEST01" version="7" targetClass="roa:MeasurementSite"/>
+<roa:physicalQuantity index="1"><roa:physicalQuantity xsi:type="roa:SinglePhysicalQuantity"><roa:basicData xsi:type="roa:TravelTimeData"><roa:travelTimeType>reconstituted</roa:travelTimeType><roa:travelTime accuracy="100" numberOfInputValuesUsed="60" supplierCalculatedDataQuality="54"><roa:duration>30</roa:duration></roa:travelTime><roa:normallyExpectedTravelTime><roa:duration>3</roa:duration></roa:normallyExpectedTravelTime></roa:basicData></roa:physicalQuantity></roa:physicalQuantity><roa:measurementTimeDefault><roa:timeValue>2026-10-19T06:06:00Z</roa:timeValue></roa:measurementTimeDefault></roa:siteMeasurements>
+</mc:payload></mc:messageContainer>

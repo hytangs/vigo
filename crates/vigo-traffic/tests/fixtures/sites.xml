@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<mc:messageContainer xmlns:mc="http://datex2.eu/schema/3/messageContainer" xmlns:roa="http://datex2.eu/schema/3/roadTrafficData" xmlns:loc="http://datex2.eu/schema/3/locationReferencing" xmlns:com="http://datex2.eu/schema/3/common" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" modelBaseVersion="3">
+<mc:payload xsi:type="roa:MeasurementSiteTablePublication">
+<com:publicationTime>2026-10-19T06:07:00Z</com:publicationTime><roa:headerInformation><com:informationStatus>real</com:informationStatus></roa:headerInformation>
+<roa:measurementSiteTable id="TEST_TRAVELTIME" version="latest">
+<roa:measurementSite id="TEST01" version="7">
+<roa:measurementSpecificCharacteristics index="1"><roa:measurementSpecificCharacteristics><roa:period>60.0</roa:period><roa:specificMeasurementValueType>travelTimeInformation</roa:specificMeasurementValueType><roa:specificVehicleCharacteristics><com:vehicleType>anyVehicle</com:vehicleType></roa:specificVehicleCharacteristics></roa:measurementSpecificCharacteristics></roa:measurementSpecificCharacteristics>
+<roa:measurementSiteLocation xsi:type="loc:ItineraryByIndexedLocations"><loc:locationContainedInItinerary index="0"><loc:location xsi:type="loc:LinearLocation"><loc:gmlLineString><loc:posList>52 5 52 5.002</loc:posList></loc:gmlLineString></loc:location></loc:locationContainedInItinerary></roa:measurementSiteLocation>
+</roa:measurementSite></roa:measurementSiteTable></mc:payload></mc:messageContainer>

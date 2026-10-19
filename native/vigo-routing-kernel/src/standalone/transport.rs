@@ -20,6 +20,7 @@ const HELP: &str = "VIGO — standalone Rust routing and isochrones
   vigo route --city ./scenario-set --scenario no-build --request route.json
   vigo info --city ./city
   vigo capabilities
+  vigo traffic-import --city ./city --configuration sites.xml.gz --measurements measurements.xml.gz --output traffic.json
   vigo native --city ./city --request kernel-query.json
 
 Use --format text|json (automatic terminal view by default).
@@ -100,6 +101,7 @@ fn run() -> Result<()> {
         return Ok(());
     }
     if ![
+        "traffic-import",
         "capabilities",
         "info",
         "route",
@@ -118,6 +120,9 @@ fn run() -> Result<()> {
         return fail(format!("Unknown command {command}"));
     }
     let known = [
+        "configuration",
+        "measurements",
+        "ttl-seconds",
         "city",
         "scenario",
         "request",
@@ -158,6 +163,7 @@ fn run() -> Result<()> {
             return fail(format!("Unknown option --{key}"));
         }
         let allowed = match key.as_str() {
+            "configuration" | "measurements" | "ttl-seconds" => command == "traffic-import",
             "city" => !["capabilities", "health"].contains(&command.as_str()),
             "stream-output" => command == "stream",
             "scenario" => [
@@ -208,6 +214,9 @@ fn run() -> Result<()> {
         .ok_or("--city or VIGO_CITY is required")?;
     if command == "serve" {
         return super::http::serve(&city_path, &options);
+    }
+    if command == "traffic-import" {
+        return output(&super::traffic::import(&city_path, &options)?, &options);
     }
     let mut city = Runtime::open(&city_path)?;
     if command == "_worker" {

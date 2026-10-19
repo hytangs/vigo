@@ -17,6 +17,7 @@ mod reach;
 mod realtime;
 mod scenario;
 mod timetable_cache;
+mod traffic;
 mod transport;
 mod walking;
 pub use city::City;
@@ -91,7 +92,7 @@ pub(crate) fn flag(v: &Value, key: &str, default: bool) -> Result<bool> {
 }
 pub fn capabilities() -> Value {
     json!({"schemaVersion":"vigo.standalone.capabilities.v1", "version":env!("CARGO_PKG_VERSION"),
-        "runtime":"rust", "standalone":true, "commands":["info","route","matrix","reach","compare","native","stream","serve","health","capabilities"],
+        "runtime":"rust", "standalone":true, "commands":["traffic-import","info","route","matrix","reach","compare","native","stream","serve","health","capabilities"],
         "modes":["transit","walk","drive"], "timePreferences":["depart_at","arrive_by"],
         "scenarioCollections":{"format":"vigo.scenarios.v1","selector":"scenarioId","sharedStreets":true,"boundedResidency":true},"wheelchair":{"supported":true,"requiresCityProfile":"wheelchair-strict-v1","unknownData":"exclude","modes":["transit","walk"],"dataMode":"scheduled"},"cityFormat":"vigo.city.v1","routingStoreFormat":"vigo.routing.store.v4", "requestSchema":"vigo.standalone.query.v1",
         "route":{"realtime":true,"transferControls":true,"waypoints":true,"departureWindows":true,"arrivalWindows":true,"alternatives":{"coverage":"sampled","maximum":5},"requestedAlternatives":{"maximum":9,"rankings":["pareto","ranked"],"timePreferences":["depart_at"]},"transitShapes":true,"fareAnnotations":true},

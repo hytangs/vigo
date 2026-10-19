@@ -1237,7 +1237,7 @@ impl City {
                 let d = self.drive.as_mut().unwrap();
                 let (origin_nodes, origin_snap_meters) = d.snap(origin.coordinate)?;
                 let (target_nodes, target_snap_meters) = d.snap(destination.coordinate)?;
-                let traffic = d.traffic(q.get("traffic"))?;
+                let (traffic, traffic_diagnostics) = d.traffic(q.get("traffic"))?;
                 let r = d.kernel.route_exact(DriveQueryInput {
                     origin_nodes,
                     origin_snap_meters,
@@ -1248,7 +1248,7 @@ impl City {
                 })?;
                 if r.status != "ready" {
                     return Ok(
-                        json!({"status":"blocked","reason":r.reason,"mode":mode,"diagnostics":r}),
+                        json!({"status":"blocked","reason":r.reason,"mode":mode,"diagnostics":drive_diagnostics(serde_json::to_value(r)?, traffic_diagnostics)}),
                     );
                 }
                 (
@@ -1258,7 +1258,7 @@ impl City {
                         .iter()
                         .map(|&i| [d.lons[i as usize], d.lats[i as usize]])
                         .collect(),
-                    serde_json::to_value(r)?,
+                    drive_diagnostics(serde_json::to_value(r)?, traffic_diagnostics),
                 )
             }
             _ => return fail("mode must be transit, walk, or drive"),
@@ -1311,7 +1311,7 @@ impl City {
                 let d = self.drive.as_mut().unwrap();
                 let a = d.pack(origins)?;
                 let b = d.pack(destinations)?;
-                let traffic = d.traffic(q.get("traffic"))?;
+                let (traffic, traffic_diagnostics) = d.traffic(q.get("traffic"))?;
                 let r = d.kernel.route_matrix(DriveMatrixInput {
                     origin_offsets: a.0,
                     origin_nodes: a.1,
@@ -1325,7 +1325,7 @@ impl City {
                 (
                     r.distances_m.clone(),
                     r.durations_s.iter().map(|v| v / 60.).collect(),
-                    serde_json::to_value(r)?,
+                    drive_diagnostics(serde_json::to_value(r)?, traffic_diagnostics),
                 )
             }
             _ => return fail("mode must be transit, walk, or drive"),
@@ -1342,14 +1342,6 @@ impl City {
             };
         }
         let operation = q["operation"].as_str().ok_or("native requires operation")?;
-        if ["drive.route", "drive.matrix"].contains(&operation)
-            && input.get("traffic").is_some_and(|v| !v.is_null())
-        {
-            if !input["traffic"].is_object() {
-                return fail("Native drive traffic must be an object");
-            }
-            input["traffic"]["snapshotKey"] = json!(traffic_identity(&input["traffic"])?);
-        }
         let result = match operation {
             "street.path" => call!(self.street, route_path),
             "street.matrix" => call!(self.street, route_street_matrix),
@@ -1359,7 +1351,12 @@ impl City {
             "access.endpoints" => call!(self.street, route_endpoints),
             "drive.route" | "drive.matrix" => {
                 self.load_drive()?;
-                let k = &mut self.drive.as_mut().unwrap().kernel;
+                let drive = self.drive.as_mut().unwrap();
+                if input.get("traffic").is_some_and(|v| !v.is_null()) {
+                    let (traffic, _) = drive.traffic(input.get("traffic"))?;
+                    input["traffic"] = serde_json::to_value(traffic)?;
+                }
+                let k = &mut drive.kernel;
                 if operation == "drive.route" {
                     call!(k, route_exact)
                 } else {
@@ -1471,212 +1468,29 @@ impl super::city::Drive {
         }
         Ok((offsets, nodes, meters))
     }
-    fn traffic(&self, value: Option<&Value>) -> Result<Option<DriveTrafficInput>> {
-        let Some(value) = value else { return Ok(None) };
-        if value.get("edgeTimeUnits").is_some() {
-            if value["streetSourceFingerprint"]
-                != self.image.header["identity"]["sourceFingerprint"]
-            {
-                return fail("traffic edge indices require the current streetSourceFingerprint");
-            }
-            let mut input: DriveTrafficInput = serde_json::from_value(value.clone())?;
-            if input.edge_indices.len() > 200_000 {
-                return fail("Too many traffic updates");
-            }
-            input.snapshot_key = traffic_identity(value)?;
-            return Ok(Some(input));
-        }
-        let observations = value
-            .get("observations")
-            .or_else(|| value.get("segments"))
-            .or_else(|| value.get("edgeUpdates"))
-            .and_then(Value::as_array)
-            .ok_or("traffic requires observations or native edgeTimeUnits")?;
-        if observations.is_empty() || observations.len() > 100_000 {
-            return fail("traffic requires 1..100000 observations");
-        }
-        let observed = epoch(
-            value
-                .get("observedAt")
-                .or_else(|| value.get("fetchedAt"))
-                .or_else(|| value.get("timestamp"))
-                .ok_or("traffic requires observedAt")?,
-        )?;
+    fn traffic(&mut self, value: Option<&Value>) -> Result<(Option<DriveTrafficInput>, Value)> {
+        let Some(value) = value.filter(|v| !v.is_null()) else {
+            return Ok((None, Value::Null));
+        };
+        let fingerprint = self.image.header["identity"]["sourceFingerprint"]
+            .as_str()
+            .ok_or("Missing street fingerprint")?;
+        let snapshot = self
+            .kernel
+            .compile_traffic(value, fingerprint, &self.lons, &self.lats)?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs_f64();
-        let ttl = number(value, "ttlSeconds", 300., 1., 1800.)?;
-        let expires = value
-            .get("expiresAt")
-            .map(epoch)
-            .transpose()?
-            .unwrap_or(observed + ttl);
-        if observed > now + 60.
-            || expires <= observed
-            || expires - observed > 1800.
-            || expires <= now
-        {
-            return fail("Traffic snapshot is expired or its timestamps are invalid");
-        }
-        let radius = number(value, "snapRadiusMeters", 120., 1., 1000.)?;
-        let offsets = self.image.u32("edgeOffsets")?;
-        let targets = self.image.u32("edgeTargets")?;
-        let times = self.image.u32("edgeTimeUnits")?;
-        let distances = self.image.u32("edgeDistanceUnits")?;
-        let mut updated = std::collections::BTreeMap::<u32, u32>::new();
-        for observation in observations {
-            let mut edges = if let Some(indices) = observation.get("edgeIndices") {
-                indices
-                    .as_array()
-                    .ok_or("edgeIndices must be an array")?
-                    .iter()
-                    .map(|v| {
-                        v.as_u64()
-                            .filter(|&i| i < times.len() as u64)
-                            .map(|i| i as u32)
-                            .ok_or_else(|| "Invalid traffic edge index".into())
-                    })
-                    .collect::<Result<Vec<_>>>()?
-            } else if let Some(index) = observation.get("edgeIndex") {
-                vec![
-                    index
-                        .as_u64()
-                        .filter(|&i| i < times.len() as u64)
-                        .ok_or("Invalid traffic edgeIndex")? as u32,
-                ]
-            } else {
-                vec![]
-            };
-            if edges.len() > 4096 {
-                return fail("An observation may reference at most 4096 edges");
-            }
-            if !edges.is_empty()
-                && value["streetSourceFingerprint"]
-                    != self.image.header["identity"]["sourceFingerprint"]
-            {
-                return fail("Traffic edge indices require the current streetSourceFingerprint");
-            }
-            let coordinates = if let Some(c) = observation.get("coordinates") {
-                c.as_array()
-                    .ok_or("traffic coordinates must be an array")?
-                    .iter()
-                    .map(coordinate_value)
-                    .collect::<Result<Vec<_>>>()?
-            } else if observation.get("fromCoordinate").is_some() {
-                vec![
-                    coordinate_value(&observation["fromCoordinate"])?,
-                    coordinate_value(&observation["toCoordinate"])?,
-                ]
-            } else {
-                vec![]
-            };
-            if coordinates.len() > 512 {
-                return fail("Traffic geometry exceeds 512 points");
-            }
-            for pair in coordinates.windows(2) {
-                let mut best: Option<(u32, f64)> = None;
-                for (node, snap) in self.nearby(pair[0], radius)?.into_iter().take(16) {
-                    for edge in offsets[node as usize]..offsets[node as usize + 1] {
-                        let target = targets[edge as usize] as usize;
-                        let distance = haversine(pair[1], [self.lons[target], self.lats[target]]);
-                        if distance <= radius
-                            && best.is_none_or(|b| {
-                                snap + distance < b.1 || (snap + distance == b.1 && edge < b.0)
-                            })
-                        {
-                            best = Some((edge, snap + distance));
-                        }
-                    }
-                }
-                if let Some((edge, _)) = best {
-                    edges.push(edge);
-                }
-            }
-            if edges.is_empty() && coordinates.len() < 2 {
-                return fail(
-                    "Traffic observation requires directed edges or at least two coordinates",
-                );
-            }
-            let closed = flag(observation, "closed", false)?;
-            let explicit = observation.get("travelTimeSeconds");
-            let speed = observation.get("speedKph");
-            let factor = observation
-                .get("delayFactor")
-                .or_else(|| observation.get("factor"))
-                .or_else(|| observation.get("multiplier"));
-            if usize::from(closed)
-                + usize::from(explicit.is_some())
-                + usize::from(speed.is_some())
-                + usize::from(factor.is_some())
-                != 1
-            {
-                return fail(
-                    "Each traffic observation needs exactly one of closed, travelTimeSeconds, speedKph, delayFactor",
-                );
-            }
-            let metric = if closed {
-                None
-            } else if explicit.is_some() {
-                Some((
-                    0,
-                    number(observation, "travelTimeSeconds", 0., 0.01, 86400.)?,
-                ))
-            } else if speed.is_some() {
-                Some((1, number(observation, "speedKph", 0., 1., 200.)?))
-            } else {
-                Some((
-                    2,
-                    factor
-                        .and_then(Value::as_f64)
-                        .filter(|n| n.is_finite() && (1. ..=100.).contains(n))
-                        .ok_or("delayFactor must be 1..100")?,
-                ))
-            };
-            for edge in edges {
-                let i = edge as usize;
-                let weight = match metric {
-                    None => 0x7fff_ffff,
-                    Some((kind, n)) => {
-                        let seconds = match kind {
-                            0 => n,
-                            1 => distances[i] as f64 / 100. / (n / 3.6),
-                            _ => times[i] as f64 / 100. * n,
-                        };
-                        let units = (seconds * 100.).round();
-                        if units >= 0x7fff_ffffu32 as f64 {
-                            return fail("Traffic weight exceeds native domain");
-                        }
-                        (units as u32).max(times[i])
-                    }
-                };
-                updated
-                    .entry(edge)
-                    .and_modify(|w| *w = (*w).max(weight))
-                    .or_insert(weight);
-                if updated.len() > 200_000 {
-                    return fail("Traffic snapshot exceeds 200000 edge updates");
-                }
-            }
-        }
-        use sha2::{Digest, Sha256};
-        let snapshot_key = format!("{:x}", Sha256::digest(serde_json::to_vec(value)?));
-        let (edge_indices, edge_time_units) = updated.into_iter().unzip();
-        Ok(Some(DriveTrafficInput {
-            snapshot_key,
-            edge_indices,
-            edge_time_units,
-        }))
+            .as_millis() as i64;
+        let mut admission = snapshot.admit(now).map_err(std::io::Error::other)?;
+        let input = admission
+            .as_object_mut()
+            .unwrap()
+            .remove("nativeInput")
+            .map(serde_json::from_value)
+            .transpose()?;
+        admission.as_object_mut().unwrap().remove("cacheKey");
+        Ok((input, admission))
     }
-}
-fn traffic_identity(value: &Value) -> Result<String> {
-    use sha2::{Digest, Sha256};
-    Ok(format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(&json!([
-            value["edgeIndices"],
-            value["edgeTimeUnits"]
-        ]))?)
-    ))
 }
 pub(crate) fn haversine(a: [f64; 2], b: [f64; 2]) -> f64 {
     let v = ((b[1] - a[1]).to_radians() / 2.).sin().powi(2)
@@ -1684,31 +1498,6 @@ pub(crate) fn haversine(a: [f64; 2], b: [f64; 2]) -> f64 {
             * b[1].to_radians().cos()
             * ((b[0] - a[0]).to_radians() / 2.).sin().powi(2);
     6371008.8 * 2. * v.sqrt().atan2((1. - v).max(0.).sqrt())
-}
-fn coordinate_value(v: &Value) -> Result<[f64; 2]> {
-    let a = v
-        .as_array()
-        .filter(|a| a.len() == 2)
-        .ok_or("Coordinate must have two numbers")?;
-    let x = a[0]
-        .as_f64()
-        .filter(|n| n.abs() <= 180.)
-        .ok_or("Invalid longitude")?;
-    let y = a[1]
-        .as_f64()
-        .filter(|n| n.abs() <= 90.)
-        .ok_or("Invalid latitude")?;
-    Ok([x, y])
-}
-fn epoch(v: &Value) -> Result<f64> {
-    if let Some(n) = v.as_f64() {
-        return Ok(if n >= 1e12 { n / 1000. } else { n });
-    }
-    Ok(chrono::DateTime::parse_from_rfc3339(
-        v.as_str().ok_or("Timestamp must be RFC3339 or Unix time")?,
-    )?
-    .timestamp_millis() as f64
-        / 1000.)
 }
 // Reserve time at the final destination without modifying vehicle events or
 // moving the query's earliest departure. This is deliberately not a calibrated
@@ -1984,4 +1773,11 @@ mod reserve_tests {
             assert_eq!(after.start, before.start);
         }
     }
+}
+
+fn drive_diagnostics(mut value: Value, traffic: Value) -> Value {
+    if !traffic.is_null() {
+        value["traffic"] = traffic;
+    }
+    value
 }

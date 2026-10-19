@@ -217,7 +217,28 @@ async function recordOrCheck(write) {
         failures++
         continue
       }
-      const found = differences(JSON.parse(fs.readFileSync(file, 'utf8')), actual)
+      const expected = JSON.parse(fs.readFileSync(file, 'utf8'))
+      // V1 adds admission provenance and one command. Keep the retained 0.5
+      // receipts byte-for-byte; assert the additions before projecting them out.
+      if (actual.case === 'standard/route-drive-traffic' && !expected.result.meta.traffic) {
+        const traffic = actual.result.meta.traffic
+        assert.equal(traffic.status, 'applied')
+        assert.equal(traffic.source, 'traffic-snapshot')
+        assert.equal(traffic.observations, 1)
+        assert.equal(traffic.matchedObservations, 1)
+        assert.equal(traffic.unmatchedObservations, 0)
+        assert.equal(traffic.matchedEdges, 1)
+        assert.equal(traffic.closedEdges, 0)
+        assert.deepEqual(traffic.rejected, {})
+        assert.match(traffic.snapshotKey, /^[a-f0-9]{64}$/)
+        assert.equal(Date.parse(traffic.expiresAt) - Date.parse(traffic.observedAt), 300000)
+        delete actual.result.meta.traffic
+      }
+      if (actual.case === 'standard/capabilities' && !expected.result.commands.includes('traffic-import')) {
+        assert.equal(actual.result.commands.filter(v => v === 'traffic-import').length, 1)
+        actual.result.commands = actual.result.commands.filter(v => v !== 'traffic-import')
+      }
+      const found = differences(expected, actual)
       if (found.length) {
         failures++
         console.error(`DIFF ${actual.case}\n  ${found.join('\n  ')}`)

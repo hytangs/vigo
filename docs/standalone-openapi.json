@@ -5540,36 +5540,73 @@
       "DriveTrafficInput": {
         "type": "object",
         "properties": {
+          "observedAt": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "format": "date-time"
+              }
+            ]
+          },
+          "expiresAt": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "format": "date-time"
+              }
+            ]
+          },
+          "ttlSeconds": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 1800,
+            "default": 300
+          },
+          "source": {
+            "type": "string"
+          },
+          "ingestion": {
+            "type": "object"
+          },
           "snapshotKey": {
-            "type": "string",
-            "description": "Caller metric identity; the standalone adapter binds caches to actual weights."
+            "type": "string"
+          },
+          "streetSourceFingerprint": {
+            "type": "string"
           },
           "edgeIndices": {
             "type": "array",
             "items": {
               "type": "integer",
-              "minimum": 0,
-              "maximum": 4294967295
+              "minimum": 0
             },
-            "description": "Directed edge indices in the active drive graph."
+            "minItems": 0,
+            "maxItems": 200000
           },
           "edgeTimeUnits": {
             "type": "array",
             "items": {
               "type": "integer",
               "minimum": 0,
-              "maximum": 4294967295
+              "maximum": 2147483647
             },
-            "description": "Weights in hundredths of seconds; 2147483647 closes an edge."
+            "minItems": 0,
+            "maxItems": 200000
           }
         },
         "required": [
-          "snapshotKey",
+          "observedAt",
+          "streetSourceFingerprint",
           "edgeIndices",
           "edgeTimeUnits"
         ],
-        "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/exact_routing.rs. Native semantic validation also applies."
+        "additionalProperties": true
       },
       "DriveQueryResult": {
         "type": "object",
@@ -6562,6 +6599,40 @@
           {
             "type": "object",
             "properties": {
+              "observedAt": {
+                "oneOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                ]
+              },
+              "expiresAt": {
+                "oneOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                ]
+              },
+              "ttlSeconds": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 1800,
+                "default": 300
+              },
+              "source": {
+                "type": "string"
+              },
+              "ingestion": {
+                "type": "object"
+              },
               "snapshotKey": {
                 "type": "string"
               },
@@ -6589,7 +6660,7 @@
               }
             },
             "required": [
-              "snapshotKey",
+              "observedAt",
               "streetSourceFingerprint",
               "edgeIndices",
               "edgeTimeUnits"
@@ -6649,6 +6720,18 @@
                 "maximum": 1800,
                 "default": 300
               },
+              "source": {
+                "type": "string"
+              },
+              "snapshotId": {
+                "type": "string"
+              },
+              "snapRadiusMeters": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 1000,
+                "default": 120
+              },
               "streetSourceFingerprint": {
                 "type": "string"
               },
@@ -6670,6 +6753,10 @@
                     },
                     "toCoordinate": {
                       "$ref": "#/components/schemas/Coordinate"
+                    },
+                    "edgeIndex": {
+                      "type": "integer",
+                      "minimum": 0
                     },
                     "edgeIndices": {
                       "type": "array",
@@ -6734,6 +6821,10 @@
                     "toCoordinate": {
                       "$ref": "#/components/schemas/Coordinate"
                     },
+                    "edgeIndex": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
                     "edgeIndices": {
                       "type": "array",
                       "items": {
@@ -6796,6 +6887,10 @@
                     },
                     "toCoordinate": {
                       "$ref": "#/components/schemas/Coordinate"
+                    },
+                    "edgeIndex": {
+                      "type": "integer",
+                      "minimum": 0
                     },
                     "edgeIndices": {
                       "type": "array",

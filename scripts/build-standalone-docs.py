@@ -267,14 +267,16 @@ def specification(native):
         description='Timestamp freshness is checked at runtime. Invalid individual records retain scheduled service and report diagnostics.')
     timestamp = {'oneOf':[number(),{'type':'string','format':'date-time'}]}
     observation = obj({'coordinates':array(ref('Coordinate'),2,512),'fromCoordinate':ref('Coordinate'),'toCoordinate':ref('Coordinate'),
-        'edgeIndices':array(number(0,integer=True)),'closed':boolean(),'travelTimeSeconds':number(.01,86400),'speedKph':number(1,200),
+        'edgeIndex':number(0,integer=True),'edgeIndices':array(number(0,integer=True)),'closed':boolean(),'travelTimeSeconds':number(.01,86400),'speedKph':number(1,200),
         'delayFactor':number(1,100),'factor':number(1,100),'multiplier':number(1,100)},strict=False,
         description='Directed geometry or edge indices and exactly one active cost effect; indices require the enclosing street fingerprint.')
-    raw = obj({'snapshotKey':text(),'streetSourceFingerprint':text(),'edgeIndices':array(number(0,integer=True),0,200000),'edgeTimeUnits':array(number(0,2147483647,integer=True),0,200000)},['snapshotKey','streetSourceFingerprint','edgeIndices','edgeTimeUnits'],strict=False)
+    raw = obj({'observedAt':timestamp,'expiresAt':timestamp,'ttlSeconds':number(1,1800,300),'source':text(),'ingestion':{'type':'object'},'snapshotKey':text(),'streetSourceFingerprint':text(),'edgeIndices':array(number(0,integer=True),0,200000),'edgeTimeUnits':array(number(0,2147483647,integer=True),0,200000)},['observedAt','streetSourceFingerprint','edgeIndices','edgeTimeUnits'],strict=False)
     observations = obj({'observedAt':timestamp,'fetchedAt':timestamp,'timestamp':timestamp,'expiresAt':timestamp,'ttlSeconds':number(1,1800,300),
-        'streetSourceFingerprint':text(), **{k:array(observation,1,100000) for k in ['observations','segments','edgeUpdates']}},strict=False,
+        'source':text(),'snapshotId':text(),'snapRadiusMeters':number(1,1000,120),'streetSourceFingerprint':text(), **{k:array(observation,1,100000) for k in ['observations','segments','edgeUpdates']}},strict=False,
         allOf=[{'anyOf':[{'required':[k]} for k in ['observedAt','fetchedAt','timestamp']]},{'anyOf':[{'required':[k]} for k in ['observations','segments','edgeUpdates']]}])
     schemas['Traffic'] = {'oneOf':[raw,observations]}
+    # HTTP/standalone native drive inputs pass through the same admission layer.
+    schemas['DriveTrafficInput'] = raw
     clock_common = {**common,'arrivalBufferMinutes':number(0,60,0,integer=True,description='Caller-selected arrival reserve. Positive values require arrive-by Transit Route/Matrix without via points; reserve the final minutes of the original horizon. Not a calibrated probability.'),'realtimeSnapshot':ref('RealtimeSnapshot'),'traffic':ref('Traffic')}
     schemas['RouteRequest'] = obj({**clock_common,'includeGeometry':boolean(True),'origin':ref('Point'),'destination':ref('Point'),'via':array(ref('Point'),0,16),'waypoints':array(ref('Point'),0,16),
         'windowMinutes':number(0,240,0),'windowStepMinutes':number(1,60,1),

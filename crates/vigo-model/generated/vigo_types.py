@@ -257,16 +257,6 @@ OutputCapabilities = TypedDict(
     },
 )
 
-PreparedTraffic = TypedDict(
-    "PreparedTraffic",
-    {
-        "edgeIndices": list[int],
-        "edgeTimeUnits": list[int],
-        "snapshotKey": str,
-        "streetSourceFingerprint": str,
-    },
-)
-
 # Measured timings, with `diagnostics: "profile"` or `"trace"`. Scopes can
 # overlap; do not add them.
 Profile = TypedDict(
@@ -635,6 +625,23 @@ Place = TypedDict(
     },
 )
 
+PreparedTraffic = TypedDict(
+    "PreparedTraffic",
+    {
+        "edgeIndices": list[int],
+        "edgeTimeUnits": list[int],
+        "expiresAt": NotRequired[Timestamp],
+        # Provider import diagnostics, outside the stable routing contract.
+        "ingestion": NotRequired[Any],
+        # Required freshness for prepared traffic; edge costs never remain live indefinitely.
+        "observedAt": Timestamp,
+        "snapshotKey": str,
+        "source": NotRequired[str],
+        "streetSourceFingerprint": str,
+        "ttlSeconds": NotRequired[float],
+    },
+)
+
 PublishedFare = TypedDict(
     "PublishedFare",
     {
@@ -767,6 +774,7 @@ TrafficObservation = TypedDict(
         "closed": NotRequired[bool],
         "coordinates": NotRequired[list[Coordinate]],
         "delayFactor": NotRequired[float],
+        "edgeIndex": NotRequired[int],
         "edgeIndices": NotRequired[list[int]],
         "factor": NotRequired[float],
         "fromCoordinate": NotRequired[Coordinate],
@@ -906,6 +914,8 @@ Meta = TypedDict(
         # The caller's `id` when given; otherwise generated.
         "requestId": Any,
         "scenarioFingerprint": NotRequired[str],
+        # Admission and road matching evidence for supplied traffic.
+        "traffic": NotRequired[Any],
     },
 )
 
@@ -920,6 +930,9 @@ ObservedTraffic = TypedDict(
         "observations": NotRequired[list[TrafficObservation]],
         "observedAt": NotRequired[Timestamp],
         "segments": NotRequired[list[TrafficObservation]],
+        "snapRadiusMeters": NotRequired[float],
+        "snapshotId": NotRequired[str],
+        "source": NotRequired[str],
         "streetSourceFingerprint": NotRequired[str],
         "timestamp": NotRequired[Timestamp],
         # Default 300.

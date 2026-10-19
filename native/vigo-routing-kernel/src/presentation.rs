@@ -862,6 +862,10 @@ pub fn format_owned(kind: &str, request: &Value, mut raw: Value) -> Value {
         if !raw["dataMode"].is_null() {
             out["query"]["dataMode"] = raw["dataMode"].clone();
         }
+        let traffic = &plan["diagnostics"]["traffic"];
+        if traffic.is_object() {
+            out["meta"]["traffic"] = traffic.clone();
+        }
         let reserves = &plan["diagnostics"]["timeReserves"];
         if reserves.is_object() {
             out["query"]["arrivalReserveSeconds"] =

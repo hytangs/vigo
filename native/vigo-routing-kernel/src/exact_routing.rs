@@ -659,6 +659,7 @@ pub struct DriveKernel {
     traffic_edge_time_units: Vec<u32>,
     traffic_snapshot_key: Option<String>,
     traffic_updated_edges: u32,
+    traffic_engine: vigo_traffic::TrafficEngine,
     cch: DriveCch,
     node_head: Vec<i32>,
     node_generation: Vec<u32>,
@@ -671,6 +672,33 @@ pub struct DriveKernel {
 }
 
 impl DriveKernel {
+    pub(crate) fn compile_traffic(
+        &mut self,
+        value: &serde_json::Value,
+        fingerprint: &str,
+        lons: &[f64],
+        lats: &[f64],
+    ) -> napi::Result<std::sync::Arc<vigo_traffic::Snapshot>> {
+        if lons.len() != self.node_count || lats.len() != self.node_count {
+            return Err(Error::from_reason(
+                "Traffic graph coordinates differ in length",
+            ));
+        }
+        self.traffic_engine
+            .compile(
+                vigo_traffic::Graph {
+                    lons,
+                    lats,
+                    offsets: &self.edge_offsets,
+                    targets: &self.edge_targets,
+                    distances: &self.edge_distance_units,
+                    times: &self.edge_time_units,
+                },
+                fingerprint,
+                value,
+            )
+            .map_err(Error::from_reason)
+    }
     #[cfg(all(feature = "standalone", not(feature = "node")))]
     pub(crate) fn memory_ledger(&self) -> serde_json::Value {
         fn metric(m: &cch::Metric) -> usize {
@@ -732,7 +760,7 @@ impl DriveKernel {
             }
         };
         serde_json::json!({"networkHeapBytes":network,"workspaceHeapBytes":workspace,
-            "trafficHeapBytes":traffic,"mappedFileBytes":mapped,"source":self.cch.source(),
+            "trafficHeapBytes":traffic,"trafficSnapshotEstimatedHeapBytes":self.traffic_engine.estimated_heap_bytes(),"mappedFileBytes":mapped,"source":self.cch.source(),
             "inMemoryPathScratchCounted":false})
     }
 
@@ -1219,6 +1247,7 @@ impl DriveKernel {
             traffic_edge_time_units,
             traffic_snapshot_key: None,
             traffic_updated_edges: 0,
+            traffic_engine: vigo_traffic::TrafficEngine::default(),
             cch,
             node_head: Vec::new(),
             node_generation: Vec::new(),
@@ -1229,6 +1258,23 @@ impl DriveKernel {
             labels: Vec::new(),
             queue: BinaryHeap::new(),
         })
+    }
+
+    /// Node and standalone use the same immutable snapshot compiler and clock contract.
+    #[cfg_attr(feature = "node", napi)]
+    pub fn normalize_traffic_json(
+        &mut self,
+        input_json: String,
+        fingerprint: String,
+        lons: Float64Array,
+        lats: Float64Array,
+        now_ms: f64,
+    ) -> napi::Result<String> {
+        let value =
+            serde_json::from_str(&input_json).map_err(|e| Error::from_reason(e.to_string()))?;
+        let snapshot = self.compile_traffic(&value, &fingerprint, &lons, &lats)?;
+        let admission = snapshot.admit(now_ms as i64).map_err(Error::from_reason)?;
+        serde_json::to_string(&admission).map_err(|e| Error::from_reason(e.to_string()))
     }
 
     #[cfg_attr(feature = "node", napi)]

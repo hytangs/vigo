@@ -839,20 +839,39 @@ Read `diagnostics.realtime` for coverage and the numbers of applied, canceled, s
 
 ### Drive traffic
 
-Drive Route and Matrix accept `traffic.observations` (aliases `segments`, `edgeUpdates`). Supply `observedAt` (aliases `fetchedAt`, `timestamp`), optional `ttlSeconds` (default 300; range 1–1800), and optional `expiresAt`. Traffic timestamps accept RFC3339 or numeric Unix seconds/milliseconds. Expired data or observation time more than 60 seconds in the future is rejected.
+Drive Route and Matrix accept `traffic.observations` (aliases `segments`, `edgeUpdates`). Supply `observedAt` (aliases `fetchedAt`, `timestamp`), optional `ttlSeconds` (default 300; range 1–1800), and optional `expiresAt`. Traffic timestamps accept RFC3339 or numeric Unix seconds/milliseconds. Expiry is inclusive: at `now >= expiresAt`, both Node and Rust return `stale_fallback` and use baseline costs. Observation times more than 60 seconds in the future and malformed validity intervals are rejected. The admission clock is pinned once per route or matrix.
 
 Each observation identifies directed `coordinates` (2–512 points), `fromCoordinate`/`toCoordinate`, or fingerprint-bound `edgeIndices`. Choose exactly one effect:
 
 | Effect | Domain |
 | --- | --- |
 | `closed: true` | Make selected directed edges unavailable |
-| `travelTimeSeconds` | 0.01–86400 per matched edge |
+| `travelTimeSeconds` | 0.01–86400 for the entire matched path; distributed in proportion to baseline edge times |
 | `speedKph` | 1–200 |
 | `delayFactor` | 1–100; aliases `factor` and `multiplier` |
 
-At most 100,000 observations and 200,000 affected edges are accepted. Geometry is matched to the prepared drive graph. Opposite directions are separate. Overlapping observations retain the largest cost; the adapter does not reduce an edge below baseline travel time. This is one supplied static metric snapshot, not time-varying congestion prediction during the trip.
+At most 100,000 observations and 200,000 affected edges are accepted. Geometry is matched to a connected, directed path in the prepared drive graph. The matcher checks endpoint proximity, forward progress, shape coverage in both directions (a corridor at most 30 m wide, tightened for short paths), and path length, and rejects competing paths within its ambiguity margin. Opposite directions are separate. It reports unmatched, ambiguous and search-budget failures rather than guessing. Overlapping observations retain the largest cost; the adapter does not reduce an edge below baseline travel time. This is one supplied static metric snapshot, not time-varying congestion prediction during the trip.
 
-Raw callers may provide `snapshotKey`, `edgeIndices`, and `edgeTimeUnits` (hundredths of seconds), plus the City drive `streetSourceFingerprint` in the high-level traffic object. A closed edge has weight 2147483647. Actual weights, not just the caller key, determine cache identity. The raw path does not perform timestamp expiry; its producer must manage observation validity and correct graph identity. Low-level native drive inputs already assume the correct index domain.
+Raw callers may provide `snapshotKey`, `edgeIndices`, and `edgeTimeUnits` (hundredths of seconds), plus the City drive `streetSourceFingerprint` in the high-level traffic object. A closed edge has weight 2147483647. Actual weights, not just the caller key, determine cache identity. Prepared snapshots must also carry `observedAt` and optional `expiresAt` or `ttlSeconds`; missing freshness is an error. The standalone native drive endpoint applies the same admission rules. `meta.traffic` discloses status, timestamps, effective snapshot key, matching counts and rejection reasons, even without trace output. The low-level in-process kernel accepts only already admitted weights.
+
+### Import NDW DATEX II v3 traffic
+
+The standalone Rust executable imports local XML or gzip files. Download the configuration and measurement publications from the [NDW open-data portal](https://opendata.ndw.nu/), using the `reistijden_configuratie_meetlocaties.xml.gz` and `reistijden_meetgegevens.xml.gz` v3 feeds. No provider is polled automatically.
+
+```bash
+vigo traffic-import --city ./city \
+  --configuration reistijden_configuratie_meetlocaties.xml.gz \
+  --measurements reistijden_meetgegevens.xml.gz \
+  --ttl-seconds 300 --output traffic.json
+```
+
+Set the routing request's `traffic` field to the contents of `traffic.json` and `routingDataMode` to `"realtime"` (required by the legacy Node CLI). The City must have prepared driving. Import again for each new feed update; expired output does not acquire a new observation time when loaded. A failed import does not overwrite the prior output file. `ingestion` in the output reports rejected records, matching results and parsing/matching timings.
+
+The adapter targets the [Verkeersdata NL DATEX II 3.6 AVG profile](https://mogin.nl/publicaties/Verkeersinformatie/Verkeersdata/vigerend/index.html). It joins table identity, site identity/version and measurement index, reads ordered GML latitude/longitude geometry, and uses the measurement time rather than publication or download time. Invalid values, forecasts, erroneous measurements and stale records are excluded. Snapshot validity ends at the earliest expiry of the retained measurements.
+
+Supported observations are whole-path travel times and speed quantities with an explicit linear itinerary and unrestricted vehicle scope. Point-detector speeds, lane-specific or vehicle-class values, OpenLR/ALERT-C-only locations, incident/closure publications, and time overrides are rejected with reasons. No closure is inferred from a missing or zero measurement. These are profile limits, not a claim to support every DATEX II publication.
+
+Matching is conservative geometric conflation, not proof that a provider and OSM encode the same road. Parallel roads and forks within the ambiguity margin are rejected; grade, road-class and provider road identifiers are not yet available in the prepared drive graph. Sparse geometry can leave ambiguous coverage. Partial-edge offsets and turn-specific restrictions are not modeled. Inspect matched coverage before operational use; this remains a fixed-cost snapshot, not future traffic prediction.
 
 ## 13. Public results and diagnostics
 

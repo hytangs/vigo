@@ -21,6 +21,7 @@ path = "src/bin/vigo.rs"
 required-features = ["standalone"]
 
 [dependencies]
+vigo-traffic = { path = "../../crates/vigo-traffic" }
 vigo-route = { path = "../../crates/vigo-route" }
 vigo-format = { path = "../../crates/vigo-format" }
 vigo-prepare = { path = "../../crates/vigo-prepare" }

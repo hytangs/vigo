@@ -525,6 +525,8 @@ export interface Meta {
   /** The caller's `id` when given; otherwise generated. */
   requestId: unknown;
   scenarioFingerprint?: string;
+  /** Admission and road matching evidence for supplied traffic. */
+  traffic?: unknown;
 }
 
 export type Mode = "transit" | "walk" | "drive";
@@ -548,6 +550,9 @@ export interface ObservedTraffic {
   observations?: TrafficObservation[];
   observedAt?: Timestamp;
   segments?: TrafficObservation[];
+  snapRadiusMeters?: number;
+  snapshotId?: string;
+  source?: string;
   streetSourceFingerprint?: string;
   timestamp?: Timestamp;
   /** Default 300. */
@@ -595,8 +600,15 @@ export type Point = Coordinate | Place;
 export interface PreparedTraffic {
   edgeIndices: number[];
   edgeTimeUnits: number[];
+  expiresAt?: Timestamp;
+  /** Provider import diagnostics, outside the stable routing contract. */
+  ingestion?: unknown;
+  /** Required freshness for prepared traffic; edge costs never remain live indefinitely. */
+  observedAt: Timestamp;
   snapshotKey: string;
+  source?: string;
   streetSourceFingerprint: string;
+  ttlSeconds?: number;
 }
 
 /**
@@ -1178,6 +1190,7 @@ export interface TrafficObservation {
   closed?: boolean;
   coordinates?: Coordinate[];
   delayFactor?: number;
+  edgeIndex?: number;
   edgeIndices?: number[];
   factor?: number;
   fromCoordinate?: Coordinate;

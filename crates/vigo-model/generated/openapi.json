@@ -1744,6 +1744,9 @@
           },
           "scenarioFingerprint": {
             "type": "string"
+          },
+          "traffic": {
+            "description": "Admission and road matching evidence for supplied traffic."
           }
         },
         "required": [
@@ -1809,6 +1812,15 @@
               "$ref": "#/components/schemas/TrafficObservation"
             },
             "type": "array"
+          },
+          "snapRadiusMeters": {
+            "type": "number"
+          },
+          "snapshotId": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
           },
           "streetSourceFingerprint": {
             "type": "string"
@@ -1955,18 +1967,35 @@
             },
             "type": "array"
           },
+          "expiresAt": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "ingestion": {
+            "description": "Provider import diagnostics, outside the stable routing contract."
+          },
+          "observedAt": {
+            "$ref": "#/components/schemas/Timestamp",
+            "description": "Required freshness for prepared traffic; edge costs never remain live indefinitely."
+          },
           "snapshotKey": {
+            "type": "string"
+          },
+          "source": {
             "type": "string"
           },
           "streetSourceFingerprint": {
             "type": "string"
+          },
+          "ttlSeconds": {
+            "type": "number"
           }
         },
         "required": [
           "snapshotKey",
           "streetSourceFingerprint",
           "edgeIndices",
-          "edgeTimeUnits"
+          "edgeTimeUnits",
+          "observedAt"
         ],
         "type": "object"
       },
@@ -3847,6 +3876,11 @@
           },
           "delayFactor": {
             "type": "number"
+          },
+          "edgeIndex": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
           },
           "edgeIndices": {
             "items": {

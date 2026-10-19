@@ -1,0 +1,13 @@
+[package]
+name = "vigo-traffic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+quick-xml = "0.42"

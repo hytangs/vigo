@@ -1091,6 +1091,22 @@ export function prepareNativeDriveKernel(accelerator, options = {}) {
   return record
 }
 
+// Traffic normalization, geometry matching and expiry belong to Rust.
+export function normalizeDriveTrafficSnapshot(accelerator, value, streetSourceFingerprint) {
+  if (value === null || value === undefined) return null
+  try {
+    const record = prepareNativeDriveKernel(accelerator)
+    return JSON.parse(record.kernel.normalizeTrafficJson(
+      JSON.stringify(value), String(streetSourceFingerprint ?? ''),
+      accelerator.nodeLons, accelerator.nodeLats, Date.now(),
+    ))
+  } catch (cause) {
+    const error = new Error(`Invalid drive traffic snapshot: ${cause.message}`, { cause })
+    error.code = 'VIGO_INVALID_TRAFFIC_SNAPSHOT'
+    throw error
+  }
+}
+
 export function routeNativeDriveExact(accelerator, request) {
   const record = prepareNativeDriveKernel(accelerator)
   const result = record.kernel.routeExact({

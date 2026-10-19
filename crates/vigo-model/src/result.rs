@@ -74,6 +74,9 @@ pub struct Meta {
     pub scenario_fingerprint: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub realtime: Option<RealtimeReport>,
+    /// Admission and road matching evidence for supplied traffic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub traffic: Option<serde_json::Value>,
 }
 
 /// How a supplied realtime snapshot was admitted and applied.

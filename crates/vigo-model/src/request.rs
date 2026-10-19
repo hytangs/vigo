@@ -750,6 +750,17 @@ pub struct PreparedTraffic {
     pub street_source_fingerprint: String,
     pub edge_indices: Vec<u32>,
     pub edge_time_units: Vec<u32>,
+    /// Required freshness for prepared traffic; edge costs never remain live indefinitely.
+    pub observed_at: Timestamp,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<Timestamp>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ttl_seconds: Option<Number>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// Provider import diagnostics, outside the stable routing contract.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ingestion: Option<serde_json::Value>,
 }
 
 /// POSIX milliseconds, or an RFC 3339 date-time.
@@ -765,6 +776,12 @@ pub enum Timestamp {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ObservedTraffic {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snap_radius_meters: Option<Number>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observed_at: Option<Timestamp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -790,6 +807,8 @@ pub struct ObservedTraffic {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TrafficObservation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edge_index: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coordinates: Option<Vec<Coordinate>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -945,19 +945,19 @@ Drive Route and Drive Matrix accept a top-level `traffic` object with `routingDa
 }
 ```
 
-Use the actual observation time and the coordinates of an observed **directed edge**. This fragment shows the schema; its values are illustrative. A full request also needs the mode and endpoints.
+Use the actual observation time and the geometry of an observed **directed road path**. This fragment shows the schema; its values are illustrative. A full request also needs the mode and endpoints.
 
 | Contract | Behavior |
 | --- | --- |
 | Time | Required observation time; validity defaults to 300 seconds and is at most 1,800; observations more than 60 seconds in the future are rejected |
 | Expiry | Expired observations produce an explicit `stale_fallback` and use baseline costs |
-| Geometry | Endpoint pairs or 2–512 coordinates; directed edge matching within 120 m by default, at most 1,000 m |
+| Geometry | Endpoint pairs or 2–512 coordinates; connected directed path matching within 120 m by default, at most 1,000 m; ambiguous paths are rejected |
 | Edge indices | Require the exact current `streetSourceFingerprint`; indices are not portable between street builds |
 | Costs | Travel time, speed, or a slowdown factor, plus closures; costs never become faster than the baseline |
 | Overlap | Conflicting observations on one edge use the largest cost, including closures |
 | Reuse | The customized metric is reused while effective edge updates are unchanged; source age is checked on every query |
 
-Read `diagnostics.traffic.status`, the matched and unmatched counts, and `weightModel`. Only `applied` establishes that supplied costs changed the model; `no_matches` and `free_flow_equivalent` do not establish current coverage. Coordinate matching is nearest-edge matching, not a validated provider conflation pipeline, and VIGO does not yet model every turn, signal, intersection delay, parking, or a future traffic trajectory. The [traffic input reference](guides/rust-standalone.md#drive-traffic) lists every effect and limit.
+Read `meta.traffic.status` in public results (or `diagnostics.traffic.status` in the internal trace), the matched and unmatched counts, and `weightModel`. Only `applied` establishes that supplied costs changed the model; `no_matches` and `free_flow_equivalent` do not establish current coverage. The Rust matcher checks connectivity, direction, geometry, length and ambiguity; provider-to-OSM road identity still requires coverage validation, and VIGO does not yet model every turn, signal, intersection delay, parking, or a future traffic trajectory. The [traffic input reference](guides/rust-standalone.md#drive-traffic) lists every effect, expiry rule and limit, plus the Rust-native NDW DATEX II v3 import command.
 
 ## Travel-time uncertainty
 
