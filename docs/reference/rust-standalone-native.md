@@ -224,7 +224,7 @@ Source: `native/vigo-routing-kernel/src/lib.rs`.
 
 ## RealtimeCallInput
 
-Source: `native/vigo-routing-kernel/src/timetable/realtime.rs`.
+Source: `crates/vigo-route/src/timetable/realtime.rs`.
 
 | JSON field | Rust / JSON type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -237,50 +237,50 @@ Source: `native/vigo-routing-kernel/src/timetable/realtime.rs`.
 
 ## RealtimeTimetableInput
 
-Source: `native/vigo-routing-kernel/src/timetable/realtime.rs`.
+Source: `crates/vigo-route/src/timetable/realtime.rs`.
 
 | JSON field | Rust / JSON type | Required | Meaning |
 | --- | --- | --- | --- |
 | `stopCount` | `u32` | Yes | — |
-| `departureSeconds` | `Uint32Array` | Yes | — |
-| `arrivalSeconds` | `Uint32Array` | Yes | — |
-| `fromStop` | `Uint32Array` | Yes | — |
-| `toStop` | `Uint32Array` | Yes | — |
-| `sequence` | `Uint32Array` | Yes | — |
-| `segmentRun` | `Uint32Array` | Yes | — |
-| `continuityBreak` | `Uint8Array` | Yes | — |
-| `canBoard` | `Uint8Array` | Yes | — |
-| `canAlight` | `Uint8Array` | Yes | — |
-| `tripStart` | `Uint32Array` | Yes | — |
-| `canceled` | `Uint8Array` | Yes | Per-trip cancellation flags in the supplied baseline timetable. |
+| `departureSeconds` | `U32Buffer` | Yes | — |
+| `arrivalSeconds` | `U32Buffer` | Yes | — |
+| `fromStop` | `U32Buffer` | Yes | — |
+| `toStop` | `U32Buffer` | Yes | — |
+| `sequence` | `U32Buffer` | Yes | — |
+| `segmentRun` | `U32Buffer` | Yes | — |
+| `continuityBreak` | `U8Buffer` | Yes | — |
+| `canBoard` | `U8Buffer` | Yes | — |
+| `canAlight` | `U8Buffer` | Yes | — |
+| `tripStart` | `U32Buffer` | Yes | — |
+| `canceled` | `U8Buffer` | Yes | Per-trip cancellation flags in the supplied baseline timetable. |
 | `replacements` | `Vec<RealtimeTripInput>` | Yes | Explicit effective calls replacing identified baseline trips. |
 
 ## RealtimeTimetableResult
 
-Source: `native/vigo-routing-kernel/src/timetable/realtime.rs`.
+Source: `crates/vigo-route/src/timetable/realtime.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
-| `departureSeconds` | `Uint32Array` | Always | — |
-| `arrivalSeconds` | `Uint32Array` | Always | — |
-| `fromStop` | `Uint32Array` | Always | — |
-| `toStop` | `Uint32Array` | Always | — |
-| `sequence` | `Uint32Array` | Always | — |
-| `segmentTrip` | `Uint32Array` | Always | — |
-| `segmentRun` | `Uint32Array` | Always | — |
-| `continuityBreak` | `Uint8Array` | Always | — |
-| `canBoard` | `Uint8Array` | Always | — |
-| `canAlight` | `Uint8Array` | Always | — |
-| `tripStart` | `Uint32Array` | Always | — |
-| `departureOffset` | `Uint32Array` | Always | — |
-| `departureOrder` | `Uint32Array` | Always | — |
+| `departureSeconds` | `U32Buffer` | Always | — |
+| `arrivalSeconds` | `U32Buffer` | Always | — |
+| `fromStop` | `U32Buffer` | Always | — |
+| `toStop` | `U32Buffer` | Always | — |
+| `sequence` | `U32Buffer` | Always | — |
+| `segmentTrip` | `U32Buffer` | Always | — |
+| `segmentRun` | `U32Buffer` | Always | — |
+| `continuityBreak` | `U8Buffer` | Always | — |
+| `canBoard` | `U8Buffer` | Always | — |
+| `canAlight` | `U8Buffer` | Always | — |
+| `tripStart` | `U32Buffer` | Always | — |
+| `departureOffset` | `U32Buffer` | Always | — |
+| `departureOrder` | `U32Buffer` | Always | — |
 | `runCount` | `u32` | Always | — |
 | `activeSegmentCount` | `u32` | Always | — |
-| `realtimeTripIndices` | `Uint32Array` | Always | — |
+| `realtimeTripIndices` | `U32Buffer` | Always | — |
 
 ## RealtimeTripInput
 
-Source: `native/vigo-routing-kernel/src/timetable/realtime.rs`.
+Source: `crates/vigo-route/src/timetable/realtime.rs`.
 
 | JSON field | Rust / JSON type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -476,7 +476,7 @@ Source: `native/vigo-routing-kernel/src/street_analysis.rs`.
 
 ## TimetableArriveByManyQueryInput
 
-Source: `native/vigo-routing-kernel/src/timetable.rs`.
+Source: `crates/vigo-route/src/timetable/types.rs`.
 
 | JSON field | Rust / JSON type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -494,7 +494,7 @@ Source: `native/vigo-routing-kernel/src/timetable.rs`.
 
 ## TimetableArriveByManyQueryResult
 
-Source: `native/vigo-routing-kernel/src/timetable.rs`.
+Source: `crates/vigo-route/src/timetable/types.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
@@ -509,7 +509,7 @@ Source: `native/vigo-routing-kernel/src/timetable.rs`.
 
 ## TimetableArriveByQueryInput
 
-Source: `native/vigo-routing-kernel/src/timetable.rs`.
+Source: `crates/vigo-route/src/timetable/types.rs`.
 
 | JSON field | Rust / JSON type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -527,7 +527,7 @@ Source: `native/vigo-routing-kernel/src/timetable.rs`.
 
 ## TimetableArriveByQueryResult
 
-Source: `native/vigo-routing-kernel/src/timetable.rs`.
+Source: `crates/vigo-route/src/timetable/types.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
@@ -547,7 +547,7 @@ Source: `native/vigo-routing-kernel/src/timetable.rs`.
 
 ## TimetableManyQueryInput
 
-Source: `native/vigo-routing-kernel/src/timetable.rs`.
+Source: `crates/vigo-route/src/timetable/types.rs`.
 
 | JSON field | Rust / JSON type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -565,7 +565,7 @@ Source: `native/vigo-routing-kernel/src/timetable.rs`.
 
 ## TimetableManyQueryResult
 
-Source: `native/vigo-routing-kernel/src/timetable.rs`.
+Source: `crates/vigo-route/src/timetable/types.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
@@ -593,7 +593,7 @@ Source: `native/vigo-routing-kernel/src/timetable.rs`.
 
 ## TimetableMatrixJourney
 
-Source: `native/vigo-routing-kernel/src/timetable/journeys.rs`.
+Source: `crates/vigo-route/src/timetable/journeys.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
@@ -607,7 +607,7 @@ Source: `native/vigo-routing-kernel/src/timetable/journeys.rs`.
 
 ## TimetableMatrixLeg
 
-Source: `native/vigo-routing-kernel/src/timetable/journeys.rs`.
+Source: `crates/vigo-route/src/timetable/journeys.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
@@ -622,7 +622,7 @@ Source: `native/vigo-routing-kernel/src/timetable/journeys.rs`.
 
 ## TimetableMatrixQueryInput
 
-Source: `native/vigo-routing-kernel/src/timetable.rs`.
+Source: `crates/vigo-route/src/timetable/types.rs`.
 
 | JSON field | Rust / JSON type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -642,7 +642,7 @@ Source: `native/vigo-routing-kernel/src/timetable.rs`.
 
 ## TimetableMatrixQueryResult
 
-Source: `native/vigo-routing-kernel/src/timetable.rs`.
+Source: `crates/vigo-route/src/timetable/types.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
@@ -659,7 +659,7 @@ Source: `native/vigo-routing-kernel/src/timetable.rs`.
 
 ## TimetableOverlayManyQueryInput
 
-Source: `native/vigo-routing-kernel/src/timetable.rs`.
+Source: `crates/vigo-route/src/timetable/types.rs`.
 
 | JSON field | Rust / JSON type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -694,7 +694,7 @@ Source: `native/vigo-routing-kernel/src/timetable.rs`.
 
 ## TimetableOverlayManyQueryResult
 
-Source: `native/vigo-routing-kernel/src/timetable.rs`.
+Source: `crates/vigo-route/src/timetable/types.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
@@ -714,7 +714,7 @@ Source: `native/vigo-routing-kernel/src/timetable.rs`.
 
 ## TimetableParetoAlternative
 
-Source: `native/vigo-routing-kernel/src/timetable.rs`.
+Source: `crates/vigo-route/src/timetable/types.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
@@ -733,7 +733,7 @@ Source: `native/vigo-routing-kernel/src/timetable.rs`.
 
 ## TimetableParetoQueryInput
 
-Source: `native/vigo-routing-kernel/src/timetable.rs`.
+Source: `crates/vigo-route/src/timetable/types.rs`.
 
 | JSON field | Rust / JSON type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -762,7 +762,7 @@ Source: `native/vigo-routing-kernel/src/timetable.rs`.
 
 ## TimetableParetoQueryResult
 
-Source: `native/vigo-routing-kernel/src/timetable.rs`.
+Source: `crates/vigo-route/src/timetable/types.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
@@ -823,7 +823,7 @@ Source: `native/vigo-routing-kernel/src/timetable.rs`.
 
 ## TimetableQueryInput
 
-Source: `native/vigo-routing-kernel/src/timetable.rs`.
+Source: `crates/vigo-route/src/timetable/types.rs`.
 
 | JSON field | Rust / JSON type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -841,7 +841,7 @@ Source: `native/vigo-routing-kernel/src/timetable.rs`.
 
 ## TimetableQueryResult
 
-Source: `native/vigo-routing-kernel/src/timetable.rs`.
+Source: `crates/vigo-route/src/timetable/types.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |

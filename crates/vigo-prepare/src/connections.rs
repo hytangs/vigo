@@ -1,18 +1,12 @@
 //! Stream admitted stop times into the permanent 0.5 connections layout.
 //! The caller must close its SQLite handles before transferring ownership here.
-#[cfg(not(feature = "node"))]
-use crate::standalone_types as napi;
-use napi::bindgen_prelude::*;
-#[cfg(feature = "node")]
-use napi_derive::napi;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use std::collections::HashSet;
+use vigo_route::types::*;
 
 type CompileResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
-
-#[cfg_attr(feature = "node", napi(object))]
-#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GtfsConnectionInput {
     pub store_path: String,
     pub stop_times_path: String,
@@ -20,10 +14,8 @@ pub struct GtfsConnectionInput {
     pub cache_kib: u32,
 }
 
-#[derive(Default, Debug)]
-#[cfg_attr(feature = "node", napi(object))]
-#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+#[derive(Default, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GtfsConnectionResult {
     pub connection_count: f64,
     pub bridged_untimed_gap_count: f64,
@@ -286,8 +278,6 @@ fn compile_files(input: GtfsConnectionInput) -> CompileResult<GtfsConnectionResu
     transaction.commit()?;
     Ok(result)
 }
-
-#[cfg_attr(feature = "node", napi)]
 pub fn compile_gtfs_connections(input: GtfsConnectionInput) -> Result<GtfsConnectionResult> {
     compile_files(input)
         .map_err(|error| Error::from_reason(format!("GTFS connection compiler: {error}")))

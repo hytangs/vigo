@@ -1,15 +1,9 @@
 //! Build one immutable realtime view. The scheduled arrays remain borrowed and
 //! unchanged; original trip indices survive cancellations and skipped calls.
 use super::preparation::departure_index;
-#[cfg(not(feature = "node"))]
-use crate::standalone_types as napi;
-use napi::bindgen_prelude::*;
-#[cfg(feature = "node")]
-use napi_derive::napi;
-
-#[cfg_attr(feature = "node", napi(object))]
-#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+use crate::types::*;
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RealtimeCallInput {
     pub stop: u32,
     pub arrival: f64,
@@ -18,66 +12,61 @@ pub struct RealtimeCallInput {
     pub can_board: bool,
     pub can_alight: bool,
 }
-#[cfg_attr(feature = "node", napi(object))]
-#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RealtimeTripInput {
     pub trip: u32,
     pub stops: Vec<RealtimeCallInput>,
 }
-#[cfg_attr(feature = "node", napi(object))]
-#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RealtimeTimetableInput {
     pub stop_count: u32,
-    pub departure_seconds: Uint32Array,
-    pub arrival_seconds: Uint32Array,
-    pub from_stop: Uint32Array,
-    pub to_stop: Uint32Array,
-    pub sequence: Uint32Array,
-    pub segment_run: Uint32Array,
-    pub continuity_break: Uint8Array,
-    pub can_board: Uint8Array,
-    pub can_alight: Uint8Array,
-    pub trip_start: Uint32Array,
-    pub canceled: Uint8Array,
+    pub departure_seconds: U32Buffer,
+    pub arrival_seconds: U32Buffer,
+    pub from_stop: U32Buffer,
+    pub to_stop: U32Buffer,
+    pub sequence: U32Buffer,
+    pub segment_run: U32Buffer,
+    pub continuity_break: U8Buffer,
+    pub can_board: U8Buffer,
+    pub can_alight: U8Buffer,
+    pub trip_start: U32Buffer,
+    pub canceled: U8Buffer,
     pub replacements: Vec<RealtimeTripInput>,
 }
-#[cfg_attr(feature = "node", napi(object))]
-#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RealtimeTimetableResult {
-    pub departure_seconds: Uint32Array,
-    pub arrival_seconds: Uint32Array,
-    pub from_stop: Uint32Array,
-    pub to_stop: Uint32Array,
-    pub sequence: Uint32Array,
-    pub segment_trip: Uint32Array,
-    pub segment_run: Uint32Array,
-    pub continuity_break: Uint8Array,
-    pub can_board: Uint8Array,
-    pub can_alight: Uint8Array,
-    pub trip_start: Uint32Array,
-    pub departure_offset: Uint32Array,
-    pub departure_order: Uint32Array,
+    pub departure_seconds: U32Buffer,
+    pub arrival_seconds: U32Buffer,
+    pub from_stop: U32Buffer,
+    pub to_stop: U32Buffer,
+    pub sequence: U32Buffer,
+    pub segment_trip: U32Buffer,
+    pub segment_run: U32Buffer,
+    pub continuity_break: U8Buffer,
+    pub can_board: U8Buffer,
+    pub can_alight: U8Buffer,
+    pub trip_start: U32Buffer,
+    pub departure_offset: U32Buffer,
+    pub departure_order: U32Buffer,
     pub run_count: u32,
     pub active_segment_count: u32,
-    pub realtime_trip_indices: Uint32Array,
+    pub realtime_trip_indices: U32Buffer,
 }
 fn invalid(trip: usize, detail: &str) -> Error {
     Error::new(
-        Status::InvalidArg,
+        ErrorCode::InvalidInput,
         format!("Invalid realtime timetable trip {trip}: {detail}."),
     )
 }
 fn malformed() -> Error {
     Error::new(
-        Status::InvalidArg,
+        ErrorCode::InvalidInput,
         "Malformed base realtime timetable arrays",
     )
 }
-
-#[cfg_attr(feature = "node", napi)]
 pub fn compile_realtime_timetable(
     input: RealtimeTimetableInput,
 ) -> Result<RealtimeTimetableResult> {

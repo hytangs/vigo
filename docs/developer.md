@@ -106,16 +106,52 @@ JavaScript owns request validation, identity resolution, orchestration, cancella
 The `vigo-v1-dev` branch evolves toward a Rust-native mobility computation
 engine with language-specific application layers. Rust should own computation
 and canonical data semantics; TypeScript owns interaction, and Python owns
-research integration. The migration is incremental, with no Rust percentage
-target and no wholesale Studio, CLI, or Python rewrite.
+research integration. The migration follows RFC 0001 in verified stages,
+preserving public query behavior and the permanent prepared-data contract.
 
 The starting point already has native service-timetable reads, departure and
 transfer indexes, selected-journey geometry, scenario routing, and binary
 snapshot readers and writers. The remaining compiler work must be measured
 rather than inferred from implementation language.
 
-The first candidate is `compiler::compile_gtfs_connections` in the existing
-Rust crate. It streams admitted `stop_times` rows from SQLite, expands exact
+The timetable migration now has three native crate boundaries:
+
+| Crate | Current responsibility |
+| --- | --- |
+| `vigo-route` | Timetable search, forward/reverse/Matrix/alternative queries, scenario and realtime views, transfer and station operators, reusable scratch and shared columns |
+| `vigo-format` | Read service timetables, validate memory-mapped snapshots, and encode the permanent portable City layout |
+| `vigo-prepare` | Transactional `stop_times → connections` compilation |
+
+Both the executable and Node addon use these same implementations. The routing
+crate has no Node dependency, filesystem access, environment lookups, thread
+creation or untyped JSON. Its numeric buffers own a Rust vector or retain a
+caller-supplied owner; the addon can retain a typed-array allocation without
+copying it. Queries borrow slice views before entering hot loops, avoiding
+per-element foreign-owner lookups. Writes to shared external buffers detach first. Node records and
+conversions are generated at build time from the canonical Rust records, and
+only the adapter translates typed errors into Node errors. The permanent
+prepared layouts and public Result contracts are unchanged. Portable snapshot
+encoding now calls the Rust writer by default: Rust validates the metadata,
+assigns checked aligned offsets, compresses the header and copies exact numeric
+payload bytes. The JavaScript reader stays in place during migration. Tests
+compare decompressed headers and every payload byte with the retained published
+writer, including subarray views, empty arrays and non-finite float payloads.
+Compressed streams need not be byte-identical; the frozen 0.5 readers must still
+open the resulting Cities. Missing native encoding support fails explicitly.
+
+Run `npm run check:rust-workspace` for model/schema tests, algorithm tests,
+strict Clippy and the routing dependency boundary. CI and release workflows
+also replay `check:corpus`. Native interface checks include worker teardown
+with retained timetable buffers. The root workspace and the remaining native
+crate retain separate lockfiles during migration; packaging fingerprints and
+container inputs cover both.
+
+M1 is still in progress: street/access/drive kernels and transports remain in
+the original crate, and the public model is not yet the executable's internal
+request representation. Crate extraction does not complete the packed City,
+full native build, or unified Studio server milestones.
+
+The first compiler operator is `vigo_prepare::compile_gtfs_connections`. It streams admitted `stop_times` rows from SQLite, expands exact
 frequency trips, and writes connections, permissions, trip details and shape
 references using the published 0.5 schema. ZIP/CSV admission, source scoping,
 calendars, accessibility policy, City publication, and application orchestration

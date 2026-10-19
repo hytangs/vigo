@@ -423,6 +423,12 @@ export function compileNativeRealtimeTimetable(input) {
   return binding.compileRealtimeTimetable(input)
 }
 
+export function encodeNativeRoutingSnapshot(metadataJson, arrays) {
+  const binding = loadNativeBinding()
+  if (typeof binding.encodeRoutingSnapshot !== 'function') throw new Error('Rust routing binding lacks snapshot encoding. Rebuild the native kernel.')
+  return binding.encodeRoutingSnapshot(metadataJson, arrays)
+}
+
 export function compileNativeGtfsConnections(input) {
   const binding = loadNativeBinding()
   if (typeof binding.compileGtfsConnections !== 'function') throw new Error('Rust routing binding lacks GTFS connection compilation. Rebuild the native kernel.')

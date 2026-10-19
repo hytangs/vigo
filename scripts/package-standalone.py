@@ -19,7 +19,7 @@ CRATE = ROOT / "native/vigo-routing-kernel"
 def source_fingerprint(run):
     digest = hashlib.sha256()
     inputs = run(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--",
-                  "native/vigo-routing-kernel", "rust-toolchain.toml", "docs/guide.html", "docs/standalone-openapi.json"], capture_output=True).stdout
+                  "native/vigo-routing-kernel", "crates", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "docs/guide.html", "docs/standalone-openapi.json"], capture_output=True).stdout
     for relative in sorted(set(inputs.split(b"\0")) - {b""}):
         file = ROOT / os.fsdecode(relative)
         if file.is_file():

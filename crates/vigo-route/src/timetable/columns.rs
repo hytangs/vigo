@@ -11,18 +11,52 @@ use std::{
 const BLOCK: usize = 1024;
 
 pub(super) enum Column<T> {
-    Owned(Vec<T>),
+    Owned(crate::Buffer<T>),
     Shared { blocks: Vec<Arc<[T]>>, len: usize },
+}
+
+/// Borrow the storage once at a query boundary. Foreign owners are retained by
+/// `Column`; the inner loops use ordinary slices without a virtual call for
+/// every element. Shared scenario blocks retain their existing lookup path.
+pub(super) enum View<'a, T> {
+    Contiguous(&'a [T]),
+    Shared { blocks: &'a [Arc<[T]>], len: usize },
+}
+impl<T> Index<usize> for View<'_, T> {
+    type Output = T;
+    #[inline]
+    fn index(&self, index: usize) -> &T {
+        match self {
+            Self::Contiguous(values) => &values[index],
+            Self::Shared { blocks, len } => {
+                assert!(index < *len);
+                &blocks[index / BLOCK][index % BLOCK]
+            }
+        }
+    }
 }
 impl<T> From<Vec<T>> for Column<T> {
     fn from(values: Vec<T>) -> Self {
+        Self::Owned(values.into())
+    }
+}
+impl<T> From<crate::Buffer<T>> for Column<T> {
+    fn from(values: crate::Buffer<T>) -> Self {
         Self::Owned(values)
     }
 }
 impl<T> Column<T> {
+    pub(super) fn view(&self) -> View<'_, T> {
+        match self {
+            Self::Owned(values) => View::Contiguous(values),
+            Self::Shared { blocks, len } => View::Shared { blocks, len: *len },
+        }
+    }
+    pub(super) fn is_external(&self) -> bool {
+        matches!(self, Self::Owned(v) if v.is_external())
+    }
     // Charge shared blocks in full for eviction admission, even when another
     // scenario also references them. Owner-level diagnostics count them once.
-    #[cfg(feature = "standalone")]
     pub(super) fn shared_retained_bytes(&self) -> usize {
         match self {
             Self::Owned(_) => 0,
@@ -95,7 +129,8 @@ impl<T: Copy + Hash + Eq> Pool<T> {
         if matches!(column, Column::Shared { .. }) {
             return false;
         }
-        let Column::Owned(values) = std::mem::replace(column, Column::Owned(Vec::new())) else {
+        let Column::Owned(values) = std::mem::replace(column, Column::Owned(Vec::new().into()))
+        else {
             unreachable!()
         };
         let len = values.len();
@@ -138,7 +173,7 @@ impl<T: Copy + Hash + Eq> Pool<T> {
 }
 
 #[derive(Default)]
-pub(crate) struct TimetableBlockPool {
+pub struct TimetableBlockPool {
     u32s: Pool<u32>,
     u8s: Pool<u8>,
 }
@@ -149,17 +184,17 @@ impl TimetableBlockPool {
     pub(super) fn share_u8(&mut self, column: &mut Column<u8>) -> bool {
         self.u8s.share(column)
     }
-    pub(crate) fn prune(&mut self) {
+    pub fn prune(&mut self) {
         self.u32s.prune();
         self.u8s.prune();
     }
-    pub(crate) fn index_bytes(&self) -> usize {
+    pub fn index_bytes(&self) -> usize {
         self.u32s.index_bytes() + self.u8s.index_bytes()
     }
-    pub(crate) fn unique_blocks(&self) -> usize {
+    pub fn unique_blocks(&self) -> usize {
         self.u32s.live_blocks() + self.u8s.live_blocks()
     }
-    pub(crate) fn unique_bytes(&self) -> usize {
+    pub fn unique_bytes(&self) -> usize {
         self.u32s.bytes() + self.u8s.bytes()
     }
 }
@@ -179,9 +214,11 @@ mod tests {
         pool.share_u32(&mut second);
         for (i, value) in a.iter().enumerate() {
             assert_eq!(first[i], *value);
+            assert_eq!(first.view()[i], *value);
         }
         for (i, value) in b.iter().enumerate() {
             assert_eq!(second[i], *value);
+            assert_eq!(second.view()[i], *value);
         }
         assert!(pool.unique_bytes() < (a.len() + b.len()) * 4 * 3 / 4);
         let Column::Shared { blocks: x, .. } = &first else {
@@ -197,6 +234,33 @@ mod tests {
         pool.prune();
         assert_eq!(pool.unique_bytes(), 0);
         assert!(pool.u32s.blocks.is_empty());
+    }
+    #[test]
+    fn query_view_borrows_foreign_storage_once_without_copying() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct Owner {
+            values: Vec<u32>,
+            borrows: Arc<AtomicUsize>,
+        }
+        impl AsRef<[u32]> for Owner {
+            fn as_ref(&self) -> &[u32] {
+                self.borrows.fetch_add(1, Ordering::Relaxed);
+                &self.values
+            }
+        }
+        let borrows = Arc::new(AtomicUsize::new(0));
+        let values = vec![4, 8, 15, 16, 23, 42];
+        let address = values.as_ptr();
+        let column = Column::from(crate::Buffer::from_owner(Owner {
+            values,
+            borrows: borrows.clone(),
+        }));
+        let view = column.view();
+        assert_eq!(&view[0] as *const u32, address);
+        for _ in 0..100 {
+            assert_eq!(view[0] + view[5], 46);
+        }
+        assert_eq!(borrows.load(Ordering::Relaxed), 1);
     }
     #[test]
     fn hashes_are_only_candidates() {

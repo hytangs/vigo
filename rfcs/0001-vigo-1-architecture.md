@@ -297,6 +297,22 @@ The independent synthetic oracles behind `npm run check:accuracy` are ported fir
 - Warm p50 and p95 per query kind, split into engine, materialization, serialization and transport.
 - Studio time to first map and time to first rendered journey.
 
+## Implementation status (2026-10-19)
+
+M0 has typed contracts, generated clients, a retained corpus, and CI checks.
+M1 has an extracted `vigo-route` timetable core used by both runtimes,
+`vigo-format` service-timetable and prepared-snapshot I/O plus native portable encoding, and a `vigo-prepare` connection compiler.
+The Node boundary generates records from those canonical types and retains
+numeric-buffer owners. Timetable query families now have separate modules.
+The street/access/drive kernels, engine orchestration, server, and CLI remain
+in the original crate; M1's full exit is therefore still pending.
+
+M3 has the opt-in GTFS connection operator, not a complete native City builder.
+Studio redesign and saved scenarios are integrated, but M5's acceptance against
+the future unified Rust server remains pending. M2, M4 and M6 have not met their
+exit criteria. The capability milestones in RFC 0002 are not implied complete
+by this architecture work. See the developer guide for current validation.
+
 ## Migration order
 
 ```text

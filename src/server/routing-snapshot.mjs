@@ -1,4 +1,5 @@
-import { gzipSync, gunzipSync } from 'node:zlib'
+import { gunzipSync } from 'node:zlib'
+import { encodeNativeRoutingSnapshot } from './native-routing-kernel.mjs'
 
 // Compress metadata, while leaving numeric arrays aligned and directly
 // readable by the native runtime. Rebuild older snapshots with this runtime.
@@ -8,27 +9,19 @@ const types = { Uint8Array, Uint32Array, Int32Array, Float64Array }
 const align = value => Math.ceil(value / 8) * 8
 
 export function encodeRoutingSnapshot(metadata, arrays = {}) {
-  const layout = {}
-  let size = 0
-  for (const [name, array] of Object.entries(arrays)) {
-    const type = array?.constructor?.name
-    if (!Object.hasOwn(types, type)) throw new Error(`Unsupported snapshot array: ${name}`)
-    layout[name] = { type, offset: size, length: array.length }
-    size = align(size + array.byteLength)
+  if (new Uint8Array(new Uint16Array([1]).buffer)[0] !== 1) {
+    throw new Error('Routing snapshots require a little-endian runtime.')
   }
-  const rawHeader = Buffer.from(JSON.stringify({ metadata, arrays: layout }))
-  if (rawHeader.length > maximumHeaderBytes) throw new Error('Routing snapshot metadata exceeds its size limit.')
-  const header = gzipSync(rawHeader, { level: 1 })
-  const dataOffset = align(16 + header.length)
-  const bytes = Buffer.alloc(dataOffset + size)
-  magic.copy(bytes)
-  bytes.writeUInt32LE(header.length, 8)
-  bytes.writeUInt32LE(dataOffset, 12)
-  header.copy(bytes, 16)
-  for (const [name, array] of Object.entries(arrays)) {
-    Buffer.from(array.buffer, array.byteOffset, array.byteLength).copy(bytes, dataOffset + layout[name].offset)
-  }
-  return bytes
+  const columns = Object.entries(arrays).map(([name, array]) => {
+    const kind = array?.constructor?.name
+    if (!Object.hasOwn(types, kind)) throw new Error(`Unsupported snapshot array: ${name}`)
+    return { name, kind, data: new Uint8Array(array.buffer, array.byteOffset, array.byteLength) }
+  })
+  // Match the published envelope's JSON semantics: omitted values stay absent,
+  // and a custom toJSON receives the key "metadata", not the root key "".
+  const envelope = JSON.stringify({ metadata })
+  const metadataJson = envelope === '{}' ? undefined : envelope.slice('{"metadata":'.length, -1)
+  return encodeNativeRoutingSnapshot(metadataJson, columns)
 }
 
 export function decodeRoutingSnapshot(bytes) {

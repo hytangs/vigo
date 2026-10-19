@@ -1,40 +1,32 @@
 //! Cold timetable indexing. Preserve source insertion order for equal-cost
 //! transfers, so moving preparation across Node-API does not change witnesses.
-#[cfg(not(feature = "node"))]
-use crate::standalone_types as napi;
-use napi::bindgen_prelude::*;
-#[cfg(feature = "node")]
-use napi_derive::napi;
+use crate::types::*;
 use std::collections::{HashMap, HashSet};
-
-#[cfg_attr(feature = "node", napi(object))]
-#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TimetablePreparationInput {
-    pub departure_seconds: Uint32Array,
-    pub from_stop: Uint32Array,
-    pub can_board: Uint8Array,
-    pub retained_stops: Uint8Array,
-    pub coordinates: Float64Array,
-    pub transfer_from: Uint32Array,
-    pub transfer_to: Uint32Array,
-    pub transfer_seconds: Float64Array,
-    pub forbidden_from: Uint32Array,
-    pub forbidden_to: Uint32Array,
-    pub station_offset: Uint32Array,
-    pub station_members: Uint32Array,
+    pub departure_seconds: U32Buffer,
+    pub from_stop: U32Buffer,
+    pub can_board: U8Buffer,
+    pub retained_stops: U8Buffer,
+    pub coordinates: F64Buffer,
+    pub transfer_from: U32Buffer,
+    pub transfer_to: U32Buffer,
+    pub transfer_seconds: F64Buffer,
+    pub forbidden_from: U32Buffer,
+    pub forbidden_to: U32Buffer,
+    pub station_offset: U32Buffer,
+    pub station_members: U32Buffer,
     pub walking_speed_kph: f64,
 }
-
-#[cfg_attr(feature = "node", napi(object))]
-#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TimetablePreparationResult {
-    pub departure_offset: Uint32Array,
-    pub departure_order: Uint32Array,
-    pub transfer_offset: Uint32Array,
-    pub transfer_to: Uint32Array,
-    pub transfer_duration: Uint32Array,
+    pub departure_offset: U32Buffer,
+    pub departure_order: U32Buffer,
+    pub transfer_offset: U32Buffer,
+    pub transfer_to: U32Buffer,
+    pub transfer_duration: U32Buffer,
     pub source_expanded_transfer_edges: f64,
     pub excluded_non_service_transfer_edges: f64,
     pub excluded_non_service_station_members: f64,
@@ -42,7 +34,7 @@ pub struct TimetablePreparationResult {
 
 fn invalid(message: &str) -> Error {
     Error::new(
-        Status::InvalidArg,
+        ErrorCode::InvalidInput,
         format!("Timetable preparation: {message}"),
     )
 }
@@ -76,8 +68,6 @@ fn fallback_seconds(coordinates: &[f64], from: usize, to: usize, speed: f64) -> 
         0.0
     }
 }
-
-#[cfg_attr(feature = "node", napi)]
 pub fn prepare_timetable_indexes(
     input: TimetablePreparationInput,
 ) -> Result<TimetablePreparationResult> {
@@ -98,7 +88,7 @@ pub fn prepare_timetable_indexes(
     })
 }
 
-pub(crate) struct TimetablePreparationView<'a> {
+pub struct TimetablePreparationView<'a> {
     pub departure_seconds: &'a [u32],
     pub from_stop: &'a [u32],
     pub can_board: &'a [u8],
@@ -114,7 +104,7 @@ pub(crate) struct TimetablePreparationView<'a> {
     pub walking_speed_kph: f64,
 }
 
-pub(crate) fn prepare_timetable_indexes_view(
+pub fn prepare_timetable_indexes_view(
     input: TimetablePreparationView<'_>,
 ) -> Result<TimetablePreparationResult> {
     let stops = input.retained_stops.len();

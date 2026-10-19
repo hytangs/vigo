@@ -685,6 +685,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
+name = "vigo-format"
+version = "0.5.2"
+dependencies = [
+ "flate2",
+ "memmap2",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "vigo-route",
+]
+
+[[package]]
+name = "vigo-prepare"
+version = "0.5.2"
+dependencies = [
+ "rusqlite",
+ "serde",
+ "vigo-route",
+]
+
+[[package]]
+name = "vigo-route"
+version = "0.5.2"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "vigo-routing-kernel"
 version = "0.5.2"
 dependencies = [
@@ -697,11 +725,17 @@ dependencies = [
  "memmap2",
  "napi",
  "napi-derive",
+ "proc-macro2",
+ "quote",
  "rayon",
  "rusqlite",
  "serde",
  "serde_json",
  "sha2",
+ "syn 2.0.119",
+ "vigo-format",
+ "vigo-prepare",
+ "vigo-route",
 ]
 
 [[package]]

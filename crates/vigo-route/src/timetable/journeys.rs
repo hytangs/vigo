@@ -2,46 +2,52 @@
 //! its smaller CSA workspace. Both time directions use the same label arena;
 //! reverse time is negated so dominance and boarding tests stay identical.
 use super::*;
-
-#[cfg(all(feature = "standalone", not(feature = "node")))]
-pub(crate) struct RideCall {
+pub struct RideCall {
     pub stop: u32,
     pub arrival: Option<u32>,
     pub departure: Option<u32>,
 }
-
-#[cfg(all(feature = "standalone", not(feature = "node")))]
 impl TimetableKernel {
-    pub(crate) fn ride_calls(&self, trip: u32) -> Vec<RideCall> {
+    pub fn ride_calls(&self, trip: u32) -> Vec<RideCall> {
+        let source_departure_seconds = self.departure_seconds.view();
+        let source_arrival_seconds = self.arrival_seconds.view();
+        let source_from_stop = self.from_stop.view();
+        let source_to_stop = self.to_stop.view();
+        let source_trip_start = self.trip_start.view();
+
         let trip = trip as usize;
         let mut calls: Vec<RideCall> = vec![];
-        for i in self.trip_start[trip] as usize..self.trip_start[trip + 1] as usize {
+        for i in source_trip_start[trip] as usize..source_trip_start[trip + 1] as usize {
             if let Some(last) = calls
                 .last_mut()
-                .filter(|last| last.stop == self.from_stop[i])
+                .filter(|last| last.stop == source_from_stop[i])
             {
-                last.departure = Some(self.departure_seconds[i]);
+                last.departure = Some(source_departure_seconds[i]);
             } else {
                 calls.push(RideCall {
-                    stop: self.from_stop[i],
+                    stop: source_from_stop[i],
                     arrival: None,
-                    departure: Some(self.departure_seconds[i]),
+                    departure: Some(source_departure_seconds[i]),
                 });
             }
             calls.push(RideCall {
-                stop: self.to_stop[i],
-                arrival: Some(self.arrival_seconds[i]),
+                stop: source_to_stop[i],
+                arrival: Some(source_arrival_seconds[i]),
                 departure: None,
             });
         }
         calls
     }
-    pub(crate) fn ride_departure(&self, trip: u32, board: f64) -> napi::Result<f64> {
+    pub fn ride_departure(&self, trip: u32, board: f64) -> Result<f64> {
+        let source_departure_seconds = self.departure_seconds.view();
+        let source_sequence = self.sequence.view();
+        let source_trip_start = self.trip_start.view();
+
         let trip = trip as usize;
         if trip + 1 < self.trip_start.len() {
-            for i in self.trip_start[trip] as usize..self.trip_start[trip + 1] as usize {
-                if f64::from(self.sequence[i]) == board {
-                    return Ok(f64::from(self.departure_seconds[i]));
+            for i in source_trip_start[trip] as usize..source_trip_start[trip + 1] as usize {
+                if f64::from(source_sequence[i]) == board {
+                    return Ok(f64::from(source_departure_seconds[i]));
                 }
             }
         }
@@ -54,26 +60,32 @@ impl TimetableKernel {
     // the whole resident timetable into a second adapter-owned representation.
     /// Untimed gaps the ride bridges between consecutive source segments,
     /// counted on the same selected span as the public leg reconstruction.
-    pub(crate) fn ride_bridged_gaps(&self, trip: u32, board: f64, alight: f64) -> u32 {
+    pub fn ride_bridged_gaps(&self, trip: u32, board: f64, alight: f64) -> u32 {
+        let source_from_stop = self.from_stop.view();
+        let source_to_stop = self.to_stop.view();
+        let source_sequence = self.sequence.view();
+        let source_continuity_break = self.continuity_break.view();
+        let source_trip_start = self.trip_start.view();
+
         let trip = trip as usize;
         if trip + 1 >= self.trip_start.len() {
             return 0;
         }
         let (mut count, mut started, mut previous) = (0, false, None::<usize>);
-        for i in self.trip_start[trip] as usize..self.trip_start[trip + 1] as usize {
-            let sequence = f64::from(self.sequence[i]);
+        for i in source_trip_start[trip] as usize..source_trip_start[trip + 1] as usize {
+            let sequence = f64::from(source_sequence[i]);
             if sequence < board {
                 previous = Some(i);
                 continue;
             }
-            if self.continuity_break[i] != 0 && started {
+            if source_continuity_break[i] != 0 && started {
                 break;
             }
             if let Some(p) = previous
-                && self.continuity_break[i] == 0
-                && self.to_stop[p] != self.from_stop[i]
+                && source_continuity_break[i] == 0
+                && source_to_stop[p] != source_from_stop[i]
             {
-                let bridge = f64::from(self.sequence[p]) + 0.5;
+                let bridge = f64::from(source_sequence[p]) + 0.5;
                 if bridge >= board {
                     count += 1;
                     if bridge >= alight {
@@ -89,38 +101,45 @@ impl TimetableKernel {
         }
         count
     }
-    pub(crate) fn ride_stop_sequence(
+    pub fn ride_stop_sequence(
         &self,
         trip: u32,
         board: f64,
         alight: f64,
-    ) -> napi::Result<(Vec<u32>, usize, usize)> {
+    ) -> Result<(Vec<u32>, usize, usize)> {
+        let source_from_stop = self.from_stop.view();
+        let source_to_stop = self.to_stop.view();
+        let source_sequence = self.sequence.view();
+        let source_segment_run = self.segment_run.view();
+        let source_continuity_break = self.continuity_break.view();
+        let source_trip_start = self.trip_start.view();
+
         let trip = trip as usize;
         if trip + 1 >= self.trip_start.len() {
             return Err(Error::from_reason("Unknown journey trip"));
         }
         let mut stops = Vec::new();
         let (mut first, mut last) = (None, None);
-        for i in self.trip_start[trip] as usize..self.trip_start[trip + 1] as usize {
-            if stops.last() != Some(&self.from_stop[i]) {
-                stops.push(self.from_stop[i]);
+        for i in source_trip_start[trip] as usize..source_trip_start[trip + 1] as usize {
+            if stops.last() != Some(&source_from_stop[i]) {
+                stops.push(source_from_stop[i]);
             }
             // The kernel represents an alighting at the next segment's origin
             // with the preceding sequence plus 0.5. It is an actual selected
             // continuity bridge, not a missing integer GTFS sequence.
-            if i > self.trip_start[trip] as usize
-                && self.continuity_break[i] == 0
-                && self.segment_run[i] == self.segment_run[i - 1]
-                && self.from_stop[i] != self.to_stop[i - 1]
-                && f64::from(self.sequence[i - 1]) + 0.5 == alight
+            if i > source_trip_start[trip] as usize
+                && source_continuity_break[i] == 0
+                && source_segment_run[i] == source_segment_run[i - 1]
+                && source_from_stop[i] != source_to_stop[i - 1]
+                && f64::from(source_sequence[i - 1]) + 0.5 == alight
             {
                 last = Some(stops.len() - 1);
             }
-            if self.sequence[i] as f64 == board {
+            if source_sequence[i] as f64 == board {
                 first = Some(stops.len() - 1);
             }
-            stops.push(self.to_stop[i]);
-            if self.sequence[i] as f64 == alight {
+            stops.push(source_to_stop[i]);
+            if source_sequence[i] as f64 == alight {
                 last = Some(stops.len() - 1);
             }
         }
@@ -133,10 +152,8 @@ impl TimetableKernel {
     }
 }
 
-#[derive(Clone)]
-#[cfg_attr(feature = "node", napi(object))]
-#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TimetableMatrixLeg {
     pub kind: String,
     pub from_stop: Option<u32>,
@@ -148,10 +165,8 @@ pub struct TimetableMatrixLeg {
     pub arrival: f64,
 }
 
-#[derive(Clone)]
-#[cfg_attr(feature = "node", napi(object))]
-#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TimetableMatrixJourney {
     pub departure: f64,
     pub arrival: f64,
@@ -241,7 +256,7 @@ impl Labels {
         self.arena.clear();
     }
 
-    fn offer(&mut self, candidate: Label) -> napi::Result<()> {
+    fn offer(&mut self, candidate: Label) -> Result<()> {
         let state = candidate.stop * 4
             + usize::from(candidate.boardings > 0) * 2
             + usize::from(candidate.transfer);
@@ -291,7 +306,7 @@ impl Labels {
         index: usize,
         initial: bool,
         horizon: f64,
-    ) -> napi::Result<()> {
+    ) -> Result<()> {
         let source = self.arena[index];
         // In reverse, this is the next original boarding stop. A forbidden
         // interchange can still be a terminal access target, handled below.
@@ -337,7 +352,6 @@ pub(super) struct JourneyWorkspace {
 }
 
 impl JourneyWorkspace {
-    #[cfg(feature = "standalone")]
     pub(super) fn rebind(&mut self, stops: usize, runs: usize) {
         self.labels.clear();
         for stop in self.boarding_stops.drain(..) {
@@ -407,7 +421,7 @@ impl TimetableKernel {
         &mut self,
         input: &TimetableMatrixQueryInput,
         output: TimetableMatrixQueryResult,
-    ) -> napi::Result<TimetableMatrixQueryResult> {
+    ) -> Result<TimetableMatrixQueryResult> {
         let mut workspace = self
             .query
             .journey_workspace
@@ -425,7 +439,16 @@ impl TimetableKernel {
         input: &TimetableMatrixQueryInput,
         mut output: TimetableMatrixQueryResult,
         workspace: &mut JourneyWorkspace,
-    ) -> napi::Result<TimetableMatrixQueryResult> {
+    ) -> Result<TimetableMatrixQueryResult> {
+        let source_departure_seconds = self.departure_seconds.view();
+        let source_arrival_seconds = self.arrival_seconds.view();
+        let source_from_stop = self.from_stop.view();
+        let source_to_stop = self.to_stop.view();
+        let source_sequence = self.sequence.view();
+        let source_continuity_break = self.continuity_break.view();
+        let source_can_board = self.can_board.view();
+        let source_can_alight = self.can_alight.view();
+
         let reverse = input.arrive_by;
         let origins = input.origin_offsets.len() - 1;
         let destinations = input.destination_offsets.len() - 1;
@@ -621,39 +644,39 @@ impl TimetableKernel {
                         } else {
                             first + step
                         };
-                        let dep = f64::from(self.departure_seconds[c]);
-                        let arr = f64::from(self.arrival_seconds[c]);
+                        let dep = f64::from(source_departure_seconds[c]);
+                        let arr = f64::from(source_arrival_seconds[c]);
                         if dep < minimum_time || dep > maximum_time {
                             continue;
                         }
                         output.scanned_departures += 1.0;
                         let bridge = c > first
-                            && self.continuity_break[c] == 0
-                            && self.to_stop[c - 1] != self.from_stop[c];
+                            && source_continuity_break[c] == 0
+                            && source_to_stop[c - 1] != source_from_stop[c];
                         if !reverse && bridge {
                             self.journey_exit(
                                 labels,
                                 boarding,
-                                self.from_stop[c] as usize,
+                                source_from_stop[c] as usize,
                                 dep,
-                                f64::from(self.sequence[c - 1]) + 0.5,
+                                f64::from(source_sequence[c - 1]) + 0.5,
                                 round,
                                 false,
                             )?;
                         }
                         let (stop, time, seq, allowed) = if reverse {
                             (
-                                self.to_stop[c] as usize,
+                                source_to_stop[c] as usize,
                                 -arr,
-                                f64::from(self.sequence[c]),
-                                self.can_alight[c] != 0 && arr <= maximum_time,
+                                f64::from(source_sequence[c]),
+                                source_can_alight[c] != 0 && arr <= maximum_time,
                             )
                         } else {
                             (
-                                self.from_stop[c] as usize,
+                                source_from_stop[c] as usize,
                                 dep,
-                                f64::from(self.sequence[c]),
-                                self.can_board[c] != 0,
+                                f64::from(source_sequence[c]),
+                                source_can_board[c] != 0,
                             )
                         };
                         if allowed {
@@ -668,12 +691,12 @@ impl TimetableKernel {
                             );
                         }
                         let (exit, time, allowed) = if reverse {
-                            (self.from_stop[c] as usize, dep, self.can_board[c] != 0)
+                            (source_from_stop[c] as usize, dep, source_can_board[c] != 0)
                         } else {
                             (
-                                self.to_stop[c] as usize,
+                                source_to_stop[c] as usize,
                                 arr,
-                                self.can_alight[c] != 0 && arr <= maximum_time,
+                                source_can_alight[c] != 0 && arr <= maximum_time,
                             )
                         };
                         if allowed {
@@ -682,19 +705,19 @@ impl TimetableKernel {
                                 boarding,
                                 exit,
                                 time,
-                                f64::from(self.sequence[c]),
+                                f64::from(source_sequence[c]),
                                 round,
                                 reverse,
                             )?;
                         }
                         if reverse && bridge {
-                            let stop = self.from_stop[c] as usize;
+                            let stop = source_from_stop[c] as usize;
                             self.journey_board(
                                 labels,
                                 &boarding_labels[stop],
                                 stop,
                                 -dep,
-                                f64::from(self.sequence[c - 1]) + 0.5,
+                                f64::from(source_sequence[c - 1]) + 0.5,
                                 c - 1,
                                 &mut boarding,
                             );
@@ -952,7 +975,7 @@ impl TimetableKernel {
         sequence: f64,
         round: u32,
         reverse: bool,
-    ) -> napi::Result<()> {
+    ) -> Result<()> {
         let Some((parent, connection, board_time, board_sequence)) = boarding else {
             return Ok(());
         };
@@ -1060,8 +1083,6 @@ mod workspace_tests {
             );
         }
     }
-
-    #[cfg(all(feature = "standalone", not(feature = "node")))]
     #[test]
     fn selected_continuity_bridge_keeps_its_active_stop_sequence() {
         let mut kernel = TimetableKernel::new(TimetableKernelInput {

@@ -6,19 +6,23 @@ The resident Rust kernel owns timetable and directed street search. JavaScript v
 
 | Source | Responsibility |
 | --- | --- |
+| [timetable_node.rs](src/timetable_node.rs) | Generated Node records and thin calls into the shared Rust timetable implementation |
+| [vigo-format](../../crates/vigo-format/src/timetable.rs) | Service-date reads from prepared SQLite Cities |
+| [snapshot.rs](../../crates/vigo-format/src/snapshot.rs) | Memory-mapped portable and street snapshots, bounded headers and checked numeric arrays |
+| [vigo-prepare](../../crates/vigo-prepare/src/connections.rs) | Transactional GTFS connection compilation |
 | [lib.rs](src/lib.rs) | Node-API boundary, coordinate kernel, street access and matrix integration |
-| [timetable.rs](src/timetable.rs) | Chronological timetable propagation, transfer constraints, range and matrix queries |
-| [timetable/preparation.rs](src/timetable/preparation.rs) | Departure ordering, transfer deduplication, station fallback expansion, and adjacency packing |
-| [timetable/realtime.rs](src/timetable/realtime.rs) | Immutable realtime timetable reconstruction, cancellations, continuity, and departure ordering |
-| [timetable/station_access.rs](src/timetable/station_access.rs) | Directed station graph compilation, nondominated time/distance paths, and packed witnesses |
-| [timetable/station_access_validation.rs](src/timetable/station_access_validation.rs) | Bounds, costs, and witness integrity for persisted station paths |
-| [timetable/journeys.rs](src/timetable/journeys.rs) | Selected matrix journey witnesses |
-| [timetable/overlay_quality.rs](src/timetable/overlay_quality.rs) | Overlay quality and timetable regressions |
+| [vigo-route/timetable.rs](../../crates/vigo-route/src/timetable.rs) | Chronological timetable propagation, transfer constraints, range and matrix queries |
+| [timetable/preparation.rs](../../crates/vigo-route/src/timetable/preparation.rs) | Departure ordering, transfer deduplication, station fallback expansion, and adjacency packing |
+| [timetable/realtime.rs](../../crates/vigo-route/src/timetable/realtime.rs) | Immutable realtime timetable reconstruction, cancellations, continuity, and departure ordering |
+| [timetable/station_access.rs](../../crates/vigo-route/src/timetable/station_access.rs) | Directed station graph compilation, nondominated time/distance paths, and packed witnesses |
+| [timetable/station_access_validation.rs](../../crates/vigo-route/src/timetable/station_access_validation.rs) | Bounds, costs, and witness integrity for persisted station paths |
+| [timetable/journeys.rs](../../crates/vigo-route/src/timetable/journeys.rs) | Selected matrix journey witnesses |
+| [timetable/overlay_quality.rs](../../crates/vigo-route/src/timetable/overlay_quality.rs) | Overlay quality and timetable regressions |
 | [terminal_access.rs](src/terminal_access.rs) | Directed endpoint and station access |
 | [street_analysis.rs](src/street_analysis.rs) | Reach surfaces and timed connectors |
 | [exact_routing.rs](src/exact_routing.rs) | Drive search and distance-constrained fallback |
 | [street_snapshot.rs](src/street_snapshot.rs) | Retained street data |
-| [snapshot_validation.rs](src/snapshot_validation.rs), [timetable_validation.rs](src/timetable_validation.rs) | Input bounds and snapshot admission |
+| [snapshot_validation.rs](src/snapshot_validation.rs), [timetable_validation.rs](../../crates/vigo-route/src/timetable_validation.rs) | Input bounds and snapshot admission |
 
 ## Timetable and overlays
 

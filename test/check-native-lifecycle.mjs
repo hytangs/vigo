@@ -8,6 +8,7 @@ import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { isMainThread, parentPort, Worker, workerData } from 'node:worker_threads'
 import { loadGridStreetIndex, nativeGridFixture } from './helpers/native-grid-fixture.mjs'
+import { timetableQueryFixture, timetableMatrixRequest } from './helpers/timetable-query-fixture.mjs'
 
 const entry = fileURLToPath(import.meta.url)
 const bindingPath = fileURLToPath(new URL('../native/vigo-routing-kernel/vigo-routing-kernel.node', import.meta.url))
@@ -22,7 +23,12 @@ function exerciseNative(directory) {
   assert(Number.isFinite(result.distanceM))
   // Leave native objects and external typed arrays alive until environment
   // teardown, as a resident City does when its routing worker is retired.
-  const retained = [kernel]
+  // The timetable now retains its array owners through the pure Rust core.
+  // Its source fixture goes out of scope before environment retirement.
+  const timetable = new binding.TimetableKernel(timetableQueryFixture(4))
+  assert.equal(timetable.diagnostics().zeroCopyArrays, true)
+  assert.deepEqual(timetable.routeMatrixCsa(timetableMatrixRequest([0], [31])).times, [910])
+  const retained = [kernel, timetable]
   for (let i = 0; i < 2048; i++) {
     const geometry = new binding.ShapeGeometry(new Float64Array([0, 38, .001, 38]))
     const line = geometry.legPolyline(0, 1)

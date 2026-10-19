@@ -39,6 +39,13 @@ with tempfile.TemporaryDirectory() as folder:
         docs.write_text("changed embedded documentation")
         assert package.source_fingerprint(run) != baseline
         docs.write_text("original embedded documentation")
+        for relative in ("crates/vigo-route/src/lib.rs", "Cargo.toml", "Cargo.lock"):
+            added = root / relative
+            added.parent.mkdir(parents=True, exist_ok=True)
+            added.write_text("new workspace compiler input")
+            assert package.source_fingerprint(run) != baseline, relative
+            added.unlink()
+            assert package.source_fingerprint(run) == baseline, relative
         (crate / "new.rs").write_text("new compiler input")
         assert package.source_fingerprint(run) != baseline
 print("Package identity excludes temporary bindings and detects changed or new source inputs.")

@@ -1476,7 +1476,7 @@
           "allowPreRideTransfers"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/timetable.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-route/src/timetable/types.rs. Native semantic validation also applies."
       },
       "TimetableQueryResult": {
         "type": "object",
@@ -1692,7 +1692,7 @@
           "explicitTransferChecks"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/timetable.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-route/src/timetable/types.rs. Native semantic validation also applies."
       },
       "TimetableArriveByQueryInput": {
         "type": "object",
@@ -1796,7 +1796,7 @@
           "allowPreRideTransfers"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/timetable.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-route/src/timetable/types.rs. Native semantic validation also applies."
       },
       "TimetableArriveByQueryResult": {
         "type": "object",
@@ -1896,7 +1896,7 @@
           "explicitTransferChecks"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/timetable.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-route/src/timetable/types.rs. Native semantic validation also applies."
       },
       "TimetableMatrixQueryInput": {
         "type": "object",
@@ -2022,7 +2022,7 @@
           "arriveBy"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/timetable.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-route/src/timetable/types.rs. Native semantic validation also applies."
       },
       "TimetableMatrixQueryResult": {
         "type": "object",
@@ -2119,7 +2119,7 @@
           "explicitTransferChecks"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/timetable.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-route/src/timetable/types.rs. Native semantic validation also applies."
       },
       "TimetableMatrixJourney": {
         "type": "object",
@@ -2177,7 +2177,7 @@
           "legs"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/timetable/journeys.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-route/src/timetable/journeys.rs. Native semantic validation also applies."
       },
       "TimetableMatrixLeg": {
         "type": "object",
@@ -2272,7 +2272,7 @@
           "arrival"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/timetable/journeys.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-route/src/timetable/journeys.rs. Native semantic validation also applies."
       },
       "TimetableManyQueryInput": {
         "type": "object",
@@ -2379,7 +2379,7 @@
           "allowPreRideTransfers"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/timetable.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-route/src/timetable/types.rs. Native semantic validation also applies."
       },
       "TimetableManyQueryResult": {
         "type": "object",
@@ -2554,7 +2554,7 @@
           "explicitTransferChecks"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/timetable.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-route/src/timetable/types.rs. Native semantic validation also applies."
       },
       "TimetableArriveByManyQueryInput": {
         "type": "object",
@@ -2661,7 +2661,7 @@
           "excludedTrips"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/timetable.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-route/src/timetable/types.rs. Native semantic validation also applies."
       },
       "TimetableArriveByManyQueryResult": {
         "type": "object",
@@ -2725,7 +2725,7 @@
           "explicitTransferChecks"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/timetable.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-route/src/timetable/types.rs. Native semantic validation also applies."
       },
       "TimetableParetoQueryInput": {
         "type": "object",
@@ -2912,7 +2912,7 @@
           "walkReluctance"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/timetable.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-route/src/timetable/types.rs. Native semantic validation also applies."
       },
       "TimetableParetoQueryResult": {
         "type": "object",
@@ -3325,7 +3325,7 @@
           "labelBytes"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/timetable.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-route/src/timetable/types.rs. Native semantic validation also applies."
       },
       "TimetableParetoAlternative": {
         "type": "object",
@@ -3435,7 +3435,7 @@
           "chainArrivals"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/timetable.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-route/src/timetable/types.rs. Native semantic validation also applies."
       },
       "TimetableOverlayManyQueryInput": {
         "type": "object",
@@ -3728,7 +3728,7 @@
           "supplementalTransferDuration"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/timetable.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-route/src/timetable/types.rs. Native semantic validation also applies."
       },
       "TimetableOverlayManyQueryResult": {
         "type": "object",
@@ -3826,7 +3826,7 @@
           "qualityReason"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/timetable.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-route/src/timetable/types.rs. Native semantic validation also applies."
       },
       "EndpointRoleInput": {
         "type": "object",
@@ -6075,7 +6075,7 @@
           "replacements"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/timetable/realtime.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-route/src/timetable/realtime.rs. Native semantic validation also applies."
       },
       "RealtimeTripInput": {
         "type": "object",
@@ -6097,7 +6097,7 @@
           "stops"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/timetable/realtime.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-route/src/timetable/realtime.rs. Native semantic validation also applies."
       },
       "RealtimeCallInput": {
         "type": "object",
@@ -6133,7 +6133,7 @@
           "canAlight"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/timetable/realtime.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-route/src/timetable/realtime.rs. Native semantic validation also applies."
       },
       "RealtimeTimetableResult": {
         "type": "object",
@@ -6280,7 +6280,7 @@
           "realtimeTripIndices"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/vigo-routing-kernel/src/timetable/realtime.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-route/src/timetable/realtime.rs. Native semantic validation also applies."
       },
       "Coordinate": {
         "type": "array",

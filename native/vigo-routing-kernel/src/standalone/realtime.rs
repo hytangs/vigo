@@ -414,7 +414,7 @@ pub(crate) fn apply(
         can_board: std::mem::take(&mut source.can_board),
         can_alight: std::mem::take(&mut source.can_alight),
         trip_start: std::mem::take(&mut source.trip_start),
-        canceled,
+        canceled: canceled.into(),
         replacements,
     })?;
     source.departure_seconds = r.departure_seconds;
@@ -500,17 +500,17 @@ mod tests {
     fn omitted_past_calls_follow_source_clock_and_remove_prefix_boarding() {
         let source = || ServiceTimetableResult {
             stop_ids: ["A", "B", "C", "D", "E"].map(str::to_owned).to_vec(),
-            departure_seconds: vec![34800, 35400, 36000, 36600],
-            arrival_seconds: vec![35400, 36000, 36600, 37200],
-            from_stop: vec![0, 1, 2, 3],
-            to_stop: vec![1, 2, 3, 4],
-            sequence: vec![1, 2, 3, 4],
-            segment_trip: vec![0; 4],
-            segment_run: vec![0; 4],
-            continuity_break: vec![0; 4],
-            can_board: vec![1; 4],
-            can_alight: vec![1; 4],
-            trip_start: vec![0, 4],
+            departure_seconds: vec![34800, 35400, 36000, 36600].into(),
+            arrival_seconds: vec![35400, 36000, 36600, 37200].into(),
+            from_stop: vec![0, 1, 2, 3].into(),
+            to_stop: vec![1, 2, 3, 4].into(),
+            sequence: vec![1, 2, 3, 4].into(),
+            segment_trip: vec![0; 4].into(),
+            segment_run: vec![0; 4].into(),
+            continuity_break: vec![0; 4].into(),
+            can_board: vec![1; 4].into(),
+            can_alight: vec![1; 4].into(),
+            trip_start: vec![0, 4].into(),
             trip_ids: vec!["main".into()],
             trip_service_dates: vec![String::new()],
             route_ids: vec!["R".into()],
@@ -531,14 +531,14 @@ mod tests {
         let mut before = source();
         let diagnostics = apply(&mut before, &request, &json!({}), (feed - 1) as f64).unwrap();
         assert_eq!(diagnostics["invalidTrips"], 1);
-        assert_eq!(before.from_stop, [0, 1, 2, 3]);
+        assert_eq!(before.from_stop.as_ref(), &[0, 1, 2, 3]);
         let mut after = source();
         let diagnostics = apply(&mut after, &request, &json!({}), (feed + 1) as f64).unwrap();
         assert_eq!(diagnostics["appliedTrips"], 1);
         assert_eq!(diagnostics["omittedPastPrefixStops"], 2);
-        assert_eq!(after.from_stop, [2, 3]);
-        assert_eq!(after.departure_seconds, [35340, 36120]);
-        assert_eq!(after.arrival_seconds, [36120, 36600]);
+        assert_eq!(after.from_stop.as_ref(), &[2, 3]);
+        assert_eq!(after.departure_seconds.as_ref(), &[35340, 36120]);
+        assert_eq!(after.arrival_seconds.as_ref(), &[36120, 36600]);
         assert_ne!(
             validity(&request, (feed - 1) as f64),
             validity(&request, (feed + 1) as f64)

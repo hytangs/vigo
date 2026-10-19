@@ -41,10 +41,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check:release
+      - run: npm run check:rust-workspace
       - run: cargo test --manifest-path native/vigo-routing-kernel/Cargo.toml
       - run: cargo clippy --release --all-targets --manifest-path native/vigo-routing-kernel/Cargo.toml -- -D warnings
       - run: cargo test --no-default-features --features standalone --manifest-path native/vigo-routing-kernel/Cargo.toml
       - run: cargo clippy --all-targets --no-default-features --features standalone --manifest-path native/vigo-routing-kernel/Cargo.toml -- -D warnings
+      - run: npm run check:corpus
       - run: npm run check:standalone
         env:
           GH_TOKEN: ${{ github.token }}

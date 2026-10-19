@@ -29,7 +29,7 @@ pub(super) fn certify(
     witness: &[JourneyChainStep],
     arrival: f64,
     destination_index: u32,
-) -> napi::Result<CertifiedJourney> {
+) -> Result<CertifiedJourney> {
     let boardings = witness.iter().filter(|step| step.0 == 2).count() as u32;
     if boardings == 0 || boardings as usize > MAX_PROFILE_BOARDINGS {
         return Err(Error::from_reason(

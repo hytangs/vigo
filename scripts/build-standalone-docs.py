@@ -171,7 +171,10 @@ TYPE_FIELD_NOTES = {
 
 def native_contracts():
     structs = {}
-    for path in sorted((ROOT / 'native/vigo-routing-kernel/src').rglob('*.rs')):
+    sources = list((ROOT / 'native/vigo-routing-kernel/src').rglob('*.rs'))
+    for crate in ('vigo-route', 'vigo-format', 'vigo-prepare'):
+        sources.extend((ROOT / 'crates' / crate / 'src').rglob('*.rs'))
+    for path in sorted(sources):
         for match in re.finditer(r'pub struct (\w+)\s*\{([^}]+)\}', path.read_text(encoding='utf-8')):
             fields, comments = [], []
             for line in match[2].splitlines():
@@ -188,7 +191,7 @@ def native_contracts():
             return {'anyOf': [kind(value[7:-1], output), {'type': 'null'}]}
         if value.startswith('Vec<'):
             return array(kind(value[4:-1], output))
-        aliases = {'Float64Array': 'f64', 'Uint32Array': 'u32', 'Uint8Array': 'u8', 'Int32Array': 'i32', 'Uint16Array': 'u16', 'Float32Array': 'f32'}
+        aliases = {'F64Buffer': 'f64', 'U32Buffer': 'u32', 'U8Buffer': 'u8', 'Float64Array': 'f64', 'Uint32Array': 'u32', 'Uint8Array': 'u8', 'Int32Array': 'i32', 'Uint16Array': 'u16', 'Float32Array': 'f32'}
         if value in aliases:
             return array(kind(aliases[value], output))
         if value in ('f64', 'f32'):

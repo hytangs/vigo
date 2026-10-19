@@ -1,6 +1,5 @@
 //! Rust-owned buffers and errors for the executable build. No Node-API code is
 //! compiled or dynamically loaded when the `node` feature is disabled.
-pub type Uint8Array = Vec<u8>;
 pub type Uint32Array = Vec<u32>;
 pub type Float64Array = Vec<f64>;
 pub type Utf16String = Vec<u16>;
@@ -53,7 +52,17 @@ impl std::fmt::Display for Error {
 impl std::error::Error for Error {}
 pub type Result<T> = std::result::Result<T, Error>;
 pub mod bindgen_prelude {
-    pub use super::{
-        ClassInstance, Error, Float64Array, Result, Status, Uint8Array, Uint32Array, Utf16String,
-    };
+    pub use super::{ClassInstance, Error, Float64Array, Result, Uint32Array, Utf16String};
+}
+
+impl From<vigo_route::Error> for Error {
+    fn from(error: vigo_route::Error) -> Self {
+        Self::new(
+            match error.code {
+                vigo_route::ErrorCode::InvalidInput => Status::InvalidArg,
+                vigo_route::ErrorCode::OperationFailed => Status::GenericFailure,
+            },
+            error.reason,
+        )
+    }
 }

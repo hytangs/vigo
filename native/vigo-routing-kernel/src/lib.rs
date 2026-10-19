@@ -91,7 +91,8 @@ mod street_kernel;
 mod street_snapshot;
 use street_kernel::open_street_cch_bundles;
 mod timetable;
-mod timetable_validation;
+#[cfg(feature = "node")]
+mod timetable_node;
 pub use timetable::*;
 mod street_analysis;
 pub use street_analysis::*;

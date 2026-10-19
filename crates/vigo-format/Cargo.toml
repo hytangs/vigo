@@ -1,0 +1,16 @@
+[package]
+name = "vigo-format"
+description = "VIGO prepared City readers and writers."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
+memmap2 = "0.9"
+flate2 = "1.1"
+vigo-route = { path = "../vigo-route" }
+rusqlite = { version = "0.37.0", features = ["bundled"] }

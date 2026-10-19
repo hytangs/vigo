@@ -1,14 +1,8 @@
 //! Directed station paths with time/distance Pareto labels and packed witnesses.
-#[cfg(not(feature = "node"))]
-use crate::standalone_types as napi;
-use napi::bindgen_prelude::*;
-#[cfg(feature = "node")]
-use napi_derive::napi;
+use crate::types::*;
 use std::collections::{HashMap, HashSet};
-
-#[cfg_attr(feature = "node", napi(object))]
-#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StationEdge {
     pub from: u32,
     pub to: u32,
@@ -17,39 +11,36 @@ pub struct StationEdge {
     pub source: u32,
     pub street: bool,
 }
-#[cfg_attr(feature = "node", napi(object))]
-#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StationGroup {
     pub members: Vec<u32>,
     pub declared: bool,
 }
-#[cfg_attr(feature = "node", napi(object))]
-#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StationPathsInput {
-    pub coordinates: Float64Array,
-    pub platforms: Uint8Array,
+    pub coordinates: F64Buffer,
+    pub platforms: U8Buffer,
     pub edges: Vec<StationEdge>,
     pub groups: Vec<StationGroup>,
-    pub forbidden_from: Uint32Array,
-    pub forbidden_to: Uint32Array,
+    pub forbidden_from: U32Buffer,
+    pub forbidden_to: U32Buffer,
     pub fallback_source: u32,
     pub walking_speed_kph: f64,
 }
-#[cfg_attr(feature = "node", napi(object))]
-#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StationPathsResult {
-    pub offsets: Uint32Array,
-    pub path_offsets: Uint32Array,
-    pub from: Uint32Array,
-    pub to: Uint32Array,
-    pub seconds: Float64Array,
-    pub distance_m: Float64Array,
-    pub path_stops: Uint32Array,
-    pub path_sources: Uint32Array,
-    pub source_ids: Uint32Array,
+    pub offsets: U32Buffer,
+    pub path_offsets: U32Buffer,
+    pub from: U32Buffer,
+    pub to: U32Buffer,
+    pub seconds: F64Buffer,
+    pub distance_m: F64Buffer,
+    pub path_stops: U32Buffer,
+    pub path_sources: U32Buffer,
+    pub source_ids: U32Buffer,
 }
 #[derive(Clone, Copy)]
 struct Edge {
@@ -67,7 +58,7 @@ struct Label {
     active: bool,
 }
 fn invalid(message: &str) -> Error {
-    Error::new(Status::InvalidArg, format!("Station paths: {message}"))
+    Error::new(ErrorCode::InvalidInput, format!("Station paths: {message}"))
 }
 fn index(value: usize) -> Result<u32> {
     u32::try_from(value).map_err(|_| invalid("packed index exceeds Uint32"))
@@ -84,7 +75,6 @@ fn distance_km(coords: &[f64], from: usize, to: usize) -> f64 {
         + radians(b).cos() * radians(d).cos() * (radians(c - a) / 2.0).sin().powi(2);
     6371.0088 * 2.0 * h.sqrt().atan2((1.0 - h).sqrt())
 }
-#[cfg_attr(feature = "node", napi)]
 pub fn compile_station_paths(input: StationPathsInput) -> Result<StationPathsResult> {
     let n = input.platforms.len();
     if input.coordinates.len() != n * 2

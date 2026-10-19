@@ -4,9 +4,11 @@ FROM rust:1.97.1-slim-bookworm@sha256:2775a09d208ff0d7c1f50490c45b62db929e87ba1d
 RUN apt-get update && apt-get install -y --no-install-recommends python3 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /source
-COPY rust-toolchain.toml ./
+COPY rust-toolchain.toml Cargo.toml Cargo.lock ./
+COPY crates ./crates
 COPY native/vigo-routing-kernel/Cargo.toml native/vigo-routing-kernel/Cargo.lock ./native/vigo-routing-kernel/
 COPY native/vigo-routing-kernel/vendor ./native/vigo-routing-kernel/vendor
+COPY native/vigo-routing-kernel/build.rs ./native/vigo-routing-kernel/
 COPY native/vigo-routing-kernel/src ./native/vigo-routing-kernel/src
 COPY docs/guide.html docs/standalone-openapi.json ./docs/
 COPY scripts/package-standalone.py ./scripts/

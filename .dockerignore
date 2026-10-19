@@ -18,3 +18,10 @@
 !docs/standalone-openapi.json
 !scripts/
 !scripts/package-standalone.py
+
+!Cargo.toml
+!Cargo.lock
+!crates/
+!crates/**
+crates/**/target/
+!native/vigo-routing-kernel/build.rs

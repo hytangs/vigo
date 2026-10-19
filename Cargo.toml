@@ -1,8 +1,9 @@
 # VIGO 1.0 workspace (RFC 0001). The 0.5 kernel keeps its own manifest and lock
-# until M1 moves its modules into crates/.
+# while M1 moves its modules into crates/. Timetable computation and its I/O
+# now live in the workspace; street kernels and transports are still migrating.
 [workspace]
 resolver = "3"
-members = ["crates/vigo-model"]
+members = ["crates/vigo-model", "crates/vigo-route", "crates/vigo-format", "crates/vigo-prepare"]
 exclude = ["native/vigo-routing-kernel"]
 
 [workspace.package]

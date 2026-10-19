@@ -103,4 +103,4 @@ Of the 55 schema names found only in the published document, 10 are the renamed 
 
 1. **Native schemas.** In M1, derive `JsonSchema` on the kernel's native input and result structs where they live, and include them from there. This replaces the regular-expression scan in `scripts/build-standalone-docs.py`. Until then the published document stays the reference for `/v1/native`.
 2. **Replacing the published document.** Once native schemas are generated, `npm run docs:standalone` can write `docs/standalone-openapi.json` from `vigo-model-gen`, and `check:standalone-docs` can compare against it.
-3. **Continuous integration.** `cargo test -p vigo-model` and `node test/corpus/corpus.mjs check` are not yet in the CI workflows.
+3. **Continuous integration.** CI and release checks run `check:rust-workspace` (including model, schema and generated-file checks) and `check:corpus`.

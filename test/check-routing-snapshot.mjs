@@ -9,6 +9,50 @@ const arrays = {
   values: new Float64Array([-0, 0.1, 12345.6789]), signed: new Int32Array([-3, 4]), empty: new Uint8Array(),
 }
 const bytes = encodeRoutingSnapshot(metadata, arrays)
+// Retained independent 0.5 writer. Compression streams may differ; descriptor
+// order, metadata and every aligned payload byte must stay identical.
+function publishedWriter(metadata, arrays) {
+  const layout = {}
+  let size = 0
+  const align = n => Math.ceil(n / 8) * 8
+  for (const [name, array] of Object.entries(arrays)) {
+    layout[name] = { type: array.constructor.name, offset: size, length: array.length }
+    size = align(size + array.byteLength)
+  }
+  const header = gzipSync(Buffer.from(JSON.stringify({ metadata, arrays: layout })), { level: 1 })
+  const base = align(16 + header.length)
+  const bytes = Buffer.alloc(base + size)
+  Buffer.from('VIGORS02').copy(bytes)
+  bytes.writeUInt32LE(header.length, 8)
+  bytes.writeUInt32LE(base, 12)
+  header.copy(bytes, 16)
+  for (const [name, array] of Object.entries(arrays)) {
+    Buffer.from(array.buffer, array.byteOffset, array.byteLength).copy(bytes, base + layout[name].offset)
+  }
+  return bytes
+}
+const headerOf = bytes => gunzipSync(bytes.subarray(16, 16 + bytes.readUInt32LE(8)))
+const payloadOf = bytes => bytes.subarray(bytes.readUInt32LE(12))
+for (let i = 0; i < 80; i++) {
+  const columns = {
+    z: new Uint8Array([99, i, 255, 77]).subarray(1, 3),
+    empty: new Uint32Array(),
+    a: new Int32Array([0, -i, -2147483648, 2147483647]).subarray(1),
+    floats: new Float64Array([-0, Number.MIN_VALUE, Math.PI * i, Infinity, NaN]),
+    '入口': new Uint32Array([0xffffffff, i]),
+  }
+  const meta = { source: `feed-${i}`, unknown: null, clock: i * 600, names: ['入口', 'A'] }
+  const previous = publishedWriter(meta, columns)
+  const native = encodeRoutingSnapshot(meta, columns)
+  assert.deepEqual(headerOf(native), headerOf(previous))
+  assert.deepEqual(payloadOf(native), payloadOf(previous))
+  assert.deepEqual(decodeRoutingSnapshot(native), decodeRoutingSnapshot(previous))
+}
+assert.throws(() => encodeRoutingSnapshot(metadata, { bad: new Float32Array([1]) }), /Unsupported snapshot array/)
+for (const meta of [undefined, null, false, 0, '', Symbol('omitted'), () => {},
+  { toJSON(key) { return { key, value: 12 } } }, { toJSON() { return undefined } }]) {
+  assert.deepEqual(headerOf(encodeRoutingSnapshot(meta)), headerOf(publishedWriter(meta, {})))
+}
 assert.equal(bytes.subarray(0, 8).toString(), 'VIGORS02')
 const restored = decodeRoutingSnapshot(bytes)
 assert.deepEqual(restored.metadata, metadata)

@@ -1,35 +1,29 @@
 //! Compose directed station pathways around at most one external transfer.
 //! Preparation retains the original edge witness; queries still relax one edge
 //! per boarding episode and never turn two street transfers into a shortcut.
-#[cfg(not(feature = "node"))]
-use crate::standalone_types as napi;
-use napi::bindgen_prelude::*;
-#[cfg(feature = "node")]
-use napi_derive::napi;
+use crate::types::*;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashSet};
-
-#[cfg_attr(feature = "node", napi(object))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TransferPathInput {
-    pub eligible: Uint8Array,
-    pub from: Uint32Array,
-    pub to: Uint32Array,
-    pub seconds: Uint32Array,
-    pub pathway: Uint8Array,
-    pub forbidden_from: Uint32Array,
-    pub forbidden_to: Uint32Array,
+    pub eligible: U8Buffer,
+    pub from: U32Buffer,
+    pub to: U32Buffer,
+    pub seconds: U32Buffer,
+    pub pathway: U8Buffer,
+    pub forbidden_from: U32Buffer,
+    pub forbidden_to: U32Buffer,
 }
-
-#[cfg_attr(feature = "node", napi(object))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TransferPathResult {
-    pub from: Uint32Array,
-    pub to: Uint32Array,
-    pub seconds: Uint32Array,
-    pub path_offsets: Uint32Array,
-    pub path_edges: Uint32Array,
+    pub from: U32Buffer,
+    pub to: U32Buffer,
+    pub seconds: U32Buffer,
+    pub path_offsets: U32Buffer,
+    pub path_edges: U32Buffer,
 }
-
-#[cfg_attr(feature = "node", napi)]
 pub fn compile_transfer_paths(input: TransferPathInput) -> Result<TransferPathResult> {
     let n = input.eligible.len();
     let m = input.from.len();

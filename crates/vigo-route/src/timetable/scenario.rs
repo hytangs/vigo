@@ -4,89 +4,81 @@
 //! transfer index. The scheduled arrays are borrowed and never edited, and
 //! original trip indices survive, so journeys reconstruct exactly as before.
 use super::preparation::departure_index;
-#[cfg(not(feature = "node"))]
-use crate::standalone_types as napi;
-use napi::bindgen_prelude::*;
-#[cfg(feature = "node")]
-use napi_derive::napi;
+use crate::types::*;
 
 const MAX_ADDED_STOPS: u32 = 4_096;
 const MAX_ADDED_TRIPS: usize = 200_000;
 const MAX_EVENT_SECONDS: u32 = (1 << 20) - 1;
-
-#[cfg_attr(feature = "node", napi(object))]
-#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScenarioTimetableInput {
     /// Resident stops; appended stops follow at `stop_count..stop_count + added_stop_count`.
     pub stop_count: u32,
     pub added_stop_count: u32,
-    pub departure_seconds: Uint32Array,
-    pub arrival_seconds: Uint32Array,
-    pub from_stop: Uint32Array,
-    pub to_stop: Uint32Array,
-    pub sequence: Uint32Array,
-    pub segment_run: Uint32Array,
-    pub continuity_break: Uint8Array,
-    pub can_board: Uint8Array,
-    pub can_alight: Uint8Array,
-    pub trip_start: Uint32Array,
-    pub canceled: Uint8Array,
-    pub transfer_offset: Uint32Array,
-    pub transfer_to: Uint32Array,
-    pub transfer_duration: Uint32Array,
-    pub forbidden_same_stop: Uint8Array,
-    pub same_stop_transfer_minimum: Option<Uint32Array>,
+    pub departure_seconds: U32Buffer,
+    pub arrival_seconds: U32Buffer,
+    pub from_stop: U32Buffer,
+    pub to_stop: U32Buffer,
+    pub sequence: U32Buffer,
+    pub segment_run: U32Buffer,
+    pub continuity_break: U8Buffer,
+    pub can_board: U8Buffer,
+    pub can_alight: U8Buffer,
+    pub trip_start: U32Buffer,
+    pub canceled: U8Buffer,
+    pub transfer_offset: U32Buffer,
+    pub transfer_to: U32Buffer,
+    pub transfer_duration: U32Buffer,
+    pub forbidden_same_stop: U8Buffer,
+    pub same_stop_transfer_minimum: Option<U32Buffer>,
     /// One stop pattern per planned run; offsets are seconds after the run's departure.
-    pub pattern_offsets: Uint32Array,
-    pub pattern_stops: Uint32Array,
-    pub pattern_departure_offsets: Uint32Array,
-    pub pattern_arrival_offsets: Uint32Array,
-    pub pattern_can_board: Uint8Array,
-    pub pattern_can_alight: Uint8Array,
+    pub pattern_offsets: U32Buffer,
+    pub pattern_stops: U32Buffer,
+    pub pattern_departure_offsets: U32Buffer,
+    pub pattern_arrival_offsets: U32Buffer,
+    pub pattern_can_board: U8Buffer,
+    pub pattern_can_alight: U8Buffer,
     /// Departures `start, start + headway, …, ≤ end`; one trip when start equals end.
-    pub run_start_seconds: Uint32Array,
-    pub run_end_seconds: Uint32Array,
-    pub run_headway_seconds: Uint32Array,
-    pub added_transfer_from: Uint32Array,
-    pub added_transfer_to: Uint32Array,
-    pub added_transfer_duration: Uint32Array,
+    pub run_start_seconds: U32Buffer,
+    pub run_end_seconds: U32Buffer,
+    pub run_headway_seconds: U32Buffer,
+    pub added_transfer_from: U32Buffer,
+    pub added_transfer_to: U32Buffer,
+    pub added_transfer_duration: U32Buffer,
 }
-
-#[cfg_attr(feature = "node", napi(object))]
-#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScenarioTimetableResult {
     pub stop_count: u32,
-    pub departure_seconds: Uint32Array,
-    pub arrival_seconds: Uint32Array,
-    pub from_stop: Uint32Array,
-    pub to_stop: Uint32Array,
-    pub sequence: Uint32Array,
-    pub segment_trip: Uint32Array,
-    pub segment_run: Uint32Array,
-    pub continuity_break: Uint8Array,
-    pub can_board: Uint8Array,
-    pub can_alight: Uint8Array,
-    pub trip_start: Uint32Array,
-    pub departure_offset: Uint32Array,
-    pub departure_order: Uint32Array,
-    pub transfer_offset: Uint32Array,
-    pub transfer_to: Uint32Array,
-    pub transfer_duration: Uint32Array,
-    pub forbidden_same_stop: Uint8Array,
-    pub same_stop_transfer_minimum: Option<Uint32Array>,
+    pub departure_seconds: U32Buffer,
+    pub arrival_seconds: U32Buffer,
+    pub from_stop: U32Buffer,
+    pub to_stop: U32Buffer,
+    pub sequence: U32Buffer,
+    pub segment_trip: U32Buffer,
+    pub segment_run: U32Buffer,
+    pub continuity_break: U8Buffer,
+    pub can_board: U8Buffer,
+    pub can_alight: U8Buffer,
+    pub trip_start: U32Buffer,
+    pub departure_offset: U32Buffer,
+    pub departure_order: U32Buffer,
+    pub transfer_offset: U32Buffer,
+    pub transfer_to: U32Buffer,
+    pub transfer_duration: U32Buffer,
+    pub forbidden_same_stop: U8Buffer,
+    pub same_stop_transfer_minimum: Option<U32Buffer>,
     pub run_count: u32,
     pub active_segment_count: u32,
     pub canceled_trip_count: u32,
     /// For each appended trip (trip index `base trips + k`): its pattern and first departure.
-    pub added_trip_patterns: Uint32Array,
-    pub added_trip_departures: Uint32Array,
+    pub added_trip_patterns: U32Buffer,
+    pub added_trip_departures: U32Buffer,
 }
 
 fn invalid(detail: &str) -> Error {
     Error::new(
-        Status::InvalidArg,
+        ErrorCode::InvalidInput,
         format!("Invalid scenario timetable: {detail}."),
     )
 }
@@ -212,8 +204,6 @@ fn validate_patterns(input: &ScenarioTimetableInput, total_stops: u32) -> Result
     }
     Ok(trips)
 }
-
-#[cfg_attr(feature = "node", napi)]
 pub fn compile_scenario_timetable(
     input: ScenarioTimetableInput,
 ) -> Result<ScenarioTimetableResult> {
@@ -349,7 +339,7 @@ pub fn compile_scenario_timetable(
     let same_stop_transfer_minimum = input.same_stop_transfer_minimum.as_ref().map(|values| {
         let mut extended = values.to_vec();
         extended.resize(total, 0);
-        Uint32Array::from(extended)
+        U32Buffer::from(extended)
     });
     let active_segment_count = departure.len() as u32;
     Ok(ScenarioTimetableResult {
@@ -384,11 +374,11 @@ pub fn compile_scenario_timetable(
 mod tests {
     use super::*;
 
-    fn u32s(values: &[u32]) -> Uint32Array {
-        Uint32Array::from(values.to_vec())
+    fn u32s(values: &[u32]) -> U32Buffer {
+        U32Buffer::from(values.to_vec())
     }
-    fn u8s(values: &[u8]) -> Uint8Array {
-        Uint8Array::from(values.to_vec())
+    fn u8s(values: &[u8]) -> U8Buffer {
+        U8Buffer::from(values.to_vec())
     }
 
     /// Two scheduled trips over stops 0→1→2 and one new stop (3) reached by walking from stop 2.

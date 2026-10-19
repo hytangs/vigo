@@ -100,24 +100,30 @@ impl City {
         let kernel = crate::TimetableKernel::new(TimetableKernelInput {
             stop_count: u32::try_from(saved.stop_ids.len())?,
             run_count: saved.run_count,
-            departure_seconds,
-            arrival_seconds: image.u32("arrivalSeconds")?,
-            from_stop: image.u32("fromStop")?,
-            to_stop: image.u32("toStop")?,
-            sequence: image.u32("sequence")?,
-            segment_trip: image.u32("segmentTrip")?,
-            segment_run: image.u32("segmentRun")?,
-            continuity_break: image.array("continuityBreak", "Uint8Array", 1)?.to_vec(),
-            can_board: image.array("canBoard", "Uint8Array", 1)?.to_vec(),
-            can_alight: image.array("canAlight", "Uint8Array", 1)?.to_vec(),
-            trip_start,
-            departure_offset: image.u32("departureOffset")?,
-            departure_order: image.u32("departureOrder")?,
-            transfer_offset: image.u32("transferOffset")?,
-            transfer_to: image.u32("transferTo")?,
-            transfer_duration: image.u32("transferDuration")?,
-            forbidden_same_stop: image.array("forbiddenSameStop", "Uint8Array", 1)?.to_vec(),
-            same_stop_transfer_minimum: Some(image.u32("sameStopTransferMinimum")?),
+            departure_seconds: departure_seconds.into(),
+            arrival_seconds: image.u32("arrivalSeconds")?.into(),
+            from_stop: image.u32("fromStop")?.into(),
+            to_stop: image.u32("toStop")?.into(),
+            sequence: image.u32("sequence")?.into(),
+            segment_trip: image.u32("segmentTrip")?.into(),
+            segment_run: image.u32("segmentRun")?.into(),
+            continuity_break: image
+                .array("continuityBreak", "Uint8Array", 1)?
+                .to_vec()
+                .into(),
+            can_board: image.array("canBoard", "Uint8Array", 1)?.to_vec().into(),
+            can_alight: image.array("canAlight", "Uint8Array", 1)?.to_vec().into(),
+            trip_start: trip_start.into(),
+            departure_offset: image.u32("departureOffset")?.into(),
+            departure_order: image.u32("departureOrder")?.into(),
+            transfer_offset: image.u32("transferOffset")?.into(),
+            transfer_to: image.u32("transferTo")?.into(),
+            transfer_duration: image.u32("transferDuration")?.into(),
+            forbidden_same_stop: image
+                .array("forbiddenSameStop", "Uint8Array", 1)?
+                .to_vec()
+                .into(),
+            same_stop_transfer_minimum: Some(image.u32("sameStopTransferMinimum")?.into()),
             minimum_transfer_buffer_seconds: Some(buffer),
         })?;
         let index: HashMap<_, _> = saved

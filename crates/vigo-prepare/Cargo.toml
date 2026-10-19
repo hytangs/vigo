@@ -1,0 +1,16 @@
+[package]
+name = "vigo-prepare"
+description = "VIGO native City preparation operators."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+vigo-route = { path = "../vigo-route" }
+rusqlite = { version = "0.37.0", features = ["bundled"] }
+
+[dev-dependencies]
+serde_json.workspace = true

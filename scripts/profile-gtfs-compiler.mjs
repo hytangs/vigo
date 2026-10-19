@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 const root = path.resolve(import.meta.dirname, '..')
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex')
 function sourceTreeHash() {
-  const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean).sort()
+  const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: root, encoding: 'utf8' }).split('\0').filter(file => file && fs.statSync(path.join(root, file), { throwIfNoEntry: false })?.isFile()).sort()
   return hash(files.map(file => `${file}\0${hash(fs.readFileSync(path.join(root, file)))}\n`).join(''))
 }
 if (process.argv[2] === '--worker') {
