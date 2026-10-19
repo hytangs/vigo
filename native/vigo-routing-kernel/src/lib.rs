@@ -148,7 +148,8 @@ fn retain_native_thread_code() {
 }
 
 // Point queries have two directed access roles; large matrices can project
-// four independent coordinate groups. A private bounded pool avoids both
+// four independent coordinate groups. Surface references also use this pool
+// for at most two bounded compression jobs. A private bounded pool avoids both
 // global-pool oversubscription and
 // per-request thread creation, while leaving offline/batch Rayon work free to
 // use the process-wide pool. If the private pool cannot be created, the exact

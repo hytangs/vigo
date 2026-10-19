@@ -1992,7 +1992,12 @@ export function rasterNativeStreetSurface(storePath, value) {
     diagnostics: {
       accelerated: true,
       kernel: 'rust_mmap_street_surface_v1',
-      ...(value?.surfaceReuse ? { reusedLabels: result.reusedLabels, reusedRaster: result.reusedRaster, reuseCacheBytes: result.reuseCacheBytes } : {}),
+      ...(value?.surfaceReuse ? {
+        reusedLabels: result.reusedLabels,
+        reusedRaster: result.reusedRaster,
+        reuseCacheBytes: result.reuseCacheBytes,
+        referenceBuildMs: normalizeNativeMilliseconds(result.referenceBuildNs),
+      } : {}),
       surfaceModel: value?.independentTerminalWalk === true
         ? 'directed_osm_edge_independent_terminal_walk'
         : 'directed_osm_edge_interpolation',

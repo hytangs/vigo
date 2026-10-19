@@ -203,9 +203,11 @@ fn owned_and_borrowed_paths_match_one_shot_across_metric_changes() {
                     .map(|weight| 30 - weight)
                     .collect::<Vec<_>>(),
             ),
+            // Closing every arc must not inherit finite labels from the old metric.
+            structure.customize(&vec![cch::INF_WEIGHT; graph.weight.len()]),
         ];
         let mut owned = cch::OwnedPathQuery::new(structure);
-        for metric in [&metrics[0], &metrics[1], &metrics[0]] {
+        for metric in [&metrics[0], &metrics[1], &metrics[2], &metrics[0]] {
             for source in 0..31 {
                 for target in (0..31).rev() {
                     let expected =

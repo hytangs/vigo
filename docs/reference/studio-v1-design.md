@@ -244,8 +244,12 @@ kernel. References whose labels and pre-envelope edge candidates occupy at
 most 8 MiB use direct storage, avoiding compression work during construction
 and decoding during restoration. Larger references use bounded, losslessly
 compressed column blocks. Stable radix passes group large label sets by node,
-and the encoder reuses its compression state across 4,096-record blocks. Duration predictions retain an XOR
-residual, so decoding restores the original floating-point bits. Neighboring
+and the encoder reuses its compression state across 4,096-record blocks. A
+bounded batch holds at most eight raw blocks. Large batches use at most two
+jobs on the existing query worker pool, retaining blocks in source order;
+smaller batches or a single-worker runtime encode serially. The raw batch and
+codec workspaces are released after construction. Duration predictions retain
+an XOR residual, so decoding restores the original floating-point bits. Neighboring
 node and edge records share blocks; restoration decodes one block at a time.
 The 32 MiB accounting includes direct or compressed allocations, seed metadata and any
 retained rasters. If that representation exceeds the budget, no reference is
@@ -270,7 +274,13 @@ walking limits, raster and output detail. Measure baseline preparation and
 retention as well as repeated scenario calls; compare process peak memory in
 separate processes with the same workload. Compression adds work to the first
 reference query; report that cost separately from repeated scenario savings.
-Reusing labels can save search work without reducing total process memory.
+The surface diagnostic `referenceBuildMs` isolates retaining the reference:
+clearing the old cache, sorting and encoding labels and edge candidates, and
+copying retained rasters. It excludes the street search, envelope construction
+and raster generation, and is zero on scenario calls. Measure first and warm
+reference builds separately, and report CPU time alongside elapsed time when
+encoding uses multiple workers. Reusing labels can save search work without
+reducing total process memory.
 
 ### Compare
 

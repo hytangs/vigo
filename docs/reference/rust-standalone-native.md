@@ -403,6 +403,7 @@ Source: `native/vigo-routing-kernel/src/street_analysis.rs`.
 | `reusedLabels` | `u32` | Always | — |
 | `reusedRaster` | `bool` | Always | — |
 | `reuseCacheBytes` | `f64` | Always | — |
+| `referenceBuildNs` | `f64` | Always | — |
 | `seedNs` | `f64` | Always | — |
 | `propagationNs` | `f64` | Always | — |
 | `envelopeNs` | `f64` | Always | — |

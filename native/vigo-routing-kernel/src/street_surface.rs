@@ -613,8 +613,11 @@ fn compute_graph<const ENDPOINTS: bool>(
     let order_started = Instant::now();
     profiles.edges.sort_unstable();
     let order_ns = order_started.elapsed().as_nanos() as f64;
+    let mut reference_build_ns = 0.0;
     if input.surface_reuse.as_deref() == Some("baseline") {
+        let reference_started = Instant::now();
         reuse.remember(&input, endpoint_seeds, &graph, &labels, &profiles);
+        reference_build_ns += reference_started.elapsed().as_nanos() as f64;
     }
     let envelope_started = Instant::now();
     let segments = profiles.envelope(&graph, &input);
@@ -814,13 +817,16 @@ fn compute_graph<const ENDPOINTS: bool>(
         }
     }
     if input.surface_reuse.as_deref() == Some("baseline") {
+        let reference_started = Instant::now();
         reuse.remember_raster(&input, &full_bounds, &values, full_values.as_deref());
+        reference_build_ns += reference_started.elapsed().as_nanos() as f64;
     }
     let packed = input.include_edges && input.edge_evidence_limit == 0;
     Ok(StreetSurfaceResult {
         reused_labels,
         reused_raster,
         reuse_cache_bytes: reuse.byte_length() as f64,
+        reference_build_ns,
         reached_pixels: values.iter().filter(|v| v.is_finite()).count() as u32,
         values,
         full_surface_values: full_values,

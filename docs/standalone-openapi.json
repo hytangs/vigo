@@ -4839,6 +4839,12 @@
               "null"
             ]
           },
+          "referenceBuildNs": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "seedNs": {
             "type": [
               "number",
@@ -5118,6 +5124,7 @@
           "reusedLabels",
           "reusedRaster",
           "reuseCacheBytes",
+          "referenceBuildNs",
           "seedNs",
           "propagationNs",
           "envelopeNs",

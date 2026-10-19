@@ -244,9 +244,6 @@ struct PathQueryState {
     /// Forward predecessors, read only for reached nodes. The source is
     /// explicitly marked INVALID_ID when each query starts.
     fwd_pred: PagedVec<u32>,
-    /// Forward search-space membership; `node_count`-sized, all `false` between
-    /// queries.
-    in_forward_search_space: PagedVec<bool>,
     /// Backward distances use the same zero-as-unreachable encoding.
     bwd_dist: PagedVec<u32>,
     /// Backward predecessors; the target is explicitly marked INVALID_ID.
@@ -260,7 +257,6 @@ impl PathQueryState {
     fn scratch_bytes(&self) -> usize {
         self.fwd_dist.byte_length() + self.fwd_pred.byte_length()
             + self.bwd_dist.byte_length() + self.bwd_pred.byte_length()
-            + self.in_forward_search_space.byte_length()
             + self.up_path.capacity() * std::mem::size_of::<u32>()
     }
 
@@ -272,7 +268,6 @@ impl PathQueryState {
             self.fwd_pred.fill(0);
             self.bwd_dist.fill(0);
             self.bwd_pred.fill(0);
-            self.in_forward_search_space.fill(false);
             self.up_path = Vec::new();
         }
     }
@@ -301,7 +296,6 @@ impl PathQueryState {
             order,
             fwd_dist: PagedVec::new(n, 0),
             fwd_pred: PagedVec::new(n, 0),
-            in_forward_search_space: PagedVec::new(n, false),
             bwd_dist: PagedVec::new(n, 0),
             bwd_pred: PagedVec::new(n, 0),
             up_path: Vec::new(),
@@ -341,7 +335,6 @@ impl PathQueryState {
         // Preserve the immutable order but release pages from earlier origins.
         self.fwd_dist.recycle(0);
         self.fwd_pred.recycle(INVALID_ID);
-        self.in_forward_search_space.recycle(false);
 
         // Hoist borrowed slices so the inner relaxation loops index plain
         // `&[u32]`s and slice each node's arc range once — letting the compiler
@@ -354,8 +347,8 @@ impl PathQueryState {
         let s = cch.rank[source as usize];
 
         // Forward sweep from s (up-arcs, forward weights). Relax along the
-        // elimination-tree ancestor chain of s, recording predecessors and
-        // marking the forward search space. Mirrors routingkit's `run()`.
+        // elimination-tree ancestor chain of s, recording predecessors.
+        // Mirrors routingkit's `run()`.
         self.fwd_dist[s as usize] = INF_WEIGHT;
         self.fwd_pred[s as usize] = INVALID_ID;
         {
@@ -363,7 +356,6 @@ impl PathQueryState {
             let fwd_pred = &mut self.fwd_pred;
             let mut x = s;
             loop {
-                self.in_forward_search_space[x as usize] = true;
                 let dx = fwd_dist[x as usize] ^ INF_WEIGHT;
                 if dx != INF_WEIGHT {
                     let from = up_first_out[x as usize] as usize;
@@ -439,10 +431,14 @@ impl PathQueryState {
                         }
                     }
                 }
-                if self.in_forward_search_space[x as usize] {
-                    let fd = self.fwd_dist[x as usize] ^ INF_WEIGHT;
+                // Every finite forward label lies on the source's ancestor
+                // chain: all CCH up-arcs point to elimination-tree ancestors.
+                // Its distance therefore certifies membership too. Untouched
+                // pages read INF, including after a different source/metric.
+                let fd = self.fwd_dist[x as usize] ^ INF_WEIGHT;
+                if fd != INF_WEIGHT {
                     let bd = bwd_dist[x as usize] ^ INF_WEIGHT;
-                    if fd != INF_WEIGHT && bd != INF_WEIGHT {
+                    if bd != INF_WEIGHT {
                         let l = fd.saturating_add(bd);
                         if l < best {
                             best = l;

@@ -72,9 +72,13 @@ function run(seeds, surfaceReuse, overrides = {}) {
   return rasterNativeStreetSurface(store, { ...common, seeds, surfaceReuse, ...overrides })
 }
 function parity(base, changed, overrides = {}, expectedReuse) {
-  run(base, 'baseline')
+  const baseline = run(base, 'baseline')
+  assert(Number.isFinite(baseline.diagnostics.referenceBuildMs))
+  assert(baseline.diagnostics.referenceBuildMs >= 0)
   const candidate = run(changed, 'scenario', overrides)
   const fresh = run(changed, undefined, overrides)
+  assert.equal(candidate.diagnostics.referenceBuildMs, 0)
+  assert.equal(fresh.diagnostics.referenceBuildMs, undefined)
   same(semantic(candidate), semantic(fresh), 'fresh/incremental')
   assert(candidate.diagnostics.reuseCacheBytes <= 32 * 1024 * 1024)
   if (expectedReuse !== undefined) assert.equal(candidate.diagnostics.reusedLabels > 0, expectedReuse)

@@ -123,6 +123,7 @@ pub struct StreetSurfaceResult {
     pub reused_labels: u32,
     pub reused_raster: bool,
     pub reuse_cache_bytes: f64,
+    pub reference_build_ns: f64,
     pub seed_ns: f64,
     pub propagation_ns: f64,
     pub envelope_ns: f64,
