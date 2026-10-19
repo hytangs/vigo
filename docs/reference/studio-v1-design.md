@@ -219,8 +219,8 @@ geometry transfer and client-side GeoJSON construction, not that initial work.
 Three behaviors differ by design:
 
 - **Full-day schedules.** Loading the full-day schedule merges every route's
-  patterns into Studio state. The GeoJSON map then began drawing all of them,
-  3 minutes 26 seconds after open for Boston. Tiles keep the overview, one line
+  patterns into Studio state. The GeoJSON map then drew all of them. Tiles
+  keep the overview, one line
   per route, at all times. Every pattern still appears when a route is focused.
 - **Headings.** A live vehicle without a reported bearing no longer takes its
   heading from the overview shape in the Network view. A focused route still
@@ -351,20 +351,41 @@ Reach raster once per result, the travel-time band canvas is capped at 1280 px
 and the Studio Engine's Reach cache is bounded
 by bytes.
 
+## Studio workspace state
+
+`src/state/` holds separate stores for navigation, City data, the service clock,
+Network, Route and Analyze. Components subscribe to selected values. The small
+`App.tsx` shell arranges workspaces; `runtime.tsx` owns background requests,
+leases and polling. Network, Route and Analyze share one map instance.
+
+The scenario persistence hook remains the single owner of City-folder writes;
+its current library is published to the scenario store. This preserves revision
+conflicts, delayed saves and cancellation when changing Cities. Routing on a
+scenario and Compare both compile the saved scenario against its timetable group.
+Older browser-only draft/group hooks are removed; existing browser drafts still
+migrate through the City library loader.
+
+`node test/check-studio-stores-runtime.mjs` exercises the real React app in
+Chromium. It checks that unrelated search updates and non-map Analyze settings
+do not render the shell or map, that workspace changes keep the map mounted,
+and that scenario edits, scenario routing and City isolation remain connected.
+These are controlled integration checks, not a full-City startup benchmark.
+
+Search ranks exact station names before service matches and collapses service
+variants. `node test/check-search-ranking.mjs` retains a public, synthetic
+station/shuttle fixture; ranking still runs in TypeScript.
+
 ## Next for V1
 
 1. **Overview in Rust.** Build the route and stop overview from the routing
    store in the kernel, removing the first-open SQLite pass in Node. Then
    consider a compact stop catalog or kernel-side search instead of the
    stop list.
-2. **A Studio state store.** Split `App.tsx` into per-workspace stores read
-   through selectors, so panels subscribe to what they show and the map stops
-   re-rendering for unrelated changes.
-3. **Vehicle positions in Rust.** Compute scheduled trajectories per service
+2. **Vehicle positions in Rust.** Compute scheduled trajectories per service
    day in the kernel; the client only interpolates.
-4. **Search in Rust.** A ranked index of stations, stops, lines and places that
-   puts "Park Street" the station first.
-5. **Reach contours in Rust.** Move marching squares and polygonization next
+3. **Search in Rust.** A ranked index of stations, stops, lines and places that
+   preserves the station-first ranking already used in Studio.
+4. **Reach contours in Rust.** Move marching squares and polygonization next
    to the raster the kernel already produces.
-6. **Finish the token migration.** Move remaining component rules to canonical
+5. **Finish the token migration.** Move remaining component rules to canonical
    tokens and retire the aliases.

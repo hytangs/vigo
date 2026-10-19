@@ -207,6 +207,7 @@ export function transitNetworkInput(project, scope) {
 export function createTransitNetworkTiles({ readProject }) {
   const registered = new Map()
   const lookups = new Map()
+  const invalidated = () => Object.assign(new Error('The City changed while loading its network. Retry with the current City.'), { statusCode: 409 })
 
   function forget(id) {
     const entry = registered.get(id)
@@ -215,8 +216,9 @@ export function createTransitNetworkTiles({ readProject }) {
     releaseNativeTransitNetwork(entry.key)
   }
 
-  async function refresh(projectId, scope, id) {
+  async function refresh(projectId, scope, id, pending) {
     const project = await readProject(projectId)
+    if (pending.canceled) throw invalidated()
     const revision = transitNetworkRevisions(project)[scope]
     if (!revision) {
       const error = new Error('This City has no transit feed with that id.')
@@ -225,8 +227,12 @@ export function createTransitNetworkTiles({ readProject }) {
     }
     const current = registered.get(id)
     if (current?.revision === revision) return current
-    const key = `${id}\u001f${revision}`
+    const key = `${id}\u001f${revision}\u001f${crypto.randomUUID()}`
     await registerNativeTransitNetwork(key, JSON.stringify(transitNetworkInput(project, scope)))
+    if (pending.canceled) {
+      releaseNativeTransitNetwork(key)
+      throw invalidated()
+    }
     forget(id)
     const entry = { key, revision }
     registered.set(id, entry)
@@ -245,10 +251,14 @@ export function createTransitNetworkTiles({ readProject }) {
     }
     let lookup = lookups.get(id)
     if (!lookup) {
-      lookup = refresh(projectId, scope, id).finally(() => lookups.delete(id))
+      lookup = { canceled: false }
+      const pending = lookup
+      lookup.promise = refresh(projectId, scope, id, pending).finally(() => {
+        if (lookups.get(id) === pending) lookups.delete(id)
+      })
       lookups.set(id, lookup)
     }
-    return lookup
+    return lookup.promise
   }
 
   return {
@@ -267,6 +277,9 @@ export function createTransitNetworkTiles({ readProject }) {
       return { bytes, current: entry.revision === requestedRevision }
     },
     invalidate(projectId) {
+      for (const [id, pending] of lookups) {
+        if (id.startsWith(`${projectId}\u001f`)) { pending.canceled = true; lookups.delete(id) }
+      }
       for (const id of [...registered.keys()]) {
         if (id.startsWith(`${projectId}\u001f`)) forget(id)
       }

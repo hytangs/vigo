@@ -1,11 +1,43 @@
 import { liveVehicleDiagnostics, type MapScope } from './presentation'
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { OperationalEvent } from '../../agency/types'
+import { usePlaceNames } from '../../app/usePlaceNames'
 import { apiJson } from '../../app/api'
 import { buildCityPreviewLod } from '../../app/cityPreview'
+import { routeHasCompleteGtfsAnalysis } from '../../app/gtfsAnalysis'
 import { networkRouteId } from '../../app/networkSelection'
+import { countRender } from '../../app/renderCounts'
 import { type RoutingActivity } from '../../app/routingPlan'
+import { shallowEqual, useStore } from '../../app/store'
+import {
+  analysisPointFromMap,
+  analyze,
+  emptyScenarioStops,
+  moveScenarioStopFromMap,
+  scenarioPointPicking,
+  scenarioSketchGeometry,
+  scenarioSketchStops,
+} from '../../state/analyze'
+import { city } from '../../state/city'
+import { changeServiceDate, clock, setScheduleTime } from '../../state/clock'
+import { useStudio, useStudioRecord } from '../../state/hooks'
+import {
+  changeMapScopeFromMap,
+  changeVehicleMode,
+  focusedMapPreview,
+  network,
+  openAgencyTrip,
+  selectedRoute as selectedNetworkRoute,
+  selectedStop as selectedNetworkStop,
+  selectRouteFromMap,
+  selectStopFromMap,
+  workbenchMapPreview,
+} from '../../state/network'
+import { route, routingActivity, routingPlan, routingPointFromMap, routingDetailOpen } from '../../state/route'
+import { activeFeed, preview, selectedProject } from '../../state/scope'
+import { shell } from '../../state/shell'
+import { ReachPointInspector } from '../ReachPointInspector'
 import {
   classNames,
   formatNumber,
@@ -114,7 +146,7 @@ function ReachLegend({ result, cutoffMinutes, view }: { result: ReachResult; cut
 
 const emptyVehicleFrame: ServiceVehicleFrame = { mode: 'schedule', vehicles: [], tripUpdateCount: 0, alertCount: 0 }
 
-export function RouteSurface({
+export function RouteSurfaceView({
   onOpenTrip,
   operationalEvents,
   agencyFocus,
@@ -435,3 +467,156 @@ export function RouteSurface({
     </section>
   )
 }
+
+const noRoutingPoints: RoutingPoint[] = []
+const noCoordinates: [number, number][] = []
+
+/** The map's on-map Reach hint and the clicked point's journey. */
+const ReachInspectorOverlay = memo(function ReachInspectorOverlay() {
+  const inspection = useStore(analyze, (state) => state.inspection)
+  const pointPicking = useStudio(scenarioPointPicking)
+  if (!inspection) return null
+  return (
+    <>
+      {!inspection.point && inspection.sources.length > 0 && !pointPicking
+        ? <div className="reach-map-hint">Click a place to see travel time and the journey</div> : null}
+      <ReachPointInspector inspection={inspection} />
+    </>
+  )
+})
+
+/**
+ * The persistent Studio map for Network, Route and Analyze. It reads the
+ * slices it draws; its map canvas re-renders only for map inputs.
+ */
+export const RouteSurface = memo(function RouteSurface() {
+  countRender('RouteSurface')
+  const tool = useStore(shell, (state) => state.activeRouteTool)
+  const appearance = useStore(shell, (state) => state.appearance)
+  const basemap = useStore(shell, (state) => state.basemap)
+  const agencyFocus = tool === 'agency'
+  const routingFocus = tool === 'pathfinder'
+  const analysisFocus = tool === 'analyze'
+  const networkState = useStore(network, (state) => ({
+    layers: state.layers,
+    mapScope: state.mapScope,
+    networkLens: state.networkLens,
+    vehicleMode: state.vehicleMode,
+    realtimeSnapshot: state.realtimeSnapshot,
+    operationalEvents: state.operationalEvents,
+    agencyLocation: state.agencyLocation,
+    scheduleLoadStatus: state.scheduleLoadStatus,
+    selectedStopId: state.selectedStopId,
+  }), shallowEqual)
+  const { scheduleTimeMinutes, serviceDate } = useStore(clock, (state) => state, shallowEqual)
+  const project = useStudioRecord(() => {
+    const current = selectedProject()
+    return {
+      id: current.id,
+      localBasemapAvailable: current.osmStreetIndex?.status === 'ready',
+      localBasemapRevision: current.osmStreetIndex?.builtAt,
+    }
+  })
+  const page = useStore(shell, state => state.page)
+  const nameMapPoint = usePlaceNames(project.id, page === 'project')
+  const namedMapPoint = (point: RoutingPoint) => nameMapPoint(point, named => {
+    const currentTool = shell.get().activeRouteTool
+    if (currentTool === 'analyze') analysisPointFromMap(named)
+    else if (currentTool === 'pathfinder') routingPointFromMap(named)
+  })
+  const detailOpen = useStudio(routingDetailOpen)
+  const scopeTiles = useStudio(() => selectedProject().networkTiles?.[activeFeed().id])
+  const feed = useStudio(activeFeed)
+  const networkTiles = useMemo(() => scopeTiles ? { scope: feed.id, ...scopeTiles } : undefined, [feed.id, scopeTiles])
+  const focusedPreview = useStudio(focusedMapPreview)
+  const visiblePreview = useStudio(workbenchMapPreview)
+  const focusRoute = useStudio(selectedNetworkRoute)
+  const focusStopId = useStudio(() => selectedNetworkStop()?.id ?? '')
+  const routeDetailStatus = useStudio(() => {
+    const current = selectedNetworkRoute()
+    return current && routeHasCompleteGtfsAnalysis(current, preview(), clock.get().serviceDate)
+      ? 'All route patterns'
+      : network.get().routeAnalysisError ? 'Route detail unavailable · overview only' : 'Loading full route…'
+  })
+  const journey = useStore(route, (state) => ({
+    routingEnabled: state.routingEnabled,
+    routingOrigin: state.routingOrigin,
+    routingWaypoints: state.routingWaypoints,
+    routingDestination: state.routingDestination,
+  }), shallowEqual)
+  const plan = useStudio(routingPlan)
+  const activity = useStudio(routingActivity)
+  const reach = useStore(analyze, (state) => ({
+    analysisOrigin: state.analysisOrigin,
+    reachResult: state.reachResult,
+    serviceDecomposition: state.serviceDecomposition,
+    scenarioView: state.scenarioView,
+    scenarioRenderMode: state.scenarioRenderMode,
+    scenarioCutoffMinutes: state.scenarioCutoffMinutes,
+  }), shallowEqual)
+  const inspectionPoint = useStore(analyze, (state) => state.inspection?.point ?? null)
+  const inspectionPlan = useStore(analyze, (state) => state.inspection?.plan ?? null)
+  const inspectReachPoint = useStore(analyze, (state) => state.inspection?.sources.length ? state.inspection.inspect : undefined)
+  const sketchStops = useStudio(scenarioSketchStops)
+  const sketchGeometry = useStudio(scenarioSketchGeometry)
+  const pointPicking = useStudio(scenarioPointPicking)
+  const cityPreviewLoading = useStore(city, (state) => Boolean(state.cityPreviewLoadingProjectId))
+
+  return (
+    <RouteSurfaceView
+      onOpenTrip={openAgencyTrip}
+      operationalEvents={agencyFocus ? networkState.operationalEvents : undefined}
+      agencyFocus={agencyFocus}
+      scheduleLoadStatus={networkState.scheduleLoadStatus}
+      agencyLocation={networkState.agencyLocation}
+      routeDetailStatus={routeDetailStatus}
+      projectId={project.id}
+      networkTiles={networkTiles}
+      occlusionKey={detailOpen ? 'journey' : ''}
+      feed={feed}
+      focusedPreview={focusedPreview}
+      visiblePreview={visiblePreview}
+      selectedRoute={focusRoute}
+      mapScope={networkState.mapScope}
+      networkLens={networkState.networkLens}
+      layers={networkState.layers}
+      appearance={appearance}
+      basemap={basemap}
+      localBasemapAvailable={project.localBasemapAvailable}
+      localBasemapRevision={project.localBasemapRevision}
+      selectedRouteId={focusRoute?.id ?? ''}
+      selectedStopId={agencyFocus ? networkState.selectedStopId : focusStopId}
+      realtimeSnapshot={networkState.realtimeSnapshot}
+      vehicleMode={networkState.vehicleMode}
+      scheduleTimeMinutes={scheduleTimeMinutes}
+      scheduleServiceDate={serviceDate}
+      routingEnabled={routingFocus && journey.routingEnabled}
+      routingOrigin={agencyFocus ? null : analysisFocus ? reach.analysisOrigin : journey.routingOrigin}
+      routingWaypoints={agencyFocus || analysisFocus ? noRoutingPoints : journey.routingWaypoints}
+      routingDestination={agencyFocus ? null : analysisFocus ? inspectionPoint : journey.routingDestination}
+      routingPlan={agencyFocus ? null : analysisFocus ? inspectionPlan : plan}
+      routingFocus={routingFocus}
+      analysisFocus={analysisFocus}
+      analysisInspector={analysisFocus ? <ReachInspectorOverlay /> : undefined}
+      onInspectReachPoint={analysisFocus ? inspectReachPoint : undefined}
+      reachResult={analysisFocus ? reach.reachResult : null}
+      serviceDecomposition={analysisFocus ? reach.serviceDecomposition : null}
+      scenarioView={reach.scenarioView}
+      scenarioRenderMode={reach.scenarioRenderMode}
+      scenarioCutoffMinutes={reach.scenarioCutoffMinutes}
+      scenarioSketchStops={analysisFocus ? sketchStops : emptyScenarioStops}
+      scenarioSketchGeometry={analysisFocus ? sketchGeometry : noCoordinates}
+      scenarioPointPicking={pointPicking}
+      onMoveScenarioStop={analysisFocus ? moveScenarioStopFromMap : undefined}
+      routingActivity={activity}
+      cityPreviewLoading={cityPreviewLoading}
+      onMapScopeChange={changeMapScopeFromMap}
+      onVehicleModeChange={changeVehicleMode}
+      onScheduleTimeChange={setScheduleTime}
+      onScheduleServiceDateChange={changeServiceDate}
+      onRoutingPoint={agencyFocus ? undefined : namedMapPoint}
+      onSelectRoute={selectRouteFromMap}
+      onSelectStop={selectStopFromMap}
+    />
+  )
+})

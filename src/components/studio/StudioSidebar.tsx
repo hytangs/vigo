@@ -1,11 +1,13 @@
 import { feedIdentity, liveVehicleDiagnostics, quietMapLabel, type MapScope } from './presentation'
 
 import { Clock3, Database, MapPin, Radio, Server, TableProperties } from 'lucide-react'
-import { useMemo, type ReactNode } from 'react'
+import { memo, useMemo } from 'react'
 import { buildCityPreviewLod } from '../../app/cityPreview'
 import { previewForSelectedRoute } from '../../app/mapPresentation'
 import { formatBytes } from '../../app/presentation'
 import { bundleFeedId, hasOperationsData, orderedProjects } from '../../app/projectState'
+import { countRender } from '../../app/renderCounts'
+import { shallowEqual, useStore } from '../../app/store'
 import { basemapOptions, networkLensOptions, schedulePresets } from '../../app/uiOptions'
 import {
   basemapLabels,
@@ -28,176 +30,85 @@ import {
   scheduledVehicleDiagnostics,
   scheduledVehiclesAtTime,
 } from '../../scheduledVehicles'
-import { type ServiceVehicleMode } from '../../serviceVehicles'
-import { SidebarPathfinderBox, type SidebarPathfinderBoxProps } from '../PathfinderPanel'
-import { PrimaryNav, type RouteToolKey } from '../PrimaryNav'
-
-export function VigoSidebar({
-  page,
-  projects,
-  selectedProject,
-  activeFeed,
-  activeFeedId,
-  activeRouteTool,
-  analysisPanel,
-  visiblePreview,
-  selectedRoute,
-  mapScope,
-  networkLens,
-  basemap,
-  scheduleTimeMinutes,
-  scheduleServiceDate,
-  routingEnabled,
-  routingOrigin,
-  routingWaypoints,
-  routingDestination,
-  routingPlan,
-  routingChoices,
-  routingScopeStatus,
-  routingStoreReady,
-  routingStoreFeedCount,
-  routingStoreStored,
-  routingStoreStoredFeedCount,
-  routingStoreTripCount,
-  routingStoreConnectionCount,
-  routingTimePreference,
-  routingMode,
-  routingDataMode,
-  routingNetwork,
-  routingDepartureWindowMinutes,
-  routingMaxWalkKm,
-  routingMaxTransfers,
-  routingAllowLongWalk,
-  routingAllowStreetTransfers,
-  routingMinimumTransferBufferMinutes,
+import { city } from '../../state/city'
+import { changeServiceDate, clock, setScheduleTime } from '../../state/clock'
+import { useStudio, useStudioRecord } from '../../state/hooks'
+import {
+  openAnalyzeView,
+  openDataView,
+  openNetworkView,
+  openPathfinderView,
+  openProject,
+  openSettingsView,
+  selectFeed,
+} from '../../state/navigation'
+import { network, openLiveVehicles, selectedRoute, selectNetworkLens, setMapScope } from '../../state/network'
+import {
+  changeRoutingDataMode,
+  changeRoutingDepartureWindow,
+  changeRoutingMaxWalkKm,
+  changeRoutingMode,
+  changeRoutingTimePreference,
+  clearRouting,
+  pickRoutingPoint,
+  reorderRoutingPoints,
+  rerunRouting,
+  route,
   routingActivity,
-  routingAlternativesLoading,
-  routingServiceDate,
-  routingServiceCoverage,
-  routingServiceDateAvailability,
-  routingServiceDateOptions,
-  routingPointError,
-  storeBackedRouting,
-  osmStreetMessage,
-  realtimeSnapshot,
-  vehicleMode,
-  hasActiveData,
-  onOpenProject,
-  onSelectFeed,
-  onOpenFeed,
-  onOpenNetwork,
-  onOpenRouting,
-  onOpenAnalyze,
-  onOpenSettings,
-  onOpenLive,
-  onMapScopeChange,
-  onNetworkLensChange,
-  onBasemapChange,
-  onScheduleTimeChange,
-  onScheduleServiceDateChange,
-  onRunRouting,
-  onPickRoutingPoint,
-  routingPickIndex,
-  onReorderRoutingPoints,
-  onRoutingTimePreferenceChange,
-  onRoutingModeChange,
-  onRoutingDataModeChange,
-  onRoutingDepartureWindowChange,
-  onRoutingMaxWalkKmChange,
-  onRoutingMaxTransfersChange,
-  onRoutingAllowLongWalkChange,
-  onRoutingAllowStreetTransfersChange,
-  onRoutingMinimumTransferBufferChange,
-  onRoutingServiceDateChange,
-  onSelectRoutingPlan,
-  onToggleRouting,
-  onClearRouting,
-}: {
-  page: 'projects' | 'project'
-  projects: VigoProject[]
-  selectedProject: VigoProject
-  activeFeed: FeedSummary
-  activeFeedId: string
-  activeRouteTool: RouteToolKey
-  analysisPanel?: ReactNode
-  visiblePreview: MapPreview
-  selectedRoute?: RouteMetric
-  mapScope: MapScope
-  networkLens: NetworkLens
-  basemap: Basemap
-  scheduleServiceDate: string
-  routingStoreStored: boolean
-  routingStoreStoredFeedCount: number
-  routingStoreFeedCount: number
-  routingStoreTripCount: number
-  routingStoreConnectionCount: number
-  osmStreetMessage: string
-  realtimeSnapshot: RealtimeSnapshot | null
-  vehicleMode: ServiceVehicleMode
-  hasActiveData: boolean
-  onOpenProject: (id: string) => void
-  onSelectFeed: (id: string) => void
-  onOpenFeed: () => void
-  onOpenNetwork: () => void
-  onOpenRouting: () => void
-  onOpenAnalyze: () => void
-  onOpenSettings: () => void
-  onOpenLive: () => void
-  onMapScopeChange: (scope: MapScope) => void
-  onNetworkLensChange: (lens: NetworkLens) => void
-  onBasemapChange: (basemap: Basemap) => void
-  onScheduleServiceDateChange: (serviceDate: string) => void
-} & Pick<SidebarPathfinderBoxProps,
-  | 'routingEnabled'
-  | 'routingOrigin'
-  | 'routingWaypoints'
-  | 'routingDestination'
-  | 'routingPlan'
-  | 'routingChoices'
-  | 'routingScopeStatus'
-  | 'routingStoreReady'
-  | 'routingTimePreference'
-  | 'routingMode'
-  | 'routingDataMode'
-  | 'routingNetwork'
-  | 'routingDepartureWindowMinutes'
-  | 'routingMaxWalkKm'
-  | 'routingMaxTransfers'
-  | 'routingAllowLongWalk'
-  | 'routingAllowStreetTransfers'
-  | 'routingMinimumTransferBufferMinutes'
-  | 'routingActivity'
-  | 'routingAlternativesLoading'
-  | 'routingServiceDate'
-  | 'routingServiceCoverage'
-  | 'routingServiceDateAvailability'
-  | 'routingServiceDateOptions'
-  | 'routingPointError'
-  | 'storeBackedRouting'
-  | 'scheduleTimeMinutes'
-  | 'onRunRouting'
-  | 'onPickRoutingPoint'
-  | 'routingPickIndex'
-  | 'onReorderRoutingPoints'
-  | 'onOpenFeed'
-  | 'onScheduleTimeChange'
-  | 'onRoutingTimePreferenceChange'
-  | 'onRoutingModeChange'
-  | 'onRoutingDataModeChange'
-  | 'onRoutingDepartureWindowChange'
-  | 'onRoutingMaxWalkKmChange'
-  | 'onRoutingMaxTransfersChange'
-  | 'onRoutingAllowLongWalkChange'
-  | 'onRoutingAllowStreetTransfersChange'
-  | 'onRoutingMinimumTransferBufferChange'
-  | 'onRoutingServiceDateChange'
-  | 'onSelectRoutingPlan'
-  | 'onToggleRouting'
-  | 'onClearRouting'
->) {
+  routingPlan,
+  routingNetwork,
+  selectRoutingPlan,
+  setRoutingAllowLongWalk,
+  setRoutingAllowStreetTransfers,
+  setRoutingMaxTransfers,
+  setRoutingMinimumTransferBuffer,
+  toggleRouting,
+} from '../../state/route'
+import { activeFeed, hasActiveOperationsData, routingScope, selectedProject, visiblePreview } from '../../state/scope'
+import { changeBasemap, shell } from '../../state/shell'
+import { AnalyzePanel } from '../AnalyzePanel'
+import { SidebarPathfinderBox } from '../PathfinderPanel'
+import { PrimaryNav } from '../PrimaryNav'
+
+/** The workspace rail; `hasActiveData` enables Network, Route and Analyze. */
+export const StudioRail = memo(function StudioRail({ hasActiveData }: { hasActiveData: boolean }) {
+  const page = useStore(shell, (state) => state.page)
+  const activeRouteTool = useStore(shell, (state) => state.activeRouteTool)
+  return (
+    <PrimaryNav
+      page={page}
+      activeRouteTool={activeRouteTool}
+      hasActiveData={hasActiveData}
+      onOpenNetwork={openNetworkView}
+      onOpenRouting={openPathfinderView}
+      onOpenAnalyze={openAnalyzeView}
+      onOpenSettings={openSettingsView}
+    />
+  )
+})
+
+/** The workspace sidebar: the rail and the active workspace's panel. */
+export const VigoSidebar = memo(function VigoSidebar() {
+  countRender('VigoSidebar')
+  const page = useStore(shell, (state) => state.page)
+  const activeRouteTool = useStore(shell, (state) => state.activeRouteTool)
+  const hasActiveData = useStudio(hasActiveOperationsData)
+  const projectCount = useStore(city, (state) => state.projects.length)
   const isDataPanel = page === 'project' && activeRouteTool === 'data'
   const isPathfinderPanel = page === 'project' && activeRouteTool === 'pathfinder'
   const isAnalyzePanel = page === 'project' && activeRouteTool === 'analyze'
+  const scopeLabel = useStudio(() => city.get().activeFeedId === bundleFeedId
+    ? quietMapLabel(selectedProject().name)
+    : quietMapLabel(activeFeed().name))
+  const projectName = useStudio(() => selectedProject().name)
+  const networkIndexState = useStudio(() => {
+    const scope = routingScope()
+    return route.get().engine.ready
+      ? 'SQLite service model open'
+      : scope.routingStoreStored
+        ? `${scope.routingStoreStoredFeedCount}/${Math.max(1, scope.routingStoreFeedCount)} local service stores ready`
+        : `${scope.routingStoreStoredFeedCount}/${Math.max(1, scope.routingStoreFeedCount)} local service stores indexed`
+  })
   const queryWorkspace = isPathfinderPanel || isAnalyzePanel
   const panelTitle = page === 'projects'
     ? 'Cities'
@@ -209,98 +120,29 @@ export function VigoSidebar({
           ? 'Route'
           : 'Network'
   const panelSubtitle = page === 'projects'
-    ? `${projects.length} Cities`
+    ? `${projectCount} Cities`
     : isPathfinderPanel
       ? ''
     : isAnalyzePanel
       ? ''
     : hasActiveData
-      ? activeFeedId === bundleFeedId
-        ? quietMapLabel(selectedProject.name)
-        : quietMapLabel(activeFeed.name)
-      : `${selectedProject.name} needs an indexed GTFS feed`
-  const routeFocusActive = mapScope === 'route' && Boolean(selectedRoute)
-  const networkPreview = useMemo(() => buildCityPreviewLod(visiblePreview), [visiblePreview])
-  const scopedMapPreview = routeFocusActive ? previewForSelectedRoute(visiblePreview, selectedRoute) : networkPreview
-  const scopedPerformanceProfile = useMemo(
-    () => buildNetworkPerformanceProfile(scopedMapPreview, { precise: routeFocusActive }),
-    [routeFocusActive, scopedMapPreview],
-  )
-  const liveVehicleCount = realtimePositionCount(realtimeSnapshot)
-  const renderingLive = vehicleMode === 'live'
-  const scheduleProjectionEnabled = hasActiveData && isDataPanel && vehicleMode === 'schedule'
-  const scheduledVehicles = useMemo(
-    () => scheduleProjectionEnabled
-      ? scheduledVehiclesAtTime(scopedMapPreview, scheduleTimeMinutes, scheduleServiceDate)
-      : [],
-    [scheduleProjectionEnabled, scopedMapPreview, scheduleServiceDate, scheduleTimeMinutes],
-  )
-  const scheduleDiagnostics = useMemo(
-    () => renderingLive
-      ? liveVehicleDiagnostics(liveVehicleCount, realtimeSnapshot !== null)
-      : scheduleProjectionEnabled
-        ? scheduledVehicleDiagnostics(scopedMapPreview, scheduledVehicles, scheduleTimeMinutes, scheduleServiceDate)
-        : liveVehicleDiagnostics(0),
-    [liveVehicleCount, realtimeSnapshot, renderingLive, scheduleProjectionEnabled, scopedMapPreview, scheduleServiceDate, scheduleTimeMinutes, scheduledVehicles],
-  )
-  const lensInsight = buildNetworkLensInsight(activeFeed, visiblePreview, networkLens)
-  const networkIndexState = routingStoreReady
-    ? 'SQLite service model open'
-    : routingStoreStored
-      ? `${routingStoreStoredFeedCount}/${Math.max(1, routingStoreFeedCount)} local service stores ready`
-      : `${routingStoreStoredFeedCount}/${Math.max(1, routingStoreFeedCount)} local service stores indexed`
-  const panelContextLine = isPathfinderPanel
-    ? ''
-    : isAnalyzePanel
-      ? ''
-      : isDataPanel
-        ? networkIndexState
-        : ''
+      ? scopeLabel
+      : `${projectName} needs an indexed GTFS feed`
+  const panelContextLine = isDataPanel ? networkIndexState : ''
 
   return (
     <aside className="app-sidebar" aria-label="City navigation">
-      <PrimaryNav
-        page={page}
-        activeRouteTool={activeRouteTool}
-        hasActiveData={hasActiveData}
-        onOpenNetwork={onOpenNetwork}
-        onOpenRouting={onOpenRouting}
-        onOpenAnalyze={onOpenAnalyze}
-        onOpenSettings={onOpenSettings}
-      />
-      <section className={classNames('sidebar-panel', page === 'project' && `is-${activeRouteTool}`)} aria-label={queryWorkspace ? panelTitle : 'City panel'} data-map-occluder="">
-        {/* Route and Analyze are named by the top bar; the panel starts with the task itself. */}
-        {queryWorkspace ? null : (
-          <div className="sidebar-panel-head">
-            <div className="sidebar-panel-title">
-              <h1 className="studio-page-title">{panelTitle}</h1>
-            </div>
+      <StudioRail hasActiveData={hasActiveData} />
+      <section className={classNames('sidebar-panel', page === 'project' && `is-${activeRouteTool}`)} aria-label="City panel" data-map-occluder>
+        {!queryWorkspace && <div className="sidebar-panel-head">
+          <div className="sidebar-panel-title">
+            <h1 className="studio-page-title">{panelTitle}</h1>
             {panelSubtitle ? <p>{panelSubtitle}</p> : null}
             {panelContextLine ? <span className="sidebar-context-line">{panelContextLine}</span> : null}
           </div>
-        )}
+        </div>}
 
-        {page === 'projects' ? (
-          <div className="sidebar-section">
-            <div className="sidebar-section-title">
-              <strong>Cities</strong>
-              <span>{projects.length}</span>
-            </div>
-            <div className="sidebar-list">
-              {orderedProjects(projects).slice(0, 8).map((project) => (
-                <button
-                  key={project.id}
-                  type="button"
-                  className={classNames('sidebar-list-row', project.id === selectedProject.id && 'is-selected', !hasOperationsData(project) && 'is-empty')}
-                  onClick={() => onOpenProject(project.id)}
-                >
-                  <strong>{project.name}</strong>
-                  <span>{formatNumber(project.summary.feeds)} feeds / {formatNumber(project.summary.routes)} routes</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : (
+        {page === 'projects' ? <SidebarCityList /> : (
           <>
             {!hasActiveData ? (
               <div className="sidebar-section">
@@ -310,134 +152,241 @@ export function VigoSidebar({
                 </div>
               </div>
             ) : null}
-
-            {hasActiveData && isDataPanel ? (
-              <div className="sidebar-section">
-                <div className="sidebar-section-title">
-                  <strong>Feeds</strong>
-                  <span>{activeFeed.source === 'bundle' ? `${selectedProject.feeds.length} feeds` : 'Scoped'}</span>
-                </div>
-                <div className="sidebar-list">
-                  <button
-                    type="button"
-                    className={classNames('sidebar-list-row', activeFeedId === bundleFeedId && 'is-selected')}
-                    onClick={() => onSelectFeed(bundleFeedId)}
-                  >
-                    <strong>All feeds</strong>
-                    <span>{selectedProject.feeds.length} feed{selectedProject.feeds.length === 1 ? '' : 's'} in {quietMapLabel(selectedProject.name)}</span>
-                  </button>
-                  {selectedProject.feeds.slice(0, 7).map((feed) => {
-                    const identity = feedIdentity(selectedProject.feeds, feed)
-                    return (
-                      <button
-                        key={feed.id}
-                        type="button"
-                        className={classNames('sidebar-list-row feed-scope-row', activeFeedId === feed.id && 'is-selected')}
-                        onClick={() => onSelectFeed(feed.id)}
-                      >
-                        <strong>{feed.name}</strong>
-                        <span>{identity.detail}</span>
-                        <small>{identity.chip}</small>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            ) : null}
-
-            {hasActiveData && isDataPanel ? (
-              <SidebarNetworkStatusBox
-                project={selectedProject}
-                feed={activeFeed}
-                preview={visiblePreview}
-                routingStoreReady={routingStoreReady}
-                routingStoreFeedCount={routingStoreFeedCount}
-                routingStoreStored={routingStoreStored}
-                routingStoreStoredFeedCount={routingStoreStoredFeedCount}
-                routingStoreTripCount={routingStoreTripCount}
-                routingStoreConnectionCount={routingStoreConnectionCount}
-                osmStreetMessage={osmStreetMessage}
-              />
-            ) : null}
-
-            {hasActiveData && isDataPanel ? (
-              <SidebarNetworkBox
-                mapScope={mapScope}
-                networkLens={networkLens}
-                basemap={basemap}
-                scheduleTimeMinutes={scheduleTimeMinutes}
-                scheduleServiceDate={scheduleServiceDate}
-                scheduleDiagnostics={scheduleDiagnostics}
-                scheduleEndMinutes={scheduledServiceEndMinutes(scopedMapPreview, scheduleServiceDate)}
-                lensInsight={lensInsight}
-                performanceProfile={scopedPerformanceProfile}
-                livePositionCount={realtimePositionCount(realtimeSnapshot)}
-                realtimeSnapshot={realtimeSnapshot}
-                onMapScopeChange={onMapScopeChange}
-                onNetworkLensChange={onNetworkLensChange}
-                onBasemapChange={onBasemapChange}
-                onScheduleTimeChange={onScheduleTimeChange}
-                onScheduleServiceDateChange={onScheduleServiceDateChange}
-                onOpenLive={onOpenLive}
-              />
-            ) : null}
-
-            {hasActiveData && isPathfinderPanel ? (
-              <SidebarPathfinderBox
-                routingEnabled={routingEnabled}
-                routingOrigin={routingOrigin}
-                routingWaypoints={routingWaypoints}
-                routingDestination={routingDestination}
-                routingPlan={routingPlan}
-                routingChoices={routingChoices}
-                routingScopeStatus={routingScopeStatus}
-                routingStoreReady={routingStoreReady}
-                routingTimePreference={routingTimePreference}
-                routingMode={routingMode}
-                routingDataMode={routingDataMode}
-                routingNetwork={routingNetwork}
-                routingDepartureWindowMinutes={routingDepartureWindowMinutes}
-                routingMaxWalkKm={routingMaxWalkKm}
-                routingMaxTransfers={routingMaxTransfers}
-                routingAllowLongWalk={routingAllowLongWalk}
-                routingAllowStreetTransfers={routingAllowStreetTransfers}
-                routingMinimumTransferBufferMinutes={routingMinimumTransferBufferMinutes}
-                routingActivity={routingActivity}
-                routingAlternativesLoading={routingAlternativesLoading}
-                routingServiceDate={routingServiceDate}
-                routingServiceCoverage={routingServiceCoverage}
-                routingServiceDateAvailability={routingServiceDateAvailability}
-                routingServiceDateOptions={routingServiceDateOptions}
-                routingPointError={routingPointError}
-                storeBackedRouting={storeBackedRouting}
-                scheduleTimeMinutes={scheduleTimeMinutes}
-                onRunRouting={onRunRouting}
-                onPickRoutingPoint={onPickRoutingPoint}
-                routingPickIndex={routingPickIndex}
-                onReorderRoutingPoints={onReorderRoutingPoints}
-                onOpenFeed={onOpenFeed}
-                onScheduleTimeChange={onScheduleTimeChange}
-                onRoutingTimePreferenceChange={onRoutingTimePreferenceChange}
-                onRoutingModeChange={onRoutingModeChange}
-                onRoutingDataModeChange={onRoutingDataModeChange}
-                onRoutingDepartureWindowChange={onRoutingDepartureWindowChange}
-                onRoutingMaxWalkKmChange={onRoutingMaxWalkKmChange}
-                onRoutingMaxTransfersChange={onRoutingMaxTransfersChange}
-                onRoutingAllowLongWalkChange={onRoutingAllowLongWalkChange}
-                onRoutingAllowStreetTransfersChange={onRoutingAllowStreetTransfersChange}
-                onRoutingMinimumTransferBufferChange={onRoutingMinimumTransferBufferChange}
-                onRoutingServiceDateChange={onRoutingServiceDateChange}
-                onSelectRoutingPlan={onSelectRoutingPlan}
-                onToggleRouting={onToggleRouting}
-                onClearRouting={onClearRouting}
-              />
-            ) : null}
-
-            {hasActiveData && isAnalyzePanel ? analysisPanel : null}
+            {hasActiveData && isDataPanel ? <SidebarFeedScope /> : null}
+            {hasActiveData && isDataPanel ? <SidebarNetworkStatus /> : null}
+            {hasActiveData && isDataPanel ? <SidebarNetworkControls /> : null}
+            {hasActiveData && isPathfinderPanel ? <SidebarRouteBox /> : null}
+            {hasActiveData && isAnalyzePanel ? <AnalyzePanel /> : null}
           </>
         )}
       </section>
     </aside>
+  )
+})
+
+function SidebarCityList() {
+  const projects = useStore(city, (state) => state.projects)
+  const selectedProjectId = useStudio(() => selectedProject().id)
+  return (
+    <div className="sidebar-section">
+      <div className="sidebar-section-title">
+        <strong>Cities</strong>
+        <span>{projects.length}</span>
+      </div>
+      <div className="sidebar-list">
+        {orderedProjects(projects).slice(0, 8).map((project) => (
+          <button
+            key={project.id}
+            type="button"
+            className={classNames('sidebar-list-row', project.id === selectedProjectId && 'is-selected', !hasOperationsData(project) && 'is-empty')}
+            onClick={() => openProject(project.id)}
+          >
+            <strong>{project.name}</strong>
+            <span>{formatNumber(project.summary.feeds)} feeds / {formatNumber(project.summary.routes)} routes</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function SidebarFeedScope() {
+  const project = useStudio(selectedProject)
+  const feed = useStudio(activeFeed)
+  const activeFeedId = useStore(city, (state) => state.activeFeedId)
+  return (
+    <div className="sidebar-section">
+      <div className="sidebar-section-title">
+        <strong>Feeds</strong>
+        <span>{feed.source === 'bundle' ? `${project.feeds.length} feeds` : 'Scoped'}</span>
+      </div>
+      <div className="sidebar-list">
+        <button
+          type="button"
+          className={classNames('sidebar-list-row', activeFeedId === bundleFeedId && 'is-selected')}
+          onClick={() => selectFeed(bundleFeedId)}
+        >
+          <strong>All feeds</strong>
+          <span>{project.feeds.length} feed{project.feeds.length === 1 ? '' : 's'} in {quietMapLabel(project.name)}</span>
+        </button>
+        {project.feeds.slice(0, 7).map((entry) => {
+          const identity = feedIdentity(project.feeds, entry)
+          return (
+            <button
+              key={entry.id}
+              type="button"
+              className={classNames('sidebar-list-row feed-scope-row', activeFeedId === entry.id && 'is-selected')}
+              onClick={() => selectFeed(entry.id)}
+            >
+              <strong>{entry.name}</strong>
+              <span>{identity.detail}</span>
+              <small>{identity.chip}</small>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function SidebarNetworkStatus() {
+  const project = useStudio(selectedProject)
+  const feed = useStudio(activeFeed)
+  const preview = useStudio(visiblePreview)
+  const scope = useStudio(routingScope)
+  const routingStoreReady = useStore(route, (state) => state.engine.ready)
+  const osmStreetMessage = useStore(city, (state) => state.osmStreetMessage)
+  return (
+    <SidebarNetworkStatusBox
+      project={project}
+      feed={feed}
+      preview={preview}
+      routingStoreReady={routingStoreReady}
+      routingStoreFeedCount={scope.routingStoreFeedCount}
+      routingStoreStored={scope.routingStoreStored}
+      routingStoreStoredFeedCount={scope.routingStoreStoredFeedCount}
+      routingStoreTripCount={scope.routingStoreTripCount}
+      routingStoreConnectionCount={scope.routingStoreConnectionCount}
+      osmStreetMessage={osmStreetMessage}
+    />
+  )
+}
+
+function SidebarNetworkControls() {
+  const feed = useStudio(activeFeed)
+  const preview = useStudio(visiblePreview)
+  const focusRoute = useStudio(selectedRoute)
+  const { mapScope, networkLens, vehicleMode, realtimeSnapshot } = useStore(network, (state) => ({
+    mapScope: state.mapScope,
+    networkLens: state.networkLens,
+    vehicleMode: state.vehicleMode,
+    realtimeSnapshot: state.realtimeSnapshot,
+  }), shallowEqual)
+  const basemap = useStore(shell, (state) => state.basemap)
+  const { scheduleTimeMinutes, serviceDate } = useStore(clock, (state) => state, shallowEqual)
+  const routeFocusActive = mapScope === 'route' && Boolean(focusRoute)
+  const networkPreview = useMemo(() => buildCityPreviewLod(preview), [preview])
+  const scopedMapPreview = routeFocusActive ? previewForSelectedRoute(preview, focusRoute) : networkPreview
+  const performanceProfile = useMemo(
+    () => buildNetworkPerformanceProfile(scopedMapPreview, { precise: routeFocusActive }),
+    [routeFocusActive, scopedMapPreview],
+  )
+  const liveVehicleCount = realtimePositionCount(realtimeSnapshot)
+  const renderingLive = vehicleMode === 'live'
+  const scheduleProjectionEnabled = vehicleMode === 'schedule'
+  const scheduledVehicles = useMemo(
+    () => scheduleProjectionEnabled
+      ? scheduledVehiclesAtTime(scopedMapPreview, scheduleTimeMinutes, serviceDate)
+      : [],
+    [scheduleProjectionEnabled, scopedMapPreview, serviceDate, scheduleTimeMinutes],
+  )
+  const scheduleDiagnostics = useMemo(
+    () => renderingLive
+      ? liveVehicleDiagnostics(liveVehicleCount, realtimeSnapshot !== null)
+      : scheduleProjectionEnabled
+        ? scheduledVehicleDiagnostics(scopedMapPreview, scheduledVehicles, scheduleTimeMinutes, serviceDate)
+        : liveVehicleDiagnostics(0),
+    [liveVehicleCount, realtimeSnapshot, renderingLive, scheduleProjectionEnabled, scopedMapPreview, serviceDate, scheduleTimeMinutes, scheduledVehicles],
+  )
+  return (
+    <SidebarNetworkBox
+      mapScope={mapScope}
+      networkLens={networkLens}
+      basemap={basemap}
+      scheduleTimeMinutes={scheduleTimeMinutes}
+      scheduleServiceDate={serviceDate}
+      scheduleDiagnostics={scheduleDiagnostics}
+      scheduleEndMinutes={scheduledServiceEndMinutes(scopedMapPreview, serviceDate)}
+      lensInsight={buildNetworkLensInsight(feed, preview, networkLens)}
+      performanceProfile={performanceProfile}
+      livePositionCount={liveVehicleCount}
+      realtimeSnapshot={realtimeSnapshot}
+      onMapScopeChange={setMapScope}
+      onNetworkLensChange={selectNetworkLens}
+      onBasemapChange={changeBasemap}
+      onScheduleTimeChange={setScheduleTime}
+      onScheduleServiceDateChange={changeServiceDate}
+      onOpenLive={openLiveVehicles}
+    />
+  )
+}
+
+function SidebarRouteBox() {
+  const settings = useStore(route, (state) => ({
+    routingEnabled: state.routingEnabled,
+    routingOrigin: state.routingOrigin,
+    routingWaypoints: state.routingWaypoints,
+    routingDestination: state.routingDestination,
+    routingTimePreference: state.routingTimePreference,
+    routingMode: state.routingMode,
+    routingDataMode: state.routingDataMode,
+    routingDepartureWindowMinutes: state.routingDepartureWindowMinutes,
+    routingMaxWalkKm: state.routingMaxWalkKm,
+    routingMaxTransfers: state.routingMaxTransfers,
+    routingAllowLongWalk: state.routingAllowLongWalk,
+    routingAllowStreetTransfers: state.routingAllowStreetTransfers,
+    routingMinimumTransferBufferMinutes: state.routingMinimumTransferBufferMinutes,
+    routingPointError: state.routingPointError,
+    routingPickIndex: state.routingPickIndex,
+  }), shallowEqual)
+  const routingNetworkState = useStudio(routingNetwork)
+  const engine = useStore(route, (state) => state.engine)
+  const plan = useStudio(routingPlan)
+  const activity = useStudio(routingActivity)
+  const scope = useStudioRecord(() => {
+    const { nationalRoutingFeed, routingScopeStatus } = routingScope()
+    return { storeBackedRouting: Boolean(nationalRoutingFeed), routingScopeStatus }
+  })
+  const { scheduleTimeMinutes, serviceDate } = useStore(clock, (state) => state, shallowEqual)
+  return (
+    <SidebarPathfinderBox
+      routingEnabled={settings.routingEnabled}
+      routingOrigin={settings.routingOrigin}
+      routingWaypoints={settings.routingWaypoints}
+      routingDestination={settings.routingDestination}
+      routingPlan={plan}
+      routingChoices={engine.choices}
+      routingScopeStatus={scope.routingScopeStatus}
+      routingStoreReady={engine.ready}
+      routingTimePreference={settings.routingTimePreference}
+      routingMode={settings.routingMode}
+      routingDataMode={settings.routingMode === 'transit' && routingNetworkState.selectedId ? 'scheduled' : settings.routingDataMode}
+      routingNetwork={routingNetworkState}
+      routingDepartureWindowMinutes={settings.routingDepartureWindowMinutes}
+      routingMaxWalkKm={settings.routingMaxWalkKm}
+      routingMaxTransfers={settings.routingMaxTransfers}
+      routingAllowLongWalk={settings.routingAllowLongWalk}
+      routingAllowStreetTransfers={settings.routingAllowStreetTransfers}
+      routingMinimumTransferBufferMinutes={settings.routingMinimumTransferBufferMinutes}
+      routingActivity={activity}
+      routingAlternativesLoading={engine.alternativesLoading}
+      routingServiceDate={serviceDate}
+      routingServiceCoverage={engine.serviceCoverage}
+      routingServiceDateAvailability={engine.serviceDateAvailability}
+      routingServiceDateOptions={engine.serviceDateOptions}
+      routingPointError={settings.routingPointError}
+      storeBackedRouting={scope.storeBackedRouting}
+      scheduleTimeMinutes={scheduleTimeMinutes}
+      onRunRouting={rerunRouting}
+      onPickRoutingPoint={pickRoutingPoint}
+      routingPickIndex={settings.routingPickIndex}
+      onReorderRoutingPoints={reorderRoutingPoints}
+      onOpenFeed={openDataView}
+      onScheduleTimeChange={setScheduleTime}
+      onRoutingTimePreferenceChange={changeRoutingTimePreference}
+      onRoutingModeChange={changeRoutingMode}
+      onRoutingDataModeChange={changeRoutingDataMode}
+      onRoutingDepartureWindowChange={changeRoutingDepartureWindow}
+      onRoutingMaxWalkKmChange={changeRoutingMaxWalkKm}
+      onRoutingMaxTransfersChange={setRoutingMaxTransfers}
+      onRoutingAllowLongWalkChange={setRoutingAllowLongWalk}
+      onRoutingAllowStreetTransfersChange={setRoutingAllowStreetTransfers}
+      onRoutingMinimumTransferBufferChange={setRoutingMinimumTransferBuffer}
+      onRoutingServiceDateChange={changeServiceDate}
+      onSelectRoutingPlan={selectRoutingPlan}
+      onToggleRouting={toggleRouting}
+      onClearRouting={clearRouting}
+    />
   )
 }
 

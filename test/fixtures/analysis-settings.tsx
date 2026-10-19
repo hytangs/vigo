@@ -1,7 +1,7 @@
 import { useLayoutEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
-import { AnalyzePanel } from '../../src/components/AnalyzePanel'
+import { AnalyzePanelView } from '../../src/components/AnalyzePanel'
 import { OperationProgress } from '../../src/components/OperationProgress'
 import '../../src/App.css'
 import '../../src/index.css'
@@ -24,7 +24,7 @@ function Fixture() {
         <nav className="sidebar-rail" aria-label="Navigation"><button className="sidebar-rail-button" aria-current="page">◎</button></nav>
         <section className="sidebar-panel is-analyze">
           <div className="sidebar-panel-head"><h1 className="studio-page-title">Analyze</h1></div>
-          <AnalyzePanel mode="single" origin={{ coordinate: [-71.1, 42.36], label: 'Starting point', source: 'map' }}
+          <AnalyzePanelView mode="single" origin={{ coordinate: [-71.1, 42.36], label: 'Starting point', source: 'map' }}
             serviceDate="2026-10-07" departMinutes={535} maxWalkKm={walk} walkSpeedKph={speed} maxTransfers={transfers}
             cutoffMinutes={limit} surfaceSampling={surface} renderMode="area" onRenderModeChange={() => {}} cases={[]} feeds={[]} comparisonFeedIds={[]} routes={[]} stops={[]}
             analysis={null} preparationTasks={[]} routingStoreAvailable streetGraphAvailable

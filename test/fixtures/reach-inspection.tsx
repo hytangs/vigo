@@ -5,7 +5,7 @@ import { Map } from '../../src/app/mapRuntime'
 import { initialLayers } from '../../src/domain'
 import { useReachInspection } from '../../src/app/useReachInspection'
 import { reachPointSample, reachPointRouteRequest, reachInspectionSources } from '../../src/app/reachInspection'
-import { RouteSurface } from '../../src/components/studio/RouteSurface'
+import { RouteSurfaceView } from '../../src/components/studio/RouteSurface'
 import { ReachPointInspector } from '../../src/components/ReachPointInspector'
 import '../../src/index.css'
 import '../../src/App.css'
@@ -73,7 +73,7 @@ function Fixture() {
     <header className="topbar"><strong>VIGO</strong><span>{analysisFocus ? 'Accessibility' : 'Route'}</span></header>
     <div className="shell-body"><aside className="app-sidebar"><nav aria-label="Workspace"><button aria-label="Route">↗</button><button aria-label="Accessibility">◎</button></nav></aside>
       <div className="app-frame"><div className="workbench project-workbench route-investigation-shell">
-        <RouteSurface projectId="fixture" feed={{ name: 'Fixture' }} focusedPreview={preview} visiblePreview={preview}
+        <RouteSurfaceView projectId="fixture" feed={{ name: 'Fixture' }} focusedPreview={preview} visiblePreview={preview}
           mapScope="network" networkLens="network" layers={initialLayers} appearance={dark ? 'dark' : 'light'} basemap="none"
           localBasemapAvailable={false} selectedRouteId="" selectedStopId="" realtimeSnapshot={null}
           vehicleMode="schedule" scheduleTimeMinutes={480} scheduleServiceDate="2026-07-20" routingEnabled={!analysisFocus}

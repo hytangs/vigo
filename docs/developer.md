@@ -206,7 +206,8 @@ or complete the 1.0 migration; resource measurements need matched workloads.
 | `src/server/gtfs/` | Store schema, admission and identity; calendars, stop-access indexing and coordinate-access profile lifecycle; walking policy and plans; result assembly, realtime timetables, and network previews. The coordinator retains store lifecycle and native query orchestration. |
 | `src/server/runtime/route-worker-pool.mjs` | Routing-worker leases, cancellation, prewarming, and memory pressure. The API entry point supplies the worker URL so source and packaged execution resolve the same worker. |
 | `src/map/` | Network, journey, vehicle, and Reach feature builders; layer definitions, paint, and basemaps. `VigoMap.tsx` owns React effects, map events, and selection. |
-| `src/components/studio/` | Sidebar, City library and source controls, and route surface. `App.tsx` owns application state, requests, and navigation. |
+| `src/state/` | Studio state. Shell, City, service clock, Network, Route and Analyze stores hold state and actions; selectors derive shared values; `runtime.tsx` runs requests, leases and polling without rendering UI. |
+| `src/components/studio/` | Sidebar, City library and source controls, and route surface. Workspace panels read their own store slices; `App.tsx` arranges the shell. |
 
 These modules do not import their coordinating entry points. Public GTFS exports remain available through `national-gtfs-store.mjs`. Calendar caches still belong to each admitted store. Walking-anchor profiles remain private to the walking-plan module and are cleared when the coordinator invalidates their store. Realtime query symbols and weak timetable caches belong to the realtime module; decoded street-edge bundles retain one weak cache in the Reach feature module.
 

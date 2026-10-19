@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import JSZip from 'jszip'
 import { buildNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
-import { releaseNativeTransitNetwork } from '../src/server/native-routing-kernel.mjs'
+import { registerNativeTransitNetwork, releaseNativeTransitNetwork } from '../src/server/native-routing-kernel.mjs'
 import {
   bundleNetworkScope,
   createTransitNetworkTiles,
@@ -150,8 +150,9 @@ assert.deepEqual(stop.properties, { stopId: 'north::b', routeCount: 1, tripCount
 assert.equal((await tiles.tile(city.id, bundleNetworkScope, 'stale', 12, x, y)).current, false, 'A stale revision is served but not cached')
 assert.equal(projectReads, 2)
 
-// A released kernel network is registered again on the next tile.
-releaseNativeTransitNetwork(`${city.id}\u001f${bundleNetworkScope}\u001f${revision}`)
+// Evict the kernel entry through its bounded registry, without depending on private keys.
+for (let index = 0; index < 17; index++) await registerNativeTransitNetwork(`evict-${index}`, '{"routes":[],"stops":[]}')
+for (let index = 0; index < 17; index++) releaseNativeTransitNetwork(`evict-${index}`)
 assert((await tiles.tile(city.id, bundleNetworkScope, revision, 12, x, y)).bytes.equals(burst[0].bytes))
 // A rebuilt store is a new revision with new content.
 current = { ...city, feeds: city.feeds.map((feed) => ({
@@ -167,6 +168,18 @@ tiles.invalidate(city.id)
 await tiles.tile(city.id, bundleNetworkScope, rebuilt, 12, x, y)
 assert.equal(projectReads, 5, 'Invalidation releases the City’s networks')
 await assert.rejects(tiles.tile(city.id, 'missing-feed', '', 12, x, y), (error) => error.statusCode === 404)
+
+// Invalidation during an asynchronous read cannot publish an obsolete network.
+let finishRead
+const delayedTiles = createTransitNetworkTiles({ readProject: () => new Promise(resolve => { finishRead = resolve }) })
+const delayed = delayedTiles.tile(city.id, bundleNetworkScope, revision, 12, x, y)
+delayedTiles.invalidate(city.id)
+finishRead(city)
+await assert.rejects(delayed, error => error.statusCode === 409)
+const fresh = delayedTiles.tile(city.id, bundleNetworkScope, revision, 12, x, y)
+finishRead(city)
+assert((await fresh).bytes.equals(burst[0].bytes), 'A new read recovers after invalidation')
+delayedTiles.invalidate(city.id)
 
 // --- The Studio's City open and tiles through the real API and SQLite store. ---
 const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-network-tiles-'))

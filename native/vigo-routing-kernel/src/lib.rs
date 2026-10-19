@@ -4,12 +4,12 @@
 compile_error!(
     "The node addon and standalone executable use different buffer representations. Build standalone with --no-default-features --features standalone."
 );
-#[cfg(feature = "node")]
+#[cfg(any(feature = "node", test))]
 mod basemap_tiles;
 pub mod compiler;
 mod edge_attachment;
 pub(crate) mod fares;
-#[cfg(feature = "node")]
+#[cfg(any(feature = "node", test))]
 mod network_tiles;
 pub(crate) mod route_alternatives;
 use bincode::Options;

@@ -1,4 +1,4 @@
-import { type CSSProperties, type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, type FormEvent, memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowRight,
   CircleDot,
@@ -16,6 +16,60 @@ import {
   X,
 } from 'lucide-react'
 import type { ApiProgress } from '../app/api'
+import { countRender } from '../app/renderCounts'
+import { shallowEqual, useStore } from '../app/store'
+import {
+  activeCaseFeeds,
+  activeScenarioChange,
+  activeScenarioStopPlacement,
+  addScenario,
+  addScenarioChange,
+  analysisRoutes,
+  analyze,
+  beginScenarioStopPlacement,
+  cancelScenarioStopPlacement,
+  cancelSurfaceAnalysis,
+  changeAnalysisDepartMinutes,
+  changeAnalysisServiceDate,
+  changeAnalyzeMode,
+  changeCutoff,
+  changeReachMaxTransfers,
+  changeReachMaxWalkKm,
+  changeRenderMode,
+  changeSurfaceSampling,
+  changeWalkSpeed,
+  cityGrouping,
+  clearScenarioSketch,
+  comparisonFeedOptions,
+  inferScenarioRoadGeometry,
+  removeScenario,
+  removeScenarioChange,
+  removeScenarioStop,
+  resetScenarioRouteStops,
+  runComparison as runComparisonAction,
+  compareReferenceOptions,
+  compareScenarioIds,
+  changeCompareReference,
+  toggleCompareScenario,
+  selectComparisonVariant,
+  renameScenario,
+  assignScenarioGroup,
+  runServiceDecomposition,
+  runSurfaceAnalysis,
+  selectScenario,
+  selectScenarioChange,
+  setAnalysisOrigin,
+  setScenarioView,
+  toggleComparisonFeed,
+  updateScenarioChange,
+  updateScenarioChangeRoute,
+} from '../state/analyze'
+import { clock } from '../state/clock'
+import { useStudio, useStudioRecord } from '../state/hooks'
+import { openDataView } from '../state/navigation'
+import { network } from '../state/network'
+import { scenarioLibrary } from '../state/scenarios'
+import { preview, routingScope, selectedProject, visiblePreparationTasks } from '../state/scope'
 import { preparationState, type PreparationTask } from '../app/preparation'
 import { classNames, formatNumber, type RouteMetric, type StopMetric } from '../domain'
 import { gtfsDirectionLabel, gtfsPatternStops, gtfsPatternTimetable } from '../app/gtfsPresentation'
@@ -631,7 +685,7 @@ function scenarioSaveLabel(state: ScenarioSaveState) {
   return { loading: 'Loading…', saved: 'Saved in City', unsaved: 'Unsaved', saving: 'Saving…', error: 'Not saved', unavailable: 'Not saved' }[state]
 }
 
-export function AnalyzePanel({
+export function AnalyzePanelView({
   mode,
   origin,
   serviceDate,
@@ -1639,3 +1693,143 @@ export function AnalyzePanel({
     </section>
   )
 }
+
+const addCase = () => addScenario()
+const inferGeometry = (interventionId: string) => { void inferScenarioRoadGeometry(interventionId) }
+const clearOrigin = () => setAnalysisOrigin(null)
+const runAnalysis = () => { void runSurfaceAnalysis() }
+const runComparison = () => { void runComparisonAction() }
+const runDecomposition = () => { void runServiceDecomposition() }
+
+/** The Analyze workspace panel, reading the Analyze store and the open City. */
+export const AnalyzePanel = memo(function AnalyzePanel() {
+  countRender('AnalyzePanel')
+  const settings = useStore(analyze, (state) => ({
+    analyzeMode: state.analyzeMode,
+    analysisOrigin: state.analysisOrigin,
+    reachMaxWalkKm: state.reachMaxWalkKm,
+    reachMaxTransfers: state.reachMaxTransfers,
+    scenarioWalkSpeedKph: state.scenarioWalkSpeedKph,
+    reachSurfaceSampling: state.reachSurfaceSampling,
+    scenarioCutoffMinutes: state.scenarioCutoffMinutes,
+    scenarioRenderMode: state.scenarioRenderMode,
+    comparisonFeedIds: state.comparisonFeedIds,
+    scenarioView: state.scenarioView,
+    scenarioLoading: state.scenarioLoading,
+    scenarioProgress: state.scenarioProgress,
+    scenarioError: state.scenarioError,
+    reachResult: state.reachResult,
+    comparisonRun: state.comparisonRun,
+    compareReferenceId: state.compareReferenceId,
+    serviceDecomposition: state.serviceDecomposition,
+    serviceDecompositionLoading: state.serviceDecompositionLoading,
+    serviceDecompositionError: state.serviceDecompositionError,
+  }), shallowEqual)
+  const { serviceDate, scheduleTimeMinutes } = useStore(clock, (state) => state, shallowEqual)
+  const library = useStudio(scenarioLibrary)
+  const references = useStudio(compareReferenceOptions)
+  const comparedScenarios = useStudio(compareScenarioIds)
+  const activeInterventionId = useStudio(() => activeScenarioChange()?.id ?? '')
+  const stopPlacement = useStudio(activeScenarioStopPlacement)
+  const caseFeeds = useStudio(activeCaseFeeds)
+  const groupsError = useStudio(() => cityGrouping().error)
+  const feeds = useStudio(comparisonFeedOptions)
+  const routes = useStudio(analysisRoutes)
+  const stops = useStudio(() => preview().stops)
+  const routeAnalysis = useStore(network, (state) => ({
+    loading: Boolean(state.routeAnalysisRouteId),
+    error: state.routeAnalysisError,
+  }), shallowEqual)
+  const data = useStudioRecord(() => {
+    const project = selectedProject()
+    return {
+      routingStoreAvailable: Boolean(routingScope().nationalRoutingFeed),
+      streetGraphAvailable: project.osmStreetIndex?.status === 'ready',
+      streetGraphBuilding: project.osmStreetIndex?.status === 'building',
+      routingStoreBuilding: project.routingStore?.status === 'building',
+    }
+  })
+  const preparationTasks = useStudio(visiblePreparationTasks)
+
+  return (
+    <AnalyzePanelView
+      mode={settings.analyzeMode}
+      origin={settings.analysisOrigin}
+      serviceDate={serviceDate}
+      departMinutes={scheduleTimeMinutes}
+      maxWalkKm={settings.reachMaxWalkKm}
+      maxTransfers={settings.reachMaxTransfers}
+      walkSpeedKph={settings.scenarioWalkSpeedKph}
+      surfaceSampling={settings.reachSurfaceSampling}
+      onSurfaceSamplingChange={changeSurfaceSampling}
+      cutoffMinutes={settings.scenarioCutoffMinutes}
+      renderMode={settings.scenarioRenderMode}
+      cases={library.scenarioDrafts}
+      caseGroupLabel={caseFeeds.group?.name ?? ''}
+      scenarioGroups={library.grouping.value.groups}
+      scenarioSaveState={library.saveState}
+      onRenameCase={renameScenario}
+      onAssignCaseGroup={assignScenarioGroup}
+      feeds={feeds}
+      comparisonFeedIds={settings.comparisonFeedIds}
+      activeCaseId={library.activeScenarioId}
+      activeInterventionId={activeInterventionId}
+      stopPlacement={stopPlacement}
+      routes={routes}
+      stops={stops}
+      routeAnalysisLoading={routeAnalysis.loading}
+      routeAnalysisError={routeAnalysis.error}
+      view={settings.scenarioView}
+      loading={settings.scenarioLoading}
+      progress={settings.scenarioProgress}
+      error={settings.scenarioError || library.draftStorageError || (settings.analyzeMode === 'single' ? groupsError || caseFeeds.error : '')}
+      analysis={settings.reachResult}
+      comparisonRun={settings.comparisonRun}
+      compareReferenceOptions={references}
+      compareReferenceId={settings.compareReferenceId}
+      compareScenarioIds={comparedScenarios}
+      onCompareReferenceChange={changeCompareReference}
+      onCompareScenarioChange={toggleCompareScenario}
+      onSelectComparisonVariant={selectComparisonVariant}
+      serviceDecomposition={settings.serviceDecomposition}
+      serviceDecompositionLoading={settings.serviceDecompositionLoading}
+      serviceDecompositionError={settings.serviceDecompositionError}
+      routingStoreAvailable={data.routingStoreAvailable}
+      streetGraphAvailable={data.streetGraphAvailable}
+      preparationTasks={preparationTasks}
+      streetGraphBuilding={data.streetGraphBuilding}
+      routingStoreBuilding={data.routingStoreBuilding}
+      onServiceDateChange={changeAnalysisServiceDate}
+      onDepartMinutesChange={changeAnalysisDepartMinutes}
+      onMaxWalkKmChange={changeReachMaxWalkKm}
+      onMaxTransfersChange={changeReachMaxTransfers}
+      onWalkSpeedChange={changeWalkSpeed}
+      onCutoffChange={changeCutoff}
+      onRenderModeChange={changeRenderMode}
+      onModeChange={changeAnalyzeMode}
+      onComparisonFeedChange={toggleComparisonFeed}
+      onSelectCase={selectScenario}
+      onAddCase={addCase}
+      onRemoveCase={removeScenario}
+      onAddIntervention={addScenarioChange}
+      onSelectIntervention={selectScenarioChange}
+      onUpdateIntervention={updateScenarioChange}
+      onInferInterventionGeometry={inferGeometry}
+      onUpdateInterventionRoute={updateScenarioChangeRoute}
+      onBeginStopPlacement={beginScenarioStopPlacement}
+      onCancelStopPlacement={cancelScenarioStopPlacement}
+      onRemoveInterventionStop={removeScenarioStop}
+      onResetInterventionStops={resetScenarioRouteStops}
+      onRemoveIntervention={removeScenarioChange}
+      onClearInterventionSketch={clearScenarioSketch}
+      onViewChange={setScenarioView}
+      onSetOrigin={setAnalysisOrigin}
+      onClearOrigin={clearOrigin}
+      onRun={runAnalysis}
+      onRunComparison={runComparison}
+      onRunServiceDecomposition={runDecomposition}
+      onOpenData={openDataView}
+      onCancel={cancelSurfaceAnalysis}
+    />
+  )
+})
