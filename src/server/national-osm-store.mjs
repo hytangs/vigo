@@ -34,10 +34,9 @@ import { stableKeySuffix } from './routing-plan-identity.mjs'
 import { createLocalBasemapWriter } from './local-basemap-store.mjs'
 import { createPlaceStreetWriter, placeWayNeedsNodes } from './place-names-store.mjs'
 
-// v6 also excludes platform area outlines from the linear walking graph.
-// Older graphs must be rebuilt; their outlines can trap nearby endpoints.
-// Public pedestrian access semantics are part of the persisted-store
-// schema. Rebuild from the source PBF when this schema changes.
+// Keep the published v6 layout readable. Corrected walking permissions and
+// connected platform boundaries apply to newly prepared graphs; existing
+// Cities retain their original graph until explicitly rebuilt.
 const streetStoreSchemaVersion = 'vigo.street.store.v6'
 // A store is admitted by version, source model, and the objects the runtime
 // actually queries. Column-by-column and index-SQL checks duplicated SQLite's
@@ -146,8 +145,10 @@ export function nationalOsmWayWalkable(tags) {
   const foot = normalizedTag(tags.foot)
   // An area boundary describes the platform's extent, not a walking centre
   // line. Importing it as a road can create an isolated loop closer than the
-  // mapped footways. Station interiors are connected through GTFS pathways.
-  if (highway === 'platform' && normalizedTag(tags.area) === 'yes') return false
+  // mapped footways. Public platform footprints are handled separately after
+  // their junctions with mapped walking ways have been verified.
+  if (normalizedTag(tags.area) === 'yes'
+    && ['highway', 'railway', 'public_transport'].some(key => normalizedTag(tags[key]) === 'platform')) return false
   if (hasUnresolvedPedestrianHours(tags)) return false
   if (!highway || restrictedPedestrianAccessValues.has(foot)) return false
   // OSM mode-specific access overrides the general access tag. In particular,
@@ -171,6 +172,28 @@ export function nationalOsmWayWalkable(tags) {
   return !['motorway', 'motorway_link', 'raceway', 'construction', 'proposed'].includes(highway)
 }
 
+// Only explicitly permitted platform footprints can supply missing interior
+// connectivity. They are admitted later, after two distinct mapped walking
+// junctions have been found; isolated outlines must never capture endpoints.
+export function nationalOsmPlatformAreaWalkable(tags) {
+  if (normalizedTag(tags.area) !== 'yes'
+    || !['railway', 'public_transport', 'highway'].some(key => normalizedTag(tags[key]) === 'platform')
+    || hasUnresolvedPedestrianHours(tags)) return false
+  const foot = normalizedTag(tags.foot), access = normalizedTag(tags.access)
+  return !restrictedPedestrianAccessValues.has(foot)
+    && (!restrictedPedestrianAccessValues.has(access) || explicitPedestrianAccessValues.has(foot))
+    && (explicitPedestrianAccessValues.has(foot) || explicitPedestrianAccessValues.has(access))
+}
+
+export function platformAreaHasWalkingJunctions(refs, isWalkingNode) {
+  if (refs.length < 4 || refs[0] !== refs.at(-1)) return false
+  const distinct = new Set(refs.slice(0, -1))
+  if (distinct.size !== refs.length - 1) return false
+  let junctions = 0
+  for (const id of distinct) if (isWalkingNode(id) && ++junctions === 2) return true
+  return false
+}
+
 function hasUnresolvedPedestrianHours(tags) {
   return ['foot:conditional', 'access:conditional', 'oneway:foot:conditional']
     .some(key => String(tags[key] ?? '').trim())
@@ -179,13 +202,21 @@ function hasUnresolvedPedestrianHours(tags) {
 
 export function nationalOsmNodeWalkable(tags) {
   if (hasUnresolvedPedestrianHours(tags)) return false
+  if (['yes', 'true', '1'].includes(normalizedTag(tags.locked))
+    || String(tags['locked:conditional'] ?? '').trim()) return false
   const foot = normalizedTag(tags.foot), access = normalizedTag(tags.access)
   if (restrictedPedestrianAccessValues.has(foot)
     || (restrictedPedestrianAccessValues.has(access) && !explicitPedestrianAccessValues.has(foot))) return false
   if (explicitPedestrianAccessValues.has(foot)) return true
   const barrier = normalizedTag(tags.barrier)
   if (['wall', 'fence', 'retaining_wall', 'block', 'jersey_barrier'].includes(barrier)) return false
-  if (['gate', 'lift_gate', 'swing_gate', 'sliding_gate', 'full-height_turnstile'].includes(barrier)) {
+  if (['gate', 'lift_gate', 'swing_gate', 'sliding_gate'].includes(barrier)) {
+    // A movable gate inherits the permitted way's pedestrian access unless
+    // the node restricts it. This does not admit private ways or add links
+    // between disconnected paths; only existing OSM segments are imported.
+    return !access || explicitPedestrianAccessValues.has(access)
+  }
+  if (barrier === 'full-height_turnstile') {
     return explicitPedestrianAccessValues.has(access)
   }
   return true
@@ -299,6 +330,7 @@ export async function buildNationalOsmStore({
 }) {
   if (wheelchair && includeDriving) throw new Error('Wheelchair Cities require walk street preparation')
   const wayAllowed = tags => nationalOsmWayWalkable(tags) && (!wheelchair || wheelchairWayAllowed(tags))
+  const platformAllowed = tags => nationalOsmPlatformAreaWalkable(tags) && (!wheelchair || wheelchairWayAllowed(tags))
   const nodeAllowed = tags => nationalOsmNodeWalkable(tags) && (!wheelchair || wheelchairNodeAllowed(tags))
   const started = performance.now()
   const source = await fs.stat(pbfPath)
@@ -312,6 +344,7 @@ export async function buildNationalOsmStore({
     CREATE TABLE nodes(node_id INTEGER PRIMARY KEY, lat REAL NOT NULL, lon REAL NOT NULL);
     CREATE TABLE walk_nodes(node_id INTEGER PRIMARY KEY, lat REAL NOT NULL, lon REAL NOT NULL);
     CREATE TABLE edges(from_node INTEGER NOT NULL, to_node INTEGER NOT NULL, distance_m REAL NOT NULL, way_id INTEGER NOT NULL);
+    CREATE TABLE platform_areas(way_id INTEGER PRIMARY KEY, refs TEXT NOT NULL, forward INTEGER NOT NULL, backward INTEGER NOT NULL, connected INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE drive_nodes(node_id INTEGER PRIMARY KEY, lat REAL NOT NULL, lon REAL NOT NULL);
     CREATE TABLE drive_edges(
       from_node INTEGER NOT NULL,
@@ -328,6 +361,7 @@ export async function buildNationalOsmStore({
   const insertDriveEdge = db.prepare('INSERT INTO drive_edges VALUES(?,?,?,?,?,?)')
   const insertDriveNode = db.prepare('INSERT OR IGNORE INTO drive_nodes VALUES(?,?,?)')
   const getNode = db.prepare('SELECT lat,lon FROM nodes WHERE node_id=?')
+  const insertPlatform = db.prepare('INSERT INTO platform_areas(way_id,refs,forward,backward) VALUES(?,?,?,?)')
   const basemapWriter = createLocalBasemapWriter(db)
   const placeWriter = createPlaceStreetWriter(db)
   let nodeCount = 0
@@ -390,7 +424,7 @@ export async function buildNationalOsmStore({
         forEachPrimitiveEntity(block, groupBytes, {
           way: (way) => {
             const tags = wayTags(way, block.strings)
-            if (!wayAllowed(tags) && !(includeDriving && drivable(tags)) && !basemapWriter.needsWay(way, tags)
+            if (!wayAllowed(tags) && !platformAllowed(tags) && !(includeDriving && drivable(tags)) && !basemapWriter.needsWay(way, tags)
               && !placeWayNeedsNodes(way, tags)) return
             for (const nodeId of way.refs) requireNode(nodeId)
           },
@@ -433,6 +467,10 @@ export async function buildNationalOsmStore({
             const tags = wayTags(way, block.strings)
             basemapWriter.addWay(way, tags, getNode)
             placeWriter.addWay(way, tags, getNode)
+            if (platformAllowed(tags)) {
+              const directions = nationalOsmWalkDirections(tags)
+              if (directions.forward || directions.backward) insertPlatform.run(way.id, JSON.stringify(way.refs), Number(directions.forward), Number(directions.backward))
+            }
             const isWalkable = wayAllowed(tags)
             const isDrivable = includeDriving && drivable(tags)
             if (!isWalkable && !isDrivable) return
@@ -527,6 +565,32 @@ export async function buildNationalOsmStore({
       throw new Error('OSM PBF changed during street compilation; retry against a stable input.')
     }
     requiredNodes.clear()
+    // Decide admission against linear walking ways only, before adding any
+    // area vertices. Shared OSM node IDs establish the junctions, never a
+    // nearest-coordinate link across tracks, barriers, or different levels.
+    const walkingNode = db.prepare('SELECT 1 FROM walk_nodes WHERE node_id=?')
+    const markConnected = db.prepare('UPDATE platform_areas SET connected=1 WHERE way_id=?')
+    for (const area of db.prepare('SELECT way_id,refs FROM platform_areas').iterate()) {
+      if (platformAreaHasWalkingJunctions(JSON.parse(area.refs), id => Boolean(walkingNode.get(id)))) markConnected.run(area.way_id)
+    }
+    for (const area of db.prepare('SELECT * FROM platform_areas WHERE connected=1').iterate()) {
+      const refs = JSON.parse(area.refs)
+      wayCount += 1
+      for (let i = 1; i < refs.length; i += 1) {
+        const from = refs[i - 1], to = refs[i]
+        if (blockedWalkNodes.has(from) || blockedWalkNodes.has(to)) continue
+        const a = getNode.get(from), b = getNode.get(to)
+        if (!a || !b) continue
+        const distance = haversineKm([a.lon, a.lat], [b.lon, b.lat]) * 1000
+        if (!(distance > 0 && distance < 10_000)) continue
+        if (area.forward) insertEdge.run(from, to, distance, area.way_id)
+        if (area.backward) insertEdge.run(to, from, distance, area.way_id)
+        walkNodeCount += Number(insertWalkNode.run(from, a.lat, a.lon).changes > 0)
+        walkNodeCount += Number(insertWalkNode.run(to, b.lat, b.lon).changes > 0)
+        edgeCount += area.forward + area.backward
+      }
+    }
+    db.exec('DROP TABLE platform_areas')
     onProgress?.({ phase: 'Preparing local basemap', progress: 0.89, memory: process.memoryUsage().rss })
     const localBasemap = basemapWriter.finish()
     db.exec('COMMIT')

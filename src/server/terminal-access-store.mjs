@@ -3,7 +3,7 @@ import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { forEachPbfBlock, forEachPrimitiveEntity, coordinate, wayTags, denseNodeTags } from './osm-pbf-reader.mjs'
 import { haversineKm } from './geometry-utils.mjs'
-import { nationalOsmWayWalkable, nationalOsmNodeWalkable, nationalOsmWalkDirections } from './national-osm-store.mjs'
+import { nationalOsmWayWalkable, nationalOsmNodeWalkable, nationalOsmWalkDirections, nationalOsmPlatformAreaWalkable, platformAreaHasWalkingJunctions } from './national-osm-store.mjs'
 import { prepareNationalGtfsNativeCoordinateAccess, disposeNationalGtfsStore } from './national-gtfs-store.mjs'
 import { nativePublicAccessComponents, disposeNativeRoutingKernel } from './native-routing-kernel.mjs'
 
@@ -54,12 +54,21 @@ export async function buildTerminalAccessStore({ pbfPath, streetStorePath, routi
   const candidateIds = new Set()
   const privateWays = []
   const gateConnections = []
+  const platformAreas = []
   const sourceHash = createHash('sha256')
   const nodeHash = createHash('sha256')
   await forEachPbfBlock(pbfPath, async (block) => {
     for (const group of block.groups) forEachPrimitiveEntity(block, group, {
       way(way) {
         const tags = wayTags(way, block.strings)
+        if (nationalOsmPlatformAreaWalkable(tags)) {
+          const directions = nationalOsmWalkDirections(tags)
+          if (directions.forward || directions.backward) {
+            for (const id of way.refs) candidateIds.add(id)
+            platformAreas.push(way.refs)
+          }
+          return
+        }
         const publicWay = nationalOsmWayWalkable(tags)
         const privateWay = !publicWay && authorizedPrivateWay(tags)
         const directions = nationalOsmWalkDirections(privateWay ? authorizedTags(tags) : tags)
@@ -122,6 +131,13 @@ export async function buildTerminalAccessStore({ pbfPath, streetStorePath, routi
     })
   }, undefined, bytes => nodeHash.update(bytes))
   if (nodeHash.digest('hex') !== header.identity.sourceFingerprint) throw new Error('OSM input changed while building endpoint access.')
+  const connectedPlatforms = platformAreas.filter(refs => platformAreaHasWalkingJunctions(refs,
+    id => publicNodes[byId.get(id)] === 1))
+  for (const refs of connectedPlatforms) segments(refs, (from, to) => {
+    if ((permissions[from] & 1) && (permissions[to] & 1)) {
+      publicNodes[from] = 1; publicNodes[to] = 1
+    }
+  })
   const cell = (i) => {
     const row = Math.min(header.spatialRows - 1, Math.max(0, Math.floor((lats[i] - header.spatialMinLat) / header.spatialCellDegrees)))
     const column = Math.min(header.spatialColumns - 1, Math.max(0, Math.floor((lons[i] - header.spatialMinLon) / header.spatialCellDegrees)))

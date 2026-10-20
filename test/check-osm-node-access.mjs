@@ -47,7 +47,11 @@ try {
   for (const dense of [false, true]) for (const [name, tags, blocked] of [
     ['private-gate', { barrier: 'gate', access: 'private' }, true],
     ['foot-override', { barrier: 'gate', access: 'private', foot: 'yes' }, false],
-    ['wall', { barrier: 'wall' }, true], ['unknown-gate', { barrier: 'gate' }, true],
+    ['wall', { barrier: 'wall' }, true], ['inherited-gate', { barrier: 'gate' }, false],
+    ['locked-gate', { barrier: 'gate', foot: 'yes', locked: 'yes' }, true],
+    ['conditionally-locked-gate', { barrier: 'gate', 'locked:conditional': 'yes @ (sunset-sunrise)' }, true],
+    ['foot-denied-gate', { barrier: 'gate', foot: 'no', access: 'yes' }, true],
+    ['unknown-turnstile', { barrier: 'full-height_turnstile' }, true],
     ['public-gate', { barrier: 'gate', access: 'yes' }, false],
     ['conditional', { foot: 'yes', 'foot:conditional': 'no @ (Mo-Fr)' }, true],
   ]) {
@@ -89,6 +93,10 @@ try {
     await assert.rejects(buildNationalOsmStore({ pbfPath, outputPath: `${pbfPath}.sqlite` }), /dense-node tags|out-of-range string-table/)
   }
   assert.equal(nationalOsmNodeWalkable({ barrier: 'bollard' }), true)
+  assert.equal(nationalOsmNodeWalkable({ entrance: 'emergency', access: 'private' }), false)
+  assert.equal(nationalOsmWayWalkable({ highway: 'footway', access: 'private' }), false)
+  assert.equal(nationalOsmWayWalkable({ railway: 'rail' }), false)
+  assert.equal(nationalOsmWayWalkable({ railway: 'light_rail' }), false)
   assert.equal(nationalOsmWayWalkable({ highway: 'footway', foot: 'use_sidepath' }), false)
   assert.equal(nationalOsmWayWalkable({ highway: 'footway', opening_hours: '24/7' }), true)
   assert.equal(nationalOsmWayWalkable({ highway: 'footway', opening_hours: 'Mo-Fr 08:00-17:00' }), false)
