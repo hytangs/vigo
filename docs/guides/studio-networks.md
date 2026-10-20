@@ -36,3 +36,16 @@ Road tracing depends on the City's street network and the ordered stops. Draft
 status updates and save acknowledgements must not cancel the trace. Changing the
 City or actual timetable-group selection still invalidates it. A disconnected
 road segment produces an explanation; a straight line is not labeled a road path.
+
+## Journey choices
+
+Studio's later-departure search supplements its timetable window with the Rust
+ranked search at the requested clock: at most nine alternatives within fifteen
+minutes of the earliest arrival. Existing walking, transfer, accessibility,
+service-date and selected-network constraints still apply. This is a bounded
+candidate search, not a claim to enumerate every possible itinerary.
+
+The list groups services only when their ordered stops, verified ride geometry
+and access paths match. Each departure keeps its original itinerary and times.
+Different corridors remain separate. Redundant changes onto a vehicle already
+offered directly are hidden when they offer no arrival or walking benefit.

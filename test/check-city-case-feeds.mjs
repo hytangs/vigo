@@ -96,6 +96,17 @@ try {
     assert.deepEqual(response.body.result.request.feedIds, [...feeds].sort(), 'Result omitted its timetable inputs.')
     assert.equal(response.body.result.diagnostics.reach.timetable.residentTrips, feeds.length, 'API did not carry group membership into the native query.')
   }
+  for (const feedIds of [['bus', 'rail'], ['bus']]) {
+    const ranked = await api.requestJson(`/api/projects/${projectId}/national-route`, {
+      method: 'POST', body: { ...query, feedIds, destination: point('C'), allowLongWalk: false,
+        routingDataMode: 'scheduled', departureWindowMinutes: 10, includeRankedAlternatives: true },
+    })
+    assert.equal(ranked.status, 200, JSON.stringify(ranked.body))
+    for (const plan of ranked.body.choices) {
+      if (feedIds.length === 1) assert.equal(plan.status, 'blocked', 'Ranked alternatives cannot borrow unselected rail service')
+      for (const leg of plan.legs) assert.notEqual(leg.routeId, 'express::R', 'Ranked alternatives must respect selected networks')
+    }
+  }
   const changed = await send(['bus', 'rail'], { scenario: { excludedRouteIds: ['rail::R'] } })
   const pointRoute = feedIds => api.requestJson(`/api/projects/${projectId}/national-route`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...query,

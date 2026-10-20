@@ -157,6 +157,7 @@ export function useNationalRouting({
     minimumTransferBufferMinutes: mode === 'transit' && waypoints.length ? 0 : minimumTransferBufferMinutes,
     includeEarliestTransit: mode === 'transit' && !waypoints.length,
     sharedLegs: mode === 'transit' && !waypoints.length,
+    includeRankedAlternatives: mode === 'transit' && !waypoints.length && requestTimePreference === 'depart' && departureWindowMinutes > 0,
     objective: 'earliest_arrival',
     maxStreetKm: mode === 'drive' ? 750 : 50,
     departureWindowMinutes: streetMode ? 0 : departureWindowMinutes,

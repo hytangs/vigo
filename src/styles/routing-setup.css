@@ -74,3 +74,11 @@
 @container routing-setup (max-width: 280px) {
   .routing-setup-datetime, .routing-setup-columns { grid-template-columns: minmax(0, 1fr); }
 }
+
+.pathfinder-journey-group { min-width: 0; }
+.pathfinder-journey-group > .pathfinder-route-card { width: 100%; }
+.pathfinder-group-services { font-size: var(--type-sm); }
+.pathfinder-group-departures { display: grid; gap: 4px; padding: 8px; border: 1px solid var(--line-2); border-top: 0; border-radius: 0 0 var(--radius-lg) var(--radius-lg); background: var(--material-strong); }
+.pathfinder-journey-group:has(.pathfinder-group-departures) > .pathfinder-route-card { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.pathfinder-group-departures button { display: flex; justify-content: space-between; gap: 12px; padding: 8px; border: 0; border-radius: var(--radius-sm); color: var(--text-2); background: transparent; text-align: left; font: inherit; cursor: pointer; }
+.pathfinder-group-departures button[aria-pressed="true"], .pathfinder-group-departures button:hover { background: var(--ink-4); color: var(--text-1); }

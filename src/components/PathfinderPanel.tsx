@@ -1,4 +1,5 @@
 export { RoutingDetailPanel } from './JourneyItinerary'
+import { journeyGroups } from '../app/journeyGroups'
 import { RoutingSetup } from './RoutingSetup'
 import { OperationProgress } from './OperationProgress'
 import { ResultExportActions } from './ResultExportActions'
@@ -207,7 +208,10 @@ export function PathfinderRouteList({
       || left.id.localeCompare(right.id)
     ))
   if (!readyPlans.length && !alternativesLoading) return null
-  const displayedPlans = [...readyPlans].sort((left, right) => {
+  const groups = journeyGroups(readyPlans)
+  const members = new Map(groups.map(group => [group[0].id, group]))
+  const exportPlans = groups.flat()
+  const displayedPlans = groups.map(group => group[0]).sort((left, right) => {
     const difference = sort === 'transfers' ? boardings(left) - boardings(right)
       : sort === 'walking' ? left.walkMinutes - right.walkMinutes : 0
     return difference || readyPlans.indexOf(left) - readyPlans.indexOf(right)
@@ -218,7 +222,7 @@ export function PathfinderRouteList({
     if (!['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
     const radios = Array.from(
-      event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? [],
+      event.currentTarget.closest('[role="radiogroup"]')?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? [],
     )
     const currentIndex = radios.indexOf(event.currentTarget)
     const next = event.key === 'Home' ? radios[0] : event.key === 'End' ? radios.at(-1)
@@ -234,9 +238,9 @@ export function PathfinderRouteList({
           <strong>Choose a journey</strong>
         </span>
         <b>{readyPlans.length
-          ? readyPlans.length > displayedPlans.length
-            ? `${displayedPlans.length} of ${readyPlans.length}`
-            : `${readyPlans.length} ${readyPlans.length === 1 ? 'journey' : 'journeys'}`
+          ? groups.length > displayedPlans.length
+            ? `${displayedPlans.length} of ${groups.length}`
+            : `${groups.length} ${groups.length === 1 ? 'journey' : 'journeys'}`
           : 'Finding journeys'}</b>
       </div>
 
@@ -249,8 +253,11 @@ export function PathfinderRouteList({
       ) : null}
       {readyPlans.length ? (
         <div className="pathfinder-route-list" role="radiogroup" aria-label="Journey alternatives">
-          {displayedPlans.map((plan) => {
-            const selected = selectedPlanId === plan.id
+          {displayedPlans.map((representative) => {
+            const departures = members.get(representative.id) ?? [representative]
+            const plan = departures.find(option => option.id === selectedPlanId) ?? representative
+            const selected = departures.some(option => selectedPlanId === option.id)
+            const serviceNames = [...new Set(departures.map(routingPlanRouteSequence))].join(' or ')
             const startWaitMinutes = routingPlanStartWaitMinutes(plan)
             const journeyMinutes = routingPlanJourneyMinutes(plan)
             const totalWaitMinutes = routingPlanTotalWaitMinutes(plan)
@@ -274,8 +281,8 @@ export function PathfinderRouteList({
               : plan.travelMode === 'walk' ? 'Walk only' : routingPlanRouteSequence(plan) || plan.detail
             const waypointNote = plan.waypoints?.length ? `via ${plan.waypoints.length} stop${plan.waypoints.length === 1 ? '' : 's'}` : ''
             return (
+              <div key={representative.id} className="pathfinder-journey-group">
               <button
-                key={plan.id}
                 type="button"
                 className={classNames('pathfinder-route-card', selected && 'is-active', plan.recommended && 'is-recommended')}
                 onClick={() => onSelect(plan.id)}
@@ -305,19 +312,33 @@ export function PathfinderRouteList({
                   {plan.travelMode !== 'walk' ? <span><b>{formatRoutingMinutes(plan.rideMinutes)}</b><small>{plan.travelMode === 'drive' ? 'drive' : 'ride'}</small></span> : <span><b>0</b><small>vehicles</small></span>}
                 </span>
                 {plan.legs.length ? <JourneyLegStrip plan={plan} /> : null}
+                {departures.length > 1 ? <strong className="pathfinder-group-services">{serviceNames}</strong> : null}
                 <span className="pathfinder-route-footer">
                   <span className="pathfinder-route-sequence">{[routeSequence, waypointNote].filter(Boolean).join(' · ')}</span>
                   <span className="pathfinder-route-open">Details <ChevronRight size={13} aria-hidden="true" /></span>
                 </span>
               </button>
+              {departures.length > 1 ? <div className="pathfinder-group-departures" aria-label="Departures for this journey">
+                {departures.slice(0, 2).map(option => <button key={option.id} type="button" aria-pressed={selectedPlanId === option.id} onClick={() => onSelect(option.id)}>
+                  <strong>{routingPlanRouteSequence(option)}</strong>
+                  <span>{formatScheduleClock(option.departMinutes)} → {formatScheduleClock(option.arriveMinutes ?? option.departMinutes + option.durationMinutes)}</span>
+                </button>)}
+                {departures.length > 2 ? <details><summary>{departures.length - 2} later departures</summary>
+                  {departures.slice(2).map(option => <button key={option.id} type="button" aria-pressed={selectedPlanId === option.id} onClick={() => onSelect(option.id)}>
+                    <strong>{routingPlanRouteSequence(option)}</strong>
+                    <span>{formatScheduleClock(option.departMinutes)} → {formatScheduleClock(option.arriveMinutes ?? option.departMinutes + option.durationMinutes)}</span>
+                  </button>)}
+                </details> : null}
+              </div> : null}
+              </div>
             )
           })}
         </div>
       ) : null}
 
-      {readyPlans.length > 1 ? <ResultExportActions key={selectedPlanId} label={`Save all ${readyPlans.length} journeys`} buttonLabel="Save all" formats={['json', 'csv']}
+      {exportPlans.length > 1 ? <ResultExportActions key={selectedPlanId} label={`Save all ${exportPlans.length} departures`} buttonLabel="Save all" formats={['json', 'csv']}
         disabled={alternativesLoading} resultKey={plans}
-        onExport={format => exportJourneys(readyPlans, format, selectedPlanId)} /> : null}
+        onExport={format => exportJourneys(exportPlans, format, selectedPlanId)} /> : null}
       {earliestTransit ? <details className="pathfinder-result-context"><summary>Search details</summary><p>{earliestTransit}</p></details> : null}
       {alternativesLoading ? (
         <div className="pathfinder-alternatives" role="status" aria-live="polite">
