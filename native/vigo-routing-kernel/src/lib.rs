@@ -8708,3 +8708,6 @@ mod paged_scratch_tests;
 
 #[cfg(all(feature = "standalone", not(feature = "node")))]
 mod endpoint_batch;
+
+#[cfg(feature = "node")]
+mod studio_choices;

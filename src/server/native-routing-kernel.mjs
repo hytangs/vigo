@@ -2468,3 +2468,7 @@ export function nativeNetworkOverview(storePath, sourceScope, asynchronous = fal
   if (typeof binding.networkOverview !== 'function') throw new Error('Rust routing binding lacks City overviews. Rebuild the native kernel.')
   return asynchronous ? binding.networkOverview(storePath, sourceScope) : binding.networkOverviewSync(storePath, sourceScope)
 }
+
+export function selectStudioJourneyChoices(plans, limit = 10) {
+  return loadNativeBinding().selectStudioJourneyIndices(JSON.stringify(plans), limit).map(index => plans[index])
+}

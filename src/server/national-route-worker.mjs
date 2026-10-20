@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { parentPort } from 'node:worker_threads'
 import { haversineKm } from './geometry-utils.mjs'
-import { routeAlternativeRequest, selectDetailedRouteChoices } from './native-routing-kernel.mjs'
+import { routeAlternativeRequest, selectStudioJourneyChoices } from './native-routing-kernel.mjs'
 import { compactStudioRoutingPlan } from './studio-route-response.mjs'
 
 const workerInstance = crypto.randomUUID()
@@ -416,18 +416,10 @@ parentPort.on('message', async (message) => {
       if (request.includeRankedAlternatives === true && !request.__orderedSegment && request.timePreference !== 'arrive') {
         const rankedRequest = { ...request, departureWindowMinutes: 0, alternatives: 9,
           alternativeRanking: 'ranked', alternativeSlackMinutes: 15 }
-        const ranked = routeNationalGtfsStoreWithAlternatives(storePath, rankedRequest, routeAlternativeRequest(rankedRequest))
-        const selected = selectDetailedRouteChoices(rankedRequest, { result: ranked.plan,
-          choices: ranked.choices, alternativeSearch: ranked.alternativeSearch })
-        const identity = plan => JSON.stringify(plan.legs.map(leg => [leg.type, leg.tripId, leg.fromStopId, leg.toStopId, leg.coordinates, ...(leg.type === 'ride' ? [leg.startMinutes, leg.endMinutes] : [])]))
-        const seen = new Set(routed.choices.map(identity))
-        for (const plan of [ranked.plan, ...selected.choices]) {
-          if (plan.status !== 'ready') continue
-          const key = identity(plan)
-          if (seen.has(key)) continue
-          seen.add(key)
-          routed.choices.push({ ...plan, recommended: false, choiceLabel: 'Another departure' })
-        }
+        const ranked = routeNationalGtfsStoreWithAlternatives(storePath, rankedRequest,
+          { ...routeAlternativeRequest(rankedRequest), limit: 64 })
+        routed.choices = selectStudioJourneyChoices([routed.plan, ...routed.choices,
+          ...ranked.choices.map(plan => ({ ...plan, recommended: false, choiceLabel: 'Another route' }))])
       }
       const earliestTransit = earliestTransitEvidenceFromPlans(routed.profile?.plans)
       const { plans: _samplePlans, ...profile } = routed.profile

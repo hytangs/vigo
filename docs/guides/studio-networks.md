@@ -40,8 +40,11 @@ road segment produces an explanation; a straight line is not labeled a road path
 ## Journey choices
 
 Studio's later-departure search supplements its timetable window with the Rust
-ranked search at the requested clock: at most nine alternatives within fifteen
-minutes of the earliest arrival. Existing walking, transfer, accessibility,
+ranked search at the requested clock: up to 64 candidate vehicle chains within
+fifteen minutes of the earliest arrival. Rust selects at most ten results,
+prioritizing distinct line and boarding/alighting combinations before repeated
+departures. Dominated station-return detours and unnecessary changes onto the
+same vehicle are removed only when a feasible simpler witness exists. Existing walking, transfer, accessibility,
 service-date and selected-network constraints still apply. This is a bounded
 candidate search, not a claim to enumerate every possible itinerary.
 
