@@ -15,7 +15,11 @@ pub const MAX_UPDATES: usize = 200_000;
 pub fn timestamp(value: &Value) -> Result<i64> {
     if let Some(n) = value.as_f64().or_else(|| value.as_str()?.parse().ok()) {
         let millis = if n < 1e12 { n * 1000. } else { n };
-        if millis.is_finite() && millis > 0. && millis < i64::MAX as f64 {
+        if millis.is_finite()
+            && millis > 0.
+            && millis < i64::MAX as f64
+            && chrono::DateTime::from_timestamp_millis(millis as i64).is_some()
+        {
             return Ok(millis as i64);
         }
     } else if let Some(s) = value.as_str() {
@@ -174,6 +178,9 @@ impl TrafficEngine {
         fingerprint: &str,
         value: &Value,
     ) -> Result<Arc<Snapshot>> {
+        if !value.is_object() {
+            return Err("traffic must be an object".into());
+        }
         let mut hash = Sha256::new();
         hash.update(fingerprint);
         hash.update(serde_json::to_vec(value).map_err(|e| e.to_string())?);

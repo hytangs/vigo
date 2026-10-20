@@ -26,6 +26,14 @@ assert.equal(wheelchairPathwaySeconds({ pathway_mode: 1, traversal_time: 15, max
 assert.equal(wheelchairWayAllowed({ highway: 'footway', wheelchair: 'yes' }), true)
 for (const tags of [{ highway: 'footway' }, { highway: 'steps', wheelchair: 'yes' }, { wheelchair: 'limited' }, { wheelchair: 'yes', incline: '20%' }]) assert.equal(wheelchairWayAllowed(tags), false)
 for (const tags of [{ barrier: 'stile', wheelchair: 'yes' }, { barrier: 'gate' }, { kerb: 'raised' }, { wheelchair: 'no' }, { 'wheelchair:conditional': 'yes @ (Mo-Fr)' }]) assert.equal(wheelchairNodeAllowed(tags), false)
+// Malformed slope tags must not turn unknown access into an accessible edge.
+for (const incline of ['.%', '1.2.3%', '+.%', '--2%', 'NaN%', 'Infinity%']) {
+  assert.equal(wheelchairWayAllowed({ highway: 'footway', wheelchair: 'yes', incline }), false, incline)
+  assert.equal(wheelchairNodeAllowed({ wheelchair: 'yes', incline }), false, incline)
+}
+for (const incline of ['0', '0%', '+8.3%', '-8.3%', '.5%']) {
+  assert.equal(wheelchairWayAllowed({ highway: 'footway', wheelchair: 'yes', incline }), true, incline)
+}
 assert.equal(wheelchairNodeAllowed({}), true)
 assert.equal(wheelchairNodeAllowed({ barrier: 'gate', wheelchair: 'yes' }), true)
 

@@ -84,7 +84,7 @@ const initialRouteState = (): RouteState => ({
   routingMaxTransfers: undefined,
   routingAllowLongWalk: true,
   routingAllowStreetTransfers: true,
-  routingMinimumTransferBufferMinutes: 0,
+  routingMinimumTransferBufferMinutes: 1,
   selectedRoutingPlanId: '',
   routingDetailsVisible: false,
   routingEnabled: false,

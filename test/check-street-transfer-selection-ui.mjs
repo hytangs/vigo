@@ -14,6 +14,7 @@ import React,{useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {SidebarPathfinderBox} from '/src/components/PathfinderPanel.tsx';
 import {useNationalRouting} from '/src/app/useNationalRouting.ts';
+import {route} from '/src/state/route.ts';
 import '/src/App.css'; import '/src/index.css';
 document.documentElement.dataset.appearance='light';
 const origin={coordinate:[0,0],label:'Origin',source:'map'};
@@ -33,7 +34,7 @@ window.fetch=async (url,options)=>{
 };
 function Fixture(){
  const [allowStreetTransfers,setAllowStreetTransfers]=useState(true);
- const [minimumTransferBufferMinutes,setMinimumTransferBufferMinutes]=useState(0);
+ const [minimumTransferBufferMinutes,setMinimumTransferBufferMinutes]=useState(route.get().routingMinimumTransferBufferMinutes);
  const [allowLongWalk,setAllowLongWalk]=useState(true);
  const [routingDataMode,setRoutingDataMode]=useState('scheduled');
  const [network,setNetwork]=useState('scenario');
@@ -83,7 +84,7 @@ try {
     const window=new BrowserWindow({show:false,frame:false,useContentSize:true,width:390,height:1000,webPreferences:{offscreen:true,backgroundThrottling:false,sandbox:true,contextIsolation:true,nodeIntegration:false}});
     await window.loadURL(${JSON.stringify(url)});
     const read=code=>window.webContents.executeJavaScript(code);
-    await until(()=>read('document.getElementById("selection-result")?.textContent==="allowed:0"'));
+    await until(()=>read('document.getElementById("selection-result")?.textContent==="allowed:1"'));
     assert.equal(await read('window.selectionRequests.at(-1).requireTransitRide'),false,'Point-to-point transit must admit direct walking');
     await read('[...document.querySelectorAll("[role=tab]")].find(button=>button.textContent==="Preferences").click()');
     await until(()=>read('document.querySelector("[aria-labelledby$=preferences-tab]").hidden===false'));
@@ -91,10 +92,10 @@ try {
     await until(()=>read('window.selectionRequests.at(-1).allowLongWalk===false'));
     assert.equal(await read('window.selectionRequests.at(-1).requireTransitRide'),false,'Disabling longer walks must still admit short direct walks');
     await read('document.getElementById("pathfinder-street-transfers").click()');
-    await until(()=>read('document.getElementById("selection-result").textContent==="station:0"'));
+    await until(()=>read('document.getElementById("selection-result").textContent==="station:1"'));
     assert.equal(await read('window.selectionRequests.at(-1).allowStreetTransfers'),false);
     assert.equal(await read('document.getElementById("pathfinder-street-transfers").checked'),false);
-    assert.equal(await read('window.selectionRequests.at(-1).minimumTransferBufferMinutes'),0);
+    assert.equal(await read('window.selectionRequests.at(-1).minimumTransferBufferMinutes'),1);
     await read('{const select=document.getElementById("pathfinder-transfer-buffer");select.value="2";select.dispatchEvent(new Event("change",{bubbles:true}))}');
     await until(()=>read('document.getElementById("selection-result").textContent==="station:2"'));
     assert.equal(await read('window.selectionRequests.at(-1).minimumTransferBufferMinutes'),2);
@@ -159,6 +160,8 @@ try {
     await read('document.querySelector(".routing-setup-fold").click()');
     await read('document.querySelector("[type=date]").max="2026-10-19";document.querySelector("form").requestSubmit()');
     await until(()=>read('document.querySelector("[aria-labelledby$=when-tab]").hidden===false'));
+    // Focusing follows the tab update on requestAnimationFrame.
+    await until(()=>read('document.activeElement.type==="date"'));
     assert.equal(await read('document.activeElement.type'),'date','Invalid dates reveal and focus the When tab');
     await read('document.querySelector("[type=date]").removeAttribute("max")');
     await read('document.querySelector("[id$=when-tab]").click()');

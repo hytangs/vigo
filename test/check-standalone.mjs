@@ -185,11 +185,13 @@ try {
   const streetHeader = JSON.parse(fs.readFileSync(path.join(city, 'osm/street-index.sqlite.drive-accelerator-v2.bin')).subarray(0, 4096).toString().replace(/[\0\s]+$/g, ''))
   const driveBytes = fs.readFileSync(path.join(city, 'osm/street-index.sqlite.drive-accelerator-v2.bin'))
   const weights = Array.from({ length: streetHeader.arrays.edgeTimeUnits.length }, (_, i) => driveBytes.readUInt32LE(streetHeader.arrays.edgeTimeUnits.offset + i * 4))
-  const rawTraffic = factor => ({ snapshotKey: 'same-client-key', streetSourceFingerprint: streetHeader.identity.sourceFingerprint, edgeIndices: weights.map((_, i) => i), edgeTimeUnits: weights.map(v => v * factor) })
+  const observedAt = Date.now()
+  const rawTraffic = factor => ({ observedAt, snapshotKey: 'same-client-key', streetSourceFingerprint: streetHeader.identity.sourceFingerprint, edgeIndices: weights.map((_, i) => i), edgeTimeUnits: weights.map(v => v * factor) })
   const trafficRequests = [4, 1].map(factor => ({ ...coordinate, mode: 'drive', kind: 'route', traffic: rawTraffic(factor) }))
   const trafficStream = spawnSync(binary, ['stream', '--city', city], { input: trafficRequests.map(JSON.stringify).join('\n') + '\n', env, encoding: 'utf8' })
   assert.equal(trafficStream.status, 0, trafficStream.stderr)
   const trafficResults = trafficStream.stdout.trim().split('\n').map(JSON.parse)
+  for (const result of trafficResults) assert.equal(result.status, 'ok', JSON.stringify(result))
   assert(trafficResults[0].journey.durationSeconds > trafficResults[1].journey.durationSeconds, 'Traffic cache identity must bind the actual weights, not a caller key')
   count++
   const lines = [{ kind: 'route', id: 1, ...base, realtimeSnapshot }, [], { kind: 'route', id: 2, ...base }]

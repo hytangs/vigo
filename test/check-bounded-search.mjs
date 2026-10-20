@@ -456,7 +456,7 @@ console.log('Bounded envelope resumption preserves departures before earliest ar
 // bounds boardings and ride exits, while a final transfer and egress may finish
 // later. Comparing only bounded and anchor-only searches cannot detect a shared
 // mistake in that event domain, so these small networks have explicit answers.
-function horizonTestKernel(runs, transfers = []) {
+function horizonTestKernel(runs, transfers = [], options = {}) {
   const rows = runs.flatMap((run, trip) => run.map(([from, to, departure, arrival], i) => ({
     from, to, departure, arrival, trip, sequence: i + 1, first: i === 0,
   })))
@@ -484,6 +484,7 @@ function horizonTestKernel(runs, transfers = []) {
     departureOffset: new Uint32Array(offsets), departureOrder: new Uint32Array(order),
     transferOffset: new Uint32Array(transferOffset), transferTo: new Uint32Array(transferTo),
     transferDuration: new Uint32Array(transferDuration), forbiddenSameStop: new Uint8Array(stopCount),
+    ...options,
   })
 }
 const horizonBaseRuns = [[[0, 1, 100, 150]], [[1, 2, 160, 290]]]
@@ -602,4 +603,30 @@ console.log(`Ride horizons and legal terminal walks matched explicit fixtures ($
   assert.deepEqual(found({ ranking: 'ranked', arrivalSlackSeconds: 35 }), [[200, 1], [230, 1]])
   assert.throws(() => found({ ranking: 'best' }), /pareto or ranked/)
   console.log('Requested Pareto and ranked alternatives matched an explicit fixture.')
+}
+
+// A short feeder is useful only when its timing or admitted access frontier
+// improves the journey. Never implement a blanket short-ride prohibition.
+{
+  const query = { originStops: [0, 1], originWalkSeconds: [0, 180], originCandidateIndices: [0, 1],
+    destinationStops: [2], destinationWalkSeconds: [0], destinationCandidateIndices: [0],
+    departure: 0, horizon: 1000, allowPreRideTransfers: false, allowPostRideTransfers: false }
+  const runs = [[[0, 1, 60, 120]], [[1, 2, 300, 600]]]
+  const sameTrain = horizonTestKernel(runs).routeScalarCsa(query)
+  assert.deepEqual([sameTrain.bestArrival, sameTrain.bestBoardings], [600, 1], 'Walk to the same onward train instead of boarding a redundant feeder')
+  const earlyTrain = horizonTestKernel([runs[0], [[1, 2, 150, 400]], runs[1]]).routeScalarCsa(query)
+  assert.deepEqual([earlyTrain.bestArrival, earlyTrain.bestBoardings], [400, 2], 'Retain a short ride that catches materially earlier service')
+  // The caller removes a walking seed when it exceeds the budget or is not
+  // accessible. Search must not reintroduce that excluded walking connection.
+  const restricted = { ...query, originStops: [0], originWalkSeconds: [0], originCandidateIndices: [0] }
+  const constrained = horizonTestKernel(runs).routeScalarCsa(restricted)
+  assert.deepEqual([constrained.bestArrival, constrained.bestBoardings], [600, 2])
+  const noAccessibleHop = horizonTestKernel([runs[1]]).routeScalarCsa(restricted)
+  assert.equal(noAccessibleHop.status, 'blocked')
+  const zeroChange = [[[0, 1, 60, 120]], [[1, 2, 120, 200]], [[1, 2, 180, 260]]]
+  const buffered = horizonTestKernel(zeroChange, [], { minimumTransferBufferSeconds: 60 }).routeScalarCsa(restricted)
+  assert.deepEqual([buffered.bestArrival, buffered.bestBoardings], [260, 2], 'Different vehicles need the selected boarding reserve')
+  const through = horizonTestKernel([[[0, 1, 60, 120], [1, 2, 120, 200]]], [], { minimumTransferBufferSeconds: 60 }).routeScalarCsa(restricted)
+  assert.deepEqual([through.bestArrival, through.bestBoardings], [200, 1], 'Staying aboard the same run needs no vehicle-change reserve')
+  console.log('Short-hop quality passed: same train, earlier train, restricted access, different vehicles and through-service.')
 }

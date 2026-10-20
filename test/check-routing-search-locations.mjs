@@ -7,6 +7,11 @@ const requests = []
 globalThis.fetch = (url, options) => new Promise(resolve => requests.push({ url, signal: options.signal, reply: places => resolve(Response.json({ places })) }))
 const settle = () => new Promise(resolve => setImmediate(resolve))
 try {
+  assert.equal(route.get().routingMinimumTransferBufferMinutes, 1, 'Studio starts with a boarding reserve between different services')
+  routing.setRoutingMinimumTransferBuffer(0)
+  assert.equal(route.get().routingMinimumTransferBufferMinutes, 0, 'Explicit timetable-only selection remains available')
+  resetRoute()
+  assert.equal(route.get().routingMinimumTransferBufferMinutes, 1, 'Reset restores the transfer reserve')
   city.set({ projects: ['one', 'two'].map(id => ({ ...emptyCityProject(), id })), selectedProjectId: 'one' })
   assert(runRoutingSearch('42.30,-71.00 to 42.30,-71.10'))
   const initial = route.get()

@@ -456,3 +456,36 @@ fn off_city_measurements_do_not_shorten_local_freshness() {
     assert_eq!(result.rejected["out_of_city_site"], 1);
     assert_eq!(result.observed_at, ndw_now() - 60_000);
 }
+
+#[test]
+fn traffic_rejects_non_objects_before_field_validation() {
+    for value in [
+        json!([]),
+        json!(null),
+        json!(false),
+        json!(42),
+        json!("traffic"),
+    ] {
+        let error = TrafficEngine::default()
+            .compile(graph(), "g", &value)
+            .unwrap_err();
+        assert_eq!(error, "traffic must be an object");
+    }
+}
+
+#[test]
+fn traffic_rejects_unrepresentable_timestamps_without_panicking() {
+    for value in [
+        json!(9_223_372_036_854_774_784_i64),
+        json!(9e18),
+        json!("9e18"),
+    ] {
+        assert!(timestamp(&value).is_err(), "{value}");
+        let request = json!({"observedAt": value, "observations": []});
+        assert!(
+            TrafficEngine::default()
+                .compile(graph(), "g", &request)
+                .is_err()
+        );
+    }
+}

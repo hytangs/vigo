@@ -627,7 +627,9 @@ Transit Route and Matrix compare a direct OSM walk by default, so a short coordi
 
 `minimumTransferBufferMinutes` (integer 0–60, default 0) adds time before each subsequent boarding, after any transfer walk and the feed's own minimum transfer time. It is charged once per transfer, including a change at the same stop, and never delays the first boarding, the final egress, or staying aboard. `arrivalBufferMinutes` plans an arrive-by query against an earlier deadline. Both are timetable feasibility constraints, not delay predictions; see [Time reserves](#travel-time-uncertainty).
 
-The engine adds no implicit boarding buffer. Same-stop changes honor published GTFS minimum transfer times and forbidden transfers. Explicit transfer edges keep their durations without an added margin or a 60-second floor, and a published platform-to-platform transfer rule takes precedence over the station walking fallback.
+Studio starts with a one-minute transfer buffer after any transfer walk, so a change between different services cannot rely on simultaneous arrival and departure. The first boarding and staying aboard the same trip are unaffected; Preferences can change the buffer, including explicitly selecting none. This reserve is a planning margin, not a guarantee against delay.
+
+The engine API adds no implicit boarding buffer. Same-stop changes honor published GTFS minimum transfer times and forbidden transfers. Explicit transfer edges keep their durations without an added margin or a 60-second floor, and a published platform-to-platform transfer rule takes precedence over the station walking fallback.
 
 ### How a journey is chosen
 

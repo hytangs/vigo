@@ -83,7 +83,9 @@ export function wheelchairNodeAllowed(tags) {
   if (tag(tags.width) && (width == null || width < 0.9)) return false
   const incline = tag(tags.incline)
   if (incline && incline !== '0' && incline !== '0%') {
-    if (!/^[+-]?[\d.]+%$/.test(incline) || Math.abs(Number(incline.slice(0, -1))) > 8.3) return false
+    const percent = Number(incline.slice(0, -1))
+    if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)%$/.test(incline)
+      || !Number.isFinite(percent) || Math.abs(percent) > 8.3) return false
   }
   return true
 }
