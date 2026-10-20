@@ -31,13 +31,8 @@
   box-shadow: none;
 }
 
-.pathfinder-location-stack,
-.pathfinder-time-preference,
-.pathfinder-time-field,
-.pathfinder-date-field {
+.pathfinder-location-stack {
   border-color: var(--border);
-  border-radius: var(--control-radius, 8px);
-  background: var(--panel-strong);
 }
 
 .pathfinder-location-mark {
@@ -363,8 +358,7 @@
   gap: 6px;
 }
 
-.pathfinder-mode-switch,
-.pathfinder-mini-switch {
+.pathfinder-mode-switch {
   min-width: 0;
   display: grid;
   grid-auto-columns: minmax(0, 1fr);
@@ -375,8 +369,7 @@
   background: var(--panel-soft);
 }
 
-.pathfinder-mode-switch button,
-.pathfinder-mini-switch button {
+.pathfinder-mode-switch button {
   min-width: 0;
   min-height: 30px;
   display: inline-flex;
@@ -393,13 +386,11 @@
   cursor: pointer;
 }
 
-.pathfinder-mode-switch button:hover:not(.is-active),
-.pathfinder-mini-switch button:hover:not(.is-active) {
+.pathfinder-mode-switch button:hover:not(.is-active) {
   color: var(--text-strong);
 }
 
-.pathfinder-mode-switch button.is-active,
-.pathfinder-mini-switch button.is-active {
+.pathfinder-mode-switch button.is-active {
   color: var(--text-strong);
   background: var(--control-surface-strong);
   box-shadow: 0 1px 3px color-mix(in srgb, #000 14%, transparent);
@@ -407,18 +398,6 @@
 
 .pathfinder-mode-switch button.is-active svg {
   color: var(--vigo-lime-strong);
-}
-
-.pathfinder-mini-switch {
-  padding: 2px;
-  border-radius: 8px;
-}
-
-.pathfinder-mini-switch button {
-  min-height: 24px;
-  padding: 0 8px;
-  border-radius: 6px;
-  font-size: 0.64rem;
 }
 
 .pathfinder-new-route {
@@ -722,178 +701,6 @@
   font-weight: 680;
 }
 
-/* The network a route runs on: the City's timetable or a saved scenario. */
-.pathfinder-network {
-  display: grid;
-  gap: 6px;
-}
-
-.pathfinder-network-field {
-  position: relative;
-  min-height: 40px;
-  display: grid;
-  grid-template-columns: 16px auto minmax(0, 1fr) 14px;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  border: 1px solid var(--line-2);
-  border-radius: 12px;
-  color: var(--text-3);
-  background: var(--control-surface-strong);
-}
-
-.pathfinder-network-field > span {
-  color: var(--text-3);
-  font-size: var(--type-2xs);
-  font-weight: 640;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.pathfinder-network-field select {
-  min-width: 0;
-  height: 38px;
-  padding: 0;
-  border: 0;
-  color: var(--text-1);
-  background: transparent;
-  font: inherit;
-  font-size: var(--type-sm);
-  font-weight: 590;
-  text-overflow: ellipsis;
-  appearance: none;
-  cursor: pointer;
-}
-
-.pathfinder-network-field select:focus-visible {
-  outline: none;
-}
-
-.pathfinder-network-field:focus-within {
-  outline: 2px solid var(--signal-text);
-  outline-offset: 2px;
-}
-
-.pathfinder-network-field > svg:last-child {
-  pointer-events: none;
-}
-
-.pathfinder-network-field.is-scenario {
-  border-color: var(--signal-line);
-  box-shadow: inset 3px 0 0 var(--signal);
-}
-
-.pathfinder-network-field.is-scenario > svg:first-child {
-  color: var(--signal-text);
-}
-
-.pathfinder-network .pathfinder-points-hint.is-error {
-  color: var(--alert);
-}
-
-.pathfinder-when {
-  display: grid;
-  gap: 8px;
-  padding: 9px 10px 10px;
-  border: 1px solid var(--border-strong);
-  border-radius: 12px;
-  background: var(--control-surface-strong);
-}
-
-.pathfinder-when-head {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 28px;
-}
-
-.pathfinder-when-head > span {
-  color: var(--text-muted);
-  font-size: 0.6rem;
-  font-weight: 640;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.pathfinder-when-row {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 100px;
-  gap: 7px;
-}
-
-.pathfinder-time-preference,
-.pathfinder-time-field,
-.pathfinder-date-field {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--control-surface);
-}
-
-.pathfinder-time-preference {
-  padding: 3px;
-}
-
-.pathfinder-time-preference button {
-  min-height: 31px;
-  border: 0;
-  border-radius: var(--control-radius, 8px);
-  color: var(--text-muted);
-  background: transparent;
-  font-size: 0.69rem;
-  font-weight: 580;
-}
-
-.pathfinder-time-preference button + button {
-  border-left: 0;
-}
-
-.pathfinder-time-preference button.is-active {
-  color: var(--text-strong);
-  background: var(--control-surface-strong);
-  box-shadow: 0 1px 3px color-mix(in srgb, var(--text-strong) 7%, transparent);
-}
-
-.pathfinder-time-field {
-  padding: 0 9px;
-}
-
-.pathfinder-time-field.pathfinder-depart-now {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 34px;
-  color: var(--text-strong);
-  font-size: 13px;
-}
-
-.pathfinder-time-field input,
-.pathfinder-date-field input {
-  min-height: 32px;
-  color: var(--text-strong);
-  font-size: 0.72rem;
-  font-weight: 590;
-}
-
-.pathfinder-date-field {
-  min-height: 36px;
-  padding: 0 9px;
-  grid-template-columns: 16px minmax(0, 1fr);
-  gap: 4px;
-}
-
-.pathfinder-date-field.is-outside {
-  border-color: color-mix(in srgb, var(--warn) 42%, var(--border));
-  background: color-mix(in srgb, var(--warn) 6%, var(--control-surface-strong));
-}
-
-.pathfinder-street-depart-label {
-  color: var(--text-muted);
-  font-size: 0.64rem;
-  font-weight: 600;
-}
 
 .pathfinder-stage-route {
   padding-bottom: 2px;
@@ -1107,11 +914,6 @@
   color: var(--text-strong);
 }
 
-.pathfinder-options {
-  margin-top: 0;
-  overflow: visible;
-}
-
 /* Setup panels: a single-line disclosure that reads as part of the form. */
 .studio-disclosure.is-compact {
   border-top: 0;
@@ -1135,10 +937,6 @@
 
 .studio-disclosure.is-compact > summary > b {
   font-size: 0.66rem;
-}
-
-.pathfinder-options-body {
-  padding: 4px 0 12px;
 }
 
 .pathfinder-point-sequence {
@@ -1452,10 +1250,6 @@
 @media (max-width: 520px) {
   .sidebar-panel {
     padding: 13px 11px 18px;
-  }
-
-  .pathfinder-when-row {
-    grid-template-columns: minmax(0, 1fr) 96px;
   }
 }
 

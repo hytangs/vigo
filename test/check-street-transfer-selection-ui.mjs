@@ -36,6 +36,9 @@ function Fixture(){
  const [minimumTransferBufferMinutes,setMinimumTransferBufferMinutes]=useState(0);
  const [allowLongWalk,setAllowLongWalk]=useState(true);
  const [routingDataMode,setRoutingDataMode]=useState('scheduled');
+ const [network,setNetwork]=useState('scenario');
+ const [time,setTime]=useState(769);
+ const [date,setDate]=useState('2026-10-19');
  const routing=useNationalRouting({active:true,projectId:'fixture',feedId:'fixture',storeKey:'fixture',
    origin,waypoints,destination,mode:'transit',routingDataMode,departMinutes:480,timePreference:'depart',
    serviceDay:'weekday',serviceDate:'2026-07-15',maxWalkKm:1.2,allowLongWalk,allowStreetTransfers,minimumTransferBufferMinutes,
@@ -46,15 +49,16 @@ function Fixture(){
    routingEnabled:false,routingOrigin:origin,routingWaypoints:waypoints,routingDestination:destination,
    routingPlan:null,routingChoices:[],routingScopeStatus:'ready',routingStoreReady:true,
    routingTimePreference:'depart',routingMode:'transit',routingDataMode,routingDepartureWindowMinutes:0,
+   routingNetwork:{scenarios:[{id:'scenario',name:'Scenario A',detail:'Weekday timetable · 3 service changes'}],selectedId:network,error:'',onChange:setNetwork},
    routingMaxWalkKm:1.2,routingAllowLongWalk:allowLongWalk,routingAllowStreetTransfers:allowStreetTransfers,routingMinimumTransferBufferMinutes:minimumTransferBufferMinutes,
    routingActivity:{kind:'idle',title:'',detail:''},routingAlternativesLoading:false,
-   routingServiceDate:'2026-07-15',routingServiceCoverage:null,routingServiceDateAvailability:'covered',
-   routingServiceDateOptions:[],storeBackedRouting:true,scheduleTimeMinutes:480,routingPickIndex:null,
+   routingServiceDate:date,routingServiceCoverage:null,routingServiceDateAvailability:'covered',
+   routingServiceDateOptions:[],storeBackedRouting:true,scheduleTimeMinutes:time,routingPickIndex:null,
    onRunRouting:routing.reset,onRoutingAllowStreetTransfersChange:setAllowStreetTransfers,onRoutingMinimumTransferBufferChange:setMinimumTransferBufferMinutes,
-   onPickRoutingPoint:noOp,onReorderRoutingPoints:noOp,onOpenFeed:noOp,onScheduleTimeChange:noOp,
+   onPickRoutingPoint:noOp,onReorderRoutingPoints:noOp,onOpenFeed:noOp,onScheduleTimeChange:setTime,
    onRoutingTimePreferenceChange:noOp,onRoutingModeChange:noOp,onRoutingDataModeChange:setRoutingDataMode,
    onRoutingDepartureWindowChange:noOp,onRoutingMaxWalkKmChange:noOp,onRoutingMaxTransfersChange:noOp,
-   onRoutingAllowLongWalkChange:setAllowLongWalk,onRoutingServiceDateChange:noOp,onSelectRoutingPlan:noOp,
+   onRoutingAllowLongWalkChange:setAllowLongWalk,onRoutingServiceDateChange:setDate,onSelectRoutingPlan:noOp,
    onToggleRouting:noOp,onClearRouting:noOp}));
 }
 createRoot(document.getElementById('root')).render(React.createElement(Fixture));`
@@ -81,7 +85,9 @@ try {
     const read=code=>window.webContents.executeJavaScript(code);
     await until(()=>read('document.getElementById("selection-result")?.textContent==="allowed:0"'));
     assert.equal(await read('window.selectionRequests.at(-1).requireTransitRide'),false,'Point-to-point transit must admit direct walking');
-    await read('document.querySelector(".pathfinder-options").open=true;document.getElementById("pathfinder-long-walk").click()');
+    await read('[...document.querySelectorAll("[role=tab]")].find(button=>button.textContent==="Preferences").click()');
+    await until(()=>read('document.querySelector("[aria-labelledby$=preferences-tab]").hidden===false'));
+    await read('document.getElementById("pathfinder-long-walk").click()');
     await until(()=>read('window.selectionRequests.at(-1).allowLongWalk===false'));
     assert.equal(await read('window.selectionRequests.at(-1).requireTransitRide'),false,'Disabling longer walks must still admit short direct walks');
     await read('document.getElementById("pathfinder-street-transfers").click()');
@@ -98,7 +104,7 @@ try {
       assert(await read('document.documentElement.scrollWidth<=innerWidth+1'),'Route options must fit a narrow window');
     }
     await resizeLayout(window,390,1000);
-    await read('document.querySelector(".pathfinder-options").scrollIntoView()');
+    await read('document.querySelector(".routing-setup").scrollIntoView()');
     await (await import('node:fs/promises')).writeFile(${JSON.stringify(screenshotPath)},(await layoutFrame(window)).toPNG());
     await read('{const select=document.getElementById("pathfinder-transfer-buffer");select.value="0";select.dispatchEvent(new Event("change",{bubbles:true}))}');
     await until(()=>read('document.getElementById("selection-result").textContent==="station:0"'));
@@ -112,6 +118,37 @@ try {
     await until(()=>read('document.getElementById("selection-result").textContent==="allowed:0"'));
     await wait(150);
     assert.equal(await read('document.getElementById("selection-result").textContent'),'allowed:0','A superseded restricted response cannot overwrite the new choice');
+    // Settings persist through tab switches; arrow keys move both selection and focus.
+    await read('document.querySelector("[id$=preferences-tab]").dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowLeft",bubbles:true}))');
+    assert.equal(await read('document.activeElement.id.endsWith("when-tab")'),true);
+    assert.equal(await read('document.querySelector("[type=time]").value'),'12:49');
+    assert.equal(await read('document.querySelector("[type=date]").value'),'2026-10-19');
+    assert.equal(await read('[...document.querySelectorAll("button")].find(button=>button.textContent==="Realtime").disabled'),true,'Scenario timetable cannot be queried as realtime');
+    await read('{const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set;for(const [type,value] of [["time","14:25"],["date","2026-10-20"]]){const input=document.querySelector("[type="+type+"]");set.call(input,value);input.dispatchEvent(new Event("input",{bubbles:true}))}}');
+    await until(()=>read('document.querySelector("[type=time]").value==="14:25"&&document.querySelector("[type=date]").value==="2026-10-20"'));
+
+    await read('{const select=document.querySelector("[id$=-network]");select.value="";select.dispatchEvent(new Event("change",{bubbles:true}))}');
+    await until(()=>read('[...document.querySelectorAll("button")].find(button=>button.textContent==="Realtime").disabled===false'));
+    for(const appearance of ['dark','light']) {
+      await read('document.querySelector("main").className="app-shell appearance-'+appearance+' accent-graphite page-project view-pathfinder"; document.documentElement.dataset.appearance="'+appearance+'"');
+      for(const tab of ['when','preferences']) {
+        await read('document.querySelector("[id$='+tab+'-tab]").click()');
+        await until(()=>read('document.querySelector("[aria-labelledby$='+tab+'-tab]").hidden===false'));
+        await read('document.querySelector(".routing-setup").scrollIntoView()');
+        await wait(150);
+        await layoutFrame(window);
+        assert(await read('document.querySelector(".routing-setup").scrollWidth<=document.querySelector(".routing-setup").clientWidth+1'),'Settings must not overflow horizontally');
+        await (await import('node:fs/promises')).writeFile(${JSON.stringify(directory)}+'/'+appearance+'-'+tab+'.png',(await layoutFrame(window)).toPNG());
+      }
+    }
+    assert.equal(await read('document.getElementById("pathfinder-street-transfers").checked'),true,'Tab changes preserve transfer choices');
+    assert.equal(await read('document.querySelector("[type=time]").value'),'14:25','Time edits survive tab changes');
+    assert.equal(await read('document.querySelector("[type=date]").value'),'2026-10-20','Date edits survive tab changes');
+    await read('document.querySelector("[type=date]").max="2026-10-19";document.querySelector("form").requestSubmit()');
+    await until(()=>read('document.querySelector("[aria-labelledby$=when-tab]").hidden===false'));
+    assert.equal(await read('document.activeElement.type'),'date','Invalid dates reveal and focus the When tab');
+    await read('document.querySelector("[type=date]").removeAttribute("max")');
+    await read('document.querySelector("[id$=when-tab]").click()');
     await read('[...document.querySelectorAll("button")].find(button=>button.textContent==="Realtime").click()');
     await until(()=>read('window.selectionRequests.at(-1).routingDataMode==="realtime"'));
     assert.equal(await read('window.selectionRequests.at(-1).departNow'),true);

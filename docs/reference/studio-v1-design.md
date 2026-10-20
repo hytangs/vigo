@@ -122,6 +122,12 @@ the camera; selecting a route or receiving a journey still frames it.
   own colors under the query. Bus-only Cities fall back to their most frequent
   patterns. Placing points never zooms in; the camera only pans if a point is
   off screen, and frames the journey once it exists.
+- **Journey settings** combines the network, time and routing preferences in one
+  surface. The network remains visible above keyboard-accessible When and
+  Preferences tabs. Date and time share a row; transfers and walking use compact
+  groups. Longer explanations are disclosed on demand. Switching tabs preserves
+  every setting and does not submit a route. Scenarios retain scheduled service;
+  via points retain the existing transfer-limit and buffer restrictions.
 - **Analyze** colors travel time with a ramp whose luminance falls
   monotonically, from the signal chartreuse through teal and blue to violet,
   and shows an on-map key with the displayed band edges.

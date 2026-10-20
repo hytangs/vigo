@@ -1,0 +1,69 @@
+/* A single settings surface, with controls grouped by the decision they affect. */
+.routing-setup { min-width: 0; overflow: hidden; border: 1px solid var(--line-2); border-radius: var(--radius-lg); background: var(--material-strong); color: var(--text-1); container: routing-setup / inline-size; }
+.routing-setup [hidden] { display: none; }
+.routing-setup-network { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: start; gap: 10px; padding: 16px 16px 14px; border-bottom: 1px solid var(--line-2); }
+.routing-setup-network > svg { margin-top: 19px; color: var(--text-3); }
+.routing-setup-network > svg.is-scenario { color: var(--signal-text); }
+.routing-setup-network > div { min-width: 0; display: grid; gap: 2px; }
+.routing-setup-network label { color: var(--text-3); font-size: var(--type-2xs); font-weight: 500; }
+.routing-setup-network select { width: 100%; min-width: 0; height: 26px; padding: 0; border: 0; border-radius: 4px; color: var(--text-1); background: transparent; font: 600 14px var(--font-ui); text-overflow: ellipsis; cursor: pointer; }
+.routing-setup-network small { color: var(--text-3); font-size: var(--type-xs); line-height: 1.45; overflow-wrap: anywhere; }
+.routing-setup-network p { grid-column: 1 / -1; margin: 4px 0 0; color: var(--alert); font-size: var(--type-xs); }
+.routing-setup-tabs { display: flex; gap: 22px; padding: 0 16px; border-bottom: 1px solid var(--line-2); }
+.routing-setup-tabs button { display: flex; align-items: center; justify-content: center; gap: 7px; position: relative; min-height: 44px; padding: 0 1px; border: 0; color: var(--text-3); background: transparent; font: 550 var(--type-sm) var(--font-ui); cursor: pointer; }
+.routing-setup-tabs button[aria-selected="true"] { color: var(--text-1); }
+.routing-setup-tabs button[aria-selected="true"]::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; border-radius: 2px; background: var(--signal); }
+.routing-setup-tabs button[aria-selected="true"] svg { color: var(--signal-text); }
+.routing-setup-panel { min-width: 0; display: grid; align-content: start; gap: 14px; padding: 16px; }
+.routing-setup-source { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; padding: 3px; border-radius: var(--radius-sm); background: var(--ink-4); }
+.routing-setup-source button { min-width: 0; min-height: 30px; padding: 0 6px; border: 0; border-radius: var(--radius-xs); color: var(--text-3); background: transparent; font: 550 var(--type-xs) var(--font-ui); cursor: pointer; }
+.routing-setup-source button[aria-pressed="true"] { color: var(--text-1); background: var(--ink-2); box-shadow: var(--elev-1); }
+.routing-setup button:disabled, .routing-setup select:disabled { opacity: .45; cursor: not-allowed; }
+.routing-setup button:hover:not(:disabled) { color: var(--text-1); }
+.routing-setup-direction { display: flex; gap: 18px; }
+.routing-setup-direction button { display: inline-flex; align-items: center; gap: 7px; min-height: 26px; padding: 0; border: 0; color: var(--text-3); background: transparent; font: 500 var(--type-sm) var(--font-ui); cursor: pointer; }
+.routing-setup-direction button::before { content: ''; width: 12px; height: 12px; box-sizing: border-box; border: 1px solid var(--line-3); border-radius: 50%; }
+.routing-setup-direction button[aria-pressed="true"] { color: var(--text-1); }
+.routing-setup-direction button[aria-pressed="true"]::before { border: 4px solid var(--signal); background: var(--signal-ink); }
+.routing-setup-datetime { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 10px; }
+.routing-setup-input { display: grid; gap: 4px; min-width: 0; padding: 9px 10px; border: 1px solid transparent; border-radius: var(--radius-sm); background: var(--ink-3); }
+.routing-setup-input:only-child { grid-column: 1 / -1; }
+.routing-setup-input > span, .routing-setup-label, .routing-setup-select > span { color: var(--text-3); font-size: var(--type-xs); font-weight: 500; }
+.routing-setup-input input { width: 100%; min-width: 0; min-height: 23px; padding: 0; border: 0; border-radius: 2px; color: var(--text-1); background: transparent; font: 550 13px var(--font-ui); font-variant-numeric: tabular-nums; }
+.routing-setup-input.is-outside { border-color: var(--watch); }
+.routing-setup-now { display: grid; grid-template-columns: 8px minmax(0, 1fr); align-items: center; gap: 4px 10px; padding: 9px 0; }
+.routing-setup-now > span { width: 6px; height: 6px; border-radius: 50%; background: var(--good); }
+.routing-setup-now strong { font-size: 19px; font-weight: 550; letter-spacing: -.02em; }
+.routing-setup-now small { grid-column: 2; color: var(--text-3); font-size: var(--type-xs); }
+.routing-setup-note { margin: 0; color: var(--text-3); font-size: var(--type-xs); line-height: 1.5; }
+.routing-preference-section { display: grid; gap: 10px; min-width: 0; }
+.routing-preference-section + .routing-preference-section { border-top: 1px solid var(--line-2); padding-top: 14px; }
+.routing-setup-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.routing-setup-select { display: grid; gap: 7px; min-width: 0; }
+.routing-setup-select select { width: 100%; min-width: 0; height: 36px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: var(--ink-3); color: var(--text-1); font: 500 var(--type-sm) var(--font-ui); cursor: pointer; }
+.routing-setup-toggle { display: flex; justify-content: space-between; align-items: center; gap: 14px; min-height: 43px; cursor: pointer; }
+.routing-setup-toggle > span { min-width: 0; display: grid; gap: 3px; }
+.routing-setup-toggle strong { color: var(--text-1); font-size: var(--type-sm); font-weight: 500; }
+.routing-setup-toggle small { color: var(--text-3); font-size: var(--type-2xs); line-height: 1.4; }
+.routing-setup-toggle input { appearance: none; -webkit-appearance: none; position: relative; flex: none; width: 32px; height: 19px; margin: 0; border: 1px solid var(--line-3); border-radius: 12px; background: var(--ink-4); cursor: pointer; transition: background .12s ease; }
+.routing-setup-toggle input::before { content: ''; display: block; width: 13px; height: 13px; margin: 2px; border-radius: 50%; background: var(--text-3); transition: transform .12s ease; }
+.routing-setup-toggle input:checked { border-color: var(--signal); background: var(--signal); }
+.routing-setup-toggle input:checked::before { transform: translateX(13px); background: var(--signal-ink); }
+.routing-setup-range-label { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: var(--type-sm); }
+.routing-setup-range-label strong { font-size: 18px; font-weight: 550; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.routing-setup-range-label small { color: var(--text-3); font-size: var(--type-xs); font-weight: 400; }
+.routing-setup-range { appearance: none; -webkit-appearance: none; width: 100%; height: 20px; margin: 0; background: transparent; cursor: pointer; }
+.routing-setup-range::-webkit-slider-runnable-track { height: 3px; border-radius: 2px; background: linear-gradient(to right, var(--signal) var(--range-progress), var(--line-3) var(--range-progress)); }
+.routing-setup-range::-webkit-slider-thumb { appearance: none; -webkit-appearance: none; height: 12px; width: 12px; margin-top: -4.5px; border: 0; border-radius: 50%; background: var(--signal); box-shadow: 0 0 0 3px var(--material-strong); }
+.routing-setup-range::-moz-range-track { height: 3px; background: var(--line-3); }
+.routing-setup-range::-moz-range-progress { height: 3px; background: var(--signal); }
+.routing-setup-range::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: var(--signal); }
+.routing-setup-range-scale { display: flex; justify-content: space-between; margin-top: -9px; color: var(--text-3); font-size: 10px; }
+.routing-setup-help { padding-top: 10px; border-top: 1px solid var(--line-2); color: var(--text-3); font-size: var(--type-xs); line-height: 1.5; }
+.routing-setup-help summary { width: fit-content; cursor: pointer; }
+.routing-setup-help p { margin: 10px 0 0; }
+.routing-setup-summary { padding: 10px 16px; border-top: 1px solid var(--line-2); background: var(--ink-4); color: var(--text-3); font-size: var(--type-2xs); line-height: 1.6; }
+.routing-setup :is(button, select, input, summary):focus-visible { outline: 2px solid var(--signal-text); outline-offset: 2px; }
+@container routing-setup (max-width: 280px) {
+  .routing-setup-datetime, .routing-setup-columns { grid-template-columns: minmax(0, 1fr); }
+}
