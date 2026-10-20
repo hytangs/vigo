@@ -1,7 +1,13 @@
 /* A single settings surface, with controls grouped by the decision they affect. */
 .routing-setup { min-width: 0; overflow: hidden; border: 1px solid var(--line-2); border-radius: var(--radius-lg); background: var(--material-strong); color: var(--text-1); container: routing-setup / inline-size; }
 .routing-setup [hidden] { display: none; }
-.routing-setup-network { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: start; gap: 10px; padding: 16px 16px 14px; border-bottom: 1px solid var(--line-2); }
+.routing-setup-header { display: flex; align-items: flex-start; gap: 8px; padding: 14px 12px 14px 16px; border-bottom: 1px solid var(--line-2); }
+.routing-setup-header:has([aria-expanded="false"]) { border-bottom: 0; }
+.routing-setup-network { flex: 1; min-width: 0; display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: start; gap: 10px; }
+.routing-setup-title { flex: 1; display: flex; align-items: center; gap: 8px; min-height: 28px; font-size: var(--type-sm); font-weight: 550; }
+.routing-setup-title svg { color: var(--text-3); }
+.routing-setup-fold { display: grid; place-items: center; flex: none; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--radius-sm); color: var(--text-3); background: transparent; cursor: pointer; }
+.routing-setup-fold:hover { background: var(--ink-4); }
 .routing-setup-network > svg { margin-top: 19px; color: var(--text-3); }
 .routing-setup-network > svg.is-scenario { color: var(--signal-text); }
 .routing-setup-network > div { min-width: 0; display: grid; gap: 2px; }
@@ -63,6 +69,7 @@
 .routing-setup-help summary { width: fit-content; cursor: pointer; }
 .routing-setup-help p { margin: 10px 0 0; }
 .routing-setup-summary { padding: 10px 16px; border-top: 1px solid var(--line-2); background: var(--ink-4); color: var(--text-3); font-size: var(--type-2xs); line-height: 1.6; }
+.routing-setup-summary strong { display: block; margin-bottom: 3px; color: var(--text-2); font-size: var(--type-xs); font-weight: 500; }
 .routing-setup :is(button, select, input, summary):focus-visible { outline: 2px solid var(--signal-text); outline-offset: 2px; }
 @container routing-setup (max-width: 280px) {
   .routing-setup-datetime, .routing-setup-columns { grid-template-columns: minmax(0, 1fr); }

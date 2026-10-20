@@ -1,4 +1,4 @@
-import { Clock3, Layers, SlidersHorizontal } from 'lucide-react'
+import { ChevronDown, ChevronUp, Clock3, Layers, SlidersHorizontal } from 'lucide-react'
 import { useId, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { classNames } from '../domain'
 import { routingTimeOptions } from '../app/uiOptions'
@@ -29,6 +29,7 @@ export function RoutingSetup(props: RoutingSetupProps) {
   } = props
   const id = useId()
   const [tab, setTab] = useState<'when' | 'preferences'>('when')
+  const [collapsed, setCollapsed] = useState(false)
   const transit = routingMode === 'transit'
   const activeTab = transit ? tab : 'when'
   const departNow = transit && routingDataMode === 'realtime'
@@ -41,6 +42,8 @@ export function RoutingSetup(props: RoutingSetupProps) {
   const summary = [searchSummary, `${routingMaxWalkKm.toFixed(1)} km access`,
     maxTransfers === undefined ? '' : `≤${maxTransfers} transfers`,
     routingAllowStreetTransfers === false ? 'No street transfers' : '', buffer > 0 ? `${buffer} min buffer` : ''].filter(Boolean).join(' · ')
+  const whenSummary = departNow ? 'Depart now'
+    : `${transit && routingTimePreference === 'arrive' ? 'Arrive by' : 'Depart at'} ${formatScheduleClock(scheduleTimeMinutes)}${transit ? ` · ${routingServiceDate}` : ''}`
 
   function changeTime(value: string) {
     const match = /^(\d{1,2}):(\d{2})$/.exec(value)
@@ -56,7 +59,8 @@ export function RoutingSetup(props: RoutingSetupProps) {
   }
 
   return <section className="routing-setup" aria-label="Journey settings">
-    {transit && routingNetwork?.scenarios.length ? <header className="routing-setup-network">
+    <header className="routing-setup-header">
+    {transit && routingNetwork?.scenarios.length ? <div className="routing-setup-network">
       <Layers size={17} aria-hidden="true" className={classNames(scenario && 'is-scenario')} />
       <div>
         <label htmlFor={`${id}-network`}>Network</label>
@@ -67,8 +71,15 @@ export function RoutingSetup(props: RoutingSetupProps) {
         {scenario ? <small>{scenario.detail}</small> : null}
       </div>
       {routingNetwork.error ? <p role="alert">{routingNetwork.error}</p> : null}
-    </header> : null}
+    </div> : <span className="routing-setup-title"><SlidersHorizontal size={15} aria-hidden="true" />Journey settings</span>}
+      <button type="button" className="routing-setup-fold" aria-expanded={!collapsed} aria-controls={`${id}-content`}
+        aria-label={collapsed ? 'Expand journey settings' : 'Collapse journey settings'}
+        title={collapsed ? 'Expand journey settings' : 'Collapse journey settings'} onClick={() => setCollapsed(value => !value)}>
+        {collapsed ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronUp size={16} aria-hidden="true" />}
+      </button>
+    </header>
 
+    <div id={`${id}-content`} hidden={collapsed}>
     {transit ? <div className="routing-setup-tabs" role="tablist" aria-label="Journey settings">
       {(['when', 'preferences'] as const).map(value => <button key={value} type="button" role="tab"
         id={`${id}-${value}-tab`} aria-controls={`${id}-${value}-panel`} aria-selected={activeTab === value}
@@ -81,10 +92,11 @@ export function RoutingSetup(props: RoutingSetupProps) {
     <div className="routing-setup-panel" id={`${id}-when-panel`} role={transit ? 'tabpanel' : undefined}
       aria-labelledby={transit ? `${id}-when-tab` : undefined} hidden={activeTab !== 'when'}
       onInvalid={event => {
-        if (activeTab === 'when') return
+        if (!collapsed && activeTab === 'when') return
         // Native date validation must reveal the field before trying to focus it.
         event.preventDefault()
         const input = event.target as HTMLInputElement
+        setCollapsed(false)
         setTab('when')
         requestAnimationFrame(() => input.reportValidity())
       }}>
@@ -148,6 +160,7 @@ export function RoutingSetup(props: RoutingSetupProps) {
         <p>The access limit applies to walking to your first stop and from your last stop. {routingAllowLongWalk ? 'Transit may also be compared with a graph-verified walk beyond this limit.' : 'Walk-only results stay within this limit; transit is not replaced by a long walk.'}</p>
       </details>
     </div> : null}
-    {transit ? <footer className="routing-setup-summary">{summary}</footer> : null}
+    </div>
+    {transit || collapsed ? <footer className="routing-setup-summary">{collapsed ? <strong>{whenSummary}</strong> : null}{transit ? <span>{summary}</span> : null}</footer> : null}
   </section>
 }

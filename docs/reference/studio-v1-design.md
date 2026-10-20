@@ -126,7 +126,9 @@ the camera; selecting a route or receiving a journey still frames it.
   surface. The network remains visible above keyboard-accessible When and
   Preferences tabs. Date and time share a row; transfers and walking use compact
   groups. Longer explanations are disclosed on demand. Switching tabs preserves
-  every setting and does not submit a route. Scenarios retain scheduled service;
+  every setting and does not submit a route. The header chevron folds the card
+  to its network and a time/preferences summary; expanding restores the selected
+  tab. Invalid dates reopen the time controls. Scenarios retain scheduled service;
   via points retain the existing transfer-limit and buffer restrictions.
 - **Analyze** colors travel time with a ramp whose luminance falls
   monotonically, from the signal chartreuse through teal and blue to violet,
