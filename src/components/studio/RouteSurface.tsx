@@ -79,7 +79,7 @@ import {
 } from '../../serviceVehicles'
 import { AgencyRouteLine } from '../AgencyRouteLine'
 import { LazyVigoMap } from '../LazyVigoMap'
-import { ServiceStateControl } from '../ServiceStateControl'
+import { ServiceStateControl, ServiceToolbar } from '../ServiceStateControl'
 import type { TripTarget } from '../StopArrivalBoard'
 
 function MapScopeControl({
@@ -359,7 +359,7 @@ export function RouteSurfaceView({
 
   return (
     <section className="route-surface" aria-label="GTFS map and service state" style={routeStyle}>
-      <div className="service-toolbar">
+      <ServiceToolbar>
         {analysisFocus && reachResult ? <ReachLegend result={reachResult} cutoffMinutes={scenarioCutoffMinutes} view={scenarioView} /> : null}
         {!showAgencyLine && !routingFocus && !analysisFocus ? (
           <ServiceStateControl
@@ -380,7 +380,7 @@ export function RouteSurfaceView({
             onScheduleServiceDateChange={onScheduleServiceDateChange}
           />
         ) : null}
-      </div>
+      </ServiceToolbar>
       <div className="surface-panel route-map-shell">
         {showAgencyLine ? <AgencyRouteLine vehicleFrame={vehicleFrame} onOpenTrip={onOpenTrip} key={`${projectId}/${selectedRouteId}`} projectId={projectId} preview={focusedPreview} routeId={isNetworkMap ? '' : selectedRoute ? networkRouteId(selectedRoute) : selectedRouteId} selectedStopId={selectedStopId} showStopDetails={false} onSelectStop={onSelectStop} /> : <LazyVigoMap
           onOpenTrip={agencyFocus ? onOpenTrip : undefined}

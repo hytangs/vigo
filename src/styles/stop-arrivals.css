@@ -1,6 +1,6 @@
 /* The same station board is used on the network map and the route diagram. */
 .route-map-shell .map-live-card.has-stop-arrivals { top: auto; bottom: 80px; width: min(420px, calc(100% - 24px)); max-height: min(calc(100% - 158px), 620px); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line-3) transparent; padding: 16px 16px 14px; background: var(--material-strong); border: 0; border-radius: var(--radius-lg); box-shadow: var(--elev-2); backdrop-filter: var(--material-blur); }
-.view-agency .route-map-shell .map-live-card.has-stop-arrivals { bottom: 28px; max-height: min(72%, 620px); }
+.view-agency .route-map-shell .map-live-card.has-stop-arrivals { bottom: var(--map-inspector-bottom, 28px); max-height: min(620px, calc(100% - var(--map-inspector-bottom, 28px) - 80px)); }
 .stop-arrival-board { color: var(--text); font-size: 12px; }
 .stop-arrival-board header > span { color: var(--text-3); font-size: var(--type-2xs); font-weight: 680; letter-spacing: .06em; text-transform: uppercase; }
 .stop-arrival-board h3 { margin: 5px 24px 4px 0; color: var(--text-1); font-family: var(--font-display); font-size: 20px; font-weight: 700; letter-spacing: -.025em; }

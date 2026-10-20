@@ -111,7 +111,8 @@
     "test/check-analysis-origin.mjs",
     "test/check-analysis-settings-runtime.mjs",
     "test/check-result-saving-runtime.mjs",
-    "test/check-studio-stores-runtime.mjs"
+    "test/check-studio-stores-runtime.mjs",
+    "test/check-service-inspector-runtime.mjs"
   ],
   "check:agency": [
     "test/check-network-workspace.mjs",

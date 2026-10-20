@@ -98,13 +98,13 @@
 .agency-map-context span, .agency-map-context small { display: block; }
 .agency-map-context span { color: var(--text-strong); font-size: 12px; font-weight: 600; }
 .agency-map-context small { color: var(--text-muted); font-size: 12px; margin-top: 3px; }
-.view-agency .route-map-shell .map-live-card { top: auto; bottom: 36px; max-height: min(50%, 300px); overflow: auto; }
+.view-agency .route-map-shell .map-live-card { top: auto; bottom: var(--map-inspector-bottom, 28px); max-height: min(560px, calc(100% - var(--map-inspector-bottom, 28px) - 80px)); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .view-agency .surface-loading-overlay, .view-agency .route-geometry-empty, .view-agency .map-empty { pointer-events: none; }
 .view-agency .map-basemap-status { display: none; }
 @media (max-width: 760px) {
   .agency-map-context { top: 8px; left: 8px; padding: 8px 10px; }
   .agency-map-context small { display: none; }
-  .view-agency .route-map-shell .map-live-card { bottom: 25px; padding: 9px; max-height: 55%; }
+  .view-agency .route-map-shell .map-live-card { bottom: 16px; padding: 16px; max-height: calc(100% - 80px); }
 }
 
 .network-selection { display: grid; gap: 12px; padding: 0 0 16px; margin-bottom: 14px; border-bottom: 1px solid var(--line-1); }

@@ -1492,13 +1492,13 @@
   background: var(--panel-strong);
 }
 
-.app-shell :is(.sidebox-row button, .sidebox-lens-grid button, .sidebox-live, .map-live-card > button) {
+.app-shell :is(.sidebox-row button, .sidebox-lens-grid button, .sidebox-live) {
   color: var(--text-muted);
   border-color: var(--border);
   background: var(--panel-soft);
 }
 
-.app-shell :is(.sidebox-row button, .sidebox-lens-grid button, .sidebox-live, .map-live-card > button):hover {
+.app-shell :is(.sidebox-row button, .sidebox-lens-grid button, .sidebox-live):hover {
   color: var(--text-strong);
   background: color-mix(in srgb, var(--accent-2) 7%, var(--panel-strong));
 }
@@ -1702,7 +1702,10 @@
     overflow: hidden;
   }
 
-  /* The service clock floats at the bottom of the visible map, like a transport bar. */
+  /* Measured toolbar height keeps every inspector above the playback dock. */
+  .app-shell.has-stage .route-surface { --map-inspector-bottom: calc(var(--service-toolbar-height, 110px) + 30px); }
+
+  /* The service clock floats at the bottom of the visible map. */
   .app-shell.has-stage .route-surface > .service-toolbar {
     position: absolute;
     z-index: 15;
@@ -1719,7 +1722,7 @@
   .app-shell.has-stage .route-surface > .service-toolbar > .service-state-panel {
     position: relative;
     inset: auto;
-    width: min(820px, 100%);
+    width: min(700px, 100%);
     transform: none;
     border: 0;
     border-radius: var(--radius-lg);

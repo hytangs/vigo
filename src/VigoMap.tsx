@@ -70,6 +70,7 @@ import { mapOcclusion, occludedMapFitPadding, occlusionCenterOffset, previewStop
 import { findNetworkStop } from './app/networkSelection'
 import { routeGeometryLabel } from './app/routePresentation'
 import { AgencyVehicleDetails, VehicleOperationalWarnings } from './components/AgencyVehicleDetails'
+import { ScheduledVehicleDetails } from './components/ScheduledVehicleDetails'
 import { StopArrivalBoard, type TripNavigation } from './components/StopArrivalBoard'
 import type { Appearance, Basemap, LayerState, LngLat, MapPreview, NetworkLens } from './domain'
 import { classNames, formatNumber } from './domain'
@@ -82,12 +83,14 @@ import {
   type ServiceEdgeDecomposition,
 } from './reach'
 import type { RoutingPlan, RoutingPoint } from './routingModel'
-import { serviceVehicleIsVisible, type ServiceVehicleFrame } from './serviceVehicles'
+import { serviceVehicleIsVisible, type ServiceVehicleFrame, type ServiceVehicleCard } from './serviceVehicles'
 const emptyRoutingPoints: RoutingPoint[] = []
 const emptyScenarioStops: ScenarioStopDraft[] = []
 const emptyCoordinates: [number, number][] = []
 
 type MapLiveSelection = {
+  scheduledVehicleId?: string
+  schedule?: ServiceVehicleCard['schedule']
   stopId?: string
   vehicleId?: string
   vehicleSourceUrl?: string
@@ -516,6 +519,10 @@ export function VigoMap({
     return { tone: 'stop', stopId: selectedStopId, eyebrow: 'Stop arrivals', title: stop?.name || 'Station', subtitle: '', metrics: [] }
   })
   const [mapFailure, setMapFailure] = useState('')
+  // Keep selection identity, not a frozen copy of the playback frame.
+  const selectedScheduledVehicle = liveSelection?.scheduledVehicleId && vehicleFrame.mode === 'schedule'
+    ? vehicleFrame.vehicles.find(vehicle => vehicle.id === liveSelection.scheduledVehicleId)
+    : undefined
   const [localBasemapStatus, setLocalBasemapStatus] = useState<{
     phase: 'idle' | 'loading' | 'ready' | 'empty' | 'error'
     featureCount: number
@@ -692,10 +699,14 @@ export function VigoMap({
     selectionScopeRef.current = { fitSignature, selectedRouteId }
     // Keep a selected vehicle's card while
     // the route preview reloads, provided it still belongs to the visible scope.
-    setLiveSelection(previous => previous?.stopId && previous.stopId === selectedStopId ? previous : previous?.vehicleId && vehicleFrame.vehicles.some(vehicle =>
-      vehicle.id === previous.vehicleId && vehicle.sourceUrl === previous.vehicleSourceUrl
+    setLiveSelection(previous => previous?.stopId && previous.stopId === selectedStopId ? previous : (previous?.vehicleId || previous?.scheduledVehicleId) && vehicleFrame.vehicles.some(vehicle =>
+      vehicle.id === (previous.vehicleId || previous.scheduledVehicleId) && vehicle.sourceUrl === previous.vehicleSourceUrl
       && serviceVehicleIsVisible(vehicle, preview, selectedRouteId)) ? previous : null)
   }, [fitSignature, selectedRouteId, selectedStopId, vehicleFrame, preview])
+
+  useEffect(() => {
+    setLiveSelection(previous => previous?.scheduledVehicleId && vehicleFrame.mode !== 'schedule' ? null : previous)
+  }, [vehicleFrame.mode])
 
   const liveSelectionFocusRef = useRef(focusMode)
   useEffect(() => {
@@ -1325,7 +1336,7 @@ export function VigoMap({
       }
 
       const selectServiceVehicle = (vehicle: ServiceVehicleFrame['vehicles'][number]) => {
-        setLiveSelection({ tone: 'vehicle', ...vehicle.card, ...(vehicle.source === 'live' ? { vehicleId: vehicle.id, vehicleSourceUrl: vehicle.sourceUrl } : {}) })
+        setLiveSelection({ tone: 'vehicle', ...vehicle.card, ...(vehicle.source === 'live' ? { vehicleId: vehicle.id, vehicleSourceUrl: vehicle.sourceUrl } : { scheduledVehicleId: vehicle.id }) })
       }
       let clickedVehicle: ServiceVehicleFrame['vehicles'][number] | undefined
       if (effectiveLayers.routes && map.getLayer('vigo-vehicles')) {
@@ -1565,12 +1576,12 @@ export function VigoMap({
         </div>
       ) : null}
       {liveSelection && !queryFocus && (showStopDetails || !liveSelection.stopId) ? (
-        <div className={classNames('map-live-card', `is-${liveSelection.tone}`, Boolean(liveSelection.vehicleId && projectId) && 'has-vehicle-timing', Boolean(liveSelection.stopId && projectId) && 'has-stop-arrivals')}>
+        <div className={classNames('map-live-card', `is-${liveSelection.tone}`, liveSelection.scheduledVehicleId && 'has-scheduled-trip', Boolean(liveSelection.vehicleId && projectId) && 'has-vehicle-timing', Boolean(liveSelection.stopId && projectId) && 'has-stop-arrivals')}>
           <button type="button" aria-label="Clear map selection" onClick={() => setLiveSelection(null)}>
             <X size={13} strokeWidth={2.6} aria-hidden="true" />
           </button>
           {liveSelection.vehicleId ? <VehicleOperationalWarnings vehicle={vehicleFrame.vehicles.find(vehicle => vehicle.id === liveSelection.vehicleId && vehicle.sourceUrl === liveSelection.vehicleSourceUrl)} /> : null}
-          {liveSelection.stopId && projectId ? <StopArrivalBoard onOpenTrip={onOpenTrip} key={`${projectId}/${liveSelection.stopId}`} projectId={projectId} stopId={liveSelection.stopId} /> : liveSelection.vehicleId && projectId ? <AgencyVehicleDetails key={`${projectId}/${liveSelection.vehicleSourceUrl}/${liveSelection.vehicleId}`} projectId={projectId} vehicleId={liveSelection.vehicleId} sourceUrl={liveSelection.vehicleSourceUrl} onOpenTrip={onOpenTrip} /> : <><span>{liveSelection.eyebrow}</span>
+          {liveSelection.scheduledVehicleId && liveSelection.schedule && liveSelection.journey ? <ScheduledVehicleDetails card={selectedScheduledVehicle?.card ?? { ...liveSelection, journey: liveSelection.journey }} active={Boolean(selectedScheduledVehicle)} /> : liveSelection.stopId && projectId ? <StopArrivalBoard onOpenTrip={onOpenTrip} key={`${projectId}/${liveSelection.stopId}`} projectId={projectId} stopId={liveSelection.stopId} /> : liveSelection.vehicleId && projectId ? <AgencyVehicleDetails key={`${projectId}/${liveSelection.vehicleSourceUrl}/${liveSelection.vehicleId}`} projectId={projectId} vehicleId={liveSelection.vehicleId} sourceUrl={liveSelection.vehicleSourceUrl} onOpenTrip={onOpenTrip} /> : <><span>{liveSelection.eyebrow}</span>
           <strong>{liveSelection.title}</strong>
           <small>{liveSelection.subtitle}</small>
           {liveSelection.journey ? (

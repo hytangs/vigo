@@ -137,8 +137,14 @@ the camera; selecting a route or receiving a journey still frames it.
 - **Routes** is a catalog: search first, filters with counts, and each route
   shown as riders see it on signs, in its own color with readable ink, its
   short name and its mode. Status chips use the service colors only.
-- The **service clock** floats as a transport bar under the visible map. The
-  delay legend opens as a popover instead of a second row.
+- The **service clock** floats as a compact transport bar under the visible
+  map, with its editable clock and date above the playback controls. It measures
+  its own height so map inspectors always clear it, including when controls wrap.
+  The delay legend opens as a popover.
+- **Scheduled vehicle details** show the destination, next scheduled stop and
+  trip progress without nested metric boxes. Trip identity and service date sit
+  under Timetable details. A selected vehicle follows the current playback frame;
+  when the trip becomes inactive, old arrival times are hidden until it returns.
 - **Cities** shows each City's own network, drawn by the local server from the
   stored map preview (`GET /api/projects/{id}/signature`). The City you last
   worked in leads as a wide card with one action, open or continue setup. A

@@ -6,7 +6,7 @@ import { formatScheduleClock, formatServiceTime, type ScheduledVehicle } from '.
 
 export type ServiceVehicleMode = 'live' | 'schedule'
 
-type ServiceVehicleCard = {
+export type ServiceVehicleCard = {
   eyebrow: string
   title: string
   subtitle: string
@@ -17,6 +17,15 @@ type ServiceVehicleCard = {
     arrivalLabel: string
   }
   metrics: Array<{ value: string; label: string }>
+  schedule?: {
+    tripId: string
+    serviceDate: string
+    clock: string
+    stateLabel: string
+    progress: number
+    elapsedMinutes: number
+    runtimeMinutes: number
+  }
 }
 
 export type ServiceVehicle = {
@@ -362,6 +371,11 @@ function scheduledServiceVehicles(vehicles: ScheduledVehicle[], preview: MapPrev
         eyebrow: 'Schedule simulation',
         title: vehicle.routeShortName,
         subtitle: `Trip ${unscopedId(vehicle.tripId)} · ${vehicle.serviceDate} ${formatServiceTime(vehicle.scheduleTimeMinutes)} · ${stateLabel}`,
+        schedule: {
+          tripId: unscopedId(vehicle.tripId), serviceDate: vehicle.serviceDate,
+          clock: formatServiceTime(vehicle.scheduleTimeMinutes), stateLabel,
+          progress: vehicle.progress, elapsedMinutes: vehicle.elapsedMinutes, runtimeMinutes: vehicle.runtimeMinutes,
+        },
         journey: {
           destination: stopName(index, vehicle.destinationStopId),
           nextStop: stopName(index, vehicle.nextStopId),

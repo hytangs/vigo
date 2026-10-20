@@ -76,13 +76,13 @@
 .agency-vehicle-detail .agency-vehicle-deviation strong { display: inline; font-size: 11px; font-weight: 550; color: var(--text-strong); line-height: inherit; }
 .agency-vehicle-warning { color: var(--text-muted); font-size: 10px; line-height: 1.6; margin: 10px 0; padding-left: 8px; border-left: 2px solid var(--warn); }
 .agency-vehicle-detail footer { overflow-wrap: anywhere; color: var(--text-muted); font-size: 9px; margin-top: 13px; }
-.view-agency .route-map-shell .map-live-card.has-vehicle-timing { width: min(345px, calc(100% - 30px)); max-height: min(70%, 430px); }
+.view-agency .route-map-shell .map-live-card.has-vehicle-timing { width: min(345px, calc(100% - 30px)); max-height: min(430px, calc(100% - var(--map-inspector-bottom, 28px) - 80px)); }
 @media (max-width: 760px) {
   .agency-line-view { inset: 62px 0 0; padding: 8px 14px 20px; }
   .agency-line-directions { column-gap: 16px; }
   .agency-map-actions { gap: 5px; }
   .agency-view-switch button { padding: 4px 6px; font-size: 10px; }
-  .view-agency .route-map-shell .map-live-card.has-vehicle-timing { max-height: 85%; }
+  .view-agency .route-map-shell .map-live-card.has-vehicle-timing { max-height: calc(100% - 80px); }
 }
 .agency-trip-controls { display: flex; flex-wrap: wrap; gap: 12px; }
 .agency-trip-controls label { display: grid; gap: 6px; min-width: 0; font-size: 12px; }
@@ -113,3 +113,40 @@
 .agency-trip-timetable .is-current-stop { background: var(--active-surface); }
 .agency-trip-timetable .is-current-stop th { border-left-color: var(--vigo-lime-strong); }
 .agency-trip-timetable .is-passed-stop { color: var(--text-muted); }
+
+/* Scheduled vehicles use a quiet inspector; trip identifiers are secondary. */
+.route-map-shell .map-live-card.has-scheduled-trip {
+  width: min(340px, calc(100% - 24px));
+  box-sizing: border-box;
+  padding: 20px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--material-strong);
+  box-shadow: var(--elev-2);
+}
+.scheduled-vehicle-detail { color: var(--text-2); font-size: var(--type-sm); line-height: 1.5; }
+.scheduled-vehicle-source { display: flex; align-items: center; gap: 6px; padding-right: 24px; color: var(--text-3); font-size: var(--type-xs); }
+.scheduled-vehicle-detail h3 { margin: 8px 24px 3px 0; color: var(--text-1); font-family: var(--font-display); font-size: 21px; font-weight: 650; line-height: 1.2; letter-spacing: -.025em; overflow-wrap: anywhere; }
+.scheduled-vehicle-destination { margin: 0; color: var(--text-3); }
+.scheduled-vehicle-destination strong { font-size: var(--type-sm); font-weight: 500; white-space: normal; }
+.scheduled-vehicle-call { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line-2); }
+.scheduled-vehicle-call > div { display: grid; align-content: start; gap: 4px; }
+.scheduled-vehicle-call > div:last-child { text-align: right; }
+.scheduled-vehicle-call span { color: var(--text-3); font-size: var(--type-xs); }
+.scheduled-vehicle-call strong { color: var(--text-1); font-size: 15px; font-weight: 600; white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
+.scheduled-vehicle-call time { color: var(--text-1); font-size: 21px; line-height: 1.2; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.scheduled-vehicle-state { margin: 8px 0 0; color: var(--text-3); font-size: var(--type-xs); }
+.scheduled-vehicle-progress { display: grid; gap: 7px; margin: 20px 0 16px; font-variant-numeric: tabular-nums; }
+.scheduled-vehicle-progress > div { display: flex; justify-content: space-between; gap: 12px; color: var(--text-3); font-size: var(--type-xs); }
+.scheduled-vehicle-progress strong { font-size: var(--type-xs); font-weight: 600; }
+.scheduled-vehicle-progress progress { appearance: none; -webkit-appearance: none; display: block; width: 100%; height: 3px; border: 0; border-radius: 2px; overflow: hidden; background: var(--line-2); accent-color: var(--signal); }
+.scheduled-vehicle-progress progress::-webkit-progress-bar { background: var(--line-2); }
+.scheduled-vehicle-progress progress::-webkit-progress-value { background: var(--signal); }
+.scheduled-vehicle-progress progress::-moz-progress-bar { background: var(--signal); }
+.scheduled-vehicle-provenance { padding-top: 12px; border-top: 1px solid var(--line-2); color: var(--text-3); font-size: var(--type-xs); }
+.scheduled-vehicle-provenance summary { cursor: pointer; width: fit-content; }
+.scheduled-vehicle-provenance summary:hover { color: var(--text-1); }
+.scheduled-vehicle-provenance dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; margin: 12px 0; }
+.scheduled-vehicle-provenance dd { margin: 0; color: var(--text-2); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.scheduled-vehicle-provenance p { margin: 0; }
+.scheduled-vehicle-inactive { margin: 20px 0; color: var(--text-2); }
