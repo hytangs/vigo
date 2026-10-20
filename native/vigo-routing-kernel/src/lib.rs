@@ -102,6 +102,8 @@ pub use network_tiles::node::{
 pub use route_alternatives::route_alternative_request;
 #[cfg(feature = "node")]
 pub use route_materialization::stop_sequence_line;
+#[cfg(feature = "node")]
+pub use shared_legs::{shared_leg_frequency, shared_leg_paths_match};
 mod resources;
 mod shared_streets;
 mod snapshot_validation;

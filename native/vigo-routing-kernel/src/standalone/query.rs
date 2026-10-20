@@ -1804,6 +1804,18 @@ fn walking_coordinates(raw: &[f64], origin: [f64; 2], destination: [f64; 2]) -> 
     points
 }
 
+fn realtime_drive(q: &Value) -> bool {
+    q.get("routingDataMode")
+        .or_else(|| q.get("dataMode"))
+        .is_some_and(|v| v == "realtime")
+}
+fn drive_diagnostics(mut value: Value, traffic: Value) -> Value {
+    if !traffic.is_null() {
+        value["traffic"] = traffic;
+    }
+    value
+}
+
 #[cfg(test)]
 mod reserve_tests {
     use super::*;
@@ -1819,16 +1831,4 @@ mod reserve_tests {
             assert_eq!(after.start, before.start);
         }
     }
-}
-
-fn realtime_drive(q: &Value) -> bool {
-    q.get("routingDataMode")
-        .or_else(|| q.get("dataMode"))
-        .is_some_and(|v| v == "realtime")
-}
-fn drive_diagnostics(mut value: Value, traffic: Value) -> Value {
-    if !traffic.is_null() {
-        value["traffic"] = traffic;
-    }
-    value
 }

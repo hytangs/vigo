@@ -38,11 +38,21 @@ pub fn shared_leg_paths_match(a: Vec<f64>, b: Vec<f64>) -> bool {
     canonical_path(&a).is_some_and(|a| canonical_path(&b).is_some_and(|b| a == b))
 }
 
+#[cfg(feature = "standalone")]
 pub(crate) fn proven_path(leg: &serde_json::Value) -> bool {
     matches!(
         leg["geometrySource"].as_str(),
         Some("gtfs_shape" | "shape" | "scenario_plan")
     )
+}
+
+#[cfg(feature = "node")]
+#[napi]
+pub fn shared_leg_frequency(departures: Vec<f64>, start: f64, end: f64, truncated: bool) -> String {
+    serde_json::to_string(&vigo_route::timetable::shared_departure_frequency(
+        departures, start, end, truncated,
+    ))
+    .expect("finite shared-leg frequency")
 }
 
 #[cfg(test)]
@@ -62,13 +72,4 @@ mod tests {
         ));
         assert!(!shared_leg_paths_match(a, vec![]));
     }
-}
-
-#[cfg(feature = "node")]
-#[napi]
-pub fn shared_leg_frequency(departures: Vec<f64>, start: f64, end: f64, truncated: bool) -> String {
-    serde_json::to_string(&vigo_route::timetable::shared_departure_frequency(
-        departures, start, end, truncated,
-    ))
-    .expect("finite shared-leg frequency")
 }

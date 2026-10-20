@@ -106,8 +106,6 @@ export function materializeDirectWalkCandidate(request, maxWalkKm, path, diagnos
       type: 'walk',
       travelMode: 'walk',
       walkSource: 'osm',
-    geometrySource: 'osm',
-    streetPathVerified: true,
       // A routed street path between the two free endpoints.
       geometrySource: 'osm',
       streetPathVerified: true,

@@ -603,17 +603,17 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
                     &supervisor.ready,
                 );
             }
-            if let (Some(poller), Some(w)) = (&supervisor.traffic, worker.as_mut()) {
-                if let Err(e) = w.install_traffic(
+            if let (Some(poller), Some(w)) = (&supervisor.traffic, worker.as_mut())
+                && let Err(e) = w.install_traffic(
                     poller.publication(),
                     job.deadline.saturating_duration_since(Instant::now()),
                     &job.canceled,
-                ) {
-                    drop(worker.take());
-                    supervisor.ready.store(false, Ordering::Release);
-                    let _ = job.response.send((503, error(&e.to_string())));
-                    continue;
-                }
+                )
+            {
+                drop(worker.take());
+                supervisor.ready.store(false, Ordering::Release);
+                let _ = job.response.send((503, error(e.to_string())));
+                continue;
             }
             let queue_us = job.queued_at.elapsed().as_micros() as u64;
             let compute_started = Instant::now();
