@@ -19,10 +19,10 @@ import '/src/App.css'; import '/src/index.css';
 document.documentElement.dataset.appearance='light';
 const origin={coordinate:[0,0],label:'Origin',source:'map'};
 const destination={coordinate:[.05,0],label:'Destination',source:'map'};
-const waypoints=[]; const noOp=()=>{};
-window.selectionRequests=[];
+const waypoints=[]; const noOp=()=>{}; const alternative={key:'alternative',feedIds:['alternative'],scenario:null};
+window.selectionRequests=[]; window.readinessRequests=[];
 window.fetch=async (url,options)=>{
-  if(url.endsWith('/national-ready')) return Response.json({routing:{ready:true}});
+  if(url.endsWith('/national-ready')) { window.readinessRequests.push(JSON.parse(options.body)); return Response.json({routing:{ready:true}}); }
   const request=JSON.parse(options.body); window.selectionRequests.push(request);
   const allowed=request.allowStreetTransfers;
   // Deliberately ignore abort: obsolete responses must still be rejected by the hook.
@@ -44,7 +44,7 @@ function Fixture(){
  const routing=useNationalRouting({active:true,projectId:'fixture',feedId:'fixture',storeKey:'fixture',
    origin,waypoints,destination,wheelchair,mode:'transit',routingDataMode,departMinutes:480,timePreference:'depart',
    serviceDay:'weekday',serviceDate:'2026-07-15',maxWalkKm:1.2,allowLongWalk,allowStreetTransfers,minimumTransferBufferMinutes,
-   departureWindowMinutes:0,realtimeSnapshot:null,routeAllowed:true});
+   departureWindowMinutes:0,realtimeSnapshot:null,routeAllowed:true,scenario:network==='feed:alternative'?alternative:null});
  return React.createElement('main',{className:'app-shell appearance-light accent-teal page-project view-pathfinder',style:{display:'block',overflowY:'auto',width:'100%',maxWidth:380,margin:'0 auto',padding:12}},
   React.createElement('output',{id:'selection-result',style:{display:'none'}},routing.choices[0]?.id||'pending'),
   React.createElement(SidebarPathfinderBox,{
@@ -52,7 +52,7 @@ function Fixture(){
    routingEnabled:false,routingOrigin:origin,routingWaypoints:waypoints,routingDestination:destination,
    routingPlan:null,routingChoices:[],routingScopeStatus:'ready',routingStoreReady:true,
    routingTimePreference:'depart',routingMode:'transit',routingDataMode,routingDepartureWindowMinutes:0,
-   routingNetwork:{scenarios:[{id:'scenario',name:'Scenario A',detail:'Weekday timetable · 3 service changes'}],selectedId:network,error:'',onChange:setNetwork},
+   routingNetwork:{scenarios:[{id:'scenario',name:'Scenario A',detail:'Weekday timetable · 3 service changes'},{id:'feed:alternative',name:'Alternative network',detail:'Independent timetable'}],selectedId:network,error:'',onChange:setNetwork},
    routingMaxWalkKm:1.2,routingAllowLongWalk:allowLongWalk,routingAllowStreetTransfers:allowStreetTransfers,routingMinimumTransferBufferMinutes:minimumTransferBufferMinutes,
    routingActivity:{kind:'idle',title:'',detail:''},routingAlternativesLoading:false,
    routingServiceDate:date,routingServiceCoverage:null,routingServiceDateAvailability:'covered',
@@ -138,6 +138,12 @@ try {
 
     await read('{const select=document.querySelector("[id$=-network]");select.value="";select.dispatchEvent(new Event("change",{bubbles:true}))}');
     await until(()=>read('[...document.querySelectorAll("button")].find(button=>button.textContent==="Realtime").disabled===false'));
+    await read('{const select=document.querySelector("[id$=-network]");select.value="feed:alternative";select.dispatchEvent(new Event("change",{bubbles:true}))}');
+    await until(()=>read('window.selectionRequests.at(-1).feedIds?.[0]==="alternative"'));
+    assert.equal(await read('window.selectionRequests.at(-1).feedId'),undefined);
+    assert.equal(await read('window.readinessRequests.at(-1).feedIds[0]'),'alternative','Readiness and routing must use the same network');
+    await read('{const select=document.querySelector("[id$=-network]");select.value="";select.dispatchEvent(new Event("change",{bubbles:true}))}');
+    await until(()=>read('window.selectionRequests.at(-1).feedId==="fixture"'));
     for(const appearance of ['dark','light']) {
       await read('document.querySelector("main").className="app-shell appearance-'+appearance+' accent-graphite page-project view-pathfinder"; document.documentElement.dataset.appearance="'+appearance+'"');
       for(const tab of ['when','preferences']) {

@@ -1337,9 +1337,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
         if ((arrivalText && arrival === null) || (departureText && departure === null)) {
           throw new Error(`Invalid GTFS time for trip ${row.trip_id || '(missing trip_id)'} at stop_sequence ${row.stop_sequence || '(missing sequence)'}.`)
         }
-        if (arrival !== null && departure !== null && departure < arrival) {
-          throw new Error(`Non-monotone GTFS dwell time for trip ${row.trip_id || '(missing trip_id)'} at stop_sequence ${stopSequence}.`)
-        }
+
         return [
           row.trip_id,
           stopSequence,
@@ -1453,7 +1451,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
     if (sharedDatabase) sharedDatabase.current = null
     try {
       compiled = compileNativeGtfsConnections({ storePath: tempPath, stopTimesPath: stagePath,
-        excludedTripIds: [...excludedTripIds], cacheKib: buildSqliteCacheKiB })
+        excludedTripIds: [...excludedTripIds], invalidTimePolicy: 'quarantine', cacheKib: buildSqliteCacheKiB })
     } finally {
       db = new DatabaseSync(tempPath)
       if (sharedDatabase) sharedDatabase.current = db
@@ -1472,6 +1470,10 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
 
     if (!sharedDatabase) report(onProgress, 'Building routing indexes', 0.9)
     if (!sharedDatabase) createRoutingStoreIndexes(db, { forCity })
+    const quarantinedTimeTripCount = Number(compiled.quarantinedTimeTripCount ?? 0)
+    featureInventory.quarantinedTimeTripCount = quarantinedTimeTripCount
+    featureInventory.quarantinedTimeTripSamples = compiled.quarantinedTimeTripSamples ?? []
+    if (quarantinedTimeTripCount) report(onProgress, 'Timetable warning', 0.9, `${quarantinedTimeTripCount} trip(s) with backward times excluded; source times preserved.`)
     const blockingRoutingFeatures = []
     const routingLimitations = []
     const blockFeature = (code, count, detail) => {
@@ -1480,6 +1482,8 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
     const limitFeature = (code, count, detail) => {
       if (count > 0) routingLimitations.push({ code, count, exactness: 'unsupported', detail })
     }
+    limitFeature('backward_trip_times', quarantinedTimeTripCount,
+      'Trips with backward arrival or departure times are excluded in full. Source times are preserved; no invented repair or partial trip is routed.')
     blockFeature('multiple_agency_timezones', Math.max(0, agencyTimezones.size - 1),
       'A single routing store cannot yet resolve service-day coordinates across multiple agency timezones.')
     featureInventory.exactFrequencyExpandedTripCount = exactFrequencyExpandedTripCount

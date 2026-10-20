@@ -413,6 +413,13 @@ export function runRoutingSearch(commandText: string) {
 }
 
 const scenarioRequestOf = memoizeLast((id: string, cases: ScenarioDraft[], groups: CityDataGroups, project: VigoProject, _preview: MapPreview, _serviceDate: string): { request: RouteScenarioRequest | null; error: string } => {
+  const networkFeedId = id.startsWith('feed:') ? id.slice(5) : !id ? project.defaultRoutingFeedId : undefined
+  if (networkFeedId) {
+    const feed = project.feeds.find(entry => entry.id === networkFeedId)
+    return feed?.routingStore?.status === 'ready'
+      ? { request: { key: `feed:${feed.id}`, feedIds: [feed.id], scenario: null }, error: '' }
+      : { request: null, error: 'The selected network is not ready.' }
+  }
   if (!id) return { request: null, error: '' }
   const scenario = cases.find(entry => entry.id === id)
   if (!scenario) return { request: null, error: 'This scenario is no longer available.' }
@@ -429,16 +436,17 @@ export function routeScenario() {
 }
 function selectRoutingScenario(id: string) {
   const library = scenarioLibrary()
-  if (id) {
+  if (id && !id.startsWith('feed:')) {
     library.setActiveScenarioId(id)
     library.setActiveScenarioChangeId(library.scenarioDrafts.find(s => s.id === id)?.interventions[0]?.id ?? '')
   }
   route.set({ routeScenarioId: id })
 }
-const networkOptionsOf = memoizeLast((cases: ScenarioDraft[], selectedId: string, error: string) => ({
-  scenarios: cases.map(entry => ({ id: entry.id, name: entry.name, detail: entry.interventions.length ? `${entry.interventions.length} changes` : 'Timetable group only' })),
+const networkOptionsOf = memoizeLast((cases: ScenarioDraft[], selectedId: string, error: string, project: VigoProject) => ({
+  baselineLabel: project.feeds.find(feed => feed.id === project.defaultRoutingFeedId)?.name ?? 'City timetable',
+  scenarios: [...project.feeds.filter(feed => project.feeds.length > 1 && feed.id !== project.defaultRoutingFeedId).map(feed => ({ id: `feed:${feed.id}`, name: feed.name, detail: 'Separate timetable' })), ...cases.map(entry => ({ id: entry.id, name: entry.name, detail: entry.interventions.length ? `${entry.interventions.length} changes` : 'Timetable group only' }))],
   selectedId, error, onChange: selectRoutingScenario,
 }))
-export const routingNetwork = () => networkOptionsOf(scenarioLibrary().scenarioDrafts, route.get().routeScenarioId, routeScenario().error)
+export const routingNetwork = () => networkOptionsOf(scenarioLibrary().scenarioDrafts, route.get().routeScenarioId, routeScenario().error, selectedProject())
 
 export const setRoutingWheelchair = (routingWheelchair: boolean) => route.set({ routingWheelchair, ...(routingWheelchair ? { routingDataMode: 'scheduled' as const, routeScenarioId: '' } : {}) })

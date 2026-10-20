@@ -91,6 +91,7 @@ window.runTests = async () => { try {
   flushSync(() => state.setScenarioDrafts([{id:'case-road',name:'Road A',groupId:'baseline',interventions:[
     change('pending', 'loading'), change('ready', 'ready'), change('error', 'error'),
   ]}]));
+  const stableScope = state.grouping.value;
   const cancelled = createScenarioRoadGeometryRequest('pending', state.setScenarioDrafts);
   flushSync(() => cancelled.abort());
   check(changes()[0].geometryStatus === 'idle', 'Cancellation left road geometry loading');
@@ -101,6 +102,7 @@ window.runTests = async () => { try {
   }))));
   await until(() => saved()['road-A']?.library?.scenarios?.[0]?.changes?.length === 3, 'Road City not saved');
   check(saved()['road-A'].library.scenarios[0].changes[0].geometryStatus === 'idle', 'A loading road path was saved as loading');
+  check(state.grouping.value === stableScope, 'Road status updates or save acknowledgements changed network scope and would abort the running trace');
   const oldCityRequest = createScenarioRoadGeometryRequest('pending', state.setScenarioDrafts);
   flushSync(() => cancelled.abort());
   check(changes()[0].geometryStatus === 'loading', 'An old cancellation cleared a retry');

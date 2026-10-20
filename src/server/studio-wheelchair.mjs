@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { cityCaseFeedIds } from './gtfs/source-selection.mjs'
 import { validateCityDirectory } from '../city.mjs'
 import { validateWheelchairRequest, wheelchairProfile } from './wheelchair-policy.mjs'
 
@@ -15,7 +16,7 @@ export function studioWheelchairSelection(projectDirectory, project, request) {
   if (!request.wheelchair) return null
   try {
     validateWheelchairRequest(wheelchairProfile, request)
-    if (request.departNow || request.waypoints?.length || request.scenarioKey || request.feedIds?.length) {
+    if (request.departNow || request.waypoints?.length || request.scenarioKey) {
       throw new Error('Wheelchair routing requires the scheduled City timetable without via points or scenarios.')
     }
   } catch (error) { throw Object.assign(error, { statusCode: 400 }) }
@@ -29,16 +30,19 @@ export function studioWheelchairSelection(projectDirectory, project, request) {
     throw unavailable(`The wheelchair network is incomplete: ${error.message}`)
   }
   if (manifest.accessibility?.profile !== wheelchairProfile) throw unavailable('The prepared network is not a wheelchair profile.')
-  // Studio currently selects one imported feed; do not guess source namespaces.
+  // Match the selected network, never the union of alternative City feeds.
+  const selectedIds = cityCaseFeedIds(project, request)
+  const selectedId = selectedIds?.length === 1 ? selectedIds[0]
+    : !selectedIds ? (request.feedId && request.feedId !== '__project__' ? request.feedId : project.defaultRoutingFeedId ?? (project.feeds?.length === 1 ? project.feeds[0].id : null)) : null
+  const feed = project.feeds?.find(candidate => candidate.id === selectedId)
   const gtfs = manifest.sources?.gtfs
   const fingerprint = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
-  if (project.feeds?.length !== 1 || gtfs?.length !== 1
+  if (!feed || gtfs?.length !== 1
     || !fingerprint(gtfs?.[0]?.sha256) || !fingerprint(manifest.sources?.osm?.sha256)
-    || (request.feedId && request.feedId !== project.feeds[0].id)
-    || gtfs[0].sha256 !== project.feeds[0].routingStore?.sourceFingerprint
+    || gtfs[0].sha256 !== feed.routingStore?.sourceFingerprint
     || manifest.sources?.osm?.sha256 !== project.osmStreetIndex?.sourceFingerprint) {
-    throw unavailable('The wheelchair network must match this single-feed City’s current timetable and streets. Rebuild the wheelchair network after changing sources.')
+    throw unavailable('The wheelchair network must match the selected network’s timetable and streets. Rebuild the wheelchair network after changing sources.')
   }
-  return { storePath: path.join(directory, 'routing', 'project.sqlite'),
+  return { feed, storePath: path.join(directory, 'routing', 'project.sqlite'),
     streetPath: path.join(directory, 'osm', 'street-index.sqlite'), accessibility: manifest.accessibility }
 }

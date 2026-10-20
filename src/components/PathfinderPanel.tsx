@@ -331,6 +331,7 @@ export function PathfinderRouteList({
 
 /** The timetable a route runs on: the City's own, or a saved scenario. */
 export type RoutingNetworkChoice = {
+  baselineLabel?: string
   scenarios: Array<{ id: string; name: string; detail: string }>
   selectedId: string
   error: string

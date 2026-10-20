@@ -82,11 +82,13 @@ try {
   attach(); attach()
   assert(fs.readdirSync(studio).some(name => name.startsWith('wheelchair-backup-')))
   assert.equal(studioWheelchairSelection(studio, project, { wheelchair: false }), null)
+  assert(studioWheelchairSelection(studio, project, { wheelchair: true, feedId: 'feed' }))
+  assert.throws(() => studioWheelchairSelection(studio, project, { wheelchair: true, feedId: 'unrelated' }), /must match/)
   assert.throws(() => studioWheelchairSelection(studio, { ...project, osmStreetIndex: {} }, { wheelchair: true }), /must match/)
   const api = await startInMemoryVigoApi({ repositoryRoot: root, environment: {
     VIGO_PROJECTS_DIR: path.join(folder, 'cities'), VIGO_CONFIG_DIR: path.join(folder, 'config'), VIGO_ROUTE_PROJECT_PREWARM: '0' } })
   try {
-    const request = { ...base, wheelchair: true, mode: 'transit', feedId: 'feed', routingDataMode: 'scheduled',
+    const request = { ...base, wheelchair: true, mode: 'transit', feedId: '__project__', routingDataMode: 'scheduled',
       timePreference: 'depart', departMinutes: 475, arriveMinutes: 510, departureWindowMinutes: 0, serviceDay: 'weekday' }
     for (const action of ['national-ready', 'national-route']) {
       const response = await api.requestJson(`/api/projects/fixture/${action}`, { method: 'POST', body: request })
@@ -106,6 +108,18 @@ try {
       const response = await api.requestJson('/api/projects/fixture/national-route', { method: 'POST', body: { ...request, ...change } })
       assert.equal(response.status, 400, JSON.stringify(response.body))
     }
+    const multiple = { ...project, defaultRoutingFeedId: 'feed', osmStreetIndex: { ...project.osmStreetIndex, cch: { ready: true } },
+      feeds: [...project.feeds, { ...project.feeds[0], id: 'alternative', routingStore: { ...project.feeds[0].routingStore, sourceFingerprint: '0'.repeat(64) } }] }
+    fs.writeFileSync(path.join(studio, 'project.json'), JSON.stringify(multiple))
+    for (const action of ['national-ready', 'national-route']) {
+      const current = await api.requestJson(`/api/projects/fixture/${action}`, { method: 'POST', body: { ...request, feedId: undefined, feedIds: ['feed'], scenario: null } })
+      assert.equal(current.status, 200, JSON.stringify(current.body))
+      const alternative = await api.requestJson(`/api/projects/fixture/${action}`, { method: 'POST', body: { ...request, feedId: undefined, feedIds: ['alternative'], scenario: null } })
+      assert.equal(alternative.status, 409, 'A different network must never use the baseline wheelchair profile')
+    }
+    const alternative = await api.requestJson('/api/projects/fixture/national-route', { method: 'POST', body: { ...request, wheelchair: false, feedId: undefined, feedIds: ['alternative'], scenario: null } })
+    assert.equal(alternative.status, 200, JSON.stringify(alternative.body))
+    assert(alternative.body.choices.some(plan => plan.status === 'ready' && plan.arriveMinutes === 485), JSON.stringify(alternative.body))
     const profileFile = path.join(studio, 'wheelchair', 'network.json')
     fs.renameSync(profileFile, `${profileFile}.saved`)
     try {

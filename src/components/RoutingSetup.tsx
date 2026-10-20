@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Clock3, Layers, SlidersHorizontal } from 'lucide-react'
+import { Clock3, SlidersHorizontal } from 'lucide-react'
 import { useId, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { classNames } from '../domain'
 import { routingTimeOptions } from '../app/uiOptions'
@@ -63,21 +63,19 @@ export function RoutingSetup(props: RoutingSetupProps) {
   return <section className="routing-setup" aria-label="Journey settings">
     <header className="routing-setup-header">
     {transit && routingNetwork?.scenarios.length ? <div className="routing-setup-network">
-      <Layers size={17} aria-hidden="true" className={classNames(scenario && 'is-scenario')} />
       <div>
         <label htmlFor={`${id}-network`}>Network</label>
-        <select id={`${id}-network`} value={routingNetwork.selectedId} disabled={routingWheelchair} onChange={event => routingNetwork.onChange(event.currentTarget.value)} aria-label="Route network" title={scenario ? `${scenario.name} · ${scenario.detail}` : 'City timetable'}>
-          <option value="">City timetable</option>
+        <select id={`${id}-network`} value={routingNetwork.selectedId} onChange={event => routingNetwork.onChange(event.currentTarget.value)} aria-label="Route network" title={scenario ? `${scenario.name} · ${scenario.detail}` : 'City timetable'}>
+          <option value="">{routingNetwork.baselineLabel ?? 'City timetable'}</option>
           {routingNetwork.scenarios.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select>
-        {scenario ? <small>{scenario.detail}</small> : null}
       </div>
       {routingNetwork.error ? <p role="alert">{routingNetwork.error}</p> : null}
     </div> : <span className="routing-setup-title"><SlidersHorizontal size={15} aria-hidden="true" />Journey settings</span>}
       <button type="button" className="routing-setup-fold" aria-expanded={!collapsed} aria-controls={`${id}-content`}
         aria-label={collapsed ? 'Expand journey settings' : 'Collapse journey settings'}
         title={collapsed ? 'Expand journey settings' : 'Collapse journey settings'} onClick={() => setCollapsed(value => !value)}>
-        {collapsed ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronUp size={16} aria-hidden="true" />}
+        {collapsed ? 'Options' : 'Hide'}
       </button>
     </header>
 

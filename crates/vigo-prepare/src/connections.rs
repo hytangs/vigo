@@ -12,15 +12,53 @@ pub struct GtfsConnectionInput {
     pub stop_times_path: String,
     pub excluded_trip_ids: Vec<String>,
     pub cache_kib: u32,
+    #[serde(default)]
+    pub invalid_time_policy: Option<String>,
 }
 
 #[derive(Default, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GtfsConnectionResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quarantined_time_trip_count: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quarantined_time_trip_samples: Option<Vec<String>>,
     pub connection_count: f64,
     pub bridged_untimed_gap_count: f64,
     pub exact_frequency_expanded_trip_count: f64,
     pub exact_frequency_expanded_connection_count: f64,
+}
+
+// Do not invent a new timetable. Identify whole malformed trips before writing
+// any of their connections, so a valid prefix cannot remain routable.
+fn backward_time_trips(stage: &Connection) -> CompileResult<HashSet<String>> {
+    let mut statement = stage.prepare(
+        "SELECT trip_id,arrival,departure FROM stop_times ORDER BY trip_id,stop_sequence",
+    )?;
+    let mut rows = statement.query([])?;
+    let mut trip = String::new();
+    let mut previous: Option<f64> = None;
+    let mut invalid = HashSet::new();
+    while let Some(row) = rows.next()? {
+        let id: String = row.get(0)?;
+        if id != trip {
+            trip = id;
+            previous = None;
+        }
+        let arrival: Option<f64> = row.get(1)?;
+        let departure: Option<f64> = row.get(2)?;
+        if arrival.zip(departure).is_some_and(|(a, d)| d < a)
+            || previous
+                .zip(arrival.or(departure))
+                .is_some_and(|(p, a)| a < p)
+        {
+            invalid.insert(trip.clone());
+        }
+        if let Some(time) = departure.or(arrival) {
+            previous = Some(time);
+        }
+    }
+    Ok(invalid)
 }
 
 struct StopTime {
@@ -82,6 +120,7 @@ fn compile(
     db: &Connection,
     stage: &Connection,
     excluded: &HashSet<&str>,
+    quarantined: &HashSet<String>,
 ) -> CompileResult<GtfsConnectionResult> {
     let known_stops = db
         .prepare("SELECT stop_id FROM stops")?
@@ -154,7 +193,8 @@ fn compile(
                 )
                 .into());
             }
-            trip = if excluded.contains(row.trip_id.as_str()) {
+            trip = if excluded.contains(row.trip_id.as_str()) || quarantined.contains(&row.trip_id)
+            {
                 None
             } else {
                 referenced
@@ -174,6 +214,7 @@ fn compile(
         let arrival = row.arrival.or(row.departure);
         if let (Some(departure), Some(arrival)) = (departure, arrival)
             && arrival < departure
+            && !quarantined.contains(&row.trip_id)
         {
             return Err(format!(
                 "Non-monotone GTFS trip time for trip {} between stop_sequence {} and {}.",
@@ -274,7 +315,21 @@ fn compile_files(input: GtfsConnectionInput) -> CompileResult<GtfsConnectionResu
     stage.execute_batch(&format!("PRAGMA cache_size=-{};", input.cache_kib))?;
     let transaction = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let excluded = input.excluded_trip_ids.iter().map(String::as_str).collect();
-    let result = compile(&transaction, &stage, &excluded)?;
+    let quarantined = match input.invalid_time_policy.as_deref().unwrap_or("reject") {
+        "reject" => HashSet::new(),
+        "quarantine" => backward_time_trips(&stage)?,
+        _ => return Err("invalidTimePolicy must be reject or quarantine".into()),
+    };
+    let mut result = compile(&transaction, &stage, &excluded, &quarantined)?;
+    if !quarantined.is_empty() {
+        result.quarantined_time_trip_count = Some(quarantined.len() as f64);
+    }
+    let mut samples: Vec<_> = quarantined.into_iter().collect();
+    samples.sort();
+    samples.truncate(32);
+    if !samples.is_empty() {
+        result.quarantined_time_trip_samples = Some(samples);
+    }
     transaction.commit()?;
     Ok(result)
 }

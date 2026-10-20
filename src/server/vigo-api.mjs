@@ -1194,6 +1194,7 @@ function compactProjectMetadata(project) {
     updatedAt: project.updatedAt,
     storagePath: project.storagePath,
     summary: project.summary,
+    defaultRoutingFeedId: project.defaultRoutingFeedId,
     feeds: (project.feeds ?? []).map(compactFeedMetadata),
     jobs: project.jobs ?? [],
     artifacts: project.artifacts ?? [],
@@ -3138,7 +3139,10 @@ async function earliestTransitEvidence(
 
 async function requireCaseRoutingStore(projectId, project, body) {
   const feedIds = cityCaseFeedIds(project, body)
-  const feedId = feedIds ? (project.feeds.length === 1 ? feedIds[0] : '') : String(body?.feedId ?? '')
+  // Reach comparisons need both timetable groups in the combined store.
+  const independentFeed = feedIds?.length === 1 && body?.baselineFeedIds === undefined
+  const feedId = feedIds ? (independentFeed ? feedIds[0] : '') : String(body?.feedId ?? project.defaultRoutingFeedId ?? '')
+  if (independentFeed) return { ...await requireRoutingStore(projectId, project, feedId), feedId, feedIds }
   if (feedIds && project.feeds.length > 1 && project.routingStore?.status !== 'ready') {
     const error = new Error('Wait for the combined City timetable to finish preparing.')
     error.statusCode = 409
@@ -3160,7 +3164,7 @@ async function runSingleNationalRoute(projectId, body, signal, options = {}) {
   const mode = ['walk', 'drive'].includes(body?.mode) ? body.mode : 'transit'
   const feedId = String(body?.feedId ?? '')
   const wheelchair = studioWheelchairSelection(projectMetaDir(projectId), project, body)
-  const selection = wheelchair ? { ...wheelchair, feed: project.feeds[0] } : mode === 'transit' ? await requireCaseRoutingStore(projectId, project, body) : null
+  const selection = wheelchair ? wheelchair : mode === 'transit' ? await requireCaseRoutingStore(projectId, project, body) : null
   const storePath = selection?.storePath ?? await streetWorkerStore(projectId, project, feedId)
   if (selection?.feedIds) body = { ...body, sourceScopes: selection.sourceScopes }
   body = resolveStoreDepartNow(storePath, body)
@@ -3737,7 +3741,7 @@ async function prepareNationalRouting(projectId, body, signal) {
   const project = await readProjectMetadata(projectId)
   const feedId = String(body?.feedId ?? '')
   const wheelchair = studioWheelchairSelection(projectMetaDir(projectId), project, body)
-  const { storePath } = wheelchair ?? routingStoreSelection(projectId, project, feedId)
+  const { storePath } = wheelchair ?? await requireCaseRoutingStore(projectId, project, body)
   if (!storePath || !await exists(storePath)) {
     const error = new Error('The selected routing database is not ready.')
     error.statusCode = 409

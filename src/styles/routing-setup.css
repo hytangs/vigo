@@ -1,18 +1,18 @@
 /* A single settings surface, with controls grouped by the decision they affect. */
 .routing-setup { min-width: 0; overflow: hidden; border: 1px solid var(--line-2); border-radius: var(--radius-lg); background: var(--material-strong); color: var(--text-1); container: routing-setup / inline-size; }
 .routing-setup [hidden] { display: none; }
-.routing-setup-header { display: flex; align-items: flex-start; gap: 8px; padding: 14px 12px 14px 16px; border-bottom: 1px solid var(--line-2); }
+.routing-setup-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line-2); }
 .routing-setup-header:has([aria-expanded="false"]) { border-bottom: 0; }
-.routing-setup-network { flex: 1; min-width: 0; display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: start; gap: 10px; }
+.routing-setup-network { flex: 1; min-width: 0; display: block; }
 .routing-setup-title { flex: 1; display: flex; align-items: center; gap: 8px; min-height: 28px; font-size: var(--type-sm); font-weight: 550; }
 .routing-setup-title svg { color: var(--text-3); }
-.routing-setup-fold { display: grid; place-items: center; flex: none; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--radius-sm); color: var(--text-3); background: transparent; cursor: pointer; }
+.routing-setup-fold { display: grid; place-items: center; flex: none; min-width: 46px; height: 30px; padding: 0 6px; font: 500 var(--type-xs) var(--font-ui); border: 0; border-radius: var(--radius-sm); color: var(--text-3); background: transparent; cursor: pointer; }
 .routing-setup-fold:hover { background: var(--ink-4); }
 .routing-setup-network > svg { margin-top: 19px; color: var(--text-3); }
 .routing-setup-network > svg.is-scenario { color: var(--signal-text); }
-.routing-setup-network > div { min-width: 0; display: grid; gap: 2px; }
+.routing-setup-network > div { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .routing-setup-network label { color: var(--text-3); font-size: var(--type-2xs); font-weight: 500; }
-.routing-setup-network select { width: 100%; min-width: 0; height: 26px; padding: 0; border: 0; border-radius: 4px; color: var(--text-1); background: transparent; font: 600 14px var(--font-ui); text-overflow: ellipsis; cursor: pointer; }
+.routing-setup-network select { width: 100%; min-width: 0; height: 26px; padding: 0; border: 0; border-radius: 4px; color: var(--text-1); background: transparent; font: 550 var(--type-sm) var(--font-ui); text-overflow: ellipsis; cursor: pointer; }
 .routing-setup-network small { color: var(--text-3); font-size: var(--type-xs); line-height: 1.45; overflow-wrap: anywhere; }
 .routing-setup-network p { grid-column: 1 / -1; margin: 4px 0 0; color: var(--alert); font-size: var(--type-xs); }
 .routing-setup-tabs { display: flex; gap: 22px; padding: 0 16px; border-bottom: 1px solid var(--line-2); }

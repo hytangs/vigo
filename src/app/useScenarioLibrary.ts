@@ -194,11 +194,14 @@ export function useScenarioLibrary(project: VigoProject) {
   const activeScenarioChangeId = activeScenario?.interventions.some(change => change.id === state.activeChangeId) ? state.activeChangeId : ''
 
   const groups = state.library.groups
-  const groupingValue = useMemo<CityDataGroups>(() => ({
-    groups,
+  // Road tracing updates draft status while it runs. Keep the network scope
+  // stable across those edits and save acknowledgements, or its consumer will
+  // interpret the new object as a source change and cancel the same request.
+  const groupingKey = JSON.stringify({ groups,
     cases: Object.fromEntries(scenarios.map(entry => [entry.id, entry.groupId ?? ''])),
     caseScope: projectId,
-  }), [groups, scenarios, projectId])
+  })
+  const groupingValue = useMemo<CityDataGroups>(() => JSON.parse(groupingKey), [groupingKey])
 
   const saveState: ScenarioSaveState = state.status === 'loading' ? 'loading'
     : state.status === 'unavailable' ? 'unavailable'

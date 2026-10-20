@@ -122,7 +122,7 @@ export function useNationalRouting({
   const requestTimePreference = departNow ? 'depart' : timePreference
   const requestServiceDate = departNow ? undefined : serviceDate
   const requestServiceDay = departNow ? undefined : serviceDay
-  const readinessKey = storeKey ? `${storeKey}:${wheelchair}:${departNow ? 'depart-now' : `${serviceDate}:${serviceDay}`}` : ''
+  const readinessKey = storeKey ? `${storeKey}:${routeScenario?.key ?? feedId}:${wheelchair}:${departNow ? 'depart-now' : `${serviceDate}:${serviceDay}`}` : ''
   const ready = streetMode
     ? Boolean(feedId && storeKey && routeAllowed)
     : Boolean(readinessKey && readyKey === readinessKey)
@@ -195,7 +195,7 @@ export function useNationalRouting({
     } }>(`/api/projects/${encodeURIComponent(projectId)}/national-ready`, {
       method: 'POST',
       signal: controller.signal,
-      body: JSON.stringify({ wheelchair, feedId, mode, routingDataMode, departNow: departNow || undefined, serviceDate: requestServiceDate, serviceDay: requestServiceDay, allowServiceDateFallback: false }),
+      body: JSON.stringify({ wheelchair, ...(routeScenario ? { feedIds: routeScenario.feedIds } : { feedId }), mode, routingDataMode, departNow: departNow || undefined, serviceDate: requestServiceDate, serviceDay: requestServiceDay, allowServiceDateFallback: false }),
     }).then(({ routing }) => {
       if (controller.signal.aborted) return
       setServiceCoverage(routing.serviceCoverage ?? null)
@@ -208,7 +208,7 @@ export function useNationalRouting({
       setErrorStatus(reason instanceof ApiRequestError ? reason.routingStatus : 'error')
     })
     return () => controller.abort()
-  }, [wheelchair, active, departNow, feedId, mode, projectId, readinessKey, ready, requestServiceDate, requestServiceDay, routingDataMode, streetMode])
+  }, [routeScenario, wheelchair, active, departNow, feedId, mode, projectId, readinessKey, ready, requestServiceDate, requestServiceDay, routingDataMode, streetMode])
 
   useEffect(() => {
     if (completedRequest.current !== request) setChoices(current => current.length ? [] : current)

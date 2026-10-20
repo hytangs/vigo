@@ -438,6 +438,8 @@ export type ArtifactRecord = {
 }
 
 export type VigoProject = {
+  /** Default routing source when this City contains alternative networks. */
+  defaultRoutingFeedId?: string
   schemaVersion: string
   id: string
   name: string
