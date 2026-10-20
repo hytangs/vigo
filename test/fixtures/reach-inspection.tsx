@@ -196,8 +196,7 @@ window.checkInspectionLayout = async dark => {
   const panel=document.querySelector('.reach-point-inspector'),scroll=document.querySelector('.reach-point-scroll')
   document.querySelector('.reach-point-journey').open=true
   const rect=panel.getBoundingClientRect();assert(rect.right<=innerWidth+1&&rect.bottom<=innerHeight&&panel.scrollWidth<=panel.clientWidth+1,'Destination inspector overflows viewport')
-  const zoom=document.querySelector('.maplibregl-ctrl-zoom-in'),zr=zoom.getBoundingClientRect(),hit=document.elementFromPoint(zr.x+zr.width/2,zr.y+zr.height/2)
-  assert(zoom===hit||zoom.contains(hit),'Destination inspector blocks zoom')
+  assert(!document.querySelector('.maplibregl-ctrl-group'),'Floating navigation controls must remain absent')
   scroll.scrollTop=scroll.scrollHeight;assert(scroll.scrollTop>0||scroll.scrollHeight<=scroll.clientHeight+1,'Itinerary cannot scroll')
   scroll.scrollTop=0
   return {width:innerWidth,dark,scrollable:scroll.scrollHeight>scroll.clientHeight}

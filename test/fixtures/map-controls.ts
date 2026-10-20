@@ -52,38 +52,24 @@ function contrast(foreground, background) {
   const a = luminance(foreground), b = luminance(background)
   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
 }
-function waitForMove(action) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(Error('Map control did not complete movement')), 5000)
-    map.once('moveend', () => { clearTimeout(timer); resolve() }); action()
-  })
-}
-
 window.controlsReady = new Promise(resolve => map.once('idle', () => resolve()))
 window.checkControls = async () => {
-  const zoomIn = query('.maplibregl-ctrl-zoom-in'), zoomOut = query('.maplibregl-ctrl-zoom-out')
-  const compass = query('.maplibregl-ctrl-compass'), info = query('.maplibregl-ctrl-attrib-button')
-  const start = map.getZoom()
-  await waitForMove(() => zoomIn.click())
-  assert(Math.abs(map.getZoom() - start - 1) < 0.01, 'Zoom in did not increase map zoom')
-  await waitForMove(() => zoomOut.click())
-  assert(Math.abs(map.getZoom() - start) < 0.01, 'Zoom out did not restore map zoom')
-  map.jumpTo({ bearing: 60, pitch: 30 })
-  await waitForMove(() => compass.click())
-  assert(Math.abs(map.getBearing()) < 0.01 && Math.abs(map.getPitch()) < 0.01, 'Compass did not reset map orientation')
+  assert(!query('.maplibregl-ctrl-group'), 'Floating navigation controls must not be added')
+  assert(map.scrollZoom.isEnabled() && map.dragPan.isEnabled() && map.touchZoomRotate.isEnabled(), 'Map gestures must remain available')
+  const info = query('.maplibregl-ctrl-attrib-button')
   const credits = query('.maplibregl-ctrl-attrib')
   if (!credits.open) info.click()
   info.click(); assert(!credits.open, 'Credits cannot collapse')
   info.click(); assert(credits.open, 'Credits cannot expand')
   assert([...credits.querySelectorAll('a')].map(link => link.href).join('|') ===
     'https://openfreemap.org/|https://openmaptiles.org/|https://www.openstreetmap.org/copyright', 'Attribution links changed')
-  for (const element of [zoomIn, zoomOut, compass, info]) {
+  for (const element of [info]) {
     element.focus()
     assert(document.activeElement === element, `${element.title} is not focusable`)
     assert(element.title || element.getAttribute('aria-label'), 'Control has no accessible label')
   }
   info.blur()
-  return { zoom: true, orientation: true, attributionLinks: true, expandCollapse: true, keyboardFocus: true }
+  return { navigationRemoved: true, gesturesEnabled: true, attributionLinks: true, expandCollapse: true, keyboardFocus: true }
 }
 window.checkControlsLayout = async (dark, overlay) => {
   const shell = query('.app-shell')
@@ -109,8 +95,6 @@ window.checkControlsLayout = async (dark, overlay) => {
   const style = getComputedStyle(credits), linkStyle = getComputedStyle(credits.querySelector('a'))
   const ratio = contrast(linkStyle.color, style.backgroundColor)
   assert(ratio >= 4.5, `${dark ? 'Dark' : 'Light'} attribution contrast is ${ratio} (${linkStyle.color} on ${style.backgroundColor}; ${innerWidth}px ${overlay})`)
-  const group = getComputedStyle(query('.maplibregl-ctrl-group'))
-  assert(group.backgroundColor === style.backgroundColor, 'Navigation lost theme background to lazy map stylesheet')
   const infoStyle = getComputedStyle(info, '::before')
   assert(infoStyle.color === linkStyle.color && infoStyle.content === '"i"', 'Info icon lost theme foreground')
   return { width: innerWidth, dark, overlay, contrast: Number(ratio.toFixed(2)), mapWidth: Math.round(canvas.width) }
