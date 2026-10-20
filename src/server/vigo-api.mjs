@@ -1,3 +1,5 @@
+import { wheelchairDescription } from './wheelchair-policy.mjs'
+import { studioWheelchairSelection } from './studio-wheelchair.mjs'
 import { routingResultStatus } from './gtfs/route-results.mjs'
 import { cityCaseFeedIds, assertCaseRouteSources } from './gtfs/source-selection.mjs'
 import packageJson from '../../package.json' with { type: 'json' }
@@ -3157,16 +3159,17 @@ async function runSingleNationalRoute(projectId, body, signal, options = {}) {
   const project = await readProjectMetadata(projectId)
   const mode = ['walk', 'drive'].includes(body?.mode) ? body.mode : 'transit'
   const feedId = String(body?.feedId ?? '')
-  const selection = mode === 'transit' ? await requireCaseRoutingStore(projectId, project, body) : null
+  const wheelchair = studioWheelchairSelection(projectMetaDir(projectId), project, body)
+  const selection = wheelchair ? { ...wheelchair, feed: project.feeds[0] } : mode === 'transit' ? await requireCaseRoutingStore(projectId, project, body) : null
   const storePath = selection?.storePath ?? await streetWorkerStore(projectId, project, feedId)
   if (selection?.feedIds) body = { ...body, sourceScopes: selection.sourceScopes }
   body = resolveStoreDepartNow(storePath, body)
   const serviceContext = nationalRequestServiceContext(body)
   if (selection) body = normalizeRoutingPointIdentities(storePath, body,
     selection.feed?.id ?? (project.feeds.length === 1 ? project.feeds[0].id : ''))
-  const streetPath = project.osmStreetIndex?.status === 'ready' && await exists(streetStoreFile(projectId))
+  const streetPath = wheelchair?.streetPath ?? (project.osmStreetIndex?.status === 'ready' && await exists(streetStoreFile(projectId))
     ? streetStoreFile(projectId)
-    : undefined
+    : undefined)
   if (mode !== 'transit' && !streetPath) {
     const error = new Error('Walking and driving require a ready OpenStreetMap street index.')
     error.statusCode = 409
@@ -3177,7 +3180,7 @@ async function runSingleNationalRoute(projectId, body, signal, options = {}) {
     && String(body?.destination?.stopId ?? '').trim(),
   )
   const pedestrianAccessRequested = mode === 'walk' || mode === 'transit'
-  if (pedestrianAccessRequested && streetPath && project.osmStreetIndex?.cch?.ready !== true) {
+  if (!wheelchair && pedestrianAccessRequested && streetPath && project.osmStreetIndex?.cch?.ready !== true) {
     const error = new Error(
       'The saved OSM street index is from an older or incomplete build. Rebuild the OpenStreetMap street index before routing between map points.',
     )
@@ -3334,6 +3337,7 @@ function resolveStoreDepartNow(storePath, body) {
 
 async function runNationalRoute(projectId, body, signal) {
   body = normalizeRoutingDataRequest(body)
+  if (body?.wheelchair) studioWheelchairSelection(projectMetaDir(projectId), await readProjectMetadata(projectId), body)
   if (body?.sharedLegs !== undefined && typeof body.sharedLegs !== 'boolean') {
     throw Object.assign(new Error('sharedLegs must be a boolean.'), { statusCode: 400 })
   }
@@ -3732,7 +3736,8 @@ async function preloadNationalBuiltStore({
 async function prepareNationalRouting(projectId, body, signal) {
   const project = await readProjectMetadata(projectId)
   const feedId = String(body?.feedId ?? '')
-  const { storePath } = routingStoreSelection(projectId, project, feedId)
+  const wheelchair = studioWheelchairSelection(projectMetaDir(projectId), project, body)
+  const { storePath } = wheelchair ?? routingStoreSelection(projectId, project, feedId)
   if (!storePath || !await exists(storePath)) {
     const error = new Error('The selected routing database is not ready.')
     error.statusCode = 409
@@ -3741,9 +3746,9 @@ async function prepareNationalRouting(projectId, body, signal) {
   const departingNow = body?.departNow === true
   body = resolveStoreDepartNow(storePath, body)
   const defaultContext = currentNationalRoutingServiceContext()
-  const projectStreetStorePath = project.osmStreetIndex?.status === 'ready' && await exists(streetStoreFile(projectId))
+  const projectStreetStorePath = wheelchair?.streetPath ?? (project.osmStreetIndex?.status === 'ready' && await exists(streetStoreFile(projectId))
     ? streetStoreFile(projectId)
-    : undefined
+    : undefined)
   const serviceCoverage = await cachedNationalRoutingServiceCoverage(storePath)
   const routingContext = {
     ...nationalRequestServiceContext(body, defaultContext),
@@ -3803,6 +3808,7 @@ async function prepareNationalRouting(projectId, body, signal) {
 }
 
 async function runNationalMatrix(projectId, body, signal) {
+  if (body?.wheelchair !== undefined || body?.wheelchairAccessible !== undefined) throw Object.assign(new Error('Studio wheelchair requests currently support Route. Use a prepared wheelchair City with the public CLI for Matrix or Reach.'), { statusCode: 400 })
   const project = await readProjectMetadata(projectId)
   const feedId = String(body?.feedId ?? '')
   const { storePath, feed } = await requireRoutingStore(projectId, project, feedId)
@@ -3836,6 +3842,7 @@ async function streetWorkerStore(projectId, project, feedId = '') {
 }
 
 async function runNationalStreetMatrix(projectId, body, signal) {
+  if (body?.wheelchair !== undefined || body?.wheelchairAccessible !== undefined) throw Object.assign(new Error('Studio wheelchair requests currently support Route. Use a prepared wheelchair City with the public CLI for Matrix or Reach.'), { statusCode: 400 })
   const project = await readProjectMetadata(projectId)
   const storePath = await streetWorkerStore(projectId, project, String(body?.feedId ?? ''))
   const mode = String(body?.mode ?? '').trim()
@@ -3907,6 +3914,7 @@ function rememberReachBaseline(key, range) {
 }
 
 async function runReach(projectId, body, signal, onProgress, onPreliminary) {
+  if (body?.wheelchair !== undefined || body?.wheelchairAccessible !== undefined) throw Object.assign(new Error('Studio wheelchair requests currently support Route. Use a prepared wheelchair City with the public CLI for Matrix or Reach.'), { statusCode: 400 })
   const project = await readProjectMetadata(projectId)
   const serviceContext = nationalRequestServiceContext(body)
   const { storePath, feed, feedId, feedIds, sourceScopes } = await requireCaseRoutingStore(projectId, project, body)
@@ -4699,7 +4707,9 @@ async function route(request, response) {
         const body = await readBody(request)
         const result = await runNationalRoute(projectId, body, signal)
         if (signal.aborted) throw makeAbortError()
-        const decorated = { ...result, choices: result.choices.map(decorateRoutingPlan) }
+        const decorate = plan => decorateRoutingPlan(body.wheelchair
+          ? { ...plan, diagnostics: { ...plan.diagnostics, accessibility: wheelchairDescription } } : plan)
+        const decorated = { ...result, ...(result.plan ? { plan: decorate(result.plan) } : {}), choices: result.choices.map(decorate) }
         sendJson(response, 200, compactStudioRoutingResponse(decorated))
       })
       return true

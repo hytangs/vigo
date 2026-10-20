@@ -62,6 +62,7 @@ import {
   setRoutingAllowLongWalk,
   setRoutingAllowStreetTransfers,
   setRoutingMaxTransfers,
+  setRoutingWheelchair,
   setRoutingMinimumTransferBuffer,
   toggleRouting,
 } from '../../state/route'
@@ -326,6 +327,7 @@ function SidebarRouteBox() {
     routingMaxTransfers: state.routingMaxTransfers,
     routingAllowLongWalk: state.routingAllowLongWalk,
     routingAllowStreetTransfers: state.routingAllowStreetTransfers,
+    routingWheelchair: state.routingWheelchair,
     routingMinimumTransferBufferMinutes: state.routingMinimumTransferBufferMinutes,
     routingPointError: state.routingPointError,
     routingPickIndex: state.routingPickIndex,
@@ -359,6 +361,8 @@ function SidebarRouteBox() {
       routingMaxTransfers={settings.routingMaxTransfers}
       routingAllowLongWalk={settings.routingAllowLongWalk}
       routingAllowStreetTransfers={settings.routingAllowStreetTransfers}
+      routingWheelchair={settings.routingWheelchair}
+      onRoutingWheelchairChange={setRoutingWheelchair}
       routingMinimumTransferBufferMinutes={settings.routingMinimumTransferBufferMinutes}
       routingActivity={activity}
       routingAlternativesLoading={engine.alternativesLoading}

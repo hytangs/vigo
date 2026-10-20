@@ -51,6 +51,7 @@ type UseNationalRoutingOptions = {
   maxTransfers?: number
   allowLongWalk: boolean
   allowStreetTransfers: boolean
+  wheelchair?: boolean
   minimumTransferBufferMinutes: number
   departureWindowMinutes: RoutingDepartureWindowMinutes
   realtimeSnapshot: RealtimeSnapshot | null
@@ -90,6 +91,7 @@ export function useNationalRouting({
   maxTransfers,
   allowLongWalk,
   allowStreetTransfers,
+  wheelchair = false,
   minimumTransferBufferMinutes,
   departureWindowMinutes,
   realtimeSnapshot,
@@ -120,7 +122,7 @@ export function useNationalRouting({
   const requestTimePreference = departNow ? 'depart' : timePreference
   const requestServiceDate = departNow ? undefined : serviceDate
   const requestServiceDay = departNow ? undefined : serviceDay
-  const readinessKey = storeKey ? `${storeKey}:${departNow ? 'depart-now' : `${serviceDate}:${serviceDay}`}` : ''
+  const readinessKey = storeKey ? `${storeKey}:${wheelchair}:${departNow ? 'depart-now' : `${serviceDate}:${serviceDay}`}` : ''
   const ready = streetMode
     ? Boolean(feedId && storeKey && routeAllowed)
     : Boolean(readinessKey && readyKey === readinessKey)
@@ -151,6 +153,7 @@ export function useNationalRouting({
     maxTransfers: mode === 'transit' && waypoints.length ? undefined : maxTransfers,
     allowLongWalk,
     allowStreetTransfers,
+    wheelchair,
     minimumTransferBufferMinutes: mode === 'transit' && waypoints.length ? 0 : minimumTransferBufferMinutes,
     includeEarliestTransit: mode === 'transit' && !waypoints.length,
     sharedLegs: mode === 'transit' && !waypoints.length,
@@ -158,7 +161,7 @@ export function useNationalRouting({
     maxStreetKm: mode === 'drive' ? 750 : 50,
     departureWindowMinutes: streetMode ? 0 : departureWindowMinutes,
     departureWindowDirection: !streetMode && departureWindowMinutes > 0 ? 'forward' : undefined,
-  } }), [allowLongWalk, allowStreetTransfers, minimumTransferBufferMinutes, departNow, departureWindowMinutes, destination, feedId, maxWalkKm, maxTransfers, mode, runRevision, origin, projectId, requestDepartMinutes, requestServiceDate, requestServiceDay, requestTimePreference, routeScenario, routingDataMode, storeKey, streetKey, streetMode, waypoints])
+  } }), [wheelchair, allowLongWalk, allowStreetTransfers, minimumTransferBufferMinutes, departNow, departureWindowMinutes, destination, feedId, maxWalkKm, maxTransfers, mode, runRevision, origin, projectId, requestDepartMinutes, requestServiceDate, requestServiceDay, requestTimePreference, routeScenario, routingDataMode, storeKey, streetKey, streetMode, waypoints])
   const completedRequest = useRef<typeof request | null>(null)
 
   const reset = useCallback(() => {
@@ -192,7 +195,7 @@ export function useNationalRouting({
     } }>(`/api/projects/${encodeURIComponent(projectId)}/national-ready`, {
       method: 'POST',
       signal: controller.signal,
-      body: JSON.stringify({ feedId, mode, routingDataMode, departNow: departNow || undefined, serviceDate: requestServiceDate, serviceDay: requestServiceDay, allowServiceDateFallback: false }),
+      body: JSON.stringify({ wheelchair, feedId, mode, routingDataMode, departNow: departNow || undefined, serviceDate: requestServiceDate, serviceDay: requestServiceDay, allowServiceDateFallback: false }),
     }).then(({ routing }) => {
       if (controller.signal.aborted) return
       setServiceCoverage(routing.serviceCoverage ?? null)
@@ -205,7 +208,7 @@ export function useNationalRouting({
       setErrorStatus(reason instanceof ApiRequestError ? reason.routingStatus : 'error')
     })
     return () => controller.abort()
-  }, [active, departNow, feedId, mode, projectId, readinessKey, ready, requestServiceDate, requestServiceDay, routingDataMode, streetMode])
+  }, [wheelchair, active, departNow, feedId, mode, projectId, readinessKey, ready, requestServiceDate, requestServiceDay, routingDataMode, streetMode])
 
   useEffect(() => {
     if (completedRequest.current !== request) setChoices(current => current.length ? [] : current)

@@ -3,6 +3,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync, spawn } from 'node:child_process'
+import { studioWheelchairSelection } from '../src/server/studio-wheelchair.mjs'
+import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
 import { once } from 'node:events'
 import { DatabaseSync } from 'node:sqlite'
 import JSZip from 'jszip'
@@ -65,6 +67,53 @@ try {
   const manifest = JSON.parse(fs.readFileSync(path.join(accessible, 'network.json')))
   assert.equal(manifest.accessibility.profile, 'wheelchair-strict-v1')
   assert.deepEqual(manifest.modes, ['transit', 'walk'])
+  // Studio must select the same constrained City and never substitute ordinary paths.
+  const studio = path.join(folder, 'cities', 'fixture', '.vigo')
+  fs.mkdirSync(studio, { recursive: true })
+  fs.cpSync(path.join(regular, 'routing'), path.join(studio, 'routing'), { recursive: true })
+  fs.copyFileSync(path.join(regular, 'routing/project.sqlite'), path.join(studio, 'routing/feed.sqlite'))
+  fs.cpSync(path.join(regular, 'osm'), path.join(studio, 'osm'), { recursive: true })
+  const project = { id: 'fixture', name: 'Fixture', jobs: [], artifacts: [],
+    feeds: [{ id: 'feed', routingStore: { status: 'ready', fileName: 'feed.sqlite', sourceFingerprint: manifest.sources.gtfs[0].sha256 } }],
+    osmStreetIndex: { status: 'ready', sourceFingerprint: manifest.sources.osm.sha256 } }
+  fs.writeFileSync(path.join(studio, 'project.json'), JSON.stringify(project))
+  assert.throws(() => studioWheelchairSelection(studio, project, { wheelchair: true }), /no prepared wheelchair/)
+  const attach = () => execFileSync(process.execPath, ['scripts/attach-studio-wheelchair.mjs', path.dirname(studio), accessible], { cwd: root })
+  attach(); attach()
+  assert(fs.readdirSync(studio).some(name => name.startsWith('wheelchair-backup-')))
+  assert.equal(studioWheelchairSelection(studio, project, { wheelchair: false }), null)
+  assert.throws(() => studioWheelchairSelection(studio, { ...project, osmStreetIndex: {} }, { wheelchair: true }), /must match/)
+  const api = await startInMemoryVigoApi({ repositoryRoot: root, environment: {
+    VIGO_PROJECTS_DIR: path.join(folder, 'cities'), VIGO_CONFIG_DIR: path.join(folder, 'config'), VIGO_ROUTE_PROJECT_PREWARM: '0' } })
+  try {
+    const request = { ...base, wheelchair: true, mode: 'transit', feedId: 'feed', routingDataMode: 'scheduled',
+      timePreference: 'depart', departMinutes: 475, arriveMinutes: 510, departureWindowMinutes: 0, serviceDay: 'weekday' }
+    for (const action of ['national-ready', 'national-route']) {
+      const response = await api.requestJson(`/api/projects/fixture/${action}`, { method: 'POST', body: request })
+      assert.equal(response.status, 200, JSON.stringify(response.body))
+      if (action === 'national-route') {
+        assert(response.body.choices.some(plan => plan.status === 'ready' && plan.arriveMinutes === 510), JSON.stringify(response.body))
+        assert(response.body.choices.every(plan => plan.diagnostics.accessibility.profile === 'wheelchair-strict-v1'))
+      }
+    }
+    const buffered = await api.requestJson('/api/projects/fixture/national-route', { method: 'POST', body: { ...request, minimumTransferBufferMinutes: 11 } })
+    assert.equal(buffered.status, 200, JSON.stringify(buffered.body))
+    assert(buffered.body.choices.length > 0, 'Keep the blocked-route explanation')
+    assert(buffered.body.choices.every(plan => plan.status !== 'ready'), 'Wheelchair routing must honor the transfer reserve')
+    assert(buffered.body.choices.every(plan => plan.diagnostics.accessibility.profile === 'wheelchair-strict-v1'))
+    for (const change of [{ wheelchair: 'true' }, { mode: 'drive' }, { routingDataMode: 'realtime' },
+      { scenarioKey: 'x' }, { waypoints: [base.origin] }, { wheelchairAccessible: true }]) {
+      const response = await api.requestJson('/api/projects/fixture/national-route', { method: 'POST', body: { ...request, ...change } })
+      assert.equal(response.status, 400, JSON.stringify(response.body))
+    }
+    const profileFile = path.join(studio, 'wheelchair', 'network.json')
+    fs.renameSync(profileFile, `${profileFile}.saved`)
+    try {
+      const missing = await api.requestJson('/api/projects/fixture/national-route', { method: 'POST', body: request })
+      assert.equal(missing.status, 409)
+      assert.match(missing.body.error, /No ordinary route was substituted/)
+    } finally { fs.renameSync(`${profileFile}.saved`, profileFile) }
+  } finally { await api.stop() }
   const db = new DatabaseSync(path.join(accessible, 'routing/project.sqlite'), { readOnly: true })
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM connections WHERE trip_id IN ('FAST','UNKNOWN')").get().n, 0)
   assert.equal(db.prepare("SELECT boarding FROM wheelchair_stops WHERE stop_id='A'").get().boarding, 1)
@@ -198,7 +247,7 @@ try {
   const changed = JSON.parse(fs.readFileSync(regularManifestPath)); changed.accessibility = manifest.accessibility
   fs.writeFileSync(regularManifestPath, JSON.stringify(changed))
   for (const native of [false, true]) assert.throws(() => run(regular, 'route', { ...base, wheelchair: true }, native), /Command failed/)
-  console.log('Wheelchair routing passed: inheritance, barriers, accessible alternatives, CLI/native/HTTP, reverse, Matrix, Reach, profile admission and invalid requests.')
+  console.log('Wheelchair routing passed: inheritance, barriers, accessible alternatives, CLI/native/HTTP/Studio, reverse, Matrix, Reach, transfer reserve, profile attachment and invalid requests.')
 } finally {
   if (server) { server.kill(); await once(server, 'exit') }
   if (process.env.VIGO_KEEP_TEST_FIXTURES) console.log(folder)

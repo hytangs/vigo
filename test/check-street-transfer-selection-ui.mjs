@@ -33,6 +33,7 @@ window.fetch=async (url,options)=>{
   return Response.json({choices:[plan],selectedPlanId:plan.id});
 };
 function Fixture(){
+ const [wheelchair,setWheelchair]=useState(false);
  const [allowStreetTransfers,setAllowStreetTransfers]=useState(true);
  const [minimumTransferBufferMinutes,setMinimumTransferBufferMinutes]=useState(route.get().routingMinimumTransferBufferMinutes);
  const [allowLongWalk,setAllowLongWalk]=useState(true);
@@ -41,12 +42,13 @@ function Fixture(){
  const [time,setTime]=useState(769);
  const [date,setDate]=useState('2026-10-19');
  const routing=useNationalRouting({active:true,projectId:'fixture',feedId:'fixture',storeKey:'fixture',
-   origin,waypoints,destination,mode:'transit',routingDataMode,departMinutes:480,timePreference:'depart',
+   origin,waypoints,destination,wheelchair,mode:'transit',routingDataMode,departMinutes:480,timePreference:'depart',
    serviceDay:'weekday',serviceDate:'2026-07-15',maxWalkKm:1.2,allowLongWalk,allowStreetTransfers,minimumTransferBufferMinutes,
    departureWindowMinutes:0,realtimeSnapshot:null,routeAllowed:true});
  return React.createElement('main',{className:'app-shell appearance-light accent-teal page-project view-pathfinder',style:{display:'block',overflowY:'auto',width:'100%',maxWidth:380,margin:'0 auto',padding:12}},
   React.createElement('output',{id:'selection-result',style:{display:'none'}},routing.choices[0]?.id||'pending'),
   React.createElement(SidebarPathfinderBox,{
+   routingWheelchair:wheelchair,onRoutingWheelchairChange:setWheelchair,
    routingEnabled:false,routingOrigin:origin,routingWaypoints:waypoints,routingDestination:destination,
    routingPlan:null,routingChoices:[],routingScopeStatus:'ready',routingStoreReady:true,
    routingTimePreference:'depart',routingMode:'transit',routingDataMode,routingDepartureWindowMinutes:0,
@@ -100,6 +102,12 @@ try {
     await until(()=>read('document.getElementById("selection-result").textContent==="station:2"'));
     assert.equal(await read('window.selectionRequests.at(-1).minimumTransferBufferMinutes'),2);
     assert.equal(await read('document.getElementById("pathfinder-transfer-buffer").value'),'2');
+    assert.equal(await read('window.selectionRequests.at(-1).wheelchair'),false);
+    await read('document.querySelector("[role=switch]").click()');
+    await until(()=>read('window.selectionRequests.at(-1).wheelchair===true'));
+    assert.match(await read('document.querySelector(".routing-setup").textContent'),/Unknown accessibility is excluded/);
+    await read('document.querySelector("[role=switch]").click()');
+    await until(()=>read('window.selectionRequests.at(-1).wheelchair===false'));
     for(const width of [320,390]){
       await resizeLayout(window,width,1000);
       assert(await read('document.documentElement.scrollWidth<=innerWidth+1'),'Route options must fit a narrow window');

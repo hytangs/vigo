@@ -8,6 +8,7 @@ import type { SidebarPathfinderBoxProps } from './PathfinderPanel'
 type RoutingSetupProps = Pick<SidebarPathfinderBoxProps,
   'routingMode' | 'routingNetwork' | 'routingDataMode' | 'routingTimePreference' | 'routingServiceDate'
   | 'routingServiceCoverage' | 'routingServiceDateAvailability' | 'scheduleTimeMinutes' | 'routingWaypoints'
+  | 'routingWheelchair' | 'onRoutingWheelchairChange'
   | 'routingDepartureWindowMinutes' | 'routingMaxTransfers' | 'routingMinimumTransferBufferMinutes'
   | 'routingMaxWalkKm' | 'routingAllowStreetTransfers' | 'routingAllowLongWalk'
   | 'onRoutingDataModeChange' | 'onRoutingTimePreferenceChange' | 'onRoutingServiceDateChange'
@@ -18,6 +19,7 @@ type RoutingSetupProps = Pick<SidebarPathfinderBoxProps,
 /** One settings surface. Tabs only change presentation; routing state stays with the caller. */
 export function RoutingSetup(props: RoutingSetupProps) {
   const {
+    routingWheelchair = false, onRoutingWheelchairChange,
     routingMode, routingNetwork, routingDataMode, routingTimePreference, routingServiceDate,
     routingServiceCoverage, routingServiceDateAvailability, scheduleTimeMinutes, routingWaypoints,
     routingDepartureWindowMinutes, routingMaxTransfers, routingMinimumTransferBufferMinutes,
@@ -39,7 +41,7 @@ export function RoutingSetup(props: RoutingSetupProps) {
   const scenario = routingNetwork?.scenarios.find(item => item.id === routingNetwork.selectedId)
   const searchSummary = departNow || routingTimePreference === 'depart'
     ? routingDepartureWindowMinutes ? 'Later departures' : 'Exact time' : 'Arrive by'
-  const summary = [searchSummary, `${routingMaxWalkKm.toFixed(1)} km access`,
+  const summary = [routingWheelchair ? 'Wheelchair' : '', searchSummary, `${routingMaxWalkKm.toFixed(1)} km access`,
     maxTransfers === undefined ? '' : `≤${maxTransfers} transfers`,
     routingAllowStreetTransfers === false ? 'No street transfers' : '', buffer > 0 ? `${buffer} min buffer` : ''].filter(Boolean).join(' · ')
   const whenSummary = departNow ? 'Depart now'
@@ -64,7 +66,7 @@ export function RoutingSetup(props: RoutingSetupProps) {
       <Layers size={17} aria-hidden="true" className={classNames(scenario && 'is-scenario')} />
       <div>
         <label htmlFor={`${id}-network`}>Network</label>
-        <select id={`${id}-network`} value={routingNetwork.selectedId} onChange={event => routingNetwork.onChange(event.currentTarget.value)} aria-label="Route network" title={scenario ? `${scenario.name} · ${scenario.detail}` : 'City timetable'}>
+        <select id={`${id}-network`} value={routingNetwork.selectedId} disabled={routingWheelchair} onChange={event => routingNetwork.onChange(event.currentTarget.value)} aria-label="Route network" title={scenario ? `${scenario.name} · ${scenario.detail}` : 'City timetable'}>
           <option value="">City timetable</option>
           {routingNetwork.scenarios.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select>
@@ -80,6 +82,14 @@ export function RoutingSetup(props: RoutingSetupProps) {
     </header>
 
     <div id={`${id}-content`} hidden={collapsed}>
+    {onRoutingWheelchairChange ? <div className="routing-setup-panel">
+      <label className="routing-setup-toggle">
+        <span><strong>Wheelchair routing</strong><small>Use vehicles and paths marked accessible</small></span>
+        <input type="checkbox" role="switch" aria-label="Wheelchair routing" checked={routingWheelchair}
+          onChange={event => onRoutingWheelchairChange(event.currentTarget.checked)} />
+      </label>
+      {routingWheelchair ? <p role="note">Requires a prepared wheelchair network. Unknown accessibility is excluded. Elevator outages and access from a building to the street are not verified.</p> : null}
+    </div> : null}
     {transit ? <div className="routing-setup-tabs" role="tablist" aria-label="Journey settings">
       {(['when', 'preferences'] as const).map(value => <button key={value} type="button" role="tab"
         id={`${id}-${value}-tab`} aria-controls={`${id}-${value}-panel`} aria-selected={activeTab === value}
@@ -101,7 +111,7 @@ export function RoutingSetup(props: RoutingSetupProps) {
         requestAnimationFrame(() => input.reportValidity())
       }}>
       {transit ? <div className="routing-setup-source" role="group" aria-label="Transit data mode" aria-describedby="pathfinder-data-mode-help">
-        <button type="button" aria-pressed={routingDataMode === 'realtime'} disabled={Boolean(routingNetwork?.selectedId)} title={routingNetwork?.selectedId ? 'Scenarios run on the published timetable.' : undefined} onClick={() => onRoutingDataModeChange('realtime')}>Realtime</button>
+        <button type="button" aria-pressed={routingDataMode === 'realtime'} disabled={routingWheelchair || Boolean(routingNetwork?.selectedId)} title={routingWheelchair ? 'Wheelchair routing uses the published timetable.' : routingNetwork?.selectedId ? 'Scenarios run on the published timetable.' : undefined} onClick={() => onRoutingDataModeChange('realtime')}>Realtime</button>
         <button type="button" aria-pressed={routingDataMode === 'scheduled'} onClick={() => onRoutingDataModeChange('scheduled')}>Scheduled</button>
       </div> : null}
       {departNow ? <div className="routing-setup-now"><span aria-hidden="true" /><strong>Depart now</strong><small>At the time you run the route</small></div> : <>

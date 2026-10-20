@@ -1749,6 +1749,23 @@ scenario overlays. Compile changed inputs into a new wheelchair City.
 Serve the prepared wheelchair City using the same `serve --city wheelchair-city`
 command and authenticated `/v1/route`, `/v1/matrix` and `/v1/reach` endpoints.
 
+Studio's Route settings also expose **Wheelchair routing**. Prepare a separate
+wheelchair City from the exact GTFS ZIP and OSM PBF imported into your Studio City,
+then attach it from the source checkout:
+
+```sh
+node scripts/attach-studio-wheelchair.mjs /path/to/Studio-City /path/to/wheelchair-city
+```
+
+Restart Studio after attaching or replacing the network. Attachment checks the
+source fingerprints and profile, preserves the ordinary City, and retains any
+previous wheelchair network as a backup. Studio currently supports this profile
+for single-feed, scheduled Route queries without via points or scenario overlays;
+use the Engine CLI for wheelchair Matrix and Reach. Unknown accessibility is
+excluded. A missing, incomplete or source-mismatched wheelchair network returns
+an error; it never silently substitutes an unrestricted route. The option does
+not certify elevator operation or access between a building and the street.
+
 The `wheelchair-strict-v1` profile requires GTFS `wheelchair_accessible=1` for
 vehicles and `wheelchair_boarding=1` for boarding/alighting, including published
 parent inheritance. An accessible vehicle can pass an inaccessible stop without

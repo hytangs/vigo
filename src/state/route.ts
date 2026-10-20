@@ -56,6 +56,7 @@ export type RouteState = {
   routingMaxTransfers: number | undefined
   routingAllowLongWalk: boolean
   routingAllowStreetTransfers: boolean
+  routingWheelchair: boolean
   routingMinimumTransferBufferMinutes: number
   selectedRoutingPlanId: string
   routingDetailsVisible: boolean
@@ -84,6 +85,7 @@ const initialRouteState = (): RouteState => ({
   routingMaxTransfers: undefined,
   routingAllowLongWalk: true,
   routingAllowStreetTransfers: true,
+  routingWheelchair: false,
   routingMinimumTransferBufferMinutes: 1,
   selectedRoutingPlanId: '',
   routingDetailsVisible: false,
@@ -438,3 +440,5 @@ const networkOptionsOf = memoizeLast((cases: ScenarioDraft[], selectedId: string
   selectedId, error, onChange: selectRoutingScenario,
 }))
 export const routingNetwork = () => networkOptionsOf(scenarioLibrary().scenarioDrafts, route.get().routeScenarioId, routeScenario().error)
+
+export const setRoutingWheelchair = (routingWheelchair: boolean) => route.set({ routingWheelchair, ...(routingWheelchair ? { routingDataMode: 'scheduled' as const, routeScenarioId: '' } : {}) })

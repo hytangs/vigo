@@ -355,6 +355,8 @@ export type SidebarPathfinderBoxProps = {
   routingMaxTransfers?: number
   routingAllowLongWalk: boolean
   routingAllowStreetTransfers: boolean
+  routingWheelchair?: boolean
+  onRoutingWheelchairChange?: (enabled: boolean) => void
   routingMinimumTransferBufferMinutes: number
   routingActivity: RoutingActivity
   routingAlternativesLoading: boolean
@@ -404,6 +406,7 @@ export function SidebarPathfinderBox({
   routingMaxTransfers,
   routingAllowLongWalk,
   routingAllowStreetTransfers,
+  routingWheelchair, onRoutingWheelchairChange,
   routingMinimumTransferBufferMinutes,
   routingActivity,
   routingAlternativesLoading,
@@ -542,6 +545,7 @@ export function SidebarPathfinderBox({
         <RoutingSetup {...{
           routingMode, routingNetwork, routingDataMode, routingTimePreference, routingServiceDate,
           routingServiceCoverage, routingServiceDateAvailability, scheduleTimeMinutes, routingWaypoints,
+          routingWheelchair, onRoutingWheelchairChange,
           routingDepartureWindowMinutes, routingMaxTransfers, routingMinimumTransferBufferMinutes,
           routingMaxWalkKm, routingAllowStreetTransfers, routingAllowLongWalk,
           onRoutingDataModeChange, onRoutingTimePreferenceChange, onRoutingServiceDateChange,
