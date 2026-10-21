@@ -199,7 +199,8 @@ export function useNationalRouting({
     } }>(`/api/projects/${encodeURIComponent(projectId)}/national-ready`, {
       method: 'POST',
       signal: controller.signal,
-      body: JSON.stringify({ wheelchair, ...(routeScenario ? { feedIds: routeScenario.feedIds } : { feedId }), mode, routingDataMode, departNow: departNow || undefined, serviceDate: requestServiceDate, serviceDay: requestServiceDay, allowServiceDateFallback: false }),
+      // Transfer settings let readiness activate the timetable the routes use.
+      body: JSON.stringify({ wheelchair, ...(routeScenario ? { feedIds: routeScenario.feedIds } : { feedId }), mode, routingDataMode, departNow: departNow || undefined, serviceDate: requestServiceDate, serviceDay: requestServiceDay, allowServiceDateFallback: false, allowStreetTransfers, minimumTransferBufferMinutes }),
     }).then(({ routing }) => {
       if (controller.signal.aborted) return
       setServiceCoverage(routing.serviceCoverage ?? null)
@@ -212,7 +213,20 @@ export function useNationalRouting({
       setErrorStatus(reason instanceof ApiRequestError ? reason.routingStatus : 'error')
     })
     return () => controller.abort()
-  }, [routeScenario, wheelchair, active, departNow, feedId, mode, projectId, readinessKey, ready, requestServiceDate, requestServiceDay, routingDataMode, streetMode])
+  }, [routeScenario, wheelchair, active, allowStreetTransfers, departNow, feedId, minimumTransferBufferMinutes, mode, projectId, readinessKey, ready, requestServiceDate, requestServiceDay, routingDataMode, streetMode])
+
+  // Early arrive-by deadlines search the preceding service day's timetable.
+  // Readiness opens it while the points are picked; its answer changes nothing here.
+  useEffect(() => {
+    if (streetMode || !active || !ready || departNow || requestTimePreference !== 'arrive' || routingDataMode !== 'scheduled' || routeScenario) return
+    const controller = new AbortController()
+    apiJson(`/api/projects/${encodeURIComponent(projectId)}/national-ready`, {
+      method: 'POST',
+      signal: controller.signal,
+      body: JSON.stringify({ wheelchair, feedId, mode, routingDataMode, serviceDate: requestServiceDate, serviceDay: requestServiceDay, allowServiceDateFallback: false, allowStreetTransfers, minimumTransferBufferMinutes, timePreference: 'arrive' }),
+    }).catch(() => {})
+    return () => controller.abort()
+  }, [routeScenario, wheelchair, active, allowStreetTransfers, departNow, feedId, minimumTransferBufferMinutes, mode, projectId, ready, requestServiceDate, requestServiceDay, requestTimePreference, routingDataMode, streetMode])
 
   useEffect(() => {
     if (completedRequest.current !== request) setChoices(current => current.length ? [] : current)
@@ -242,7 +256,7 @@ export function useNationalRouting({
     setError('')
     setErrorStatus(undefined)
     setLoading(true)
-    setAlternativesLoading(!streetMode && requestTimePreference === 'depart' && departureWindowMinutes > 0)
+    setAlternativesLoading(!streetMode && departureWindowMinutes > 0)
 
     void apiJson<NationalRouteResponse>(
       `/api/projects/${encodeURIComponent(projectId)}/national-route`,

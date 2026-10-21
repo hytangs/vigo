@@ -38,7 +38,7 @@ export function nativeRouteRequest(body, context = {}) {
   const arrive = body.timePreference === 'arrive'
   const waypoints = Array.isArray(body.waypoints) ? body.waypoints : []
   const transit = mode === 'transit'
-  const window = transit && !arrive && !waypoints.length ? Number(body.departureWindowMinutes ?? 0) : 0
+  const window = transit && !waypoints.length ? Number(body.departureWindowMinutes ?? 0) : 0
   const departNow = transit && body.departNow === true
   const request = {
     kind: 'route',
@@ -68,7 +68,10 @@ export function nativeRouteRequest(body, context = {}) {
       ...(body.sharedLegs === true && !waypoints.length ? { sharedLegs: true } : {}),
       ...(body.includeEarliestTransit === true && !waypoints.length ? { includeEarliestTransit: true } : {}),
     })
-    if (window > 0 || waypoints.length) {
+    if (arrive && window > 0) {
+      // Earlier arrivals: the latest departure for each earlier deadline.
+      request.windowMinutes = window
+    } else if (window > 0 || waypoints.length) {
       Object.assign(request, { ...(window > 0 ? { windowMinutes: window } : {}), windowChoices: 'supported' })
       if (body.includeRankedAlternatives === true) {
         Object.assign(request, { alternatives: 9, alternativeRanking: 'ranked', alternativeSlackMinutes: 15 })
@@ -270,10 +273,14 @@ function resultDiagnostics(trace, body, context) {
   }
 }
 
+const earlierArrivals = trace => trace.window?.direction === 'earlier_arrival_deadlines'
+
 function windowDiagnostics(trace, plan) {
   const window = trace.window
   return {
-    ...(window ? { departureWindow: { centerMinutes: window.startMinutes, beforeMinutes: 0, afterMinutes: window.minutes } } : {}),
+    ...(window && !earlierArrivals(trace)
+      ? { departureWindow: { centerMinutes: window.startMinutes, beforeMinutes: 0, afterMinutes: window.minutes } }
+      : {}),
     ...(plan.windowSample ? { windowSample: plan.windowSample } : {}),
     ...(plan.choiceSupport ? { choiceSupport: plan.choiceSupport } : {}),
     ...(plan.selectedTimeChoice !== undefined ? { selectedTimeChoice: plan.selectedTimeChoice } : {}),
@@ -605,21 +612,72 @@ function shiftClocks(value, minutes) {
         : clockFree.has(key) ? item : shiftClocks(item, minutes)]))
 }
 
+// Unix seconds at a service date's clock origin, local noon minus 12 hours:
+// a daylight-saving change makes that service day 23 or 25 hours long.
+function serviceClockOrigin(date, timeZone) {
+  const [year, month, day] = date.split('-').map(Number)
+  const format = new Intl.DateTimeFormat('en-US', { timeZone, hourCycle: 'h23', year: 'numeric', month: 'numeric',
+    day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' })
+  const noon = Date.UTC(year, month - 1, day, 12)
+  let instant = noon
+  for (let pass = 0; pass < 2; pass += 1) {
+    const part = Object.fromEntries(format.formatToParts(instant).map(({ type, value }) => [type, Number(value)]))
+    instant += noon - Date.UTC(part.year, part.month - 1, part.day, part.hour, part.minute, part.second)
+  }
+  return instant / 1000 - 43_200
+}
+
 /**
- * The Result with its clocks counted from midnight of `serviceDate`. Arriving
+ * The Result with its clocks counted on `serviceDate`'s service day. Arriving
  * early in the day, the engine searches the previous service day; Studio
  * keeps showing the day the person asked for.
  */
-export function onServiceDate(trace, serviceDate) {
-  if (!trace.serviceDate || !serviceDate || trace.serviceDate === serviceDate) return trace
-  const days = (Date.parse(`${trace.serviceDate}T00:00:00Z`) - Date.parse(`${serviceDate}T00:00:00Z`)) / 86_400_000
-  return { ...shiftClocks(trace, days * 1440), serviceDate }
+export function onServiceDate(trace, serviceDate, timeZone = 'UTC') {
+  // A window reports the day its clock ran on as `clockDate`.
+  const executed = trace.clockDate ?? trace.serviceDate
+  if (!executed || !serviceDate || executed === serviceDate) return trace
+  const minutes = (serviceClockOrigin(executed, timeZone) - serviceClockOrigin(serviceDate, timeZone)) / 60
+  return { ...shiftClocks(trace, minutes), serviceDate }
+}
+
+const rideCount = plan => plan.legs.filter(leg => leg.type === 'ride').length
+
+/**
+ * Earlier arrivals in Studio's journey order (latest departure, then fewer
+ * boardings, then less walking), labelled by what each is best at. Journeys
+ * that would leave before the requested day stay with the exact search.
+ */
+function arrivalWindowChoices(plans, trace, body) {
+  const ready = plans.filter(plan => plan.status === 'ready')
+  const sameDay = ready.filter(plan => plan.departMinutes >= 0)
+  const ordered = (sameDay.length ? sameDay : ready).sort((left, right) => right.departMinutes - left.departMinutes
+    || rideCount(left) - rideCount(right) || left.walkMinutes - right.walkMinutes || left.durationMinutes - right.durationMinutes)
+  if (!ordered.length) return plans
+  const best = score => ordered.reduce((winner, plan) => score(plan) < score(winner) ? plan : winner, ordered[0])
+  const labels = new Map([[ordered[0], 'Latest departure']])
+  for (const [label, score] of [['Shortest journey', plan => plan.durationMinutes],
+    ['Fewest transfers', plan => plan.travelMode === 'walk' ? -1 : plan.transfers], ['Least walking', plan => plan.walkMinutes]]) {
+    const plan = best(score)
+    if (!labels.has(plan)) labels.set(plan, label)
+  }
+  const arrivalWindow = { deadlineMinutes: Number(body.arriveMinutes ?? body.departMinutes),
+    windowMinutes: trace.window.minutes, stepMinutes: trace.window.stepMinutes ?? 1,
+    searches: trace.window.searches ?? null, coverage: trace.window.coverage ?? 'sampled' }
+  let alternate = 0
+  return ordered.map((plan, index) => ({
+    ...plan,
+    recommended: index === 0,
+    choiceLabel: plan.travelMode === 'walk' ? index === 0 ? 'Walk instead' : 'Walk only'
+      : labels.get(plan) ?? (++alternate === 1 ? 'Earlier option' : `Earlier option ${alternate}`),
+    diagnostics: { ...plan.diagnostics, arrivalWindow },
+  }))
 }
 
 export function studioRouteResponse(trace, body, context = {}) {
   const raws = Array.isArray(trace.choices) && trace.choices.length ? trace.choices : [trace]
-  const choices = raws.map(raw => studioPlan(raw, trace, body, context)).filter(Boolean)
-  const selected = choices[Number(trace.selectedChoice ?? 0)] ?? choices[0]
+  const studio = raws.map(raw => studioPlan(raw, trace, body, context)).filter(Boolean)
+  const choices = earlierArrivals(trace) ? arrivalWindowChoices(studio, trace, body) : studio
+  const selected = earlierArrivals(trace) ? choices[0] : choices[Number(trace.selectedChoice ?? 0)] ?? choices[0]
   return {
     choices,
     selectedPlanId: selected?.id,

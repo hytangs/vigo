@@ -3149,7 +3149,8 @@ function prepareNativeCity(selection, context) {
     allowStreetTransfers: context.allowStreetTransfers !== false,
     minimumTransferBufferMinutes: Number(context.minimumTransferBufferMinutes ?? 0),
   }
-  const key = JSON.stringify([selection.layout.key, context.serviceDate ?? null, settings])
+  const arriving = context.timePreference === 'arrive'
+  const key = JSON.stringify([selection.layout.key, context.serviceDate ?? null, settings, arriving])
   let preparation = nativePreparations.get(key)
   if (!preparation) {
     nativePreparationStats.started += 1
@@ -3161,12 +3162,19 @@ function prepareNativeCity(selection, context) {
             timeMinutes: 1439, maxWalkKm: 0, ...settings, ...(selection.wheelchair ? { wheelchair: true } : {}) }
         : { kind: 'info' }
       const trace = await queryNativeCity(selection, request, undefined, { afterPreparation: false })
+      // An arrive-by deadline within the search horizon of midnight runs on the
+      // preceding service day's clock: open that timetable too.
+      if (stopId && arriving) {
+        await queryNativeCity(selection, { ...request, timePreference: 'arrive_by', timeMinutes: 479 }, undefined,
+          { afterPreparation: false })
+      }
       nativePreparationStats.completed += 1
       return {
         ready: true,
         runtime: 'rust',
         serviceDate: context.serviceDate ?? null,
         timetableActivated: Boolean(stopId),
+      precedingDayActivated: Boolean(stopId && arriving),
         preparationMs: Number((performance.now() - started).toFixed(1)),
         cityRevision: trace?.cityRevision ?? trace?.revisionId ?? null,
       }
@@ -3219,7 +3227,8 @@ async function runNationalRoute(projectId, body, signal) {
   if (String(body?.objective ?? 'earliest_arrival') !== 'earliest_arrival') {
     throw Object.assign(new Error('objective must be earliest_arrival'), { statusCode: 400, code: 'invalid_objective' })
   }
-  const windowMinutes = body?.timePreference === 'arrive' || ['walk', 'drive'].includes(body?.mode)
+  // Depart-at windows list later departures; arrive-by windows earlier arrivals.
+  const windowMinutes = ['walk', 'drive'].includes(body?.mode) || (body?.timePreference === 'arrive' && body?.waypoints?.length)
     ? 0
     : integralRoutingMinute(body?.departureWindowMinutes, 'departureWindowMinutes', 0)
   if (windowMinutes > 30) {
@@ -3256,7 +3265,7 @@ async function runNationalRoute(projectId, body, signal) {
   if (body.departNow === true) {
     return studioRouteResponse(trace, trace.serviceDate ? { ...pointed, serviceDate: trace.serviceDate } : pointed, context)
   }
-  return studioRouteResponse(onServiceDate(trace, pointed.serviceDate), pointed, context)
+  return studioRouteResponse(onServiceDate(trace, pointed.serviceDate, context.timeZone), pointed, context)
 }
 
 /**
@@ -3655,7 +3664,8 @@ async function prepareNationalRouting(projectId, body, signal) {
     ? await nativeRouteSelection(projectId, project, { ...body, mode: 'transit' }).catch(() => null)
     : null
   const preparation = selection
-    ? prepareNativeCity(selection, { ...routingContext, ...transferSettings(body) })
+    ? prepareNativeCity(selection, { ...routingContext, ...transferSettings(body),
+        ...(body?.timePreference === 'arrive' ? { timePreference: 'arrive' } : {}) })
     : null
   preparation?.catch((error) => {
     if (!isAbortError(error)) {
