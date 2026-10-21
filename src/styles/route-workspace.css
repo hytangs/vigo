@@ -31,12 +31,7 @@
 @media (min-width: 900px) {
   .app-shell.has-stage .sidebar-panel {
     flex: 0 0 auto;
-    width: var(--panel-width);
-    max-height: calc(100% - 2 * var(--stage-gutter));
-    margin: var(--stage-gutter);
-    border: 0;
-    border-radius: var(--panel-radius);
-    box-shadow: var(--elev-2);
+    margin: var(--stage-gutter) var(--stage-gutter) 0;
   }
 }
 

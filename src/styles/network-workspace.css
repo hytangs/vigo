@@ -23,13 +23,9 @@
     position: absolute;
     z-index: 20;
     top: var(--stage-gutter);
-    bottom: var(--stage-gutter);
+    bottom: 0;
     left: var(--stage-gutter);
-    width: var(--panel-width);
     overflow: hidden;
-    border: 0;
-    border-radius: var(--panel-radius);
-    box-shadow: var(--elev-2);
   }
 }
 

@@ -554,6 +554,17 @@
     pointer-events: auto;
   }
 
+  /* All three workspaces keep one full-height panel frame. Short content
+     stays at the top; the remaining panel is intentionally empty. */
+  .app-shell.has-stage :is(.agency-panel, .sidebar-panel) {
+    width: var(--panel-width);
+    height: calc(100% - var(--stage-gutter));
+    max-height: calc(100% - var(--stage-gutter));
+    border: 0;
+    border-radius: var(--panel-radius) var(--panel-radius) 0 0;
+    box-shadow: var(--elev-2);
+  }
+
   .app-shell.has-stage .sidebar-rail {
     align-self: stretch;
     width: var(--rail-width);
