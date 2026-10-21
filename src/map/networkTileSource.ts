@@ -39,7 +39,7 @@ const contextRouteLayer: LayerSpecification = {
   paint: {
     'line-color': ['get', 'color'],
     'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.8, 12, 1.8, 16, 3.4],
-    'line-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.42, 13, 0.3, 16, 0.22],
+    'line-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.26, 13, 0.18, 16, 0.14],
   },
 }
 

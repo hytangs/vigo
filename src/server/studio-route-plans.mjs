@@ -177,6 +177,7 @@ function studioLeg(leg, index, count, body) {
     tripId: leg.tripId, directionId: leg.directionId || undefined,
     headsign: leg.headsign ?? undefined,
     ...shared, stopIds: leg.stopIds, stopCount: leg.stopCount,
+    ...(leg.intermediateStops ? { intermediateStops: leg.intermediateStops.map(stop => ({ stopId: stop.stopId, name: stop.name })) } : {}),
     ...(leg.shapeId ? { shapeId: leg.shapeId } : {}),
     ...(leg.bridgedUntimedGapCount ? { bridgedUntimedGapCount: leg.bridgedUntimedGapCount } : {}),
     ...(sourceEqualTimeConnectionCount ? { sourceEqualTimeConnectionCount } : {}),

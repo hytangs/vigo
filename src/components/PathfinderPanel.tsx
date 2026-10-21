@@ -156,6 +156,7 @@ export function PathfinderRouteList({
           onExport={format => exportJourneys(exportPlans, format, selectedPlanId)} /> : null}
       </div>
 
+      {readyPlans.some(plan => plan.diagnostics.expandedWalkingLimitKm) ? <p className="pathfinder-walking-policy">“More walking” options allow up to 2.4 km at each end.</p> : null}
       {readyPlans.length > 1 ? (
         <div className="studio-tabs pathfinder-choice-sort" role="group" aria-label="Sort journeys">
           {([['arrival', readyPlans[0].timePreference === 'arrive' ? 'Leave later' : 'Earliest'], ['transfers', 'Fewer transfers'], ['walking', 'Less walking']] as const).map(([value, label]) => (
@@ -222,7 +223,7 @@ export function PathfinderRouteList({
                     : 'Time from leaving to arriving'}><JourneyDuration minutes={totalElapsedMinutes} /></b>
                   <strong>{formatScheduleClock(plan.departMinutes)}–{formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}</strong>
                 </span>
-                {plan.diagnostics.expandedWalkingLimitKm ? <span className="pathfinder-route-rationale">More walking allowed · up to {plan.diagnostics.expandedWalkingLimitKm} km at each end</span> : null}
+                {plan.diagnostics.expandedWalkingLimitKm ? <span className="pathfinder-route-rationale">More walking</span> : null}
                 {plan.legs.length ? <JourneyLegStrip plan={plan} showBar={false} /> : null}
                 {services.length > 1 ? <strong className="pathfinder-group-services">{services.join(' or ')}</strong> : null}
                 <span className="pathfinder-route-footer">

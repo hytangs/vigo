@@ -196,9 +196,27 @@ export function platformAreaHasWalkingJunctions(refs, isWalkingNode) {
   return false
 }
 
+// A conditional rule cannot remove access when every possible value still
+// permits walking and its explicit base rule also permits it. Conditions are
+// not evaluated here; restrictive or unrecognised rules remain excluded.
+function onlyPermissiveConditions(value) {
+  const text = String(value ?? '').trim()
+  if (!text) return true
+  return /^(?:yes|designated|permissive|official)\s*@\s*(?:\([^()]+\)|[^;()]+)(?:\s*;\s*(?:yes|designated|permissive|official)\s*@\s*(?:\([^()]+\)|[^;()]+))*$/i.test(text)
+}
+
 function hasUnresolvedPedestrianHours(tags) {
-  return ['foot:conditional', 'access:conditional', 'oneway:foot:conditional']
-    .some(key => String(tags[key] ?? '').trim())
+  const foot = normalizedTag(tags.foot)
+  const explicitFoot = explicitPedestrianAccessValues.has(foot)
+  const footConditional = String(tags['foot:conditional'] ?? '').trim()
+  const accessConditional = String(tags['access:conditional'] ?? '').trim()
+  // OSM precedence: a mode-specific rule overrides general access, even when
+  // the latter is conditional. A foot conditional still overrides foot itself.
+  // https://wiki.openstreetmap.org/wiki/Conditional_restrictions#Evaluation_of_conflicting_restrictions
+  return (footConditional !== '' && !(explicitFoot && onlyPermissiveConditions(footConditional)))
+    || (accessConditional !== '' && !explicitFoot
+      && !(explicitPedestrianAccessValues.has(normalizedTag(tags.access)) && onlyPermissiveConditions(accessConditional)))
+    || String(tags['oneway:foot:conditional'] ?? '').trim() !== ''
     || (String(tags.opening_hours ?? '').trim() !== '' && normalizedTag(tags.opening_hours) !== '24/7')
 }
 

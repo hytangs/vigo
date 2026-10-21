@@ -1451,7 +1451,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
     if (sharedDatabase) sharedDatabase.current = null
     try {
       compiled = compileNativeGtfsConnections({ storePath: tempPath, stopTimesPath: stagePath,
-        excludedTripIds: [...excludedTripIds], invalidTimePolicy: 'quarantine', cacheKib: buildSqliteCacheKiB })
+        excludedTripIds: [...excludedTripIds], invalidTimePolicy: 'repair', cacheKib: buildSqliteCacheKiB })
     } finally {
       db = new DatabaseSync(tempPath)
       if (sharedDatabase) sharedDatabase.current = db
@@ -1474,6 +1474,10 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
     featureInventory.quarantinedTimeTripCount = quarantinedTimeTripCount
     featureInventory.quarantinedTimeTripSamples = compiled.quarantinedTimeTripSamples ?? []
     if (quarantinedTimeTripCount) report(onProgress, 'Timetable warning', 0.9, `${quarantinedTimeTripCount} trip(s) with backward times excluded; source times preserved.`)
+    const repairedTimeTripCount = Number(compiled.repairedTimeTripCount ?? 0)
+    featureInventory.repairedTimeTripCount = repairedTimeTripCount
+    featureInventory.repairedTimeTripSamples = compiled.repairedTimeTripSamples ?? []
+    if (repairedTimeTripCount) report(onProgress, 'Timetable warning', 0.9, `${repairedTimeTripCount} trip(s) with backward times repaired by delaying events at most 600 seconds; source times preserved.`)
     const blockingRoutingFeatures = []
     const routingLimitations = []
     const blockFeature = (code, count, detail) => {
@@ -1482,8 +1486,10 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
     const limitFeature = (code, count, detail) => {
       if (count > 0) routingLimitations.push({ code, count, exactness: 'unsupported', detail })
     }
+    if (repairedTimeTripCount) routingLimitations.push({ code: 'repaired_trip_times', count: repairedTimeTripCount,
+      exactness: 'approximate', detail: 'Backward times were clamped to the preceding event, delaying each event by at most 600 seconds. All stops and permissions are retained; source ZIPs are unchanged.' })
     limitFeature('backward_trip_times', quarantinedTimeTripCount,
-      'Trips with backward arrival or departure times are excluded in full. Source times are preserved; no invented repair or partial trip is routed.')
+      'Trips requiring time corrections greater than 600 seconds are excluded in full. Source times are preserved; no partial trip is routed.')
     blockFeature('multiple_agency_timezones', Math.max(0, agencyTimezones.size - 1),
       'A single routing store cannot yet resolve service-day coordinates across multiple agency timezones.')
     featureInventory.exactFrequencyExpandedTripCount = exactFrequencyExpandedTripCount

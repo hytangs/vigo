@@ -23,6 +23,10 @@ pub struct GtfsConnectionResult {
     pub quarantined_time_trip_count: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quarantined_time_trip_samples: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repaired_time_trip_count: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repaired_time_trip_samples: Option<Vec<String>>,
     pub connection_count: f64,
     pub bridged_untimed_gap_count: f64,
     pub exact_frequency_expanded_trip_count: f64,
@@ -57,6 +61,51 @@ fn backward_time_trips(stage: &Connection) -> CompileResult<HashSet<String>> {
         if let Some(time) = departure.or(arrival) {
             previous = Some(time);
         }
+    }
+    Ok(invalid)
+}
+
+// A bounded cumulative maximum repairs overlapping clocks without advancing
+// any event. Validate the whole trip first: never route a repaired prefix of
+// a trip that exceeds the bound later. Null times remain null.
+fn repair_times(
+    arrival: &mut Option<f64>,
+    departure: &mut Option<f64>,
+    previous: Option<f64>,
+) -> bool {
+    let mut valid = true;
+    let mut floor = previous;
+    for value in [arrival, departure] {
+        if let Some(raw) = *value {
+            let corrected = floor.map_or(raw, |p| raw.max(p));
+            valid &= corrected - raw <= 600.0;
+            *value = Some(corrected);
+            floor = Some(corrected);
+        }
+    }
+    valid
+}
+
+fn unrepairable_time_trips(stage: &Connection) -> CompileResult<HashSet<String>> {
+    let mut statement = stage.prepare(
+        "SELECT trip_id,arrival,departure FROM stop_times ORDER BY trip_id,stop_sequence",
+    )?;
+    let mut rows = statement.query([])?;
+    let mut trip = String::new();
+    let mut previous = None;
+    let mut invalid = HashSet::new();
+    while let Some(row) = rows.next()? {
+        let id: String = row.get(0)?;
+        if id != trip {
+            trip = id;
+            previous = None;
+        }
+        let mut arrival = row.get(1)?;
+        let mut departure = row.get(2)?;
+        if !repair_times(&mut arrival, &mut departure, previous) {
+            invalid.insert(trip.clone());
+        }
+        previous = departure.or(arrival).or(previous);
     }
     Ok(invalid)
 }
@@ -121,6 +170,7 @@ fn compile(
     stage: &Connection,
     excluded: &HashSet<&str>,
     quarantined: &HashSet<String>,
+    repair: bool,
 ) -> CompileResult<GtfsConnectionResult> {
     let known_stops = db
         .prepare("SELECT stop_id FROM stops")?
@@ -143,7 +193,7 @@ fn compile(
     let mut frequency_trip_ids = HashSet::new();
     let mut result = GtfsConnectionResult::default();
     while let Some(row) = rows.next()? {
-        let row = StopTime {
+        let mut row = StopTime {
             trip_id: row.get(0)?,
             sequence: row.get(1)?,
             stop_id: row.get(2)?,
@@ -152,6 +202,13 @@ fn compile(
             can_board: row.get::<_, i64>(5)? == 1,
             can_alight: row.get::<_, i64>(6)? == 1,
         };
+        if repair && !quarantined.contains(&row.trip_id) {
+            let floor = previous
+                .as_ref()
+                .filter(|p| p.trip_id == row.trip_id)
+                .and_then(|p| p.departure.or(p.arrival));
+            repair_times(&mut row.arrival, &mut row.departure, floor);
+        }
         if !known_stops.contains(&row.stop_id) {
             return Err(format!(
                 "Broken GTFS reference stop_times.stop_id -> stops.stop_id: trip {} references {}.",
@@ -318,9 +375,24 @@ fn compile_files(input: GtfsConnectionInput) -> CompileResult<GtfsConnectionResu
     let quarantined = match input.invalid_time_policy.as_deref().unwrap_or("reject") {
         "reject" => HashSet::new(),
         "quarantine" => backward_time_trips(&stage)?,
-        _ => return Err("invalidTimePolicy must be reject or quarantine".into()),
+        "repair" => unrepairable_time_trips(&stage)?,
+        _ => return Err("invalidTimePolicy must be reject, quarantine or repair".into()),
     };
-    let mut result = compile(&transaction, &stage, &excluded, &quarantined)?;
+    let repair = input.invalid_time_policy.as_deref() == Some("repair");
+    let mut result = compile(&transaction, &stage, &excluded, &quarantined, repair)?;
+    if repair {
+        let mut repaired: Vec<_> = backward_time_trips(&stage)?
+            .difference(&quarantined)
+            .cloned()
+            .collect();
+        repaired.retain(|id| !excluded.contains(id.as_str()));
+        repaired.sort();
+        if !repaired.is_empty() {
+            result.repaired_time_trip_count = Some(repaired.len() as f64);
+            repaired.truncate(32);
+            result.repaired_time_trip_samples = Some(repaired);
+        }
+    }
     if !quarantined.is_empty() {
         result.quarantined_time_trip_count = Some(quarantined.len() as f64);
     }

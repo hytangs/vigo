@@ -33,7 +33,7 @@ export function authorizedEndpointNodeWalkable(tags) {
   if (nationalOsmNodeWalkable(tags)) return true
   if (['no', 'use_sidepath'].includes(foot) || (access === 'no' && foot !== 'private')) return false
   const permitted = authorizedTags(tags)
-  if (gates.has(barrier) && !foot && (!access || access === 'private')) permitted.foot = 'yes'
+  if (gates.has(barrier) && !foot && (!access || access === 'private' || access === 'destination')) permitted.foot = 'yes'
   return nationalOsmNodeWalkable(permitted)
 }
 

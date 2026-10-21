@@ -427,7 +427,7 @@ function createWindow() {
     icon: studioIconPath,
     ...(process.platform === 'darwin' ? {
       titleBarStyle: 'hiddenInset',
-      trafficLightPosition: { x: 16, y: 19 },
+      trafficLightPosition: { x: 16, y: 16 },
     } : {}),
     backgroundColor: '#f3f4f3',
     webPreferences: {

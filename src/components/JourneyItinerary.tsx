@@ -100,14 +100,16 @@ export function RoutingItinerary({ plan, destinationLabel }: { plan: RoutingPlan
               <span>{transfer ? routingLegPrimaryLabel(leg) : leg.type === 'drive' ? 'Drive' : 'Walk'}</span>
               <span className="journey-leg-meta">{formatRoutingLegDuration(leg)}{leg.distanceKm > 0 ? ` · ${formatDistance(leg.distanceKm)}` : ''}</span>
             </p>}
+            {ride && Boolean(leg.intermediateStops?.length) ? <details className="kit-inline-details journey-leg-evidence journey-stops">
+              <summary>Stops along the way · {leg.intermediateStops!.length}</summary>
+              <ol>{leg.intermediateStops!.map((stop, stopIndex) => <li key={`${stop.stopId}:${stopIndex}`}>{stop.name || stop.stopId}</li>)}</ol>
+            </details> : null}
             {leg.stationAccessStatus !== 'unverified' && leg.transferSource === 'parent_station_fallback' ? <p className="journey-caution">Assumed station connection time</p> : null}
             {ride && plan.sharedLegAlternatives && (frequency || sharedOptions.length > 0) ?
               <details className="kit-inline-details journey-leg-evidence journey-shared-services">
-                <summary>Services on this leg</summary>
+                <summary>{frequency ? <>{frequency.status === 'incomplete' ? 'At least ' : ''}{frequency.departureCount} departure{frequency.departureCount === 1 ? '' : 's'}</> : 'Services on this leg'}</summary>
                 {frequency ? <p className="journey-combined-frequency">
-                  {frequency.status === 'incomplete' ? 'Incomplete sample. At least ' : ''}
-                  {frequency.departureCount} departures at {frequency.uniqueDepartureCount} distinct times · {formatScheduleClock(frequency.windowStartSeconds / 60)}–{formatScheduleClock(frequency.windowEndSeconds / 60)}
-                  {frequency.meanHeadwaySeconds !== null ? <> · Mean gap {(frequency.meanHeadwaySeconds / 60).toFixed(1)} min{frequency.minHeadwaySeconds !== frequency.maxHeadwaySeconds ? ` (range ${((frequency.minHeadwaySeconds ?? 0) / 60).toFixed(1)}–${((frequency.maxHeadwaySeconds ?? 0) / 60).toFixed(1)} min)` : ''}</> : null}
+                  {formatScheduleClock(frequency.windowStartSeconds / 60)}–{formatScheduleClock(frequency.windowEndSeconds / 60)}
                 </p> : null}
                 {sharedOptions.map(option => {
                   const alternate = option.plan.legs[index]

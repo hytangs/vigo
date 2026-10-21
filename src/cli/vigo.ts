@@ -1457,6 +1457,9 @@ async function runBuildScenarios(args: CliArguments) {
   const streetModes = spec.streetModes ?? 'walk'
   if (!['walk', 'walk,drive'].includes(String(streetModes))) throw new Error('streetModes must be walk or walk,drive')
   if (wheelchair && streetModes !== 'walk') throw new Error('Wheelchair collections require streetModes walk')
+  const privateAccess = spec.privateAccess ?? 'public'
+  if (typeof privateAccess !== 'string' || !['public', 'endpoints'].includes(privateAccess)) throw new Error('privateAccess must be public or endpoints')
+  if (wheelchair && privateAccess !== 'public') throw new Error('Wheelchair collections require public privateAccess')
   const maximumResidentScenarios = spec.maximumResidentScenarios ?? 2
   if (!Number.isInteger(maximumResidentScenarios) || Number(maximumResidentScenarios) < 1 || Number(maximumResidentScenarios) > 16) throw new Error('maximumResidentScenarios must be between 1 and 16')
   const prepareDates = spec.prepareDates ?? []
@@ -1485,14 +1488,16 @@ async function runBuildScenarios(args: CliArguments) {
         ...scenario.feeds.map(feed => `--gtfs=${feed.path}`),
         ...scenario.feeds.map(feed => `--gtfs-scope=${feed.scope}`),
         ...prepareDates.map(date => `--prepare-date=${date}`),
-        `--osm=${osm.path}`, `--street-modes=${streetModes}`, `--wheelchair=${wheelchair}`, '--private-access=public',
+        `--osm=${osm.path}`, `--street-modes=${streetModes}`, `--wheelchair=${wheelchair}`, `--private-access=${privateAccess}`,
         ...(firstCity ? [`--streets-from=${firstCity}`] : []),
         `--output=${compilerStage}`, `--city-name=${scenario.name}`,
       ], `Scenario ${scenario.id}`)
       const result = await compiler.outcome
       if ('error' in result) throw result.error
       publishCity(compilerStage, cityPath)
-      if (!firstCity) {
+      // Endpoint boundaries depend on each timetable's public stop anchors.
+      // Keep those overlays City-local; never reuse the first City's boundaries.
+      if (!firstCity && privateAccess === 'public') {
         const shared = path.join(staged, 'streets', osm.sha256)
         fs.mkdirSync(path.dirname(shared))
         fs.renameSync(path.join(cityPath, 'osm'), shared)
@@ -1516,7 +1521,7 @@ async function runBuildScenarios(args: CliArguments) {
     await inventory(staged)
     fs.writeFileSync(path.join(staged, 'checksums.json'), JSON.stringify({ schemaVersion: 'vigo.checksums.v1', algorithm: 'sha256', files }, null, 2) + '\n')
     fs.renameSync(staged, output)
-    process.stdout.write(JSON.stringify({ ...manifest, storageBytes: files.reduce((sum, file) => sum + file.bytes, 0), sharedStreetCopies: 1 }, null, 2) + '\n')
+    process.stdout.write(JSON.stringify({ ...manifest, storageBytes: files.reduce((sum, file) => sum + file.bytes, 0), sharedStreetCopies: privateAccess === 'public' ? 1 : scenarios.length }, null, 2) + '\n')
   } finally { fs.rmSync(staged, { recursive: true, force: true }) }
 }
 

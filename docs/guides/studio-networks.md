@@ -19,16 +19,37 @@ preparation; ordinary routes are never substituted for wheelchair requests.
 
 ## Timetable quality during preparation
 
-Preparation continues when individual trips contain backward arrival or departure
-times. It excludes each malformed trip in full and records a `backward_trip_times`
-limitation, a count, and up to 32 example trip identifiers. It also emits a progress
-warning. Valid trips remain available, and the original GTFS archive is unchanged.
+Preparation repairs small backward arrival or departure times with a cumulative
+maximum: an event can be delayed to the preceding event, never moved earlier.
+The maximum adjustment to any original event is ten minutes. Stops, trip identity,
+and boarding/alighting permissions are retained. The original GTFS archive is
+unchanged. Equal consecutive times are possible; these are approximate repaired
+schedules, not inferred realistic vehicle speeds.
 
-VIGO does not guess realistic travel times or silently turn a backward clock into
-a next-day service. Published GTFS times such as `24:10:00` remain valid. Other
-structural failures, including broken stop references and duplicate stop sequences,
-still fail preparation. The low-level connection compiler retains strict rejection
-by default; preparation explicitly selects its quarantine policy.
+Trips requiring a larger correction are excluded in full, including any valid
+prefix. Both repairs (`repaired_trip_times`) and exclusions (`backward_trip_times`)
+produce progress warnings, counts and up to 32 example trip IDs. Repairs are marked
+`approximate` in routing limitations. Published after-midnight times such as
+`24:10:00` remain valid; a clock reset to `00:10:00` is not interpreted as next day.
+Broken references and duplicate stop sequences still fail preparation. The
+low-level compiler retains strict rejection by default; preparation explicitly
+selects the bounded repair policy.
+
+## Walking access in prepared streets
+
+Walking preparation follows OSM mode-specific access precedence. An explicit
+pedestrian permission overrides general access restrictions, including general
+conditional restrictions. A conditional pedestrian rule that only permits walking
+is redundant when the explicit base pedestrian rule already permits walking, so
+it does not disconnect that way or node. Restrictive or unknown pedestrian
+conditions, opening hours, and conditional pedestrian directions remain excluded
+from the static graph; VIGO does not yet evaluate them at journey time.
+
+These corrections apply to newly prepared streets. Rebuild a City to incorporate
+them; existing prepared Cities remain readable and keep their original graph.
+A route reported as not found is constrained by the supplied walking budget,
+service date, time horizon, transfer limit, and prepared map coverage. It is not
+proof that no journey exists with different settings or additional map data.
 
 ## Road-following scenario paths
 
