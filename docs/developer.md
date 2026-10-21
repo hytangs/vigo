@@ -90,7 +90,7 @@ orchestration, and public interfaces.
 | Reach | Native timetable propagation and walking surface; JavaScript contours and Result shaping |
 | Scenario | JavaScript validation and compilation of supported changes; native routing applies the compiled overlay |
 
-JavaScript owns request validation, identity resolution, orchestration, cancellation, and presentation. Rust owns active-timetable departure/transfer indexing, realtime timetable reconstruction, station path compilation, graph search, and timetable propagation; see the [kernel implementation map](../native/vigo-routing-kernel/UNIFIED_ROUTING_KERNEL.md). Source-feature omissions remain explicit in results; shared implementation alone does not prove correctness. [Independent checks](#checking-routing-accuracy) validate the declared model.
+JavaScript owns request validation, identity resolution, orchestration, cancellation, and presentation. Rust owns active-timetable departure/transfer indexing, GTFS-Realtime overlays (trip updates, Service Alerts and timetable reconstruction, shared with the standalone engine), station path compilation, graph search, and timetable propagation; see the [kernel implementation map](../native/vigo-routing-kernel/UNIFIED_ROUTING_KERNEL.md). Source-feature omissions remain explicit in results; shared implementation alone does not prove correctness. [Independent checks](#checking-routing-accuracy) validate the declared model.
 
 ### Rust-native compiler migration (1.0 development)
 

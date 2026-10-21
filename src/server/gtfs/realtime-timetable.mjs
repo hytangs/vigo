@@ -165,18 +165,19 @@ export function realtimeTimetableForRequest(store, kernel, request, serviceDateR
   if (previous?.serviceDate === serviceDate) return previous.result
   const schedule = realtimeSchedule(store, kernel)
   context.json ??= JSON.stringify(snapshot.overlay)
+  context.digest ??= crypto.createHash('sha256').update(context.json).digest('hex')
   const options = { serviceDate, timezone: store.agencyTimezones?.[0] || 'UTC', nowSeconds: context.nowSeconds }
-  const key = schedule.native.viewKey(context.json, options)
-  let result = schedule.views.get(key)
+  const key = schedule.native.viewKey(context.digest, options)
+  let result = key && schedule.views.get(key)
   if (result) schedule.views.delete(key)
-  else result = compileRealtimeTimetable(kernel, schedule.native, context.json, options, snapshot)
-  schedule.views.set(key, result)
+  else result = compileRealtimeTimetable(kernel, schedule.native, context, options, snapshot)
+  schedule.views.set(result.diagnostics.snapshotId, result)
   if (schedule.views.size > retainedViews) schedule.views.delete(schedule.views.keys().next().value)
   context.resolutions.set(kernel, { serviceDate, result })
   return result
 }
 
-function compileRealtimeTimetable(base, schedule, json, options, snapshot) {
+function compileRealtimeTimetable(base, schedule, { json, digest }, options, snapshot) {
   const started = performance.now()
   // A view replaces calls of scheduled trips, so it never exceeds the schedule
   // by more than one call per update. Bound admission before compiling it.
@@ -186,7 +187,7 @@ function compileRealtimeTimetable(base, schedule, json, options, snapshot) {
   if (estimatedBytes > timetableBudgetBytes) {
     throw runtimeCapacityError(`Realtime reconstruction needs an estimated ${Math.ceil(estimatedBytes / 1024 / 1024)} MiB; the timetable budget is ${Math.floor(timetableBudgetBytes / 1024 / 1024)} MiB.`, 'VIGO_REALTIME_MEMORY_LIMIT')
   }
-  const overlay = schedule.apply(json, options)
+  const overlay = schedule.apply(json, digest, options)
   const counts = overlay.counts
   const trips = []
   const pairs = overlay.applied

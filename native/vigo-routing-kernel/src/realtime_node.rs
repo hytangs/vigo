@@ -87,8 +87,6 @@ pub struct RealtimeSchedule {
     /// Record clocks of recent snapshots by content digest, newest last, so
     /// that a resubmitted snapshot is identified without parsing it.
     clocks: Vec<(String, Value)>,
-    /// The snapshot that identification parsed last, for the `apply` after it.
-    parsed: Option<(String, Value)>,
 }
 
 #[napi]
@@ -158,35 +156,46 @@ impl RealtimeSchedule {
             parents: Buffer::from_owner(input.stop_parents),
             route_types: Arc::new(input.route_types),
             clocks: vec![],
-            parsed: None,
         })
     }
 
-    /// The identity of the view that `snapshot` (JSON) yields under `options`:
-    /// its content, each record's validity at the observation time, and the
-    /// clock it is read on. Equal keys yield identical views of this schedule.
+    /// The key of the view that the snapshot whose SHA-256 is `digest` yields
+    /// under `options`: its content, each record's validity at the observation
+    /// time, and the clock it is read on. Equal keys yield identical views of
+    /// this schedule. There is none before the snapshot is applied here.
     #[napi]
     pub fn view_key(
         &mut self,
-        snapshot: String,
+        digest: String,
         options: RealtimeOverlayOptions,
-    ) -> Result<String> {
-        Ok(self.identify(&snapshot, &options)?.0)
+    ) -> Result<Option<String>> {
+        let Some(index) = self.clocks.iter().position(|(d, _)| *d == digest) else {
+            return Ok(None);
+        };
+        let entry = self.clocks.remove(index);
+        let key = view_key(&entry.0, &entry.1, &options)?;
+        self.clocks.push(entry);
+        Ok(Some(key))
     }
 
-    /// Compiles the realtime view of this schedule for `snapshot` (JSON).
+    /// Compiles the realtime view of this schedule for `snapshot` (JSON),
+    /// whose SHA-256 is `digest`.
     #[napi]
     pub fn apply(
         &mut self,
         snapshot: String,
+        digest: String,
         options: RealtimeOverlayOptions,
     ) -> Result<RealtimeOverlay> {
-        let (key, digest) = self.identify(&snapshot, &options)?;
-        let value = match self.parsed.take() {
-            Some((parsed, value)) if parsed == digest => value,
-            _ => serde_json::from_str(&snapshot).map_err(invalid)?,
-        };
+        let value: Value = serde_json::from_str(&snapshot).map_err(invalid)?;
         drop(snapshot);
+        let clocks = realtime::clocks(&value);
+        let key = view_key(&digest, &clocks, &options)?;
+        self.clocks.retain(|(retained, _)| *retained != digest);
+        if self.clocks.len() == RETAINED_CLOCKS {
+            self.clocks.remove(0);
+        }
+        self.clocks.push((digest, clocks));
         let clock = Clock {
             date: NaiveDate::parse_from_str(&options.service_date, "%Y-%m-%d").map_err(invalid)?,
             zone: options
@@ -240,9 +249,12 @@ impl RealtimeSchedule {
         } else {
             None
         };
+        let alert_diagnostics = alert_diagnostics.map(Value::to_string);
+        // Freeing a large parsed snapshot takes milliseconds; not on the query.
+        rayon::spawn(move || drop(value));
         Ok(RealtimeOverlay {
             key,
-            alert_diagnostics: alert_diagnostics.map(Value::to_string),
+            alert_diagnostics,
             view,
             outcomes: overlay.outcomes,
             alerts,
@@ -267,43 +279,17 @@ impl RealtimeSchedule {
             names: &self.names,
         }
     }
-    /// The view key and content digest of `snapshot`.
-    fn identify(
-        &mut self,
-        snapshot: &str,
-        options: &RealtimeOverlayOptions,
-    ) -> Result<(String, String)> {
-        let digest = format!("{:x}", Sha256::digest(snapshot.as_bytes()));
-        self.parsed = self.parsed.take().filter(|(parsed, _)| *parsed == digest);
-        match self
-            .clocks
-            .iter()
-            .position(|(retained, _)| *retained == digest)
-        {
-            Some(index) => {
-                let entry = self.clocks.remove(index);
-                self.clocks.push(entry);
-            }
-            None => {
-                let value: Value = serde_json::from_str(snapshot).map_err(invalid)?;
-                if self.clocks.len() == RETAINED_CLOCKS {
-                    self.clocks.remove(0);
-                }
-                self.clocks.push((digest.clone(), realtime::clocks(&value)));
-                self.parsed = Some((digest.clone(), value));
-            }
-        }
-        let clocks = &self.clocks.last().unwrap().1;
-        let validity = realtime::validity(clocks, options.now_seconds);
-        let context = serde_json::to_vec(&(
-            validity,
-            &options.service_date,
-            &options.start_date,
-            &options.timezone,
-        ))
-        .map_err(invalid)?;
-        Ok((format!("{digest}:{:x}", Sha256::digest(context)), digest))
-    }
+}
+
+fn view_key(digest: &str, clocks: &Value, options: &RealtimeOverlayOptions) -> Result<String> {
+    let context = serde_json::to_vec(&(
+        realtime::validity(clocks, options.now_seconds),
+        &options.service_date,
+        &options.start_date,
+        &options.timezone,
+    ))
+    .map_err(invalid)?;
+    Ok(format!("{digest}:{:x}", Sha256::digest(context)))
 }
 
 /// One snapshot applied to one schedule.
