@@ -40,6 +40,7 @@ pub(crate) struct TerminalAccessGraph {
 pub(crate) struct TerminalAttachment {
     pub(crate) boundary_snaps: Vec<Snap>,
     pub(crate) original_snaps: Vec<Snap>,
+    pub(crate) budget_truncated: bool,
     distances: HashMap<u32, f64>,
     predecessors: HashMap<u32, u32>,
 }
@@ -451,7 +452,9 @@ impl TerminalAccessGraph {
         let mut predecessors = HashMap::new();
         let mut queue = BinaryHeap::new();
         let mut boundary_snaps = Vec::new();
+        let mut budget_truncated = false;
         for s in &snaps {
+            budget_truncated |= s.distance_m > maximum;
             if s.distance_m <= maximum && distances.get(&s.node).is_none_or(|&d| s.distance_m < d) {
                 distances.insert(s.node, s.distance_m);
                 predecessors.insert(s.node, s.node);
@@ -472,7 +475,9 @@ impl TerminalAccessGraph {
             }
             let mut offer = |target, weight| {
                 let candidate = distance + weight;
-                if candidate <= maximum && distances.get(&target).is_none_or(|&d| candidate < d) {
+                let improves = distances.get(&target).is_none_or(|&d| candidate < d);
+                budget_truncated |= candidate > maximum && improves;
+                if candidate <= maximum && improves {
                     distances.insert(target, candidate);
                     predecessors.insert(target, node);
                     queue.push(Reverse((candidate.to_bits(), target)));
@@ -499,10 +504,21 @@ impl TerminalAccessGraph {
                 }
             }
         }
+        // An optional closer private island with no directed public exit must
+        // not erase an existing attachment to the public network. Recovery is
+        // only to the original public snaps, never across a restricted exit.
+        // A budget-limited search does not establish that an exit is absent.
+        if boundary_snaps.is_empty()
+            && !budget_truncated
+            && public.iter().any(|s| self.is_boundary(components, s.node))
+        {
+            return Ok(None);
+        }
         boundary_snaps.sort_by_key(|s| s.node);
         Ok(Some(Arc::new(TerminalAttachment {
             boundary_snaps,
             original_snaps: snaps,
+            budget_truncated,
             distances,
             predecessors,
         })))

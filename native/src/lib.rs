@@ -8531,15 +8531,23 @@ fn terminal_endpoint_snaps(
                 .public_components
                 .contains(&components[s.node as usize])
         });
-        // Prefer a mapped terminal path. Never bypass a restricted endpoint or
-        // its directed exit by treating it as a free public-network connector.
+        // Prefer a mapped terminal path. If the optional private candidate is
+        // exhausted with no exit, retain the same bounded public recovery that
+        // is available without the overlay. A truncated search cannot justify
+        // recovery: it would skip a mapped terminal path's walking cost.
         let mapped_access = attachment.as_ref().is_some_and(|a| {
             !a.boundary_snaps.is_empty()
                 || a.original_snaps
                     .iter()
                     .any(|s| s.node as usize >= snapshot.header.node_count)
         });
-        if !already_public && !mapped_access && !profile.public_components.is_empty() {
+        let disconnected_candidate = attachment
+            .as_ref()
+            .is_some_and(|a| a.boundary_snaps.is_empty() && !a.budget_truncated);
+        if !already_public
+            && (!mapped_access || disconnected_candidate)
+            && !profile.public_components.is_empty()
+        {
             let (recovered, _) = street_attachment_in_components(
                 snapshot,
                 snapshot.reciprocal_edge_flags(),

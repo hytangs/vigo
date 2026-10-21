@@ -931,6 +931,8 @@ Builds default to public pedestrian access: `access=private` without a pedestria
 
 This City-wide modeling assumption permits mapped private streets only within the origin's or destination's attached internal street region. An exact directed search follows those streets and interior public islands up to the first public component with a transit-access anchor. The public middle of the journey and stop-to-stop transfers never enter private streets, all internal walking counts toward the same walking limit, and geometry follows the mapped edges. Walking wholly within one internal region is supported.
 
+Destination-only gates (`access=destination` or `foot=destination`) are permitted for authorized endpoint access, while locked gates, pedestrian prohibitions, and unresolved opening hours remain excluded. A closer private attachment with no directed public exit does not erase an existing public attachment; a walking-budget cutoff alone cannot trigger this fallback.
+
 The private graph is stored separately, so public street queries are unaffected. `network.json` records the access model, and transit diagnostics report `walkingAccessPermission: "authorized_endpoints"`. The option assumes endpoint authorization; it does not infer parcel ownership, gate hours, or missing OSM links. Explicit pedestrian prohibitions stay excluded, gates marked prohibited, locked, or with unresolved opening times gain no connections, and Street Reach follows the same rules at the origin and at reached destinations. Rebuild older Cities to apply street-store schema v6, which also excludes isolated platform area outlines from the linear walking graph.
 
 ### Names for coordinate points

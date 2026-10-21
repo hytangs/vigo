@@ -1450,6 +1450,32 @@ try {
     assert.equal(barrierKernel.streetSurface({ ...recoverySurface, seedMemberIndices, maximumWalkM: 5 }).edgeEvidence.length, 0,
       'A connector over the walking budget must not seed a reachable surface.')
   }
+  // Optional private candidates must also retain the existing 80 m public
+  // recovery for an anonymous coordinate initially attached to a public island.
+  const islandRecoveryKernel = new CoordinateKernel(barrierSnapshotPath)
+  buildAndLoadStreetCch(islandRecoveryKernel, temporaryDirectory, 'private-island-recovery')
+  islandRecoveryKernel.setAccessProfile({ profileKey: 'private-island-recovery',
+    anchorLons: [0], anchorLats: [38], anchorMemberOffsets: [0, 1], anchorMemberIndices: [0],
+    memberLons: [0], memberLats: [38], memberOriginEligible: [1], memberDestinationEligible: [1] })
+  const recoveryQuery = { originLon: 0.0005, originLat: 38.00011,
+    destinationLon: 0, destinationLat: 38, maximumDistanceM: 400, maximumPoints: 32 }
+  const beforePrivateIsland = islandRecoveryKernel.routePath(recoveryQuery)
+  assert(beforePrivateIsland.found)
+  const islandFile = path.join(temporaryDirectory, 'private-island-recovery.json')
+  const barrierHeader = JSON.parse(fs.readFileSync(barrierSnapshotPath).subarray(0, 4096).toString().trim())
+  fs.writeFileSync(islandFile, JSON.stringify({
+    schemaVersion: 'vigo.street.terminal-access.v1', publicNodeCount: barrierHeader.nodeCount,
+    publicEdgeCount: barrierHeader.edgeCount, nodeLons: [0.0005, 0.0006], nodeLats: [38.00011, 38.00011],
+    publicNodes: [0xffffffff, 0xffffffff], edgeSources: [0, 1], edgeTargets: [1, 0],
+    edgeDistancesM: [10, 10], boundaryComponents: islandRecoveryKernel.publicAccessComponents(),
+  }))
+  islandRecoveryKernel.configureTerminalAccess(islandFile)
+  const afterPrivateIsland = islandRecoveryKernel.routePath(recoveryQuery)
+  assert(afterPrivateIsland.found, 'A disconnected private candidate retains bounded public recovery')
+  assert(Math.abs(afterPrivateIsland.distanceM - beforePrivateIsland.distanceM) < 0.0001)
+  assert(Math.abs(islandRecoveryKernel.routeStreetMatrix({ originCoordinates: [0.0005, 38.00011],
+    destinationCoordinates: [0, 38], maximumDistanceM: 400 }).distancesM[0] - beforePrivateIsland.distanceM) < 0.0001)
+
   const linkedMembers = Array.from({ length: 21 }, (_, index) => index)
   barrierKernel.setAccessProfile({
     profileKey: 'directed-station-footpaths-v1',
