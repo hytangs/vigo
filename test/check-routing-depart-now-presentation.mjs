@@ -22,8 +22,8 @@ try {
   }
   const render = patch => renderToStaticMarkup(createElement(SidebarPathfinderBox, { ...props, ...patch }))
   const live = render()
-  assert.match(live, /Depart now/)
-  assert.doesNotMatch(live, /type="(?:date|time)"|Time preference|Arrive by|September 16|Date outside timetable/,
+  assert.match(live, /aria-pressed="true"[^>]*>Now<\/button>/)
+  assert.doesNotMatch(live, /type="(?:date|time)"|aria-pressed="true"[^>]*>Arrive by|September 16|Date outside timetable/,
     'Realtime exposes no stale clock, arrive-by, or historical date correction')
   assert.match(live, /Departure search window/, 'Retained arrive-by does not hide the live departure search control')
   assert.match(live, /Allow walks between stations or stops/)
@@ -40,10 +40,10 @@ try {
   assert.match(stationOnly, /Walking to your first stop and from your last stop is still allowed/)
 
   const research = render({ routingDataMode: 'scheduled', routingServiceDateAvailability: 'covered' })
-  assert.doesNotMatch(research, /Depart now/)
+  assert.doesNotMatch(research, /aria-pressed="true"[^>]*>Now</)
   assert.match(research, /aria-label="Routing service date"[^>]*value="2026-09-15"/)
   assert.match(research, /aria-label="Routing time"[^>]*value="08:00"/)
-  assert.match(research, /aria-pressed="true"[^>]*>Arrive<\/button>/, 'Research retains the original arrive-by selection')
+  assert.match(research, /aria-pressed="true"[^>]*>Arrive by<\/button>/, 'Research retains the original arrive-by selection')
   const capped = render({ routingMaxTransfers: 1 })
   assert.match(capped, /option value="1" selected=""/, 'Two-point routes retain the requested transfer limit')
   const via = render({ routingMaxTransfers: 1, routingWaypoints: [{ id: 'via', label: 'Via', lat: 0, lon: 0, source: 'map' }] })
@@ -76,7 +76,7 @@ try {
   }
   const unchanged = structuredClone(detailPlan)
   const details = renderToStaticMarkup(createElement(RoutingDetailPanel, { plan: detailPlan, onClose() {} }))
-  assert.match(details, /<h2>50m <small>total<\/small><\/h2>/)
+  assert.match(details, /<h2>50<small>min total<\/small><\/h2>/)
   assert.match(details, /Leave 20m after your requested time/)
   assert.match(details, /5m waiting en route/)
   assert.match(details, /5m wait at Station/)
@@ -101,7 +101,7 @@ try {
   const ranked = render({ routingPlan: simple, routingChoices: [chain, simple], routingTimePreference: 'depart' })
   assert(ranked.indexOf('SIMPLE') < ranked.indexOf('CHAIN'),
     'Equal arrivals retain the fewer-transfer recommendation even when a later departure has a shorter journey.')
-  assert.equal((ranked.match(/>50m total<\/b>/g) ?? []).length, 2,
+  assert.equal((ranked.match(/>50<small>min<\/small><\/b>/g) ?? []).length, 2,
     'Cards compare total time from the same requested departure, including the wait before leaving.')
   assert.match(ranked, /including 5m before leaving; 45m travelling/)
   const sameTransfers = render({ routingPlan: simple, routingChoices: [{ ...chain, transfers: 1, walkMinutes: 30 }, simple] })

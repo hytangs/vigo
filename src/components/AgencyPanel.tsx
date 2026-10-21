@@ -26,7 +26,7 @@ function exportObservation(state: AgencyState) {
   downloadText('agency-observation.json', JSON.stringify(state, null, 2), 'application/json')
 }
 
-export function AgencyPanel({ mapLayers, staticFeeds, onOperationalEvents, projectId, snapshot, realtimeRequest, realtimeMessage, realtimeLoading, onConnect, onDisconnect, onLocate, onOpenData, mapOpen, onToggleMap, selection = {}, timetable, onClearSelection, onBrowseRoute, browseRequest = 0, tripTarget, onOpenTrip }: {
+export function AgencyPanel({ mapLayers, staticFeeds, onOperationalEvents, onServiceDates, projectId, snapshot, realtimeRequest, realtimeMessage, realtimeLoading, onConnect, onDisconnect, onLocate, onOpenData, mapOpen, onToggleMap, selection = {}, timetable, onClearSelection, onBrowseRoute, browseRequest = 0, tripTarget, onOpenTrip }: {
   mapLayers?: ReactNode
   staticFeeds: Array<{ id: string; name: string }>
   onOpenTrip?: TripNavigation
@@ -39,6 +39,7 @@ export function AgencyPanel({ mapLayers, staticFeeds, onOperationalEvents, proje
   mapOpen: boolean
   onToggleMap: () => void
   onOperationalEvents?: (events: OperationalEvent[]) => void
+  onServiceDates?: (dates: { first: string | null; last: string | null } | null) => void
   projectId: string
   snapshot: RealtimeSnapshot | null
   realtimeRequest: RealtimeInspectRequest | null
@@ -49,7 +50,10 @@ export function AgencyPanel({ mapLayers, staticFeeds, onOperationalEvents, proje
   onLocate: (routeIds: string[], stopIds: string[], location?: { id: string; label: string; coordinate: [number, number] }) => void
   onOpenData: () => void
 }) {
-  const [mode, setMode] = useState<AgencyMode>(() => { const saved = sessionStorage.getItem(`agency-mode-${projectId}`); return ['live', 'overview'].includes(saved || '') ? saved as AgencyMode : 'overview' })
+  const savedMode = useRef(sessionStorage.getItem(`agency-mode-${projectId}`))
+  // Only a tab the reader picked overrides the timetable-only default below.
+  const chosenMode = useRef(sessionStorage.getItem(`agency-mode-chosen-${projectId}`) === '1')
+  const [mode, setMode] = useState<AgencyMode>(() => ['live', 'overview'].includes(savedMode.current || '') ? savedMode.current as AgencyMode : 'overview')
   const [state, setState] = useState<AgencyState | null>(null)
   const [observationError, setObservationError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -85,7 +89,7 @@ export function AgencyPanel({ mapLayers, staticFeeds, onOperationalEvents, proje
   const endpoint = `/api/projects/${encodeURIComponent(projectId)}/agency`
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const generation = ++refreshGeneration.current
-    try { const next = await apiJson<AgencyState>(`${endpoint}?${new URLSearchParams({ routeId, stopId, eventType: eventFilter })}`, { signal }); if (generation === refreshGeneration.current && !signal?.aborted) { setState(next); onOperationalEvents?.(next.mapOperationalEvents || []); setLoadedSelection(selectionKey); setLoadedEventFilter(eventFilter); setObservationError('') } }
+    try { const next = await apiJson<AgencyState>(`${endpoint}?${new URLSearchParams({ routeId, stopId, eventType: eventFilter })}`, { signal }); if (generation === refreshGeneration.current && !signal?.aborted) { setState(next); onOperationalEvents?.(next.mapOperationalEvents || []); onServiceDates?.({ first: next.coverage.firstDate, last: next.coverage.lastDate }); setLoadedSelection(selectionKey); setLoadedEventFilter(eventFilter); setObservationError('') } }
     catch (reason) { if (generation === refreshGeneration.current && !signal?.aborted) { onOperationalEvents?.([]); setObservationError(reason instanceof Error ? reason.message : 'Observation unavailable.') } }
     finally { if (generation === refreshGeneration.current && !signal?.aborted) setLoading(false) }
   }, [endpoint, routeId, stopId, selectionKey, eventFilter, onOperationalEvents])
@@ -103,6 +107,12 @@ export function AgencyPanel({ mapLayers, staticFeeds, onOperationalEvents, proje
     return () => controller.abort()
   }, [state?.connected, snapshot, endpoint])
   useEffect(() => { sessionStorage.setItem(`agency-mode-${projectId}`, mode) }, [mode, projectId])
+  // Without live feeds the overview has nothing to report; open on the route catalog.
+  const timetableOnly = state ? !state.connected : null
+  useEffect(() => {
+    if (timetableOnly && !chosenMode.current) setMode('live')
+  }, [timetableOnly])
+  useEffect(() => () => onServiceDates?.(null), [projectId, onServiceDates])
   function scrollToContent(selector: string) {
     const container = scrollRef.current
     const item = container?.querySelector<HTMLElement>(selector)
@@ -193,6 +203,7 @@ export function AgencyPanel({ mapLayers, staticFeeds, onOperationalEvents, proje
 
   return <section className="agency-panel" aria-label="Network workspace" data-map-occluder="">
     <AgencyNavigation mode={mode} onChange={next => {
+      chosenMode.current = true; sessionStorage.setItem(`agency-mode-chosen-${projectId}`, '1')
       setMode(next); setSelectedEvent(null); setFeedsOpen(false)
       requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: 0 }))
     }} health={<AgencyFeedHealth feeds={state?.feeds ?? []} refreshFailed={Boolean(observationError)} />} mapOpen={mapOpen} onToggleMap={onToggleMap} onRefresh={() => void observationPolling.current?.refresh()} onFeeds={openFeeds} onExport={state && eventsReady ? () => exportObservation(state) : undefined} onExportReport={state && eventsReady ? () => downloadText('agency-observation.md', observationReportMarkdown(state, { eventFilter, refreshFailed: Boolean(observationError) })) : undefined} />

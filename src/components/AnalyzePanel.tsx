@@ -4,6 +4,7 @@ import {
   CircleDot,
   Eraser,
   GitCompareArrows,
+  Grid2x2,
   LoaderCircle,
   MapPin,
   Pencil,
@@ -12,6 +13,7 @@ import {
   RotateCcw,
   Route,
   Trash2,
+  Waypoints,
   X,
 } from 'lucide-react'
 import type { ApiProgress } from '../app/api'
@@ -343,36 +345,23 @@ function ReachSurfaceLegend({
   )
 }
 
-function ReachRenderModePicker({
-  renderMode,
-  onRenderModeChange,
-  terminalWalkKm: _terminalWalkKm,
-}: {
+const renderModeChoices = [
+  ['area', 'Reachable area', Grid2x2],
+  ['streets', 'Reached streets', Waypoints],
+] as const
+
+/** How Reach draws on the map: filled area or the streets themselves. */
+function ReachRenderModePicker({ renderMode, onRenderModeChange }: {
   renderMode: ScenarioRenderMode
   onRenderModeChange: (mode: ScenarioRenderMode) => void
-  terminalWalkKm: number
 }) {
   return (
-    <div className="reach-render-mode">
-      <span className="reach-render-mode-label">Map</span>
-      <div className="studio-tabs reach-segmented is-render-mode" role="group" aria-label="Reach map rendering">
-        <button
-          type="button"
-          className={classNames(renderMode === 'area' && 'is-active')}
-          aria-pressed={renderMode === 'area'}
-          onClick={() => onRenderModeChange('area')}
-        >
-          Reachable area
+    <div className="studio-tabs reach-render-mode" role="group" aria-label="Reach map rendering">
+      {renderModeChoices.map(([value, label, Icon]) => (
+        <button key={value} type="button" aria-pressed={renderMode === value} aria-label={label} title={label} onClick={() => onRenderModeChange(value)}>
+          <Icon size={14} aria-hidden="true" />
         </button>
-        <button
-          type="button"
-          className={classNames(renderMode === 'streets' && 'is-active')}
-          aria-pressed={renderMode === 'streets'}
-          onClick={() => onRenderModeChange('streets')}
-        >
-          Reached streets
-        </button>
-      </div>
+      ))}
     </div>
   )
 }
@@ -963,7 +952,7 @@ export function AnalyzePanelView({
           <div className={classNames('reach-origin-row', !origin && 'is-empty')}>
             <span className="reach-origin-icon" aria-hidden="true" />
             <div>
-              <span className="reach-section-kicker">Origin</span>
+              <span className="reach-section-kicker">Origin{origin?.coordinate ? <span className="reach-origin-coordinate">{origin.coordinate[1].toFixed(5)}, {origin.coordinate[0].toFixed(5)}</span> : null}</span>
               <strong>{origin ? origin.label : onSetOrigin ? 'Click the map or search stops' : 'Choose a point on the map'}</strong>
             </div>
             {origin ? (
@@ -1482,10 +1471,13 @@ export function AnalyzePanelView({
               <strong>Compare · {comparisonRun.cutoffMinutes} min</strong>
               <small>Against {comparisonRun.reference.label} · {comparisonRun.serviceDate} · {serviceTimeLabel(comparisonRun.departMinutes)}</small>
             </div>
+            <div className="reach-results-tools">
+              <ReachRenderModePicker renderMode={renderMode} onRenderModeChange={onRenderModeChange} />
+              <ResultExportActions label="Save comparison" resultKey={comparisonRun}
+                disabled={loading} formats={['csv', 'json', 'geojson']}
+                onExport={(format) => exportComparison(comparisonRun, analysis, format)} />
+            </div>
           </div>
-          <ResultExportActions label="Save comparison" resultKey={comparisonRun}
-            disabled={loading} formats={['csv', 'json', 'geojson']}
-            onExport={(format) => exportComparison(comparisonRun, analysis, format)} />
           <div className="compare-reference">
             <span className="reach-reference-label">Reference</span>
             <strong>{comparisonRun.reference.label}</strong>
@@ -1533,7 +1525,6 @@ export function AnalyzePanelView({
             })()}
           </div>
           {analysis && comparisonRun.selectedId ? <p className="compare-map-note">The map shows time change from {comparisonRun.reference.label} to {comparisonRun.entries.find((entry) => entry.variant.id === comparisonRun.selectedId)?.variant.label}. Choose another variant to compare it.</p> : null}
-          <ReachRenderModePicker renderMode={renderMode} onRenderModeChange={onRenderModeChange} terminalWalkKm={maxWalkKm} />
           {feeds.length >= 2 && comparisonFeedIds.length === 2 ? (
             <div className="reach-service-edges">
               <div>
@@ -1582,34 +1573,19 @@ export function AnalyzePanelView({
               <strong>{view === 'baseline' ? 'Baseline reach' : view === 'scenario' ? 'Scenario reach' : 'Travel-time change'}</strong>
               <small>{analysis.request.serviceDate} · {serviceTimeLabel(analysis.request.departMinutes)}</small>
             </div>
+            <div className="reach-results-tools">
+              {analysis.request.mode !== 'drive' ? <ReachRenderModePicker renderMode={renderMode} onRenderModeChange={onRenderModeChange} /> : null}
+              <ResultExportActions label="Save Reach results" resultKey={analysisExportEntries}
+                disabled={loading || analysis.diagnostics.preliminary || cutoffMinutes > analysis.summary.maximumCutoffMinutes}
+                unavailable={reachGeometryAvailable(analysisExportEntries, cutoffMinutes) ? {} : { geojson: 'Update Reach to retain geometry for this cutoff' }}
+                onExport={format => exportReachResults(analysisExportEntries, format, cutoffMinutes)} />
+            </div>
           </div>
-          <ResultExportActions label="Save Reach results" resultKey={analysisExportEntries}
-            disabled={loading || analysis.diagnostics.preliminary || cutoffMinutes > analysis.summary.maximumCutoffMinutes}
-            unavailable={reachGeometryAvailable(analysisExportEntries, cutoffMinutes) ? {} : { geojson: 'Update Reach to retain geometry for this cutoff' }}
-            onExport={format => exportReachResults(analysisExportEntries, format, cutoffMinutes)} />
-          <div className="reach-result-toolbar">
-            {analysis.request.mode !== 'drive' ? <ReachRenderModePicker renderMode={renderMode} onRenderModeChange={onRenderModeChange} terminalWalkKm={analysis.surface.reachability?.baselineTerminalWalkKm ?? analysis.request.maxWalkKm} /> : null}
-            {hasScenarioChanges ? <div className="reach-result-view">
-              <div className="reach-render-mode-head">
-                <div>
-                  <strong>View</strong>
-                </div>
-              </div>
-              <div className="studio-tabs reach-segmented is-view" role="group" aria-label="Network comparison view">
-                {scenarioViewOptions.map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    className={classNames(view === value && 'is-active')}
-                    onClick={() => onViewChange(value)}
-                    aria-pressed={view === value}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div> : null}
-          </div>
+          {hasScenarioChanges ? <div className="studio-tabs reach-segmented is-view" role="group" aria-label="Network comparison view">
+            {scenarioViewOptions.map(([value, label]) => (
+              <button key={value} type="button" onClick={() => onViewChange(value)} aria-pressed={view === value}>{label}</button>
+            ))}
+          </div> : null}
           <ReachSurfaceLegend
             analysis={analysis}
             view={view}

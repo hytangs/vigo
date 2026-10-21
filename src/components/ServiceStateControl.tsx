@@ -36,6 +36,7 @@ export function ServiceStateControl({
   onScheduleTimeChange,
   onScheduleServiceDateChange,
   onNow,
+  serviceDates,
 }: {
   mode: ServiceVehicleMode
   frame: ServiceVehicleFrame
@@ -52,6 +53,8 @@ export function ServiceStateControl({
   onScheduleTimeChange: (minutes: number) => void
   onScheduleServiceDateChange: (serviceDate: string) => void
   onNow?: () => void
+  /** Published timetable dates, which bound the playback calendar. */
+  serviceDates?: { first: string | null; last: string | null } | null
 }) {
   const [clockInput, setClockInput] = useState(formatServiceTime(scheduleTimeMinutes))
   useEffect(() => setClockInput(formatServiceTime(scheduleTimeMinutes)), [scheduleTimeMinutes])
@@ -89,6 +92,7 @@ export function ServiceStateControl({
       {mode === 'schedule' ? (
         <>
           <input className="service-playback-date" type="date" value={scheduleServiceDate}
+            min={serviceDates?.first ?? undefined} max={serviceDates?.last ?? undefined}
             aria-label="Schedule service date" title="GTFS service date; times after 24:00 continue this service day"
             onChange={(event) => onScheduleServiceDateChange(event.currentTarget.value)} />
           <select className="service-playback-step" value={playbackStep} onChange={(event) => onPlaybackStepChange(Number(event.currentTarget.value))} aria-label="Playback step" title="Timetable minutes advanced per playback step">

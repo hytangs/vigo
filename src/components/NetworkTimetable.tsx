@@ -72,7 +72,8 @@ function TemporalServiceCanvas({
   const directionRows = useMemo(() => temporalDirectionRows(routes), [routes])
   const rows = renderMode === 'service' ? directionRows : patternRows
   const maximumMinutes = Math.ceil(Math.max(1_440, ...rows.map((row) => row.endMinutes ?? 0)) / 360) * 360
-  const tickStep = Math.ceil(maximumMinutes / 5 / 360) * 360
+  // Three labels fit the panel's narrow track; finer ticks collide.
+  const tickStep = Math.ceil(maximumMinutes / 3 / 360) * 360
   const ticks = Array.from({ length: Math.floor(maximumMinutes / tickStep) + 1 }, (_, index) => index * tickStep)
   const serviceDate = routes.every((route) => route.analysisServiceDate === routes[0]?.analysisServiceDate && Array.isArray(route.scheduledTrips))
     ? routes[0]?.analysisServiceDate : undefined
@@ -83,7 +84,7 @@ function TemporalServiceCanvas({
         <span><Clock3 size={13} />{serviceDate ? 'Scheduled service' : 'Feed timetable'}</span>
         <small>{serviceDate || 'All calendars'}</small>
       </div>
-      <div className="temporal-view-switch" role="group" aria-label="Route rendering detail">
+      <div className="studio-tabs temporal-view-switch" role="group" aria-label="Route rendering detail">
         <button
           type="button"
           className={classNames(renderMode === 'service' && 'is-active')}
@@ -103,7 +104,7 @@ function TemporalServiceCanvas({
       </div>
       <div className="temporal-axis" aria-hidden="true">
         {ticks.map((tick) => (
-          <span key={tick} style={{ left: `${tick / maximumMinutes * 100}%` }}>
+          <span key={tick} style={{ left: `${tick / maximumMinutes * 100}%`, transform: `translateX(${tick === 0 ? 0 : tick === maximumMinutes ? -100 : -50}%)` }}>
             {gtfsServiceClock(tick)}
           </span>
         ))}
@@ -170,7 +171,7 @@ function DirectionPatternBrowser({ routes, stops, selectedRouteId, selectedStopI
   const selectedStops = selectedRoute ? gtfsPatternStops(selectedRoute, stopLookup) : []
   return (
     <section className="gtfs-pattern-browser" aria-label="Route directions and branches">
-      <details className="object-disclosure">
+      <details className="studio-disclosure object-disclosure">
         <summary><GitBranch size={13} /> Route variants <small>{routes.length}</small></summary>
         <div className="gtfs-pattern-list">
           {directions.map((direction) => (
@@ -203,7 +204,7 @@ function DirectionPatternBrowser({ routes, stops, selectedRouteId, selectedStopI
         </div>
       </details>
       {selectedRoute ? (
-        <details className="object-disclosure gtfs-stop-disclosure" open>
+        <details className="studio-disclosure object-disclosure gtfs-stop-disclosure" open>
           <summary>Stops · {gtfsDirectionLabel(selectedRoute.directionId)} <small>{selectedStops.length}</small></summary>
           <ol className="gtfs-ordered-stops">
             {selectedStops.map((stop, index) => {
@@ -217,6 +218,22 @@ function DirectionPatternBrowser({ routes, stops, selectedRouteId, selectedStopI
   )
 }
 
+/** A date picker limited to the published timetable, with a way back to service. */
+function ServiceDateField({ serviceDate, serviceDates, onServiceDateChange }: {
+  serviceDate: string
+  serviceDates?: { first: string | null; last: string | null } | null
+  onServiceDateChange: (date: string) => void
+}) {
+  const first = serviceDates?.first ?? undefined
+  const last = serviceDates?.last ?? undefined
+  const nearest = last && serviceDate > last ? last : first && serviceDate < first ? first : ''
+  return <div className="network-service-date">
+    <label><span>Service date</span><input type="date" value={serviceDate} min={first} max={last} onChange={event => onServiceDateChange(event.target.value)} /></label>
+    {nearest ? <p>No published service on this date. <button type="button" className="kit-text-button" onClick={() => onServiceDateChange(nearest)}>{serviceDate > nearest ? 'Last' : 'First'} service day, {nearest}</button></p>
+      : first && last ? <p>Timetable runs {first} to {last}.</p> : null}
+  </div>
+}
+
 export function NetworkTimetable({
   feed,
   preview,
@@ -225,6 +242,7 @@ export function NetworkTimetable({
   analysisLoading,
   analysisError,
   serviceDate,
+  serviceDates,
   onServiceDateChange,
   routeRenderMode,
   onRouteRenderModeChange,
@@ -240,6 +258,7 @@ export function NetworkTimetable({
   analysisLoading: boolean
   analysisError: string
   serviceDate: string
+  serviceDates?: { first: string | null; last: string | null } | null
   onServiceDateChange: (date: string) => void
   routeRenderMode: RouteRenderMode
   onRouteRenderModeChange: (mode: RouteRenderMode) => void
@@ -268,7 +287,7 @@ export function NetworkTimetable({
           <h2>{selectedStop.name}</h2>
           <p>{selectedStop.parentStationName || (selectedStop.parentStationId ? 'Station platform' : 'Independent stop')}</p>
         </div>
-        <details className="object-disclosure"><summary>Station details</summary>
+        <details className="studio-disclosure object-disclosure"><summary>Station details</summary>
           <dl className="object-metric-grid">
             <div><dt>Routes</dt><dd>{formatNumber(selectedStop.routes.length)}</dd></div>
             <div><dt>Trips</dt><dd>{formatNumber(selectedStop.tripCount)}</dd></div>
@@ -335,7 +354,7 @@ export function NetworkTimetable({
           <span><strong>Analysis needs review</strong><small>{analysisError}</small></span>
         </div>
       ) : null}
-      <label className="network-service-date">Service date<input type="date" value={serviceDate} onChange={event => onServiceDateChange(event.target.value)} /></label>
+      <ServiceDateField serviceDate={serviceDate} serviceDates={serviceDates} onServiceDateChange={onServiceDateChange} />
       <TemporalServiceCanvas
         routes={patterns}
         selectedRouteId={route.id}
@@ -352,7 +371,7 @@ export function NetworkTimetable({
         onSelectPattern={onSelectPattern}
         onSelectStop={onSelectStop}
       />
-      <details className="object-disclosure" aria-label="GTFS source data">
+      <details className="studio-disclosure object-disclosure" aria-label="GTFS source data">
         <summary>Timetable details & sources</summary>
         <dl className="object-metric-grid">
           <div title="Across all feed calendars"><dt>Feed span</dt><dd>{routeSpanLabel(serviceRoute, analysisLoading)}</dd></div>

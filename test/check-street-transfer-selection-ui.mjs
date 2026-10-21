@@ -132,12 +132,12 @@ try {
     assert.equal(await read('document.activeElement.id.endsWith("when-tab")'),true);
     assert.equal(await read('document.querySelector("[type=time]").value'),'12:49');
     assert.equal(await read('document.querySelector("[type=date]").value'),'2026-10-19');
-    assert.equal(await read('[...document.querySelectorAll("button")].find(button=>button.textContent==="Realtime").disabled'),true,'Scenario timetable cannot be queried as realtime');
+    assert.equal(await read('[...document.querySelectorAll("button")].find(button=>button.textContent==="Now").disabled'),true,'Scenario timetable cannot be queried as realtime');
     await read('{const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set;for(const [type,value] of [["time","14:25"],["date","2026-10-20"]]){const input=document.querySelector("[type="+type+"]");set.call(input,value);input.dispatchEvent(new Event("input",{bubbles:true}))}}');
     await until(()=>read('document.querySelector("[type=time]").value==="14:25"&&document.querySelector("[type=date]").value==="2026-10-20"'));
 
     await read('{const select=document.querySelector("[id$=-network]");select.value="";select.dispatchEvent(new Event("change",{bubbles:true}))}');
-    await until(()=>read('[...document.querySelectorAll("button")].find(button=>button.textContent==="Realtime").disabled===false'));
+    await until(()=>read('[...document.querySelectorAll("button")].find(button=>button.textContent==="Now").disabled===false'));
     await read('{const select=document.querySelector("[id$=-network]");select.value="feed:alternative";select.dispatchEvent(new Event("change",{bubbles:true}))}');
     await until(()=>read('window.selectionRequests.at(-1).feedIds?.[0]==="alternative"'));
     assert.equal(await read('window.selectionRequests.at(-1).feedId'),undefined);
@@ -179,7 +179,7 @@ try {
     assert.equal(await read('document.activeElement.type'),'date','Invalid dates reveal and focus the When tab');
     await read('document.querySelector("[type=date]").removeAttribute("max")');
     await read('document.querySelector("[id$=when-tab]").click()');
-    await read('[...document.querySelectorAll("button")].find(button=>button.textContent==="Realtime").click()');
+    await read('[...document.querySelectorAll("button")].find(button=>button.textContent==="Now").click()');
     await until(()=>read('window.selectionRequests.at(-1).routingDataMode==="realtime"'));
     assert.equal(await read('window.selectionRequests.at(-1).departNow'),true);
     assert.equal(await read('window.selectionRequests.at(-1).requireTransitRide'),false,'Depart now must compare direct walking too');

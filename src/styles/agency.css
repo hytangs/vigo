@@ -29,45 +29,9 @@
   .agency-map-context small { display: none; }
   .view-agency .route-map-shell .map-live-card { bottom: 16px; padding: 16px; max-height: calc(100% - 80px); }
 }
-.network-timetable { padding: 0; }
-.network-timetable .object-detail { padding: 8px 0 0; border: 0; }
-.network-timetable .object-detail-head { display: none; }
-.network-timetable .object-section-heading > span { font-size: 12px; }
-.network-timetable .object-section-heading small { font-size: 12px; }
-.network-timetable .temporal-view-switch button { min-height: 36px; font-size: 12px; font-weight: 550; }
-.network-timetable .temporal-axis { margin-left: 126px; margin-right: 6px; height: 22px; }
-.network-timetable .temporal-axis span { font-size: 12px; }
-.network-timetable .temporal-axis span:last-child { transform: translateX(-100%); }
-.network-timetable .temporal-row { grid-template-columns: 112px minmax(0, 1fr); min-height: 66px; }
-.network-timetable .temporal-row-label strong { font-size: 12px; }
-.network-timetable .temporal-row-label small { font-size: 12px; }
-.network-timetable .object-disclosure summary { min-height: 40px; font-size: 12px; }
-.network-timetable .gtfs-ordered-stops strong { font-size: 14px; }
-.network-timetable .gtfs-ordered-stops small { font-size: 12px; }
-.network-timetable .gtfs-stop-number { font-size: 12px; }
-.network-timetable .gtfs-pattern-endpoints { font-size: 12px; }
-.network-timetable .gtfs-pattern-choice-heading b { font-size: 12px; }
-.network-timetable .gtfs-pattern-choice-heading small, .network-timetable .gtfs-pattern-facts { font-size: 12px; }
-
-.network-service-date { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 0; font-size: 12px; color: var(--text-muted); }
-.network-service-date input { max-width: 160px; min-height: 36px; background: var(--control-surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--pq-radius); padding: 7px 10px; font: inherit; }
-
-.network-stop-button { display: grid; grid-template-columns: 23px minmax(0, 1fr) 14px; grid-column: 1 / -1; align-items: center; gap: 9px; width: 100%; min-height: 48px; padding: 8px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
-.network-stop-button:hover, .network-stop-button[aria-pressed="true"] { background: var(--active-surface); border-color: var(--border); }
-.network-stop-button:focus-visible { outline: 2px solid var(--vigo-lime-strong); outline-offset: -2px; }
-.gtfs-stop-name { display: grid; gap: 3px; min-width: 0; }
-.network-stop-button svg { flex-shrink: 0; color: var(--text-muted); }
 .map-stop-tooltip { pointer-events: none; }
 .map-stop-tooltip .maplibregl-popup-content { white-space: pre-line; padding: 8px 12px; border-radius: 6px; background: var(--panel); color: var(--text-strong); font-family: inherit; font-size: 12px; box-shadow: 0 2px 12px var(--shadow-color); }
 .map-stop-tooltip .maplibregl-popup-tip { border-top-color: var(--panel); border-bottom-color: var(--panel); }
-
-@media (max-width: 480px) {
-  .network-timetable .temporal-axis { margin-left: 6px; }
-  .network-timetable .temporal-axis span:first-child { transform: none; }
-  .network-timetable .temporal-row { grid-template-columns: minmax(0, 1fr); gap: 8px; padding-block: 8px; }
-  .network-timetable .temporal-row-label { display: flex; flex-wrap: wrap; gap: 4px 8px; }
-  .network-timetable .temporal-row-label strong { flex-basis: 100%; }
-}
 
 .network-import-example { margin: 0 0 20px; padding: 16px; border: 1px solid var(--border); border-radius: 10px; }
 .network-import-example h3 { margin: 0; color: var(--text-strong); font-size: 16px; }

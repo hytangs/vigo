@@ -219,8 +219,30 @@
 .routing-setup-summary { border-top: 1px solid var(--line-1); }
 
 .routing-accessibility { padding: 4px 10px 6px; }
-.routing-setup-tabs { margin: 8px 10px 0; }
-.routing-accessibility + .routing-setup-tabs { border-top: 0; }
+
+/* When and Preferences are views, so they read as tabs, not as another choice. */
+.routing-setup-tabs { display: flex; gap: 18px; padding: 0 10px; box-shadow: inset 0 -1px 0 var(--line-1); }
+.routing-accessibility + .routing-setup-tabs { border-top: 1px solid var(--line-1); }
+
+.routing-setup-tabs > button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  color: var(--text-3);
+  background: none;
+  font: 500 var(--type-sm)/1 var(--font-ui);
+  cursor: pointer;
+}
+
+.routing-setup-tabs > button:hover,
+.routing-setup-tabs > button[aria-selected="true"] { color: var(--text-1); }
+.routing-setup-tabs > button[aria-selected="true"]::after { position: absolute; right: 0; bottom: 0; left: 0; height: 2px; border-radius: 2px; background: var(--signal); content: ""; }
+.routing-setup-tabs > button:focus-visible { outline: 2px solid var(--signal-text); outline-offset: 2px; }
+.routing-setup-time > button { padding: 0 6px; }
 .routing-setup-panel { display: grid; align-content: start; gap: 10px; min-width: 0; padding: 10px; }
 .routing-setup button:disabled { opacity: 0.4; cursor: not-allowed; }
 
@@ -240,10 +262,6 @@
 .routing-accessibility-details > summary { padding: 2px 0; cursor: pointer; }
 .routing-accessibility-details p { margin: 4px 0 2px; max-width: 46ch; line-height: 1.45; }
 
-.routing-setup-now { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-height: 26px; }
-.routing-setup-now > span { width: 7px; height: 7px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 22%, transparent); }
-.routing-setup-now > strong { color: var(--text-1); font-weight: 600; }
-.routing-setup-now > small { color: var(--text-3); font-size: var(--type-sm); }
 
 .routing-setup-label,
 .routing-setup-input > span,
@@ -290,17 +308,20 @@
 .pathfinder-access-reason { grid-column: 2; }
 
 .pathfinder-results { display: grid; gap: 8px; min-width: 0; }
+.pathfinder-results-head { align-items: center; justify-content: flex-start; }
 .pathfinder-results-head > strong { color: var(--text-1); }
-.pathfinder-results-head > b { color: var(--text-3); font-weight: 400; }
+.pathfinder-results-head > b { margin-left: auto; color: var(--text-3); font-weight: 400; }
 .pathfinder-route-list { display: grid; gap: 6px; min-width: 0; }
 .pathfinder-journey-group { display: grid; min-width: 0; }
 
+/* A journey reads time first, then the services boarded, then why it is shown. */
 .pathfinder-route-card {
+  position: relative;
   display: grid;
-  gap: 6px;
+  gap: 5px;
   width: 100%;
   min-width: 0;
-  padding: 10px 12px;
+  padding: 9px 30px 9px 12px;
   border: 0;
   border-radius: var(--group-radius);
   color: var(--text-2);
@@ -312,22 +333,27 @@
 }
 
 .pathfinder-route-card:hover { box-shadow: inset 0 0 0 1px var(--line-3); }
-.pathfinder-route-card[aria-checked="true"] { box-shadow: inset 0 0 0 1.5px var(--signal-line), 0 0 0 3px var(--signal-soft); }
+.pathfinder-route-card[aria-checked="true"] { background: color-mix(in srgb, var(--signal) 6%, var(--ink-3)); box-shadow: inset 0 0 0 1.5px var(--signal-line); }
 .pathfinder-route-card:focus-visible { outline: 2px solid var(--signal-text); outline-offset: 2px; }
-.pathfinder-route-time { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
-.pathfinder-route-time > strong { color: var(--text-1); font-size: var(--type-lg); font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
-.pathfinder-route-time > b { flex: none; color: var(--text-1); font-size: var(--type-md); font-weight: 600; }
+.pathfinder-route-time { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.pathfinder-route-time > b { flex: none; color: var(--text-1); font: 650 17px/1.15 var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: -0.015em; }
+.pathfinder-route-time > b small { margin-left: 1px; color: var(--text-2); font-size: var(--type-sm); font-weight: 500; letter-spacing: 0; }
+.pathfinder-route-time > strong { min-width: 0; overflow: hidden; color: var(--text-2); font-size: var(--type-md); font-weight: 400; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.pathfinder-route-open { position: absolute; top: 50%; right: 10px; color: var(--text-4); transform: translateY(-50%); }
+.pathfinder-route-card:hover .pathfinder-route-open { color: var(--text-2); }
 
-.pathfinder-leg-strip { display: grid; gap: 6px; min-width: 0; }
-.pathfinder-leg-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 2px; min-width: 0; }
-.pathfinder-leg-step { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
-.pathfinder-leg-sep { color: var(--text-4); }
+/* Boarded services stay on one line; long names give way before short ones. */
+.pathfinder-leg-strip { display: grid; gap: 7px; min-width: 0; }
+.pathfinder-leg-steps { display: flex; flex-wrap: nowrap; align-items: center; gap: 2px; min-width: 0; overflow: hidden; }
+.pathfinder-leg-step { display: inline-flex; flex: 0 1 auto; align-items: center; gap: 2px; min-width: 0; }
+.pathfinder-leg-step:has(> .pathfinder-leg-walk) { flex: none; }
+.pathfinder-leg-sep { flex: none; color: var(--text-4); }
 
 .pathfinder-leg-badge {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  max-width: 150px;
+  min-width: 0;
   height: 20px;
   padding: 0 6px 0 5px;
   overflow: hidden;
@@ -340,7 +366,8 @@
 }
 
 .pathfinder-leg-badge > svg { flex: none; }
-.pathfinder-leg-walk { display: inline-flex; align-items: center; gap: 2px; color: var(--text-3); font-size: var(--type-xs); }
+.pathfinder-leg-walk { display: inline-flex; align-items: center; gap: 1px; color: var(--text-3); font-size: var(--type-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pathfinder-leg-walk > svg { width: 12px; }
 .pathfinder-leg-bar { display: flex; gap: 2px; height: 4px; overflow: hidden; border-radius: 999px; }
 .pathfinder-leg-segment { min-width: 2px; border-radius: 2px; background: var(--leg-color, var(--text-3)); }
 .pathfinder-leg-segment:is(.is-walk, .is-transfer) { background: var(--fill-3); }
@@ -348,20 +375,17 @@
 .pathfinder-leg-segment.is-wait { background: repeating-linear-gradient(90deg, var(--fill-3) 0 3px, transparent 3px 5px); }
 
 .pathfinder-group-services { color: var(--text-1); font-size: var(--type-sm); font-weight: 500; }
-.pathfinder-route-rationale { display: flex; flex-wrap: wrap; gap: 0 6px; min-width: 0; font-size: var(--type-sm); }
-.pathfinder-route-rationale > strong { color: var(--text-2); font-weight: 500; }
-.pathfinder-route-card.is-recommended .pathfinder-route-rationale > strong,
-.pathfinder-route-list > :first-child .pathfinder-route-rationale > strong { color: var(--signal-text); }
-.pathfinder-route-rationale > span { color: var(--text-3); }
-.pathfinder-route-rationale > span::before { content: "· "; }
-
-.pathfinder-route-footer { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-3); font-size: var(--type-sm); }
-.pathfinder-route-metrics { display: flex; flex: none; gap: 8px; }
+.pathfinder-route-footer { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; min-width: 0; color: var(--text-3); font-size: var(--type-sm); }
+.pathfinder-route-rationale { color: var(--text-2); font-weight: 500; }
+.pathfinder-route-list > :first-child .pathfinder-route-rationale,
+.pathfinder-route-card.is-recommended .pathfinder-route-rationale { color: var(--signal-text); }
+.pathfinder-route-metrics { display: inline-flex; gap: 6px; }
 .pathfinder-route-metrics > span { display: inline-flex; align-items: baseline; gap: 3px; white-space: nowrap; }
+.pathfinder-route-metrics > span::before,
+.pathfinder-route-sequence::before { color: var(--text-4); content: "·"; }
 .pathfinder-route-metrics b { color: var(--text-2); font-weight: 500; }
 .pathfinder-route-sequence { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pathfinder-route-open { flex: none; margin-left: auto; color: var(--text-4); }
-.pathfinder-route-card:hover .pathfinder-route-open { color: var(--text-2); }
+.pathfinder-route-sequence::before { margin-right: 6px; }
 
 .pathfinder-group-departures { display: grid; margin: 2px 6px 0; padding: 4px 0 0 10px; border-left: 2px solid var(--line-2); }
 
@@ -413,36 +437,27 @@
 }
 
 .routing-detail-head {
+  position: relative;
+  z-index: 2;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 28px;
-  gap: 8px;
-  padding: 14px 14px 12px;
-  border-bottom: 1px solid var(--line-1);
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px 8px;
+  padding: 12px 12px 12px 16px;
+  box-shadow: 0 1px 0 var(--line-1);
 }
 
 .routing-detail-head :is(h2, p) { margin: 0; }
+.routing-detail-title { display: grid; gap: 2px; min-width: 0; }
 .journey-eyebrow { color: var(--text-3); font-size: var(--type-sm); font-weight: 500; }
-.routing-detail-head h2 { margin: 2px 0 1px; color: var(--text-1); font: 600 var(--type-2xl)/1.1 var(--font-display); letter-spacing: -0.025em; font-variant-numeric: tabular-nums; }
-.routing-detail-head h2 small { color: var(--text-3); font-size: var(--type-md); font-weight: 500; letter-spacing: 0; }
-.journey-time-range { display: flex; align-items: center; gap: 6px; color: var(--text-1); font-weight: 500; font-variant-numeric: tabular-nums; }
-.journey-time-range > span { color: var(--text-3); }
-.journey-overview { margin-top: 3px; color: var(--text-3); font-size: var(--type-sm); }
-
-.routing-detail-head > button {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  color: var(--text-2);
-  background: var(--fill-2);
-  cursor: pointer;
-}
-
-.routing-detail-head > button:hover { color: var(--text-1); background: var(--fill-3); }
-.routing-detail-head > button > svg { width: 15px; height: 15px; }
+.routing-detail-time { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; }
+.routing-detail-head h2 { color: var(--text-1); font: 650 var(--type-2xl)/1.1 var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
+.routing-detail-head h2 small { margin-left: 2px; color: var(--text-2); font-size: var(--type-lg); font-weight: 500; letter-spacing: -0.01em; }
+.journey-time-range { color: var(--text-2); font-size: var(--type-md); font-variant-numeric: tabular-nums; }
+.journey-time-range > span { color: var(--text-4); }
+.routing-detail-actions { display: flex; gap: 2px; margin: -2px -2px 0 0; }
+.routing-detail-close { border-radius: 50%; background: var(--fill-2); }
+.routing-detail-head > .pathfinder-leg-strip { grid-column: 1 / -1; }
+.journey-overview { grid-column: 1 / -1; margin-top: -2px; color: var(--text-3); font-size: var(--type-sm); }
 
 .routing-detail-scroll {
   flex: 1 1 auto;
@@ -450,54 +465,81 @@
   display: grid;
   align-content: start;
   gap: 12px;
-  padding: 12px 14px 16px;
+  padding: 14px 16px 18px 12px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
 }
 
-.journey-itinerary { min-width: 0; }
-.journey-start-wait { margin: 0 0 12px; color: var(--text-3); font-size: var(--type-sm); }
+/* Itinerary: stops are nodes with their times; legs run between them. */
+.journey-itinerary { display: grid; gap: 10px; min-width: 0; }
+.journey-start-wait { display: inline-flex; justify-self: start; align-items: center; gap: 5px; margin: 0 0 0 52px; padding: 3px 9px; border-radius: 999px; color: var(--text-2); background: var(--fill-2); font-size: var(--type-xs); }
 
-.pathfinder-point-sequence { display: grid; gap: 4px; margin-bottom: 12px; padding: 8px 10px; border-radius: var(--group-radius); background: var(--ink-3); }
+.pathfinder-point-sequence { display: grid; gap: 4px; margin-left: 52px; padding: 8px 10px; border-radius: var(--group-radius); background: var(--ink-3); }
 .pathfinder-point-sequence > span { display: flex; gap: 8px; min-width: 0; font-size: var(--type-sm); }
 .pathfinder-point-sequence b { flex: none; width: 44px; color: var(--text-3); font-weight: 500; }
 .pathfinder-point-sequence small { min-width: 0; overflow: hidden; color: var(--text-1); font-size: var(--type-sm); text-overflow: ellipsis; white-space: nowrap; }
 
 .journey-timeline { margin: 0; padding: 0; list-style: none; }
-.journey-leg,
-.journey-finish { position: relative; display: grid; grid-template-columns: 40px minmax(0, 1fr); column-gap: 12px; min-width: 0; }
-.journey-clock { padding-top: 1px; color: var(--text-3); font-size: var(--type-sm); font-variant-numeric: tabular-nums; }
-.journey-leg-body { position: relative; min-width: 0; padding: 0 0 18px 14px; border-left: 2px dotted var(--line-3); }
-.journey-leg.is-ride .journey-leg-body { padding-left: 13px; border-left: 3px solid var(--journey-line, var(--text-3)); }
 
-.journey-leg-body::before,
-.journey-finish > strong::before {
+.journey-leg,
+.journey-finish {
+  --rail-center: 61px;
+  position: relative;
+  display: grid;
+  grid-template-columns: 40px 20px minmax(0, 1fr);
+  column-gap: 11px;
+  align-items: start;
+  min-width: 0;
+}
+
+.journey-leg::before {
   position: absolute;
-  top: 5px;
-  left: -6px;
-  width: 6px;
-  height: 6px;
-  border: 2px solid var(--journey-line, var(--text-3));
-  border-radius: 50%;
-  background: var(--ink-2);
+  top: 11px;
+  bottom: -11px;
+  left: calc(var(--rail-center) - 1px);
+  border-left: 2px dotted var(--line-3);
   content: "";
 }
 
-.journey-leg.is-ride .journey-leg-body::before { left: -6.5px; }
-.journey-leg-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.journey-leg-heading > strong { color: var(--text-1); font-weight: 600; overflow-wrap: anywhere; }
-.journey-leg-heading > span { flex: none; color: var(--text-3); font-size: var(--type-sm); }
-.journey-stop { margin: 3px 0 0; color: var(--text-2); overflow-wrap: anywhere; }
-.journey-leg-meta { margin: 2px 0 0; color: var(--text-3); font-size: var(--type-sm); overflow-wrap: anywhere; }
-.journey-planned { margin-right: 6px; color: var(--signal-text); }
-.journey-arrival { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-top: 8px; color: var(--text-2); }
-.journey-arrival > span { min-width: 0; overflow-wrap: anywhere; }
-.journey-arrival > time { flex: none; color: var(--text-3); font-size: var(--type-sm); font-variant-numeric: tabular-nums; }
-.journey-wait { display: flex; align-items: center; gap: 5px; margin: 0 0 6px; color: var(--text-3); font-size: var(--type-sm); }
-.journey-caution { margin: 4px 0 0; color: var(--watch); font-size: var(--type-sm); }
-.journey-leg-evidence { margin-top: 4px; color: var(--text-3); font-size: var(--type-sm); }
-.journey-leg-evidence > summary { padding: 2px 0; cursor: pointer; }
+.journey-leg.is-ride::before { left: calc(var(--rail-center) - 3px); width: 6px; border: 0; border-radius: 3px; background: var(--journey-line, var(--text-3)); }
+.journey-leg.is-drive::before { left: calc(var(--rail-center) - 2px); width: 4px; border: 0; border-radius: 2px; background: var(--text-3); }
+
+.journey-clock { grid-row: 1; grid-column: 1; padding-top: 1px; color: var(--text-2); font-size: var(--type-sm); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+
+.journey-node-mark {
+  position: relative;
+  z-index: 1;
+  grid-row: 1;
+  grid-column: 2;
+  justify-self: center;
+  width: 10px;
+  height: 10px;
+  margin-top: 4px;
+  border: 2px solid var(--text-3);
+  border-radius: 50%;
+  background: var(--ink-2);
+}
+
+.journey-leg.has-station .journey-node-mark { width: 14px; height: 14px; margin-top: 2px; border: 3.5px solid var(--journey-node); background: #ffffff; }
+.journey-leg:first-child .journey-node-mark { border-color: var(--signal); }
+.journey-finish .journey-node-mark { width: 14px; height: 14px; margin-top: 2px; border: 3.5px solid var(--ink-2); background: #5ec8ff; box-shadow: 0 0 0 1.5px #5ec8ff; }
+
+.journey-place { grid-row: 1; grid-column: 3; min-width: 0; color: var(--text-1); font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+.journey-leg-body { grid-row: 2; grid-column: 3; display: grid; justify-items: start; gap: 6px; min-width: 0; padding: 7px 0 16px; }
+.journey-leg:is(.is-walk, .is-transfer) .journey-leg-body { padding-bottom: 14px; }
+
+.journey-ride { display: grid; justify-items: start; gap: 4px; }
+.journey-route { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; height: 22px; padding: 0 8px 0 6px; overflow: hidden; border-radius: 6px; color: var(--journey-ink, var(--text-1)); background: var(--journey-line, var(--fill-3)); font: 700 var(--type-sm)/22px var(--font-ui); text-overflow: ellipsis; white-space: nowrap; }
+.journey-route > svg { flex: none; }
+.journey-leg-meta { color: var(--text-3); font-size: var(--type-sm); overflow-wrap: anywhere; }
+.journey-planned { color: var(--signal-text); }
+.journey-move { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; margin: 0; color: var(--text-2); font-size: var(--type-sm); }
+.journey-move > svg { flex: none; color: var(--text-3); }
+.journey-move > .journey-leg-meta::before { margin-right: 6px; color: var(--text-4); content: "·"; }
+.journey-wait { display: inline-flex; align-items: center; gap: 5px; margin: 0; padding: 2px 8px; border-radius: 999px; color: var(--text-2); background: var(--fill-2); font-size: var(--type-xs); }
+.journey-caution { margin: 0; color: var(--watch); font-size: var(--type-sm); }
+.journey-leg-evidence { color: var(--text-3); font-size: var(--type-sm); }
 .journey-leg-evidence > p { margin: 4px 0 0; line-height: 1.45; }
 
 .journey-shared-services button {
@@ -519,9 +561,6 @@
 
 .journey-shared-services button:hover { background: var(--fill-2); }
 .journey-shared-services button > small { flex-basis: 100%; color: var(--text-3); }
-.journey-finish { margin-bottom: 4px; }
-.journey-finish > strong { position: relative; min-width: 0; padding-left: 14px; color: var(--text-1); font-weight: 600; overflow-wrap: anywhere; }
-.journey-finish > strong::before { left: -4px; border-color: var(--text-1); background: var(--text-1); }
 
 .routing-details { border-top: 1px solid var(--line-1); color: var(--text-3); font-size: var(--type-sm); }
 .routing-details > summary { display: flex; align-items: center; min-height: var(--row-h); color: var(--text-2); font-weight: 500; cursor: pointer; }

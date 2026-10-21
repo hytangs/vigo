@@ -144,6 +144,8 @@ the scenario list.
   touch widths (760 px and below) raise controls to 36 px and rows to 44 px.
 - **Buttons**: a single signal-colored primary action per panel
   (`.kit-button.is-primary`), quiet icon buttons, and text buttons for links.
+  Saving a result is one download button in the result's header; its menu
+  lists the formats, and an unavailable format says why.
 - **Stats, notices and disclosures**: a hairline-divided measure strip, toned
   notices, a row disclosure (`.studio-disclosure`) and an inline one for small
   print (`.kit-inline-details`).
@@ -163,16 +165,23 @@ reduced Studio CSS from 10,068 to about 7,800 lines.
   via points and destination, with reorder and remove actions on hover.
 - **Journey settings** combines the network, time and routing preferences in one
   surface. The network remains visible above keyboard-accessible When and
-  Preferences tabs. Date and time share a row; transfers and walking use compact
+  Preferences tabs, drawn as tabs rather than another segmented control. When is
+  one choice, Now, Depart at or Arrive by: Now uses realtime predictions and the
+  other two the published timetable, so data source and time preference no
+  longer stack as separate controls. Date and time share a row; transfers and walking use compact
   groups. Longer explanations are disclosed on demand. Switching tabs preserves
   every setting and does not submit a route. The header chevron folds the card
   to its network and a time/preferences summary; expanding restores the selected
   tab. The card folds itself when journeys first arrive, so results take the
   panel. Invalid dates reopen the time controls. Scenarios retain scheduled
   service; via points retain the existing transfer-limit and buffer restrictions.
-- **Journeys** read time first: departure and arrival with the total, then the
-  boarded services as signs over a proportional walk/wait/ride bar, then the
-  reason the journey is shown and its transfers, walking and riding.
+- **Journeys** read time first: the total and the departure and arrival, then
+  the boarded services on one line, then the reason the journey is shown and its
+  transfers, walking and riding. Every journey found is listed.
+- **Journey detail** is a station timeline. Each stop is a node with its time;
+  rides run between nodes as a line in the route's colour with the route's sign,
+  and walks, changes and waits sit between them. The Reach destination panel
+  uses the same timeline under its travel time and budget.
 - **Analyze** colors travel time with a ramp whose luminance falls
   monotonically, from the signal chartreuse through teal and blue to violet,
   and shows an on-map key with the displayed band edges. Its query mirrors
@@ -183,7 +192,11 @@ reduced Studio CSS from 10,068 to about 7,800 lines.
   once, so Route and Analyze drop their large titles and open on the travel
   mode or the Reach origin. Workspace views, render modes and filters share one
   segmented control.
-- **Network** opens on one line of map filters (network, mode, and lines,
+- **Network** opens on the route catalog when a City has no realtime feed, since
+  the overview's measures come from live reports. A route's timetable and the
+  playback clock limit their calendars to the dates the published timetable runs,
+  and a date without service offers the nearest service day.
+- **Network** with live feeds opens on one line of map filters (network, mode, and lines,
   stops and vehicles as icon toggles), then a status line (live, stale or
   timetable), three counts and a route status bar split into routes to review,
   routes reporting with nothing flagged, and routes without reports. Missing

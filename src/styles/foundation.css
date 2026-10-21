@@ -163,8 +163,6 @@ body,
   --pq-focus: var(--signal-text);
   --pq-surface-raised: var(--ink-3);
   --pq-surface-hover: var(--ink-4);
-  --workbench-surface: var(--ink-2);
-  --workbench-rule: var(--line-2);
   --topbar-bg: var(--ink-1);
   --topbar-border: var(--line-1);
   --topbar-control-hover: var(--ink-4);

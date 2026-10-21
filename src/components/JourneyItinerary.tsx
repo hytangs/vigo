@@ -1,4 +1,4 @@
-import { Clock3, X } from 'lucide-react'
+import { Car, Clock3, Footprints, X } from 'lucide-react'
 import { useEffect, useRef, type CSSProperties } from 'react'
 import {
   formatRoutingLegDuration,
@@ -8,6 +8,7 @@ import {
   routingLegColor,
   routingLegDetail,
   routingLegPrimaryLabel,
+  routingLegTextColor,
   routingRealtimeDetail,
   shapedRideGeometry,
 } from '../app/presentation'
@@ -16,6 +17,7 @@ import { classNames } from '../domain'
 import type { RoutingPlan } from '../routingModel'
 import { routingPointRoleLabel } from '../routingPointSequence'
 import { formatScheduleClock } from '../scheduledVehicles'
+import { JourneyLegStrip, RouteTypeIcon } from './JourneyLegStrip'
 import { RoutingFare } from './RoutingFare'
 import { ResultExportActions } from './ResultExportActions'
 import { exportJourney, journeyGeometryAvailable } from '../app/resultExports'
@@ -59,11 +61,32 @@ function RoutingPointSequence({ plan }: { plan: RoutingPlan }) {
   )
 }
 
+const coordinateLabel = /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/u
+
+/** A stop keeps its name; a bare coordinate reads as the start or the destination. */
+function journeyPlace(name: string, fallback: string) {
+  const label = name.trim()
+  return !label || coordinateLabel.test(label) ? fallback : label
+}
+
+function formatDistance(distanceKm: number) {
+  return distanceKm < 1 ? `${Math.round(distanceKm * 1000)} m` : `${distanceKm.toFixed(1)} km`
+}
+
+/** Minutes as riders read them: 41 min, or 1 h 5 min. */
+export function JourneyDuration({ minutes, suffix = '' }: { minutes: number; suffix?: string }) {
+  const rounded = Math.max(0, Math.round(minutes))
+  const hours = Math.floor(rounded / 60)
+  const rest = rounded % 60
+  return <>{hours ? <>{hours}<small>h</small>{rest ? ' ' : ''}</> : null}{rest || !hours ? <>{rest}<small>min{suffix}</small></> : null}</>
+}
+
 export function RoutingItinerary({ plan }: { plan: RoutingPlan }) {
   const initialWait = routingPlanStartWaitMinutes(plan)
+  const arrival = plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes
   let previousEnd = plan.departMinutes
   return <section className="journey-itinerary" aria-label="Detailed itinerary">
-    {initialWait > 0 ? <p className="journey-start-wait">Leave {formatRoutingMinutes(initialWait)} after your requested time. This wait is before the journey below.</p> : null}
+    {initialWait > 0 ? <p className="journey-start-wait"><Clock3 size={12} aria-hidden="true" />Leave {formatRoutingMinutes(initialWait)} after your requested time.</p> : null}
     <RoutingPointSequence plan={plan} />
     {plan.diagnostics.expandedWalkingLimitKm ? <p className="journey-start-wait">More walking allowed · up to {plan.diagnostics.expandedWalkingLimitKm} km at each end</p> : null}
     <ol className="journey-timeline">
@@ -77,16 +100,31 @@ export function RoutingItinerary({ plan }: { plan: RoutingPlan }) {
         const immediateVehicleChange = ride && previousLeg?.type === 'ride'
           && previousLeg.tripId !== leg.tripId && wait === 0
         const transfer = isSameStationTransfer(leg)
+        const kind = ride ? 'ride' : leg.type === 'drive' ? 'drive' : transfer ? 'transfer' : 'walk'
         const color = routingLegColor(leg)
-        const title = ride || transfer ? routingLegPrimaryLabel(leg) : `${leg.type === 'drive' ? 'Drive' : 'Walk'} to ${leg.toName}`
-        return <li key={index} className={classNames('journey-leg', ride && 'is-ride')} style={color ? { '--journey-line': color } as CSSProperties : undefined}>
+        // A stop where a ride ends takes that ride's colour, as on a line diagram.
+        const nodeColor = color ?? (previousLeg ? routingLegColor(previousLeg) : undefined)
+        const style = {
+          ...color ? { '--journey-line': color, '--journey-ink': routingLegTextColor(color) } : {},
+          ...nodeColor ? { '--journey-node': nodeColor } : {},
+        } as CSSProperties
+        const MoveIcon = leg.type === 'drive' ? Car : Footprints
+        return <li key={index} className={classNames('journey-leg', `is-${kind}`, nodeColor && 'has-station')} style={style}>
           <time className="journey-clock">{formatScheduleClock(leg.startMinutes)}</time>
+          <span className="journey-node-mark" aria-hidden="true" />
+          <strong className="journey-place">{index === 0 ? journeyPlace(leg.fromName, plan.origin.label && !coordinateLabel.test(plan.origin.label) ? plan.origin.label : 'Start') : leg.fromName}</strong>
           <div className="journey-leg-body">
-            {wait > 0 ? <p className="journey-wait"><Clock3 size={13} aria-hidden="true" />{formatRoutingMinutes(wait)} wait at {leg.fromName}</p> : null}
+            {wait > 0 ? <p className="journey-wait"><Clock3 size={12} aria-hidden="true" />{formatRoutingMinutes(wait)} wait at {leg.fromName}</p> : null}
             {immediateVehicleChange ? <p className="journey-caution">No time between vehicles</p> : null}
             {transfer && (leg.geometrySource === 'stop_coordinate_fallback' || leg.stationAccessStatus === 'unverified') ? <p className="journey-leg-meta">Station connection · map line approximate</p> : null}
-            <div className="journey-leg-heading"><strong>{title}</strong><span>{formatRoutingLegDuration(leg)}</span></div>
-            {ride ? <><p className="journey-stop">{leg.fromName}</p><p className="journey-leg-meta">{leg.scenarioService ? <span className="journey-planned">Planned · {leg.scenarioService.scenarioName}</span> : null}{leg.stopCount > 0 ? `${leg.stopCount} ${leg.scenarioService ? 'planned' : 'scheduled'} stop${leg.stopCount === 1 ? '' : 's'}` : 'Transit ride'}</p><div className="journey-arrival"><span>{leg.toName}</span><time>{formatScheduleClock(leg.endMinutes)}</time></div></> : <p className="journey-leg-meta">{transfer ? 'Station connection' : `From ${leg.fromName}`}{leg.distanceKm > 0 ? ` · ${leg.distanceKm < 1 ? `${Math.round(leg.distanceKm * 1000)} m` : `${leg.distanceKm.toFixed(1)} km`}` : ''}</p>}
+            {ride ? <div className="journey-ride">
+              <span className="journey-route"><RouteTypeIcon routeType={leg.routeType} size={13} />{routingLegPrimaryLabel(leg)}</span>
+              <span className="journey-leg-meta">{leg.scenarioService ? <span className="journey-planned">Planned · {leg.scenarioService.scenarioName} · </span> : null}{leg.stopCount > 0 ? `${leg.stopCount} ${leg.scenarioService ? 'planned' : 'scheduled'} stop${leg.stopCount === 1 ? '' : 's'}` : 'Transit ride'} · {formatRoutingLegDuration(leg)}</span>
+            </div> : <p className="journey-move">
+              <MoveIcon size={13} aria-hidden="true" />
+              <span>{transfer ? routingLegPrimaryLabel(leg) : leg.type === 'drive' ? 'Drive' : 'Walk'}</span>
+              <span className="journey-leg-meta">{formatRoutingLegDuration(leg)}{leg.distanceKm > 0 ? ` · ${formatDistance(leg.distanceKm)}` : ''}</span>
+            </p>}
             {leg.stationAccessStatus !== 'unverified' && leg.transferSource === 'parent_station_fallback' ? <p className="journey-caution">Assumed station connection time</p> : null}
             {(ride && (leg.sourceEqualTime || !shapedRideGeometry(leg.geometrySource))) || leg.type === 'drive' ? <details className="kit-inline-details journey-leg-evidence"><summary>Path &amp; timing</summary><p>{routingLegDetail(leg)}</p></details> : null}
             {ride && plan.sharedLegAlternatives && (frequency || sharedOptions.length > 0) ?
@@ -111,7 +149,11 @@ export function RoutingItinerary({ plan }: { plan: RoutingPlan }) {
           </div>
         </li>
       })}
-      <li className="journey-finish"><time className="journey-clock">{formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}</time><strong>Arrive at {plan.legs.at(-1)?.toName || plan.destination.label}</strong></li>
+      <li className="journey-finish">
+        <time className="journey-clock">{formatScheduleClock(arrival)}</time>
+        <span className="journey-node-mark" aria-hidden="true" />
+        <strong className="journey-place">Arrive at {journeyPlace(plan.legs.at(-1)?.toName || plan.destination.label, 'Destination')}</strong>
+      </li>
     </ol>
     <RoutingFare plan={plan} />
   </section>
@@ -162,18 +204,23 @@ export function RoutingDetailPanel({
   return (
     <aside className="routing-detail-panel" aria-label="Routing details" data-map-occluder="">
       <header className="routing-detail-head">
-        <div>
+        <div className="routing-detail-title">
           <p className="journey-eyebrow">{plan.travelMode === 'transit' ? routingDataModeLabel(plan) || 'Transit' : plan.travelMode === 'drive' ? 'Drive' : 'Walk'} journey</p>
-          <h2>{formatRoutingMinutes(routingPlanTotalElapsedMinutes(plan))} <small>total</small></h2>
-          <p className="journey-time-range">{formatScheduleClock(plan.departMinutes)} <span aria-hidden="true">→</span> {formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}</p>
-          <p className="journey-overview">{plan.travelMode === 'transit' ? `${plan.transfers} transfer${plan.transfers === 1 ? '' : 's'} · ` : ''}{plan.travelMode === 'drive' ? `${formatRoutingMinutes(plan.rideMinutes)} driving` : `${formatRoutingMinutes(plan.walkMinutes)} walking`}{plan.waitMinutes > 0 ? ` · ${formatRoutingMinutes(plan.waitMinutes)} waiting en route` : ''}</p>
+          <div className="routing-detail-time">
+            <h2><JourneyDuration minutes={routingPlanTotalElapsedMinutes(plan)} suffix=" total" /></h2>
+            <p className="journey-time-range">{formatScheduleClock(plan.departMinutes)} <span aria-hidden="true">→</span> {formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}</p>
+          </div>
         </div>
-        <button ref={closeButtonRef} type="button" onClick={onClose} aria-label="Close routing details" title="Close details"><X size={18} aria-hidden="true" /></button>
+        <div className="routing-detail-actions">
+          <ResultExportActions label="Save journey" formats={['json', 'md', 'geojson', 'csv']} resultKey={plan}
+            unavailable={journeyGeometryAvailable(plan) ? {} : { geojson: 'Complete path geometry is unavailable' }}
+            onExport={format => exportJourney(plan, format)} />
+          <button ref={closeButtonRef} type="button" className="kit-icon-button routing-detail-close" onClick={onClose} aria-label="Close routing details" title="Close details"><X size={16} aria-hidden="true" /></button>
+        </div>
+        {plan.legs.length ? <JourneyLegStrip plan={plan} /> : null}
+        <p className="journey-overview">{plan.travelMode === 'transit' ? `${plan.transfers} transfer${plan.transfers === 1 ? '' : 's'} · ` : ''}{plan.travelMode === 'drive' ? `${formatRoutingMinutes(plan.rideMinutes)} driving` : `${formatRoutingMinutes(plan.walkMinutes)} walking`}{plan.waitMinutes > 0 ? ` · ${formatRoutingMinutes(plan.waitMinutes)} waiting en route` : ''}</p>
       </header>
       <div className="routing-detail-scroll">
-        <ResultExportActions label="Save journey" formats={['json', 'md', 'geojson', 'csv']} resultKey={plan}
-          unavailable={journeyGeometryAvailable(plan) ? {} : { geojson: 'Complete path geometry is unavailable. Save JSON or an itinerary.' }}
-          onExport={format => exportJourney(plan, format)} />
         <RoutingItinerary plan={plan} />
         <details className="studio-disclosure routing-details">
           <summary>

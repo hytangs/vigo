@@ -124,18 +124,21 @@ function group(label) {
   assert(element, 'Missing save control: ' + label)
   return element
 }
+function trigger(label) { return group(label).querySelector('.result-export-trigger') }
+/** Opens the download menu and returns the item for one format. */
+function formatItem(label, format) {
+  if (trigger(label).getAttribute('aria-expanded') !== 'true') flushSync(() => trigger(label).click())
+  const item = group(label).querySelector(`[role="menuitem"][data-format="${format}"]`)
+  assert(item, 'Missing save format: ' + label + ' ' + format)
+  return item
+}
 window.saveResult = (label, format) => {
-  const element = group(label), picker = element.querySelector('select')
-  picker.value = format
-  flushSync(() => picker.dispatchEvent(new Event('change', { bubbles: true })))
-  flushSync(() => element.querySelector('button').click())
+  const element = group(label), item = formatItem(label, format)
+  if (!item.disabled) flushSync(() => item.click())
   return element.querySelector('[role="status"],[role="alert"]')?.textContent
 }
 window.prepareSave = (label, format) => {
-  const element = group(label), picker = element.querySelector('select')
-  picker.value = format
-  flushSync(() => picker.dispatchEvent(new Event('change', { bubbles: true })))
-  const button = element.querySelector('button')
+  const button = formatItem(label, format)
   button.scrollIntoView({ block: 'center' })
   const bounds = button.getBoundingClientRect(), x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height / 2
   const hit = document.elementFromPoint(x, y)
@@ -156,18 +159,19 @@ window.checkResultState = () => {
   window.changeCutoff(30)
   assert(document.querySelector('.reach-scenario-difference').textContent === '-1.50 km² · -2 reached stops from baseline', 'Scenario losses disagree with exact cutoff')
   window.showResult('reach', 'loading')
-  assert(group('Save Reach results').querySelector('button').disabled, 'Running results can be saved')
+  assert(trigger('Save Reach results').disabled, 'Running results can be saved')
   window.showResult('reach', 'preliminary')
-  assert(group('Save Reach results').querySelector('button').disabled, 'Preliminary results can be saved')
+  assert(trigger('Save Reach results').disabled, 'Preliminary results can be saved')
   window.showResult('reach', 'missing-geometry')
   window.saveResult('Save Reach results', 'geojson')
-  assert(group('Save Reach results').querySelector('button').disabled && group('Save Reach results').textContent.includes('retain geometry'), 'Missing geometry is not explained')
+  assert(formatItem('Save Reach results', 'geojson').disabled && group('Save Reach results').textContent.includes('retain geometry'), 'Missing geometry is not explained')
+  flushSync(() => trigger('Save Reach results').click())
   window.showResult('error')
   window.saveResult('Save failure example', 'json')
   assert(group('Save failure example').querySelector('[role="alert"]').textContent.includes('Try again'), 'Formatting failure is not visible')
   window.showResult('journey', 'loading')
-  assert(group('Save all 7 departures').querySelector('button').disabled, 'An incomplete alternative collection can be saved')
-  assert(!group('Save journey').querySelector('button').disabled, 'A completed selected journey should remain savable')
+  assert(trigger('Save all 7 departures').disabled, 'An incomplete alternative collection can be saved')
+  assert(!trigger('Save journey').disabled, 'A completed selected journey should remain savable')
   return { positiveAndNegativeDifferences: true, cutoffSpecific: true, partialResultsBlocked: true, errorsVisible: true }
 }
 window.checkDownloadFeedback = label => {

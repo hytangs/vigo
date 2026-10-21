@@ -22,6 +22,7 @@ import {
   selectedStop,
   selectRoute,
   setOperationalEvents,
+  setServiceDates,
   setRouteRenderMode,
   toggleAgencyMap,
 } from '../../state/network'
@@ -45,6 +46,7 @@ const NetworkTimetablePanel = memo(function NetworkTimetablePanel() {
     routeAnalysisError: state.routeAnalysisError,
   }), shallowEqual)
   const serviceDate = useStore(clock, (state) => state.serviceDate)
+  const serviceDates = useStore(network, (state) => state.serviceDates)
   return (
     <NetworkTimetable
       feed={feed}
@@ -54,6 +56,7 @@ const NetworkTimetablePanel = memo(function NetworkTimetablePanel() {
       analysisLoading={Boolean(focusRoute && routeAnalysisRouteId === focusRoute.id)}
       analysisError={routeAnalysisError}
       serviceDate={serviceDate}
+      serviceDates={serviceDates}
       onServiceDateChange={changeServiceDate}
       routeRenderMode={routeRenderMode}
       onRouteRenderModeChange={setRouteRenderMode}
@@ -95,6 +98,7 @@ export const NetworkWorkspace = memo(function NetworkWorkspace() {
       mapLayers={<NetworkLayers modes={modes} mode={mode} onModeChange={displayMode => { clearAgencySelection(); network.set({ displayMode }) }} layers={layers} feeds={staticFeeds} selectedFeed={selectedFeed} onSelectFeed={id => { clearAgencySelection(); network.set({ displayMode: null }); setActiveFeedId(id) }} onChange={(key, enabled) => network.set(state => ({ layers: { ...state.layers, vehicles: state.layers.vehicles ?? state.layers.routes, [key]: enabled } }))} />}
       staticFeeds={staticFeeds}
       onOperationalEvents={setOperationalEvents}
+      onServiceDates={setServiceDates}
       key={projectId}
       projectId={projectId}
       selection={selection}

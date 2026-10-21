@@ -153,6 +153,7 @@ export function RouteSurfaceView({
   agencyFocus,
   restrictVehicleScope = false,
   scheduleLoadStatus,
+  serviceDates,
   agencyLocation,
   routeDetailStatus,
   projectId,
@@ -208,6 +209,7 @@ export function RouteSurfaceView({
   operationalEvents?: OperationalEvent[]
   agencyFocus: boolean
   scheduleLoadStatus?: string
+  serviceDates?: { first: string | null; last: string | null } | null
   routeDetailStatus?: string
   restrictVehicleScope?: boolean
   projectId: string
@@ -386,6 +388,7 @@ export function RouteSurfaceView({
             onPlaybackStepChange={setServicePlaybackStep}
             onScheduleTimeChange={onScheduleTimeChange}
             onScheduleServiceDateChange={onScheduleServiceDateChange}
+            serviceDates={serviceDates}
           />
         ) : null}
       </ServiceToolbar>
@@ -519,6 +522,7 @@ export const RouteSurface = memo(function RouteSurface() {
     agencyLocation: state.agencyLocation,
     scheduleLoadStatus: state.scheduleLoadStatus,
     selectedStopId: state.selectedStopId,
+    serviceDates: state.serviceDates,
   }), shallowEqual)
   const { scheduleTimeMinutes, serviceDate } = useStore(clock, (state) => state, shallowEqual)
   const project = useStudioRecord(() => {
@@ -585,6 +589,7 @@ export const RouteSurface = memo(function RouteSurface() {
       agencyFocus={agencyFocus}
       restrictVehicleScope={agencyFocus && (networkState.displayMode !== null || feed.id !== '__bundle__')}
       scheduleLoadStatus={networkState.scheduleLoadStatus}
+      serviceDates={networkState.serviceDates}
       agencyLocation={networkState.agencyLocation}
       routeDetailStatus={routeDetailStatus}
       projectId={project.id}

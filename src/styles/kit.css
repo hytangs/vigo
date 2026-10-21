@@ -309,33 +309,67 @@
 :where(.sidebar-panel, .agency-panel, .routing-detail-panel) :where(select, input):disabled { opacity: 0.45; cursor: not-allowed; }
 :where(.sidebar-panel, .agency-panel, .routing-detail-panel) :where(select, input):focus-visible { outline: 2px solid var(--signal-text); outline-offset: 0; }
 :where(.sidebar-panel, .agency-panel, .routing-detail-panel) input::placeholder { color: var(--text-4); }
+:where(.sidebar-panel, .agency-panel, .routing-detail-panel) input[type="number"] { appearance: textfield; }
+:where(.sidebar-panel, .agency-panel, .routing-detail-panel) input[type="number"]::-webkit-inner-spin-button,
+:where(.sidebar-panel, .agency-panel, .routing-detail-panel) input[type="number"]::-webkit-outer-spin-button { margin: 0; appearance: none; }
 :where(.sidebar-panel, .agency-panel, .routing-detail-panel) input::-webkit-calendar-picker-indicator { opacity: 0.55; cursor: pointer; }
 .appearance-dark :where(.sidebar-panel, .agency-panel, .routing-detail-panel) input::-webkit-calendar-picker-indicator { filter: invert(0.85); }
 
-/* Saving a result: a format menu and one button. */
-.result-export-actions { display: grid; gap: 4px; min-width: 0; color: var(--text-3); font-size: var(--type-sm); }
-.result-export-controls { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.result-export-controls > select { flex: 1; width: 0; }
+/* Saving a result: one download button with a small format menu. */
+.result-export-actions { position: relative; display: inline-flex; flex: none; }
+.result-export-trigger[aria-expanded="true"] { color: var(--text-1); background: var(--fill-3); }
 
-.result-export-controls > button {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 5px;
-  height: var(--control-h);
-  padding: 0 10px;
+.result-export-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  right: 0;
+  display: grid;
+  min-width: 196px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--ink-3);
+  box-shadow: var(--elev-3);
+}
+
+.result-export-menu > button {
+  display: grid;
+  gap: 1px;
+  padding: 6px 9px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 6px;
   color: var(--text-1);
-  background: var(--fill-2);
-  font: 500 var(--type-md)/1 var(--font-ui);
+  background: none;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
 }
 
-.result-export-controls > button:hover:not(:disabled) { background: var(--fill-3); }
-.result-export-controls > button:disabled { opacity: 0.45; cursor: default; }
-.result-export-actions small { font-size: var(--type-xs); line-height: 1.45; overflow-wrap: anywhere; }
-.result-export-actions small.is-error { color: var(--alert); }
+.result-export-menu > button > strong { font-size: var(--type-md); font-weight: 500; }
+.result-export-menu > button > small { color: var(--text-3); font-size: var(--type-xs); line-height: 1.35; }
+.result-export-menu > button:is(:hover, :focus-visible):not(:disabled) { color: var(--signal-ink); background: var(--signal); outline: 0; }
+.result-export-menu > button:is(:hover, :focus-visible):not(:disabled) > small { color: inherit; opacity: 0.72; }
+.result-export-menu > button:disabled { cursor: default; }
+.result-export-menu > button:disabled > strong { color: var(--text-3); }
+.result-export-menu > button:disabled > small { color: var(--watch); }
+
+.result-export-feedback:not(.is-error) { position: absolute; top: 0; right: 0; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+.result-export-feedback.is-error {
+  position: absolute;
+  z-index: 39;
+  top: calc(100% + 4px);
+  right: 0;
+  width: max-content;
+  max-width: 240px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  color: var(--alert);
+  background: var(--ink-3);
+  box-shadow: var(--elev-2);
+  font-size: var(--type-xs);
+  line-height: 1.4;
+}
 
 /* Inline details: small print that opens under its own line. */
 .kit-inline-details > summary { display: inline-flex; align-items: center; gap: 4px; list-style: none; cursor: pointer; }

@@ -43,6 +43,9 @@ export function RoutingSetup(props: RoutingSetupProps) {
   const transit = routingMode === 'transit'
   const activeTab = transit ? tab : 'when'
   const departNow = transit && routingDataMode === 'realtime'
+  const realtimeAvailable = !routingWheelchair && !routingNetwork?.selectedId
+  const realtimeUnavailableReason = routingWheelchair ? 'Wheelchair routing uses the published timetable.'
+    : routingNetwork?.selectedId ? 'Scenarios run on the published timetable.' : undefined
   const transferLimitUnavailable = routingWaypoints.length > 0
   const maxTransfers = transferLimitUnavailable ? undefined : routingMaxTransfers
   const buffer = transferLimitUnavailable ? 0 : routingMinimumTransferBufferMinutes
@@ -96,7 +99,7 @@ export function RoutingSetup(props: RoutingSetupProps) {
       </label>
       {routingWheelchair ? <details className="kit-inline-details routing-accessibility-details"><summary>Accessibility coverage</summary><p>Uses the prepared wheelchair network. Unknown accessibility is excluded. Elevator outages and access from a building to the street are not verified.</p></details> : null}
     </div> : null}
-    {transit ? <div className="studio-tabs routing-setup-tabs" role="tablist" aria-label="Journey settings">
+    {transit ? <div className="routing-setup-tabs" role="tablist" aria-label="Journey settings">
       {(['when', 'preferences'] as const).map(value => <button key={value} type="button" role="tab"
         id={`${id}-${value}-tab`} aria-controls={`${id}-${value}-panel`} aria-selected={activeTab === value}
         tabIndex={activeTab === value ? 0 : -1} onKeyDown={moveTab} onClick={() => setTab(value)}>
@@ -116,22 +119,19 @@ export function RoutingSetup(props: RoutingSetupProps) {
         setTab('when')
         requestAnimationFrame(() => input.reportValidity())
       }}>
-      {transit ? <div className="studio-tabs routing-setup-source" role="group" aria-label="Transit data mode" aria-describedby="pathfinder-data-mode-help">
-        <button type="button" aria-pressed={routingDataMode === 'realtime'} disabled={routingWheelchair || Boolean(routingNetwork?.selectedId)} title={routingWheelchair ? 'Wheelchair routing uses the published timetable.' : routingNetwork?.selectedId ? 'Scenarios run on the published timetable.' : undefined} onClick={() => onRoutingDataModeChange('realtime')}>Realtime</button>
-        <button type="button" aria-pressed={routingDataMode === 'scheduled'} onClick={() => onRoutingDataModeChange('scheduled')}>Scheduled</button>
+      {transit ? <div className="studio-tabs routing-setup-time" role="group" aria-label="Departure time" aria-describedby="pathfinder-data-mode-help">
+        <button type="button" aria-pressed={departNow} disabled={!realtimeAvailable} title={realtimeUnavailableReason}
+          onClick={() => { onRoutingTimePreferenceChange('depart'); onRoutingDataModeChange('realtime') }}>Now</button>
+        {routingTimeOptions.map(option => <button key={option.value} type="button" aria-pressed={!departNow && routingTimePreference === option.value}
+          onClick={() => { onRoutingTimePreferenceChange(option.value); if (departNow) onRoutingDataModeChange('scheduled') }}>{option.value === 'arrive' ? 'Arrive by' : 'Depart at'}</button>)}
+      </div> : <span className="routing-setup-label">Depart at</span>}
+      {!departNow ? <div className="routing-setup-datetime">
+        {transit ? <label className={classNames('routing-setup-input', routingServiceDateAvailability === 'outside' && 'is-outside')}>
+          <span>Date</span><input type="date" value={routingServiceDate} min={routingServiceCoverage?.completeStartDate} max={routingServiceCoverage?.completeEndDate} onChange={event => onRoutingServiceDateChange(event.currentTarget.value)} aria-label="Routing service date" />
+        </label> : null}
+        <label className="routing-setup-input"><span>Time</span><input type="time" value={formatScheduleClock(scheduleTimeMinutes)} onChange={event => changeTime(event.currentTarget.value)} aria-label="Routing time" /></label>
       </div> : null}
-      {departNow ? <div className="routing-setup-now"><span aria-hidden="true" /><strong>Depart now</strong><small>At the time you run the route</small></div> : <>
-        {transit ? <div className="studio-tabs routing-setup-direction" role="group" aria-label="Time preference">
-          {routingTimeOptions.map(option => <button key={option.value} type="button" onClick={() => onRoutingTimePreferenceChange(option.value)} aria-pressed={routingTimePreference === option.value}>{option.label}</button>)}
-        </div> : <span className="routing-setup-label">Depart at</span>}
-        <div className="routing-setup-datetime">
-          {transit ? <label className={classNames('routing-setup-input', routingServiceDateAvailability === 'outside' && 'is-outside')}>
-            <span>Date</span><input type="date" value={routingServiceDate} min={routingServiceCoverage?.completeStartDate} max={routingServiceCoverage?.completeEndDate} onChange={event => onRoutingServiceDateChange(event.currentTarget.value)} aria-label="Routing service date" />
-          </label> : null}
-          <label className="routing-setup-input"><span>Time</span><input type="time" value={formatScheduleClock(scheduleTimeMinutes)} onChange={event => changeTime(event.currentTarget.value)} aria-label="Routing time" /></label>
-        </div>
-      </>}
-      {transit ? <p className="routing-setup-note" id="pathfinder-data-mode-help">{routingDataMode === 'scheduled' ? 'Published timetable for your chosen date and time.' : 'Live updates where available; scheduled times otherwise.'}</p> : null}
+      {transit ? <p className="routing-setup-note" id="pathfinder-data-mode-help">{departNow ? 'Departs when you run the route, with live updates where available.' : 'Published timetable for this date and time.'}</p> : null}
     </div>
 
     {transit ? <div className="routing-setup-panel" id={`${id}-preferences-panel`} role="tabpanel" aria-labelledby={`${id}-preferences-tab`} hidden={activeTab !== 'preferences'}>

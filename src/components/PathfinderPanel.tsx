@@ -1,5 +1,7 @@
 export { RoutingDetailPanel } from './JourneyItinerary'
+import { JourneyDuration } from './JourneyItinerary'
 import { journeyGroups } from '../app/journeyGroups'
+import { JourneyLegStrip } from './JourneyLegStrip'
 import { RoutingSetup } from './RoutingSetup'
 import { OperationProgress } from './OperationProgress'
 import { ResultExportActions } from './ResultExportActions'
@@ -9,7 +11,6 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
-  Bus,
   Car,
   CheckCircle2,
   ChevronRight,
@@ -19,24 +20,18 @@ import {
   Navigation2,
   Plus,
   RotateCcw,
-  Ship,
   TrainFront,
-  TramFront,
   X,
 } from 'lucide-react'
-import { useState, type CSSProperties, type KeyboardEvent } from 'react'
+import { useState, type KeyboardEvent } from 'react'
 import {
   formatRoutingMinutes,
-  isSameStationTransfer,
-  routingLegColor,
-  routingLegTextColor,
   routingPlanRouteSequence,
 } from '../app/presentation'
 import {
   routingPlanJourneyMinutes,
   routingPlanStartWaitMinutes,
   routingPlanTotalElapsedMinutes,
-  routingPlanTotalWaitMinutes,
   type RoutingActivity,
   type RoutingServiceCoverage,
   type RoutingServiceDateAvailability,
@@ -127,62 +122,6 @@ function routingAccessHintText(hint: RoutingAccessAvailabilityHint) {
   return `${role}: the station-access diagnostic could not complete${hint.detail ? ` (${hint.detail})` : '.'}`
 }
 
-function RouteTypeIcon({ routeType }: { routeType?: number }) {
-  if (routeType === 3 || routeType === 11) return <Bus size={12} aria-hidden="true" />
-  if (routeType === 0 || routeType === 5) return <TramFront size={12} aria-hidden="true" />
-  if (routeType === 4) return <Ship size={12} aria-hidden="true" />
-  return <TrainFront size={12} aria-hidden="true" />
-}
-
-/** Proportional walk / wait / ride bar with the boarded services as route-coloured badges. */
-function JourneyLegStrip({ plan }: { plan: RoutingPlan }) {
-  let previousEnd = plan.legs[0]?.startMinutes ?? plan.departMinutes
-  const segments = plan.legs.flatMap((leg, index) => {
-    const wait = Math.max(0, leg.startMinutes - previousEnd)
-    previousEnd = Math.max(previousEnd, leg.endMinutes)
-    const color = routingLegColor(leg)
-    return [
-      ...wait > 0 ? [<span key={`wait-${index}`} className="pathfinder-leg-segment is-wait" style={{ flexGrow: wait }} />] : [],
-      <span
-        key={index}
-        className={classNames('pathfinder-leg-segment', `is-${leg.type}`)}
-        style={{ flexGrow: Math.max(leg.durationMinutes, 0.5), ...color ? { '--leg-color': color } : {} } as CSSProperties}
-      />,
-    ]
-  })
-  const steps = plan.legs.filter((leg) => leg.type === 'ride'
-    || (leg.durationMinutes >= 1 && !isSameStationTransfer(leg)))
-  return (
-    <span className="pathfinder-leg-strip" aria-hidden="true">
-      <span className="pathfinder-leg-bar">{segments}</span>
-      <span className="pathfinder-leg-steps">
-        {steps.map((leg, index) => {
-          const color = routingLegColor(leg)
-          return (
-            <span key={index} className="pathfinder-leg-step">
-              {index ? <ChevronRight size={11} className="pathfinder-leg-sep" /> : null}
-              {leg.type === 'ride' ? (
-                <span
-                  className="pathfinder-leg-badge"
-                  style={color ? { '--leg-color': color, '--leg-text': routingLegTextColor(color) } as CSSProperties : undefined}
-                >
-                  <RouteTypeIcon routeType={leg.routeType} />
-                  {leg.routeShortName || leg.routeId || 'Ride'}
-                </span>
-              ) : (
-                <span className="pathfinder-leg-walk">
-                  {leg.type === 'drive' ? <Car size={12} /> : <Footprints size={12} />}
-                  {formatRoutingMinutes(leg.durationMinutes)}
-                </span>
-              )}
-            </span>
-          )
-        })}
-      </span>
-    </span>
-  )
-}
-
 export function PathfinderRouteList({
   plans,
   selectedPlanId,
@@ -215,7 +154,7 @@ export function PathfinderRouteList({
     const difference = sort === 'transfers' ? boardings(left) - boardings(right)
       : sort === 'walking' ? left.walkMinutes - right.walkMinutes : 0
     return difference || readyPlans.indexOf(left) - readyPlans.indexOf(right)
-  }).slice(0, 5)
+  })
   const earliestTransit = earliestTransitSummary(plans)
 
   function moveSelection(event: KeyboardEvent<HTMLButtonElement>, offset: -1 | 1) {
@@ -235,11 +174,10 @@ export function PathfinderRouteList({
     <section className="pathfinder-results" aria-label="Route results" aria-busy={alternativesLoading}>
       <div className="pathfinder-results-head kit-section-title">
         <strong>Journeys</strong>
-        <b>{readyPlans.length
-          ? groups.length > displayedPlans.length
-            ? `${displayedPlans.length} of ${groups.length}`
-            : `${groups.length} ${groups.length === 1 ? 'journey' : 'journeys'}`
-          : 'Finding journeys'}</b>
+        <b>{readyPlans.length ? `${groups.length} ${groups.length === 1 ? 'journey' : 'journeys'}` : 'Finding journeys'}</b>
+        {exportPlans.length > 1 ? <ResultExportActions key={selectedPlanId} label={`Save all ${exportPlans.length} departures`} formats={['json', 'csv']}
+          disabled={alternativesLoading} resultKey={plans}
+          onExport={format => exportJourneys(exportPlans, format, selectedPlanId)} /> : null}
       </div>
 
       {readyPlans.length > 1 ? (
@@ -258,7 +196,6 @@ export function PathfinderRouteList({
             const serviceNames = [...new Set(departures.map(routingPlanRouteSequence))].join(' or ')
             const startWaitMinutes = routingPlanStartWaitMinutes(plan)
             const journeyMinutes = routingPlanJourneyMinutes(plan)
-            const totalWaitMinutes = routingPlanTotalWaitMinutes(plan)
             const totalElapsedMinutes = routingPlanTotalElapsedMinutes(plan)
             const fastest = readyPlans[0]
             const fewerTransfers = fastest.transfers - plan.transfers
@@ -290,32 +227,26 @@ export function PathfinderRouteList({
                 tabIndex={selected || (!displayedPlans.some(candidate => candidate.id === selectedPlanId) && plan === displayedPlans[0]) ? 0 : -1}
                 aria-label={`${formatScheduleClock(plan.departMinutes)} to ${formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}, ${formatRoutingMinutes(totalElapsedMinutes)} total${plan.timePreference === 'depart' ? ' from requested departure' : ''}, ${plan.transfers} transfer${plan.transfers === 1 ? '' : 's'}, ${formatRoutingMinutes(plan.walkMinutes)} walking${plan.travelMode === 'transit' && plan.legs.some((leg) => leg.type === 'ride') ? `, via ${routingPlanRouteSequence(plan).replaceAll(' -> ', ' then ')}` : ''}. ${tradeoff || (plan.timePreference === 'arrive' ? 'Latest departure' : 'Earliest arrival')}. Open journey.`}
               >
-                <span className="pathfinder-route-time">
-                  <strong>{formatScheduleClock(plan.departMinutes)} → {formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}</strong>
+                <span className="pathfinder-route-time" title={startWaitMinutes > 0 ? `Leaves ${formatRoutingMinutes(startWaitMinutes)} after your requested time` : undefined}>
                   <b title={plan.timePreference === 'depart'
                     ? `${formatRoutingMinutes(totalElapsedMinutes)} from the requested departure, including ${formatRoutingMinutes(startWaitMinutes)} before leaving; ${formatRoutingMinutes(journeyMinutes)} travelling`
-                    : 'Time from leaving to arriving'}>{formatRoutingMinutes(totalElapsedMinutes)} total</b>
+                    : 'Time from leaving to arriving'}><JourneyDuration minutes={totalElapsedMinutes} /></b>
+                  <strong>{formatScheduleClock(plan.departMinutes)}–{formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}</strong>
                 </span>
                 {plan.diagnostics.expandedWalkingLimitKm ? <span className="pathfinder-route-rationale">More walking allowed · up to {plan.diagnostics.expandedWalkingLimitKm} km at each end</span> : null}
-                {plan.legs.length ? <JourneyLegStrip plan={plan} /> : null}
+                {plan.legs.length ? <JourneyLegStrip plan={plan} showBar={false} /> : null}
                 {departures.length > 1 ? <strong className="pathfinder-group-services">{serviceNames}</strong> : null}
-                <span className="pathfinder-route-rationale">
-                  <strong>{plan === fastest ? `${plan.travelMode === 'walk' ? 'Walk only · ' : ''}${plan.timePreference === 'arrive' ? 'Latest departure' : 'Earliest arrival'}` : tradeoff || plan.choiceLabel || 'Another route'}</strong>
-                  {startWaitMinutes > 0 ? (
-                    <span title={`Requested ${formatScheduleClock(plan.departMinutes - startWaitMinutes)} · leaves ${formatRoutingMinutes(startWaitMinutes)} later`}>
-                      Leave {formatRoutingMinutes(startWaitMinutes)} after your requested time
-                    </span>
-                  ) : totalWaitMinutes > 0 ? <span>Wait {formatRoutingMinutes(totalWaitMinutes)} between legs</span> : null}
-                </span>
                 <span className="pathfinder-route-footer">
+                  <strong className="pathfinder-route-rationale">{plan === fastest ? `${plan.travelMode === 'walk' ? 'Walk only · ' : ''}${plan.timePreference === 'arrive' ? 'Latest departure' : 'Earliest arrival'}` : tradeoff || plan.choiceLabel || 'Another route'}</strong>
                   <span className="pathfinder-route-metrics" aria-hidden="true">
                     {plan.travelMode === 'transit' ? <span><b>{plan.transfers}</b><small>transfer{plan.transfers === 1 ? '' : 's'}</small></span> : null}
                     <span><b>{formatRoutingMinutes(plan.walkMinutes)}</b><small>{plan.travelMode === 'drive' ? 'access' : 'walk'}</small></span>
+                    {totalElapsedMinutes - plan.walkMinutes - plan.rideMinutes >= 0.5 ? <span title="Includes waiting before departure and between vehicles"><b>{formatRoutingMinutes(Math.max(0, totalElapsedMinutes - plan.walkMinutes - plan.rideMinutes))}</b><small>wait</small></span> : null}
                     {plan.travelMode !== 'walk' ? <span><b>{formatRoutingMinutes(plan.rideMinutes)}</b><small>{plan.travelMode === 'drive' ? 'drive' : 'ride'}</small></span> : <span><b>0</b><small>vehicles</small></span>}
                   </span>
                   {routeSequence || waypointNote ? <span className="pathfinder-route-sequence">{[routeSequence, waypointNote].filter(Boolean).join(' · ')}</span> : null}
-                  <ChevronRight className="pathfinder-route-open" size={14} aria-hidden="true" />
                 </span>
+                <ChevronRight className="pathfinder-route-open" size={14} aria-hidden="true" />
               </button>
               {departures.length > 1 ? <div className="pathfinder-group-departures" aria-label="Departures for this journey">
                 {departures.slice(0, 2).map(option => <button key={option.id} type="button" aria-pressed={selectedPlanId === option.id} onClick={() => onSelect(option.id)}>
@@ -335,9 +266,6 @@ export function PathfinderRouteList({
         </div>
       ) : null}
 
-      {exportPlans.length > 1 ? <ResultExportActions key={selectedPlanId} label={`Save all ${exportPlans.length} departures`} buttonLabel="Save all" formats={['json', 'csv']}
-        disabled={alternativesLoading} resultKey={plans}
-        onExport={format => exportJourneys(exportPlans, format, selectedPlanId)} /> : null}
       {earliestTransit ? <details className="studio-disclosure pathfinder-result-context"><summary><span>Search details</span></summary><p>{earliestTransit}</p></details> : null}
       {alternativesLoading ? (
         <div className="pathfinder-alternatives" role="status" aria-live="polite">

@@ -32,6 +32,8 @@ export type ScheduleLoadRequest = {
 }
 
 /** Network workspace: map layers and scope, selection, agency browsing and live vehicles. */
+export type ServiceDateRange = { first: string | null; last: string | null }
+
 export type NetworkState = {
   displayMode: number | null
   layers: LayerState
@@ -55,6 +57,8 @@ export type NetworkState = {
   scheduleLoadStatus: string
   scheduleLoadRequest: ScheduleLoadRequest | null
   scheduleLoadRetry: number
+  /** The first and last dates the City's published timetable runs, when known. */
+  serviceDates: ServiceDateRange | null
 }
 
 const initialNetworkState = (): NetworkState => ({
@@ -80,6 +84,7 @@ const initialNetworkState = (): NetworkState => ({
   scheduleLoadStatus: '',
   scheduleLoadRequest: null,
   scheduleLoadRetry: 0,
+  serviceDates: null,
 })
 
 export const network = createStore<NetworkState>(initialNetworkState())
@@ -87,6 +92,7 @@ export const network = createStore<NetworkState>(initialNetworkState())
 export const setMapScope = (mapScope: MapScope) => network.set({ mapScope })
 export const setRouteRenderMode = (routeRenderMode: RouteRenderMode) => network.set({ routeRenderMode })
 export const setOperationalEvents = (operationalEvents: OperationalEvent[]) => network.set({ operationalEvents })
+export const setServiceDates = (serviceDates: ServiceDateRange | null) => network.set({ serviceDates })
 export const toggleAgencyMap = () => network.set(({ agencyMapOpen }) => ({ agencyMapOpen: !agencyMapOpen }))
 
 /** Full-day schedule loads by task id, kept so a paused task can be retried. */

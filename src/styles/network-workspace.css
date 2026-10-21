@@ -125,7 +125,6 @@
 }
 
 .agency-scroll > [role="tabpanel"] { display: grid; gap: 14px; min-width: 0; }
-.agency-scroll > [role="tabpanel"] > div:not([hidden]) { display: grid; gap: 14px; min-width: 0; }
 
 /* Map display: networks, modes and features in one line. */
 .network-layers { display: flex; align-items: center; gap: 6px; min-width: 0; }
@@ -477,6 +476,146 @@
 .agency-icon-button { display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 7px; color: var(--text-2); background: transparent; cursor: pointer; }
 .agency-icon-button:hover:not(:disabled) { color: var(--text-1); background: var(--fill-2); }
 :is(.agency-button, .agency-text-button, .agency-icon-button):disabled { opacity: 0.45; cursor: default; }
+
+/* A route's timetable: the service day, when each direction runs, its variants and stops. */
+.network-timetable { display: grid; gap: 12px; min-width: 0; }
+.network-timetable .object-detail { display: grid; gap: 12px; min-width: 0; }
+.network-timetable .object-detail-head { display: none; }
+
+.network-service-date { display: grid; gap: 4px; min-width: 0; }
+.network-service-date > label { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--text-2); }
+.network-service-date input { width: 148px; }
+.network-service-date > p { margin: 0; color: var(--text-3); font-size: var(--type-xs); }
+.network-service-date > p > button { font-size: var(--type-xs); }
+
+.temporal-canvas { display: grid; gap: 8px; min-width: 0; padding: 10px; border-radius: var(--group-radius); background: var(--ink-3); box-shadow: inset 0 0 0 1px var(--line-1); }
+.object-section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.object-section-heading > span { display: inline-flex; align-items: center; gap: 6px; color: var(--text-1); font-size: var(--type-sm); font-weight: 600; }
+.object-section-heading > span > svg { color: var(--text-3); }
+.object-section-heading small { color: var(--text-3); font-size: var(--type-xs); font-variant-numeric: tabular-nums; }
+
+.temporal-axis { position: relative; height: 14px; margin-left: 104px; }
+.temporal-axis span { position: absolute; top: 0; color: var(--text-4); font-size: 10px; font-variant-numeric: tabular-nums; }
+.temporal-rows { display: grid; min-width: 0; }
+
+.temporal-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--line-1);
+  color: var(--text-2);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.temporal-row:hover,
+.temporal-row.is-active { background: var(--fill-1); }
+.temporal-row-label { display: grid; min-width: 0; }
+.temporal-row-label strong { overflow: hidden; color: var(--text-1); font-size: var(--type-sm); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.temporal-row-label small { color: var(--text-3); font-size: var(--type-xs); line-height: 1.35; }
+.temporal-track { position: relative; height: 8px; border-radius: 999px; background: repeating-linear-gradient(90deg, var(--fill-2) 0 calc(25% - 1px), var(--line-2) calc(25% - 1px) 25%); }
+.temporal-track i { position: absolute; top: 0; bottom: 0; left: var(--pattern-left); width: var(--pattern-width); border-radius: 999px; background: var(--pattern-color, var(--signal)); }
+
+.object-disclosure > summary > small { margin-left: auto; color: var(--text-3); font-size: var(--type-sm); font-weight: 400; }
+.object-disclosure > summary > svg { color: var(--text-3); }
+.gtfs-pattern-browser { display: grid; min-width: 0; }
+.gtfs-pattern-list { display: grid; gap: 10px; max-height: 300px; padding: 0 0 10px 20px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.gtfs-direction-group { display: grid; gap: 4px; min-width: 0; }
+.gtfs-direction-group h3 { margin: 0; color: var(--text-3); font-size: var(--type-xs); font-weight: 600; }
+
+.gtfs-pattern-choice {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--text-2);
+  background: var(--fill-1);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.gtfs-pattern-choice:hover { background: var(--fill-2); }
+.gtfs-pattern-choice.is-active { box-shadow: inset 0 0 0 1px var(--signal-line); background: var(--signal-soft); }
+.gtfs-pattern-choice-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.gtfs-pattern-choice-heading b { color: var(--text-1); font-size: var(--type-xs); }
+.gtfs-pattern-choice-heading small { display: inline-flex; align-items: center; gap: 4px; color: var(--text-3); font-size: var(--type-xs); }
+.gtfs-pattern-endpoints { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 6px; font-size: var(--type-sm); overflow-wrap: anywhere; }
+.gtfs-pattern-endpoints strong { color: var(--text-1); font-weight: 500; }
+.gtfs-pattern-endpoints svg { color: var(--text-4); }
+.gtfs-pattern-facts { color: var(--text-3); font-size: var(--type-xs); }
+.gtfs-ordered-stops { display: grid; max-height: 280px; margin: 0 0 10px; padding: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; list-style: none; }
+.gtfs-ordered-stops li { min-width: 0; }
+.gtfs-ordered-stops li:not(:has(> button)) { display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: center; gap: 8px; min-height: 34px; }
+
+.network-stop-button {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 3px 6px 3px 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-2);
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.network-stop-button:hover,
+.network-stop-button[aria-pressed="true"] { background: var(--fill-1); }
+.network-stop-button:focus-visible { outline: 2px solid var(--signal-text); outline-offset: -2px; }
+.network-stop-button > svg { color: var(--text-4); }
+.gtfs-stop-number { display: grid; place-items: center; width: 20px; height: 20px; justify-self: center; border-radius: 50%; color: var(--text-2); background: var(--fill-2); font-size: 10px; font-variant-numeric: tabular-nums; }
+.gtfs-stop-name { display: grid; min-width: 0; }
+.gtfs-stop-name strong { overflow: hidden; color: var(--text-1); font-size: var(--type-sm); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.gtfs-stop-name small { color: var(--text-3); font-size: var(--type-xs); }
+
+.object-metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: 0 0 10px; overflow: hidden; border-radius: var(--group-radius); background: var(--line-1); }
+.object-metric-grid > div { display: grid; gap: 1px; padding: 7px 10px; background: var(--ink-3); }
+.object-metric-grid dt { color: var(--text-3); font-size: var(--type-xs); }
+.object-metric-grid dd { margin: 0; color: var(--text-1); font-size: var(--type-sm); font-weight: 500; }
+.lineage-stack,
+.object-lineage { display: grid; gap: 4px; margin-bottom: 10px; }
+
+:is(.lineage-stack, .object-lineage) > button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--text-2);
+  background: var(--fill-1);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+:is(.lineage-stack, .object-lineage) > button:hover { background: var(--fill-2); }
+:is(.lineage-stack, .object-lineage) > button > span { display: grid; min-width: 0; }
+:is(.lineage-stack, .object-lineage) strong { color: var(--text-1); font-size: var(--type-sm); font-weight: 500; }
+:is(.lineage-stack, .object-lineage) small { color: var(--text-3); font-size: var(--type-xs); overflow-wrap: anywhere; }
+.lineage-stack i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-4); }
+.lineage-stack i.tone-fact { background: var(--good); }
+.lineage-stack i.tone-inference { background: var(--watch); }
+.lineage-stack i.tone-visual { background: var(--info); }
+.object-first-empty { display: grid; justify-items: start; gap: 4px; color: var(--text-3); font-size: var(--type-sm); }
+.object-first-empty strong { color: var(--text-1); }
+.object-first-empty p { margin: 0; }
 
 /*
  * Service clock: a slim transport bar under the visible map. Live shows one

@@ -16,7 +16,7 @@ try {
   const { routingPlanRuntime } = await server.ssrLoadModule('/src/app/routingPlan.ts')
   const { ResultExportActions } = await server.ssrLoadModule('/src/components/ResultExportActions.tsx')
   const pending = renderToStaticMarkup(createElement(ResultExportActions, { label: 'Save Reach results', disabled: true, onExport: () => assert.fail('A pending export must not run') }))
-  assert.equal((pending.match(/disabled=""/g) ?? []).length, 2, 'Prevent editing or saving partial Reach while the computation is running.')
+  assert.equal((pending.match(/disabled=""/g) ?? []).length, 1, 'Prevent saving partial Reach while the computation is running.')
   const plan = { id: 'overnight', title: 'Overnight ride', status: 'ready', travelMode: 'transit', timePreference: 'depart',
     origin: { label: 'Origin / "A"', coordinate: [-77.05, 38.9] }, destination: { label: 'Destination B', coordinate: [-77.04, 38.91] },
     departMinutes: 1450.5, arriveMinutes: 1470, durationMinutes: 19.5, transfers: 0, walkMinutes: 0, waitMinutes: 0, rideMinutes: 19.5,
@@ -83,7 +83,7 @@ try {
   assert.equal(reachGeometryAvailable(entries, 15), true)
   assert.equal(reachGeometryAvailable(entries, 30), false, 'A displayed cutoff must not imply that its exact geometry was retained.')
   const missingGeometry = renderToStaticMarkup(createElement(ResultExportActions, { label: 'Save Reach results', formats: ['geojson', 'json', 'csv'], unavailable: { geojson: 'Update Reach' }, onExport: () => assert.fail() }))
-  assert.equal((missingGeometry.match(/disabled=""/g) ?? []).length, 1, 'A missing selected geometry disables Save while leaving the format picker available.')
+  assert.equal((missingGeometry.match(/disabled=""/g) ?? []).length, 0, 'A missing geometry leaves Save available for the other formats; the menu disables only GeoJSON.')
   assert.deepEqual(JSON.parse(exportReachResults(entries, 'json', 15).text).entries, entries)
   const reachRows = Papa.parse(exportReachResults(entries, 'csv', 15).text, { header: true, skipEmptyLines: true }).data
   assert.equal(reachRows[1].faster_or_newly_reached_cells, '1')
