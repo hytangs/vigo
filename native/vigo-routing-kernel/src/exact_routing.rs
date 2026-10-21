@@ -9,6 +9,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+use crate::drive_attachment::{DriveGraph, RoadCandidate, RoadIndex, same_edge};
+
+/// The speed at which a caller-supplied snap distance is crossed when the
+/// caller does not price it. Coordinate queries price their walk explicitly.
 const DRIVE_SNAP_SPEED_MPS: f64 = 20.0 / 3.6;
 const EPSILON: f64 = 1e-9;
 const NO_INDEX: i32 = -1;
@@ -66,6 +70,24 @@ fn drive_weight(value: f64, units_per_value: f64, label: &str) -> napi::Result<u
         )));
     }
     Ok(scaled as u32)
+}
+
+/// Distance and time units of reaching a candidate node from its endpoint.
+fn snap_units(meters: f64, seconds: Option<f64>, label: &str) -> napi::Result<(f64, f64)> {
+    Ok((
+        f64::from(drive_weight(meters, DRIVE_DISTANCE_UNITS_PER_METER, label)?),
+        f64::from(drive_weight(
+            seconds.unwrap_or(meters / DRIVE_SNAP_SPEED_MPS),
+            DRIVE_TIME_UNITS_PER_SECOND,
+            label,
+        )?),
+    ))
+}
+
+fn valid_snap_seconds(seconds: Option<&Vec<f64>>, candidates: usize) -> bool {
+    seconds.is_none_or(|seconds| {
+        seconds.len() == candidates && seconds.iter().all(|s| s.is_finite() && *s >= 0.0)
+    })
 }
 
 fn temporary_drive_cch_path(path: &Path) -> PathBuf {
@@ -483,6 +505,10 @@ pub struct DriveQueryInput {
     pub target_snap_meters: Vec<f64>,
     pub maximum_distance_meters: f64,
     pub traffic: Option<DriveTrafficInput>,
+    /// Seconds to reach each candidate from its endpoint, when the caller
+    /// prices the snap itself.
+    pub origin_snap_seconds: Option<Vec<f64>>,
+    pub target_snap_seconds: Option<Vec<f64>>,
 }
 
 #[cfg_attr(feature = "node", napi(object))]
@@ -527,6 +553,68 @@ pub struct DriveMatrixInput {
     pub target_offsets: Vec<u32>,
     pub target_nodes: Vec<u32>,
     pub target_snap_meters: Vec<f64>,
+    pub maximum_distance_meters: f64,
+    pub traffic: Option<DriveTrafficInput>,
+    pub origin_snap_seconds: Option<Vec<f64>>,
+    pub target_snap_seconds: Option<Vec<f64>>,
+}
+
+/// A trip between two free coordinates. Each endpoint walks straight to its
+/// nearest drivable road, at most `maximum_walk_meters`, and drives from there.
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+pub struct DriveCoordinateRouteInput {
+    pub origin_lon: f64,
+    pub origin_lat: f64,
+    pub destination_lon: f64,
+    pub destination_lat: f64,
+    pub maximum_walk_meters: f64,
+    pub walking_speed_kph: f64,
+    pub maximum_distance_meters: f64,
+    pub traffic: Option<DriveTrafficInput>,
+    /// Attach only to the single nearest road, so that consecutive legs
+    /// through one coordinate meet at the same road point.
+    pub nearest_road_only: Option<bool>,
+}
+
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+pub struct DriveCoordinateRouteResult {
+    pub status: String,
+    pub reason: Option<String>,
+    /// The whole trip, walks included.
+    pub duration_seconds: Option<f64>,
+    pub distance_meters: Option<f64>,
+    pub drive_seconds: Option<f64>,
+    pub drive_meters: Option<f64>,
+    pub origin_walk_seconds: Option<f64>,
+    pub origin_walk_meters: Option<f64>,
+    pub destination_walk_seconds: Option<f64>,
+    pub destination_walk_meters: Option<f64>,
+    /// Distance from each endpoint to its nearest drivable road; absent when
+    /// none lies within the walking limit.
+    pub origin_road_meters: Option<f64>,
+    pub destination_road_meters: Option<f64>,
+    /// Longitude/latitude pairs from the origin's road point, along the roads,
+    /// to the destination's road point.
+    pub drive_coordinates: Vec<f64>,
+    pub node_indices: Vec<u32>,
+    /// The road search, absent when an endpoint has no road.
+    pub search: Option<DriveQueryResult>,
+}
+
+/// Every origin to every destination, as `DriveCoordinateRouteInput` prices
+/// one trip. Coordinates are flat longitude/latitude pairs.
+#[cfg_attr(feature = "node", napi(object))]
+#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+pub struct DriveCoordinateMatrixInput {
+    pub origin_coordinates: Vec<f64>,
+    pub destination_coordinates: Vec<f64>,
+    pub maximum_walk_meters: f64,
+    pub walking_speed_kph: f64,
     pub maximum_distance_meters: f64,
     pub traffic: Option<DriveTrafficInput>,
 }
@@ -652,6 +740,10 @@ fn blocked_drive_result(
 pub struct DriveKernel {
     node_count: usize,
     borrowed_source_bytes: usize,
+    node_lons: Float64Array,
+    node_lats: Float64Array,
+    /// Built when the kernel first attaches a free coordinate.
+    road_index: Option<RoadIndex>,
     edge_offsets: Uint32Array,
     edge_targets: Uint32Array,
     edge_distance_units: Uint32Array,
@@ -672,23 +764,22 @@ pub struct DriveKernel {
 }
 
 impl DriveKernel {
+    /// Node longitudes and latitudes.
+    #[cfg_attr(feature = "node", allow(dead_code))]
+    pub(crate) fn coordinates(&self) -> (&[f64], &[f64]) {
+        (&self.node_lons, &self.node_lats)
+    }
+
     pub(crate) fn compile_traffic(
         &mut self,
         value: &serde_json::Value,
         fingerprint: &str,
-        lons: &[f64],
-        lats: &[f64],
     ) -> napi::Result<std::sync::Arc<vigo_traffic::Snapshot>> {
-        if lons.len() != self.node_count || lats.len() != self.node_count {
-            return Err(Error::from_reason(
-                "Traffic graph coordinates differ in length",
-            ));
-        }
         self.traffic_engine
             .compile(
                 vigo_traffic::Graph {
-                    lons,
-                    lats,
+                    lons: &self.node_lons,
+                    lats: &self.node_lats,
                     offsets: &self.edge_offsets,
                     targets: &self.edge_targets,
                     distances: &self.edge_distance_units,
@@ -732,7 +823,9 @@ impl DriveKernel {
             + self.edge_targets.capacity()
             + self.edge_distance_units.capacity()
             + self.edge_time_units.capacity())
-            * 4;
+            * 4
+            + (self.node_lons.capacity() + self.node_lats.capacity()) * 8
+            + self.road_index.as_ref().map_or(0, RoadIndex::byte_length);
         let mut workspace = (self.node_head.capacity()
             + self.node_generation.capacity()
             + self.target_generation.capacity())
@@ -937,48 +1030,30 @@ impl DriveKernel {
         maximum_distance_units: f64,
         minimize_distance: bool,
     ) -> napi::Result<(Option<CchDrivePath>, u32)> {
-        let origins = input
-            .origin_nodes
-            .iter()
-            .copied()
-            .zip(input.origin_snap_meters.iter().copied())
-            .map(|(node, snap)| {
-                Ok((
-                    node,
-                    f64::from(drive_weight(
-                        snap,
-                        DRIVE_DISTANCE_UNITS_PER_METER,
-                        "Drive origin snap distance",
-                    )?),
-                    f64::from(drive_weight(
-                        snap / DRIVE_SNAP_SPEED_MPS,
-                        DRIVE_TIME_UNITS_PER_SECOND,
-                        "Drive origin snap time",
-                    )?),
-                ))
-            })
-            .collect::<napi::Result<Vec<_>>>()?;
-        let targets = input
-            .target_nodes
-            .iter()
-            .copied()
-            .zip(input.target_snap_meters.iter().copied())
-            .map(|(node, snap)| {
-                Ok((
-                    node,
-                    f64::from(drive_weight(
-                        snap,
-                        DRIVE_DISTANCE_UNITS_PER_METER,
-                        "Drive target snap distance",
-                    )?),
-                    f64::from(drive_weight(
-                        snap / DRIVE_SNAP_SPEED_MPS,
-                        DRIVE_TIME_UNITS_PER_SECOND,
-                        "Drive target snap time",
-                    )?),
-                ))
-            })
-            .collect::<napi::Result<Vec<_>>>()?;
+        let candidates = |nodes: &[u32], meters: &[f64], seconds: Option<&Vec<f64>>, label| {
+            nodes
+                .iter()
+                .zip(meters)
+                .enumerate()
+                .map(|(index, (&node, &snap))| {
+                    let (distance, time) =
+                        snap_units(snap, seconds.map(|seconds| seconds[index]), label)?;
+                    Ok((node, distance, time))
+                })
+                .collect::<napi::Result<Vec<_>>>()
+        };
+        let origins = candidates(
+            &input.origin_nodes,
+            &input.origin_snap_meters,
+            input.origin_snap_seconds.as_ref(),
+            "Drive origin snap",
+        )?;
+        let targets = candidates(
+            &input.target_nodes,
+            &input.target_snap_meters,
+            input.target_snap_seconds.as_ref(),
+            "Drive target snap",
+        )?;
         // Candidate costs share the CCH elimination-tree work. Unpack only
         // primary-optimal ties, preserving the secondary objective and the
         // distance-constrained fallback in route_exact. A single pair needs
@@ -1240,6 +1315,9 @@ impl DriveKernel {
         Ok(Self {
             node_count,
             borrowed_source_bytes,
+            node_lons: input.node_lons,
+            node_lats: input.node_lats,
+            road_index: None,
             edge_offsets,
             edge_targets,
             edge_distance_units,
@@ -1270,9 +1348,16 @@ impl DriveKernel {
         lats: Float64Array,
         now_ms: f64,
     ) -> napi::Result<String> {
+        // Callers built for 0.5 pass the graph's coordinates; the kernel
+        // already holds them and only checks that they describe this graph.
+        if lons.len() != self.node_count || lats.len() != self.node_count {
+            return Err(Error::from_reason(
+                "Traffic graph coordinates differ in length",
+            ));
+        }
         let value =
             serde_json::from_str(&input_json).map_err(|e| Error::from_reason(e.to_string()))?;
-        let snapshot = self.compile_traffic(&value, &fingerprint, &lons, &lats)?;
+        let snapshot = self.compile_traffic(&value, &fingerprint)?;
         let admission = snapshot.admit(now_ms as i64).map_err(Error::from_reason)?;
         serde_json::to_string(&admission).map_err(|e| Error::from_reason(e.to_string()))
     }
@@ -1320,6 +1405,8 @@ impl DriveKernel {
                 .iter()
                 .chain(input.target_snap_meters.iter())
                 .any(|value| !value.is_finite() || *value < 0.0)
+            || !valid_snap_seconds(input.origin_snap_seconds.as_ref(), input.origin_nodes.len())
+            || !valid_snap_seconds(input.target_snap_seconds.as_ref(), input.target_nodes.len())
             || !input.maximum_distance_meters.is_finite()
             || input.maximum_distance_meters <= 0.0
         {
@@ -1467,20 +1554,20 @@ impl DriveKernel {
 
         let generation = self.next_generation();
         let fallback_started = Instant::now();
-        for (&node, &snap) in input.target_nodes.iter().zip(&input.target_snap_meters) {
-            let snap_distance_units = f64::from(drive_weight(
+        for (index, (&node, &snap)) in input
+            .target_nodes
+            .iter()
+            .zip(&input.target_snap_meters)
+            .enumerate()
+        {
+            let (snap_distance_units, snap_time_units) = snap_units(
                 snap,
-                DRIVE_DISTANCE_UNITS_PER_METER,
-                "Drive target snap distance",
-            )?);
+                input.target_snap_seconds.as_ref().map(|s| s[index]),
+                "Drive target snap",
+            )?;
             if snap_distance_units > maximum_distance_units + EPSILON {
                 continue;
             }
-            let snap_time_units = f64::from(drive_weight(
-                snap / DRIVE_SNAP_SPEED_MPS,
-                DRIVE_TIME_UNITS_PER_SECOND,
-                "Drive target snap time",
-            )?);
             let node = node as usize;
             if self.target_generation[node] != generation
                 || drive_value_better(
@@ -1497,20 +1584,20 @@ impl DriveKernel {
         }
         let mut dominated_labels = 0_u32;
         let mut label_budget_exceeded = false;
-        for (&node, &snap) in input.origin_nodes.iter().zip(&input.origin_snap_meters) {
-            let snap_distance_units = f64::from(drive_weight(
+        for (index, (&node, &snap)) in input
+            .origin_nodes
+            .iter()
+            .zip(&input.origin_snap_meters)
+            .enumerate()
+        {
+            let (snap_distance_units, snap_time_units) = snap_units(
                 snap,
-                DRIVE_DISTANCE_UNITS_PER_METER,
-                "Drive origin snap distance",
-            )?);
+                input.origin_snap_seconds.as_ref().map(|s| s[index]),
+                "Drive origin snap",
+            )?;
             if snap_distance_units > maximum_distance_units + EPSILON {
                 continue;
             }
-            let snap_time_units = f64::from(drive_weight(
-                snap / DRIVE_SNAP_SPEED_MPS,
-                DRIVE_TIME_UNITS_PER_SECOND,
-                "Drive origin snap time",
-            )?);
             if self
                 .offer_label(
                     generation,
@@ -1714,6 +1801,8 @@ impl DriveKernel {
                 .iter()
                 .chain(input.target_snap_meters.iter())
                 .any(|snap| !snap.is_finite() || *snap < 0.0)
+            || !valid_snap_seconds(input.origin_snap_seconds.as_ref(), input.origin_nodes.len())
+            || !valid_snap_seconds(input.target_snap_seconds.as_ref(), input.target_nodes.len())
             || !input.maximum_distance_meters.is_finite()
             || input.maximum_distance_meters <= 0.0
         {
@@ -1737,44 +1826,40 @@ impl DriveKernel {
         let build_candidates = |offsets: &[u32],
                                 nodes: &[u32],
                                 snaps: &[f64],
+                                seconds: Option<&Vec<f64>>,
                                 unique_nodes: &mut Vec<u32>,
                                 lookup: &mut HashMap<u32, usize>| {
             let mut groups = Vec::with_capacity(offsets.len().saturating_sub(1));
             for group in 0..offsets.len() - 1 {
                 let start = offsets[group] as usize;
                 let end = offsets[group + 1] as usize;
-                let mut best_snap_by_node = HashMap::<u32, f64>::new();
+                let mut best_by_node = HashMap::<u32, (f64, f64)>::new();
                 for index in start..end {
-                    let node = nodes[index];
-                    let snap = snaps[index];
-                    let entry = best_snap_by_node.entry(node).or_insert(snap);
-                    if snap < *entry {
-                        *entry = snap;
+                    let (distance, time) = snap_units(
+                        snaps[index],
+                        seconds.map(|seconds| seconds[index]),
+                        "Drive snap",
+                    )?;
+                    let entry = best_by_node.entry(nodes[index]).or_insert((distance, time));
+                    if drive_value_better(time, distance, entry.1, entry.0) {
+                        *entry = (distance, time);
                     }
                 }
-                let candidates = best_snap_by_node
+                let candidates = best_by_node
                     .into_iter()
-                    .map(|(node, snap_meters)| {
+                    .map(|(node, (snap_distance_units, snap_time_units))| {
                         let source_index = *lookup.entry(node).or_insert_with(|| {
                             unique_nodes.push(node);
                             unique_nodes.len() - 1
                         });
-                        Ok(DriveMatrixCandidate {
+                        DriveMatrixCandidate {
                             node,
                             source_index,
-                            snap_distance_units: f64::from(drive_weight(
-                                snap_meters,
-                                DRIVE_DISTANCE_UNITS_PER_METER,
-                                "Drive snap distance",
-                            )?),
-                            snap_time_units: f64::from(drive_weight(
-                                snap_meters / DRIVE_SNAP_SPEED_MPS,
-                                DRIVE_TIME_UNITS_PER_SECOND,
-                                "Drive snap time",
-                            )?),
-                        })
+                            snap_distance_units,
+                            snap_time_units,
+                        }
                     })
-                    .collect::<napi::Result<Vec<_>>>()?;
+                    .collect::<Vec<_>>();
                 groups.push(candidates);
             }
             Ok::<_, napi::Error>(groups)
@@ -1783,6 +1868,7 @@ impl DriveKernel {
             &input.origin_offsets,
             &input.origin_nodes,
             &input.origin_snap_meters,
+            input.origin_snap_seconds.as_ref(),
             &mut source_nodes,
             &mut source_lookup,
         )?;
@@ -1790,6 +1876,7 @@ impl DriveKernel {
             &input.target_offsets,
             &input.target_nodes,
             &input.target_snap_meters,
+            input.target_snap_seconds.as_ref(),
             &mut target_nodes,
             &mut target_lookup,
         )?;
@@ -1905,6 +1992,326 @@ impl DriveKernel {
             traffic_metric_reused: traffic.metric_reused,
             algorithm: "rust_cch_drive_time_matrix_v1".to_owned(),
         })
+    }
+}
+
+impl DriveKernel {
+    fn drive_graph(&self) -> DriveGraph<'_> {
+        DriveGraph {
+            lons: &self.node_lons,
+            lats: &self.node_lats,
+            edge_offsets: &self.edge_offsets,
+            edge_targets: &self.edge_targets,
+            edge_distance_units: &self.edge_distance_units,
+            edge_time_units: self.active_edge_time_units(),
+            closed_time_units: cch::INF_WEIGHT,
+            distance_units_per_meter: DRIVE_DISTANCE_UNITS_PER_METER,
+            time_units_per_second: DRIVE_TIME_UNITS_PER_SECOND,
+        }
+    }
+
+    /// Road candidates for coordinates, as (origin, nearest road meters).
+    fn attach_coordinates(
+        &mut self,
+        coordinates: &[f64],
+        maximum_walk_meters: f64,
+        walking_speed_kph: f64,
+        origin: bool,
+        nearest_road_only: bool,
+    ) -> napi::Result<Vec<crate::drive_attachment::Attachment>> {
+        if !maximum_walk_meters.is_finite()
+            || maximum_walk_meters < 0.0
+            || !walking_speed_kph.is_finite()
+            || walking_speed_kph <= 0.0
+            || coordinates.len() % 2 != 0
+            || coordinates.chunks_exact(2).any(|point| {
+                !point[0].is_finite()
+                    || !point[1].is_finite()
+                    || point[0].abs() > 180.0
+                    || point[1].abs() > 90.0
+            })
+        {
+            return Err(Error::from_reason(
+                "Drive coordinates, walking limit or walking speed are invalid.",
+            ));
+        }
+        if self.road_index.is_none() {
+            self.road_index = Some(RoadIndex::build(&self.drive_graph()));
+        }
+        let graph = self.drive_graph();
+        let index = self.road_index.as_ref().unwrap();
+        Ok(coordinates
+            .chunks_exact(2)
+            .map(|point| {
+                index.attach(
+                    &graph,
+                    [point[0], point[1]],
+                    maximum_walk_meters,
+                    walking_speed_kph / 3.6,
+                    origin,
+                    nearest_road_only,
+                )
+            })
+            .collect())
+    }
+
+    /// The cheapest drive along one edge shared by both endpoints.
+    fn best_same_edge(
+        &self,
+        origins: &[RoadCandidate],
+        destinations: &[RoadCandidate],
+    ) -> Option<(f64, f64, RoadCandidate, RoadCandidate)> {
+        let graph = self.drive_graph();
+        let mut best: Option<(f64, f64, RoadCandidate, RoadCandidate)> = None;
+        for origin in origins {
+            for destination in destinations {
+                if let Some((seconds, meters)) = same_edge(origin, destination, &graph)
+                    && best.as_ref().is_none_or(|known| {
+                        drive_value_better(seconds, meters, known.0, known.1)
+                    })
+                {
+                    best = Some((seconds, meters, *origin, *destination));
+                }
+            }
+        }
+        best
+    }
+}
+
+#[cfg_attr(feature = "node", napi)]
+impl DriveKernel {
+    /// A drive between two free coordinates. Each endpoint walks straight to
+    /// the nearest drivable road segment and enters it mid-segment; a trip
+    /// whose walk would exceed the limit is blocked rather than driven across
+    /// open ground.
+    #[cfg_attr(feature = "node", napi)]
+    pub fn route_coordinates(
+        &mut self,
+        input: DriveCoordinateRouteInput,
+    ) -> napi::Result<DriveCoordinateRouteResult> {
+        // Road entry and exit are priced at the same travel times as the
+        // search, so apply the traffic snapshot before attaching.
+        let traffic = self.configure_traffic(input.traffic.as_ref())?;
+        let nearest_road_only = input.nearest_road_only.unwrap_or(false);
+        let origin = self
+            .attach_coordinates(
+                &[input.origin_lon, input.origin_lat],
+                input.maximum_walk_meters,
+                input.walking_speed_kph,
+                true,
+                nearest_road_only,
+            )?
+            .pop()
+            .unwrap();
+        let destination = self
+            .attach_coordinates(
+                &[input.destination_lon, input.destination_lat],
+                input.maximum_walk_meters,
+                input.walking_speed_kph,
+                false,
+                nearest_road_only,
+            )?
+            .pop()
+            .unwrap();
+        let mut result = DriveCoordinateRouteResult {
+            status: "blocked".to_owned(),
+            reason: Some("no_drivable_road_within_walk".to_owned()),
+            duration_seconds: None,
+            distance_meters: None,
+            drive_seconds: None,
+            drive_meters: None,
+            origin_walk_seconds: None,
+            origin_walk_meters: None,
+            destination_walk_seconds: None,
+            destination_walk_meters: None,
+            origin_road_meters: origin.nearest_meters,
+            destination_road_meters: destination.nearest_meters,
+            drive_coordinates: Vec::new(),
+            node_indices: Vec::new(),
+            search: None,
+        };
+        if origin.nearest_meters.is_none() || destination.nearest_meters.is_none() {
+            return Ok(result);
+        }
+        // Every nearby road is closed to traffic.
+        if origin.candidates.is_empty() || destination.candidates.is_empty() {
+            result.reason = Some("no_path".to_owned());
+            return Ok(result);
+        }
+        let origins = origin.by_node();
+        let targets = destination.by_node();
+        let mut search = self.route_exact(DriveQueryInput {
+            origin_nodes: origins.iter().map(|c| c.node).collect(),
+            origin_snap_meters: origins.iter().map(RoadCandidate::meters).collect(),
+            origin_snap_seconds: Some(origins.iter().map(RoadCandidate::seconds).collect()),
+            target_nodes: targets.iter().map(|c| c.node).collect(),
+            target_snap_meters: targets.iter().map(RoadCandidate::meters).collect(),
+            target_snap_seconds: Some(targets.iter().map(RoadCandidate::seconds).collect()),
+            maximum_distance_meters: input.maximum_distance_meters,
+            traffic: input.traffic,
+        })?;
+        search.traffic_customization_ns = traffic.customization_ns;
+        search.traffic_metric_reused = traffic.metric_reused;
+        // The search priced each endpoint at rounded snap units. Remove
+        // exactly those to recover the road path, then add the exact parts.
+        let routed = if search.status == "ready" {
+            let first = search.node_indices.first().copied();
+            let last = search.node_indices.last().copied();
+            let start = origins.iter().find(|c| Some(c.node) == first).copied();
+            let end = targets.iter().find(|c| Some(c.node) == last).copied();
+            match (start, end, search.duration_seconds, search.distance_meters) {
+                (Some(start), Some(end), Some(seconds), Some(meters)) => {
+                    let (origin_distance, origin_time) =
+                        snap_units(start.meters(), Some(start.seconds()), "Drive origin snap")?;
+                    let (target_distance, target_time) =
+                        snap_units(end.meters(), Some(end.seconds()), "Drive target snap")?;
+                    let path_seconds = ((seconds * DRIVE_TIME_UNITS_PER_SECOND).round()
+                        - origin_time
+                        - target_time)
+                        / DRIVE_TIME_UNITS_PER_SECOND;
+                    let path_meters = ((meters * DRIVE_DISTANCE_UNITS_PER_METER).round()
+                        - origin_distance
+                        - target_distance)
+                        / DRIVE_DISTANCE_UNITS_PER_METER;
+                    Some((
+                        path_seconds + start.seconds() + end.seconds(),
+                        path_meters + start.meters() + end.meters(),
+                        start,
+                        end,
+                    ))
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let direct = self
+            .best_same_edge(&origin.candidates, &destination.candidates)
+            .filter(|direct| direct.1 <= input.maximum_distance_meters);
+        let chosen = match (routed, direct) {
+            (Some(routed), Some(direct))
+                if drive_value_better(direct.0, direct.1, routed.0, routed.1) =>
+            {
+                Some((direct, true))
+            }
+            (Some(routed), _) => Some((routed, false)),
+            (None, Some(direct)) => Some((direct, true)),
+            (None, None) => None,
+        };
+        result.reason = search.reason.clone();
+        let Some(((seconds, meters, start, end), along_one_edge)) = chosen else {
+            result.reason = result.reason.or(Some("no_path".to_owned()));
+            result.search = Some(search);
+            return Ok(result);
+        };
+        let mut coordinates = vec![start.road[0], start.road[1]];
+        let mut push = |point: [f64; 2]| {
+            if coordinates[coordinates.len() - 2..] != point {
+                coordinates.extend(point);
+            }
+        };
+        if !along_one_edge {
+            for &node in &search.node_indices {
+                push([self.node_lons[node as usize], self.node_lats[node as usize]]);
+            }
+            result.node_indices = search.node_indices.clone();
+        }
+        push(end.road);
+        result.status = "ready".to_owned();
+        result.reason = None;
+        result.duration_seconds = Some(seconds);
+        result.distance_meters = Some(meters);
+        result.drive_seconds = Some(seconds - start.walk_seconds - end.walk_seconds);
+        result.drive_meters = Some(meters - start.walk_meters - end.walk_meters);
+        result.origin_walk_seconds = Some(start.walk_seconds);
+        result.origin_walk_meters = Some(start.walk_meters);
+        result.destination_walk_seconds = Some(end.walk_seconds);
+        result.destination_walk_meters = Some(end.walk_meters);
+        result.drive_coordinates = coordinates;
+        result.search = Some(search);
+        Ok(result)
+    }
+
+    /// Durations and distances from every origin to every destination, each
+    /// priced as `route_coordinates` prices one trip. Unreachable pairs are
+    /// infinite.
+    #[cfg_attr(feature = "node", napi)]
+    pub fn route_coordinate_matrix(
+        &mut self,
+        input: DriveCoordinateMatrixInput,
+    ) -> napi::Result<DriveMatrixResult> {
+        let traffic = self.configure_traffic(input.traffic.as_ref())?;
+        let origins = self.attach_coordinates(
+            &input.origin_coordinates,
+            input.maximum_walk_meters,
+            input.walking_speed_kph,
+            true,
+            false,
+        )?;
+        let destinations = self.attach_coordinates(
+            &input.destination_coordinates,
+            input.maximum_walk_meters,
+            input.walking_speed_kph,
+            false,
+            false,
+        )?;
+        let pack = |attachments: &[crate::drive_attachment::Attachment]| {
+            let mut offsets = vec![0_u32];
+            let (mut nodes, mut meters, mut seconds) = (Vec::new(), Vec::new(), Vec::new());
+            for attachment in attachments {
+                for candidate in attachment.by_node() {
+                    nodes.push(candidate.node);
+                    meters.push(candidate.meters());
+                    seconds.push(candidate.seconds());
+                }
+                offsets.push(nodes.len() as u32);
+            }
+            (offsets, nodes, meters, seconds)
+        };
+        let (origin_offsets, origin_nodes, origin_snap_meters, origin_snap_seconds) =
+            pack(&origins);
+        let (target_offsets, target_nodes, target_snap_meters, target_snap_seconds) =
+            pack(&destinations);
+        let mut result = self.route_matrix(DriveMatrixInput {
+            origin_offsets,
+            origin_nodes,
+            origin_snap_meters,
+            origin_snap_seconds: Some(origin_snap_seconds),
+            target_offsets,
+            target_nodes,
+            target_snap_meters,
+            target_snap_seconds: Some(target_snap_seconds),
+            maximum_distance_meters: input.maximum_distance_meters,
+            traffic: input.traffic,
+        })?;
+        result.traffic_customization_ns = traffic.customization_ns;
+        result.traffic_metric_reused = traffic.metric_reused;
+        let columns = destinations.len();
+        for (row, origin) in origins.iter().enumerate() {
+            for (column, destination) in destinations.iter().enumerate() {
+                let Some((seconds, meters, _, _)) =
+                    self.best_same_edge(&origin.candidates, &destination.candidates)
+                else {
+                    continue;
+                };
+                let cell = row * columns + column;
+                if meters <= input.maximum_distance_meters
+                    && drive_value_better(
+                        seconds,
+                        meters,
+                        result.durations_s[cell],
+                        result.distances_m[cell],
+                    )
+                {
+                    if !result.durations_s[cell].is_finite() {
+                        result.ready_pairs += 1;
+                    }
+                    result.durations_s[cell] = seconds;
+                    result.distances_m[cell] = meters;
+                }
+            }
+        }
+        Ok(result)
     }
 }
 

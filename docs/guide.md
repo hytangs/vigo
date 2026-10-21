@@ -913,6 +913,8 @@ Street Route needs coordinate endpoints and returns full geometry. Street Matrix
 
 A free coordinate first attaches to its nearest pedestrian vertex or reciprocal edge. If that attachment belongs to a component with no public transit-access anchor, the query can recover to the nearest anchored component within 80 m. This applies to arbitrary coordinates without place-name exceptions. The connector and partial-edge distance count toward walking time and limits, and returned geometry includes the charged connector. Anonymous Reach seeds use the same recovery.
 
+Drive attaches a free coordinate to the nearest point of a drivable road segment and enters or leaves that road mid-segment, in its own direction. The straight gap is a walk at walking speed, returned as its own walk leg and counted against `maxWalkKm`. A point with no drivable road within that limit is blocked instead of being driven across open ground. Roads within 25 m of the nearest remain alternatives, which keeps both carriageways of a divided road available, and a nearest road detached from the main road network cannot trap a trip. Traffic closures make a road impassable; they do not move the point to another road.
+
 Stops keep their prepared physical anchors. Recovery never adds a street edge or a stop-to-stop transfer between disconnected components, a mapped authorized terminal path takes precedence, and a restricted endpoint cannot use recovery to bypass its directed exit. An off-network connector is a modeling assumption, not evidence of a surveyed entrance or a barrier-free crossing; an isolated place with no eligible street inside the radius stays unreachable.
 
 ### Authorized endpoint access

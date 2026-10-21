@@ -300,6 +300,8 @@ impl TimetableKernel {
                 from_stop,
                 can_board,
                 run_start,
+                run_end,
+                scan_events.len(),
                 reverse_transfer_offset,
                 reverse_transfer_edges,
                 exit_event_offset,
@@ -318,10 +320,13 @@ impl TimetableKernel {
             build_open_deadline_corridor(
                 *stop_count,
                 *run_count,
+                scan_events.len(),
                 boarding_upper_bound as usize,
                 restriction_mode.uses_forward(),
                 forward_run_layers,
                 &forward_workspace.scalar_runs,
+                run_start,
+                run_end,
             )
         };
         let reverse_ns = if restriction_mode.uses_reverse() {
@@ -330,7 +335,12 @@ impl TimetableKernel {
             0.0
         };
         let corridor_ns = corridor_started.elapsed().as_nanos() as f64;
-        let corridor_structure = corridor_structure_stats(&corridor, run_start, run_end);
+        let corridor_structure = corridor.structure;
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(
+            corridor_structure,
+            corridor_structure_stats(&corridor, run_start, run_end)
+        );
         let mut best = ParetoBest {
             deadline_objective,
             arrival: input.earliest_arrival,

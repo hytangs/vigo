@@ -1024,6 +1024,8 @@ function computePreparedMatrix(
         destinations: destinations.map((destination) => destination.point),
         walkingSpeedKph: request.walkSpeedKph,
         maxDistanceKm: request.maxDistanceKm,
+        // A drive endpoint walks to its road within the same limit.
+        maxWalkKm: options.maxWalkKm,
       })
   const assemblyStarted = performance.now()
   // Matrix owns fresh rows for this request; attach IDs without copying each row.

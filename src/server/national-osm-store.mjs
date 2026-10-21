@@ -12,8 +12,8 @@ import {
   normalizeDriveTrafficSnapshot,
   prepareNativeRoutingKernel,
   rasterNativeStreetSurface,
-  routeNativeDriveExact,
-  routeNativeDriveMatrix,
+  routeNativeDriveCoordinates,
+  routeNativeDriveCoordinateMatrix,
   routeNativeWalkMatrix,
   routeNativeStreetPath,
   normalizeNativeMilliseconds,
@@ -93,9 +93,11 @@ const driveAcceleratorSnapshotHeaderBytes = 4096
 const driveAcceleratorSnapshotSuffix = `.drive-accelerator-v${driveAcceleratorSnapshotVersion}.bin`
 const driveDistanceUnitsPerMeter = 100
 const driveTimeUnitsPerSecond = 100
-const driveSnapRecoveryMinimumDistanceKm = 0.025
-const driveSnapRecoveryRadiiKm = Object.freeze([0.35, 1, 3, 5])
-const driveSnapRecoveryCandidatesPerRadius = 48
+// A driving endpoint may walk this far, straight, to its nearest drivable road.
+const defaultDriveAccessWalkKm = 1.2
+// Endpoints attached farther than this past their nearest road had to skip a
+// road detached from the main network.
+const driveAttachmentRecoveryKm = 0.025
 const streetStoreCacheMaximumEntries = Math.max(1, Math.min(16, Math.floor(Number(process.env.VIGO_STREET_STORE_CACHE_MAX_ENTRIES ?? 4) || 4)))
 
 const explicitPedestrianAccessValues = new Set([
@@ -2649,45 +2651,6 @@ function runtimeStreetStoreError(storePath, operation) {
   return error
 }
 
-function acceleratedNodesInBounds(accelerator, coordinateValue, maxDistanceKm) {
-  if (!accelerator.spatialOffsets?.length) return []
-  const latitude = coordinateValue[1]
-  const longitude = coordinateValue[0]
-  const latDelta = maxDistanceKm / 110.574
-  const lonDelta = maxDistanceKm / Math.max(1, 111.32 * Math.cos(latitude * Math.PI / 180))
-  const minRow = Math.max(0, Math.floor((latitude - latDelta - accelerator.spatialMinLat) / accelerator.spatialCellDegrees))
-  const maxRow = Math.min(accelerator.spatialRows - 1, Math.floor((latitude + latDelta - accelerator.spatialMinLat) / accelerator.spatialCellDegrees))
-  const minColumn = Math.max(0, Math.floor((longitude - lonDelta - accelerator.spatialMinLon) / accelerator.spatialCellDegrees))
-  const maxColumn = Math.min(accelerator.spatialColumns - 1, Math.floor((longitude + lonDelta - accelerator.spatialMinLon) / accelerator.spatialCellDegrees))
-  if (maxRow < minRow || maxColumn < minColumn) return []
-  const candidates = []
-  for (let row = minRow; row <= maxRow; row += 1) {
-    for (let column = minColumn; column <= maxColumn; column += 1) {
-      const cell = row * accelerator.spatialColumns + column
-      const start = accelerator.spatialOffsets[cell]
-      const end = accelerator.spatialOffsets[cell + 1]
-      for (let cursor = start; cursor < end; cursor += 1) {
-        const nodeIndex = accelerator.spatialNodeIndices[cursor]
-        const nodeLat = accelerator.nodeLats[nodeIndex]
-        const nodeLon = accelerator.nodeLons[nodeIndex]
-        if (nodeLat < latitude - latDelta || nodeLat > latitude + latDelta || nodeLon < longitude - lonDelta || nodeLon > longitude + lonDelta) continue
-        const distanceKm = haversineKm(coordinateValue, [nodeLon, nodeLat])
-        if (distanceKm <= maxDistanceKm) candidates.push({
-          // Drive node ids are only used to make the snap shortlist stable;
-          // the native kernel addresses the resident graph by compact index.
-          // Runtime snapshots intentionally omit the redundant source-id array.
-          node_id: accelerator.nodeIds?.[nodeIndex] ?? nodeIndex,
-          nodeIndex,
-          lat: nodeLat,
-          lon: nodeLon,
-          distanceKm,
-        })
-      }
-    }
-  }
-  return candidates
-}
-
 export function streetPathBetween(storePath, fromCoordinate, toCoordinate, maxDistanceKm, maximumPoints = publicWalkMaximumPoints) {
   openRuntimeStreetStore(storePath)
   if (!nativeStreetCchPrepared(storePath)) {
@@ -2706,158 +2669,86 @@ export function streetPathBetween(storePath, fromCoordinate, toCoordinate, maxDi
   )
 }
 
-function driveNodesWithinRadius(state, coordinateValue, radiusKm) {
-  if (!state.driveAccelerator) return []
-  return acceleratedNodesInBounds(state.driveAccelerator, coordinateValue, radiusKm)
-    .filter((node) => state.driveAccelerator.driveNodeMask[node.nodeIndex] && node.distanceKm <= radiusKm)
-    .sort((left, right) => left.distanceKm - right.distanceKm || left.node_id - right.node_id)
-}
-
-function nearbyDriveNodes(state, coordinateValue, maxSnapKm = 0.35, limit = 6) {
-  for (const radiusKm of [0.06, 0.12, maxSnapKm]) {
-    const candidates = driveNodesWithinRadius(state, coordinateValue, radiusKm).slice(0, limit)
-    if (candidates.length) return candidates
-  }
-  return []
-}
-
-function recoveryDriveNodes(state, coordinateValue) {
-  let candidates = []
-  for (const radiusKm of driveSnapRecoveryRadiiKm) {
-    candidates = driveNodesWithinRadius(state, coordinateValue, radiusKm)
-    if (candidates.length >= driveSnapRecoveryCandidatesPerRadius) break
-  }
-  return candidates.slice(0, driveSnapRecoveryCandidatesPerRadius)
-}
-
-function minimumDriveSnapDistanceKm(candidates) {
-  return candidates.length
-    ? Math.min(...candidates.map((candidate) => candidate.distanceKm))
-    : Number.POSITIVE_INFINITY
-}
-
-function driveCandidatesForCoordinate(state, coordinateValue) {
-  const primary = nearbyDriveNodes(state, coordinateValue, 0.35, 6)
-  const recovery = minimumDriveSnapDistanceKm(primary) > driveSnapRecoveryMinimumDistanceKm
-  return {
-    candidates: recovery ? recoveryDriveNodes(state, coordinateValue) : primary,
-    snapRecovery: recovery,
-  }
-}
-
-function drivePathCoordinates(state, nodeIndices, fromCoordinate, toCoordinate) {
-  if (!nodeIndices.length) return [fromCoordinate, toCoordinate]
-  const stride = Math.max(1, Math.ceil(nodeIndices.length / 1_200))
-  const sampled = nodeIndices
-    .filter((_nodeIndex, index) => index === 0 || index === nodeIndices.length - 1 || index % stride === 0)
-    .map((nodeIndex) => [
-      state.driveAccelerator.nodeLons[nodeIndex],
-      state.driveAccelerator.nodeLats[nodeIndex],
-    ])
-  return [fromCoordinate, ...sampled, toCoordinate]
-}
-
-function nativeDrivePathBetween(state, fromCoordinate, toCoordinate, maxDistanceKm, origins, targets, traffic, roadGeometryOnly = false) {
-  const accelerator = state.driveAccelerator
-  if (!accelerator) return null
+// Drive between two free coordinates. The native kernel attaches each endpoint
+// to its nearest drivable road by segment projection; the gap is a straight
+// walk, and a gap longer than the walking limit blocks the trip.
+function drivePathBetween(state, fromCoordinate, toCoordinate, maxDistanceKm, traffic, options = {}) {
   const startedAt = performance.now()
-  const snappedResult = routeNativeDriveExact(accelerator, {
-    origins,
-    targets,
+  const accelerator = state.driveAccelerator
+  // Scenario traces join consecutive legs at one road point and publish
+  // only the road geometry, without the walks to it.
+  const roadGeometryOnly = options.roadGeometryOnly === true
+  const result = routeNativeDriveCoordinates(accelerator, {
+    origin: fromCoordinate,
+    destination: toCoordinate,
+    maximumWalkKm: options.maximumWalkKm,
+    walkingSpeedKph: options.walkingSpeedKph,
     maximumDistanceKm: maxDistanceKm,
     traffic: traffic?.nativeInput,
+    nearestRoadOnly: roadGeometryOnly || options.originAtRoadNode === true,
   })
-  // Scenario traces move their stops onto the selected road nodes. Query
-  // those exact nodes again so both the geometry and its distance/runtime
-  // exclude the point-to-road connectors used to choose the initial snaps.
-  const result = roadGeometryOnly && snappedResult.status === 'ready' && snappedResult.nodeIndices.length
-    ? routeNativeDriveExact(accelerator, {
-        origins: [{ nodeIndex: snappedResult.nodeIndices[0], distanceKm: 0 }],
-        targets: [{ nodeIndex: snappedResult.nodeIndices.at(-1), distanceKm: 0 }],
-        maximumDistanceKm: maxDistanceKm,
-        traffic: traffic?.nativeInput,
-      })
-    : snappedResult
-  const searchMs = timingMilliseconds(result.queryMs)
-    + (result === snappedResult ? 0 : timingMilliseconds(snappedResult.queryMs))
-  const settledNodes = result.settledLabels + (result === snappedResult ? 0 : snappedResult.settledLabels)
-  const relaxedEdges = result.relaxedEdges + (result === snappedResult ? 0 : snappedResult.relaxedEdges)
-  accelerator.queryCount += result === snappedResult ? 1 : 2
-  accelerator.queryMs = timingMilliseconds(accelerator.queryMs) + searchMs
-  accelerator.settledNodes += settledNodes
-  accelerator.relaxedEdges += relaxedEdges
-  return {
-    path: result.status !== 'ready'
-      ? null
+  const search = result.search ?? {}
+  accelerator.queryCount += 1
+  accelerator.queryMs = timingMilliseconds(accelerator.queryMs) + result.queryMs
+  accelerator.settledNodes += search.settledLabels ?? 0
+  accelerator.relaxedEdges += search.relaxedEdges ?? 0
+  const ready = result.status === 'ready'
+  const roads = []
+  for (let index = 0; index + 1 < result.driveCoordinates.length; index += 2) {
+    roads.push([result.driveCoordinates[index], result.driveCoordinates[index + 1]])
+  }
+  const walk = (meters, seconds, from, to) => ({ distanceKm: meters / 1_000, durationSeconds: seconds, coordinates: [from, to] })
+  const path = !ready
+    ? null
+    : roadGeometryOnly
+      ? {
+          distanceKm: result.driveMeters / 1_000,
+          durationSeconds: result.driveSeconds,
+          coordinates: roads,
+          originSnapDistanceKm: result.originWalkMeters / 1_000,
+          destinationSnapDistanceKm: result.destinationWalkMeters / 1_000,
+        }
       : {
           distanceKm: result.distanceMeters / 1_000,
           durationSeconds: result.durationSeconds,
-          coordinates: roadGeometryOnly
-            ? drivePathCoordinates(state, result.nodeIndices, fromCoordinate, toCoordinate).slice(1, -1)
-            : drivePathCoordinates(state, result.nodeIndices, fromCoordinate, toCoordinate),
-          originSnapDistanceKm: snappedResult.originSnapMeters / 1_000,
-          destinationSnapDistanceKm: snappedResult.targetSnapMeters / 1_000,
-        },
-    settledNodes,
-    relaxedEdges,
-    searchMs,
-    failureCode: result.reason ?? null,
+          driveDistanceKm: result.driveMeters / 1_000,
+          driveSeconds: result.driveSeconds,
+          coordinates: roads,
+          originWalk: walk(result.originWalkMeters, result.originWalkSeconds, fromCoordinate, roads[0]),
+          destinationWalk: walk(result.destinationWalkMeters, result.destinationWalkSeconds, roads.at(-1), toCoordinate),
+          originSnapDistanceKm: result.originWalkMeters / 1_000,
+          destinationSnapDistanceKm: result.destinationWalkMeters / 1_000,
+        }
+  const recovered = (walkMeters, roadMeters) => walkMeters / 1_000 > (roadMeters ?? 0) / 1_000 + driveAttachmentRecoveryKm
+  return {
+    path,
+    settledNodes: search.settledLabels ?? 0,
+    relaxedEdges: search.relaxedEdges ?? 0,
+    searchMs: result.queryMs,
+    failureCode: ready ? null : result.reason ?? 'no_path',
+    originRoadKm: result.originRoadMeters == null ? null : result.originRoadMeters / 1_000,
+    destinationRoadKm: result.destinationRoadMeters == null ? null : result.destinationRoadMeters / 1_000,
+    snapRecovery: ready && !roadGeometryOnly && (recovered(result.originWalkMeters, result.originRoadMeters)
+      || recovered(result.destinationWalkMeters, result.destinationRoadMeters)),
     accelerated: true,
     acceleratorSource: accelerator.source,
-    algorithm: result.algorithm,
-    cchAccelerated: result.cchAccelerated === true,
-    cchSource: result.cchSource,
-    cchCandidateQueries: Number(result.cchCandidateQueries ?? 0)
-      + (result === snappedResult ? 0 : Number(snappedResult.cchCandidateQueries ?? 0)),
-    trafficApplied: result.trafficApplied === true,
-    trafficSnapshotKey: result.trafficSnapshotKey,
-    trafficUpdatedEdges: result.trafficUpdatedEdges,
-    trafficCustomizationMs: normalizeNativeMilliseconds(result.trafficCustomizationNs),
-    trafficMetricReused: result.trafficMetricReused === true,
-    fastPathMs: normalizeNativeMilliseconds(result.fastPathQueryNs),
-    distancePathMs: normalizeNativeMilliseconds(result.distancePathQueryNs),
-    fallbackMs: normalizeNativeMilliseconds(result.fallbackQueryNs),
-    fallbackUsed: result.fallbackUsed === true,
-    generatedLabels: result.generatedLabels,
-    dominatedLabels: result.dominatedLabels,
-    boundaryMs: Number((performance.now() - startedAt).toFixed(3)),
+    algorithm: search.algorithm,
+    cchAccelerated: search.cchAccelerated === true,
+    cchSource: search.cchSource,
+    cchCandidateQueries: Number(search.cchCandidateQueries ?? 0),
+    trafficApplied: search.trafficApplied === true,
+    trafficSnapshotKey: search.trafficSnapshotKey,
+    trafficUpdatedEdges: search.trafficUpdatedEdges,
+    trafficCustomizationMs: normalizeNativeMilliseconds(search.trafficCustomizationNs ?? 0),
+    trafficMetricReused: search.trafficMetricReused === true,
+    fastPathMs: normalizeNativeMilliseconds(search.fastPathQueryNs ?? 0),
+    distancePathMs: normalizeNativeMilliseconds(search.distancePathQueryNs ?? 0),
+    fallbackMs: normalizeNativeMilliseconds(search.fallbackQueryNs ?? 0),
+    fallbackUsed: search.fallbackUsed === true,
+    generatedLabels: search.generatedLabels ?? 0,
+    dominatedLabels: search.dominatedLabels ?? 0,
+    queryMs: Number((performance.now() - startedAt).toFixed(3)),
   }
-}
-
-function drivePathBetween(state, fromCoordinate, toCoordinate, maxDistanceKm, traffic, options = {}) {
-  const startedAt = performance.now()
-  const originCandidates = driveCandidatesForCoordinate(state, fromCoordinate)
-  const destinationCandidates = driveCandidatesForCoordinate(state, toCoordinate)
-  // A preceding scenario segment has already selected this stop's graph
-  // node. Allowing another origin snap here can disconnect the two paths.
-  const origins = options.originAtRoadNode
-    ? originCandidates.candidates.filter((candidate) => candidate.distanceKm === 0)
-    : originCandidates.candidates
-  const targets = destinationCandidates.candidates
-  const snapRecovery = originCandidates.snapRecovery || destinationCandidates.snapRecovery
-  const result = origins.length && targets.length
-    ? nativeDrivePathBetween(
-      state,
-      fromCoordinate,
-      toCoordinate,
-      maxDistanceKm,
-      origins,
-      targets,
-      traffic,
-      options.roadGeometryOnly === true,
-    )
-    : {
-        path: null,
-        settledNodes: 0,
-        relaxedEdges: 0,
-        searchMs: 0,
-        failureCode: 'street_snap_failed',
-        accelerated: true,
-        acceleratorSource: state.driveAccelerator?.source,
-      }
-  if (snapRecovery) result.snapRecovery = true
-  result.queryMs = Number((performance.now() - startedAt).toFixed(3))
-  return result
 }
 
 function streetRouteSearchDiagnostics(queryMs, search, mode) {
@@ -3005,10 +2896,14 @@ export function routeNationalStreetStore(storePath, request) {
   normalizedRequest.maxStreetKm = maxStreetKm
   let pathResult
   let search
+  const walkingSpeedKph = Math.max(1, Math.min(12, Number(request.walkingSpeedKph) || 4.8))
+  const driveAccessWalkKm = Math.max(0, Math.min(100, Number(request.maxWalkKm ?? defaultDriveAccessWalkKm)))
   if (mode === 'drive') {
     search = drivePathBetween(state, originCoordinate, destinationCoordinate, maxStreetKm, traffic, {
       roadGeometryOnly: request.roadGeometryOnly === true,
       originAtRoadNode: request.originAtRoadNode === true,
+      maximumWalkKm: driveAccessWalkKm,
+      walkingSpeedKph,
     })
     pathResult = search.path
   } else if (nativeWalk) {
@@ -3045,7 +2940,9 @@ export function routeNationalStreetStore(storePath, request) {
       failureCode,
       failureCode === 'street_snap_failed'
         ? `The ${mode} graph does not reach one of these points.`
-        : `No ${mode} path was found within ${maxStreetKm.toFixed(1)} km.`,
+        : failureCode === 'no_drivable_road_within_walk'
+          ? `No drivable road lies within ${driveAccessWalkKm.toFixed(1)} km of the ${search?.originRoadKm == null ? 'origin' : 'destination'}.`
+          : `No ${mode} path was found within ${maxStreetKm.toFixed(1)} km.`,
       {
         searchStats: streetRouteSearchDiagnostics(performance.now() - startedAt, search, mode),
         ...(mode === 'drive' ? {
@@ -3081,7 +2978,6 @@ export function routeNationalStreetStore(storePath, request) {
     }
   }
 
-  const walkingSpeedKph = Math.max(1, Math.min(12, Number(request.walkingSpeedKph) || 4.8))
   const durationMinutes = mode === 'drive'
     ? pathResult.durationSeconds / 60
     : pathResult.distanceKm / walkingSpeedKph * 60
@@ -3091,6 +2987,38 @@ export function routeNationalStreetStore(storePath, request) {
   const fromName = String(request.origin?.label ?? 'Origin')
   const toName = String(request.destination?.label ?? 'Destination')
   const trafficApplied = mode === 'drive' && traffic?.status === 'applied' && search?.trafficApplied === true
+  // A drive walks straight between each free endpoint and its road. Gaps
+  // below a meter are rounding, not walks; their seconds stay in the drive.
+  const legs = []
+  let clock = departMinutes
+  const pushLeg = (type, minutes, legDistanceKm, coordinates, extra = {}) => {
+    legs.push({
+      type,
+      travelMode: type,
+      fromName: legs.length ? 'Road' : fromName,
+      toName: 'Road',
+      startMinutes: clock,
+      endMinutes: clock + minutes,
+      durationMinutes: minutes,
+      distanceKm: legDistanceKm,
+      stopCount: 0,
+      coordinates,
+      ...extra,
+    })
+    clock += minutes
+  }
+  const walks = mode === 'drive' && pathResult.originWalk
+    ? [pathResult.originWalk, pathResult.destinationWalk].map((walk) => walk.distanceKm >= 0.0005 ? walk : null)
+    : [null, null]
+  const connector = (walk) => pushLeg('walk', walk.durationSeconds / 60, walk.distanceKm, walk.coordinates,
+    { walkSource: 'direct', streetPathVerified: false })
+  if (walks[0]) connector(walks[0])
+  const walkMinutes = walks.reduce((sum, walk) => sum + (walk ? walk.durationSeconds / 60 : 0), 0)
+  pushLeg(mode, durationMinutes - walkMinutes,
+    distanceKm - walks.reduce((sum, walk) => sum + (walk?.distanceKm ?? 0), 0), pathResult.coordinates)
+  if (walks[1]) connector(walks[1])
+  legs.at(-1).toName = toName
+  legs.at(-1).endMinutes = arriveMinutes
   const plan = {
     id: `street-${mode}`,
     status: 'ready',
@@ -3107,21 +3035,10 @@ export function routeNationalStreetStore(storePath, request) {
     arriveMinutes,
     durationMinutes,
     waitMinutes: 0,
-    walkMinutes: mode === 'walk' ? durationMinutes : 0,
-    rideMinutes: mode === 'drive' ? durationMinutes : 0,
+    walkMinutes: mode === 'walk' ? durationMinutes : walkMinutes,
+    rideMinutes: mode === 'drive' ? durationMinutes - walkMinutes : 0,
     transfers: 0,
-    legs: [{
-      type: mode,
-      travelMode: mode,
-      fromName,
-      toName,
-      startMinutes: departMinutes,
-      endMinutes: arriveMinutes,
-      durationMinutes,
-      distanceKm,
-      stopCount: 0,
-      coordinates: pathResult.coordinates,
-    }],
+    legs,
     diagnostics: {
       scannedDepartures: 0,
       relaxedStops: 0,
@@ -3129,7 +3046,8 @@ export function routeNationalStreetStore(storePath, request) {
       scheduleMode: 'none',
       roadMetricMode: trafficApplied ? 'traffic-adjusted' : 'free-flow',
       walkingNetwork: mode === 'walk' ? 'osm' : 'direct',
-      walkingSpeedKph: mode === 'walk' ? walkingSpeedKph : 0,
+      walkingSpeedKph,
+      ...(mode === 'drive' ? { driveAccessWalkKm } : {}),
       algorithm: mode === 'drive' ? 'rust_cch_drive_certified' : 'rust_cch_walk_exact',
       weightModel: mode === 'drive'
         ? trafficApplied ? 'snapshot_customized_traffic_seconds' : 'free_flow_seconds'
@@ -3226,7 +3144,6 @@ export function routeNationalStreetMatrix(storePath, request = {}, options = {})
   const walkingSpeedKph = Math.max(1, Math.min(12, Number(request.walkingSpeedKph) || 4.8))
   let native
   let traffic = null
-  let snapRecoveryCount = 0
   if (mode === 'walk') {
     const prepared = prepareNationalOsmNativeStore(storePath)
     if (!prepared.ready || !prepared.accelerated) {
@@ -3267,19 +3184,11 @@ export function routeNationalStreetMatrix(storePath, request = {}, options = {})
       request.trafficSnapshot,
       state.metadata.sourceFingerprint,
     )
-    const originCandidateSets = originSet.unique.map((point) => {
-      const result = driveCandidatesForCoordinate(state, point.coordinate)
-      if (result.snapRecovery) snapRecoveryCount += 1
-      return result.candidates
-    })
-    const destinationCandidateSets = destinationSet.unique.map((point) => {
-      const result = driveCandidatesForCoordinate(state, point.coordinate)
-      if (result.snapRecovery) snapRecoveryCount += 1
-      return result.candidates
-    })
-    native = routeNativeDriveMatrix(state.driveAccelerator, {
-      originCandidateSets,
-      destinationCandidateSets,
+    native = routeNativeDriveCoordinateMatrix(state.driveAccelerator, {
+      originCoordinates: originSet.unique.flatMap((point) => point.coordinate),
+      destinationCoordinates: destinationSet.unique.flatMap((point) => point.coordinate),
+      maximumWalkKm: Math.max(0, Math.min(100, Number(request.maxWalkKm ?? defaultDriveAccessWalkKm))),
+      walkingSpeedKph,
       maximumDistanceKm,
       traffic: traffic?.nativeInput,
     })
@@ -3336,7 +3245,6 @@ export function routeNationalStreetMatrix(storePath, request = {}, options = {})
       pathQueries: native.diagnostics.pathQueries ?? null,
       sourceCandidates: native.diagnostics.sourceCandidates ?? null,
       destinationCandidates: native.diagnostics.destinationCandidates ?? null,
-      snapRecoveryCount,
       maximumDistanceKm,
       walkingSpeedKph: mode === 'walk' ? walkingSpeedKph : null,
       ...(mode === 'drive' && trafficDiagnostics ? {

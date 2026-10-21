@@ -67,7 +67,7 @@ impl Runtime {
             Some(
                 drive
                     .kernel
-                    .compile_traffic(value, fingerprint, &drive.lons, &drive.lats)?,
+                    .compile_traffic(value, fingerprint)?,
             )
         };
         drive.automatic_traffic = snapshot;

@@ -38,6 +38,8 @@ Source: `native/vigo-routing-kernel/src/exact_routing.rs`.
 | `targetSnapMeters` | `Vec<f64>` | Yes | Destination snap distances in meters, parallel to candidate nodes. |
 | `maximumDistanceMeters` | `f64` | Yes | Maximum drive path distance in meters. |
 | `traffic` | `Option<DriveTrafficInput>` | No | Optional directed drive-edge metric updates. |
+| `originSnapSeconds` | `Option<Vec<f64>>` | No | — |
+| `targetSnapSeconds` | `Option<Vec<f64>>` | No | — |
 
 ## DriveMatrixResult
 
@@ -71,6 +73,8 @@ Source: `native/vigo-routing-kernel/src/exact_routing.rs`.
 | `targetSnapMeters` | `Vec<f64>` | Yes | Destination snap distances in meters, parallel to candidate nodes. |
 | `maximumDistanceMeters` | `f64` | Yes | Maximum drive path distance in meters. |
 | `traffic` | `Option<DriveTrafficInput>` | No | Optional directed drive-edge metric updates. |
+| `originSnapSeconds` | `Option<Vec<f64>>` | No | Seconds to reach each candidate from its endpoint, when the caller prices the snap itself. |
+| `targetSnapSeconds` | `Option<Vec<f64>>` | No | — |
 
 ## DriveQueryResult
 

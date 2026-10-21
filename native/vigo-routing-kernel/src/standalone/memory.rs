@@ -209,9 +209,7 @@ impl City {
 impl super::city::Drive {
     fn memory_ledger(&self) -> Value {
         let mut ledger = self.kernel.memory_ledger();
-        let extra = (self.lons.capacity() + self.lats.capacity()) * 8
-            + (self.spatial_offsets.capacity() + self.spatial_nodes.capacity()) * 4
-            + self.image.header.heap_bytes();
+        let extra = self.image.header.heap_bytes();
         ledger["networkHeapBytes"] =
             json!(ledger["networkHeapBytes"].as_u64().unwrap_or(0) + extra as u64);
         ledger["mappedFileBytes"] = json!(

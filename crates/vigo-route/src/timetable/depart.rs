@@ -314,14 +314,43 @@ impl TimetableKernel {
             if !bucket_boardings.is_empty() {
                 bucket_boardings.clear();
             }
+            workspace.instant_time = connection_departure;
+            let closure = scan_time_needs_closure[time_index];
+            if closure && workspace.event_closure_tick.len() < end - start {
+                workspace.event_closure_tick.resize(end - start, 0);
+            }
+            let mut revisit_all = true;
             loop {
-                let previous_changes = (stats.relaxed_stops, stats.expanded_trip_runs);
-                stats.scanned_departures += (end - start) as u32;
+                let previous_instant_labels = workspace.instant_labels;
+                let previous_replacements = workspace.instant_replacements;
+                if revisit_all {
+                    stats.scanned_departures += (end - start) as u32;
+                }
                 for (offset, &event) in bucket_events.iter().enumerate() {
                     let connection = start + offset;
                     let scan_flags = event.flags();
                     let stop = event.source_stop();
                     let run = event.run();
+                    if closure {
+                        // A revisit repeats this event's last decisions unless
+                        // its stop gained a label it can board from, or its run
+                        // changed, since that visit.
+                        let visited = workspace.event_closure_tick[offset];
+                        if !revisit_all
+                            && workspace.stop_closure_tick[stop] <= visited
+                            && workspace.run_closure_tick[run] <= visited
+                        {
+                            continue;
+                        }
+                        if !revisit_all {
+                            stats.scanned_departures += 1;
+                        }
+                        workspace.closure_tick += 2;
+                        workspace.event_closure_tick[offset] = workspace.closure_tick;
+                        // A label this event creates at its own stop is newer
+                        // than this visit; its own run changes are not.
+                        workspace.instant_stamp = workspace.closure_tick + 1;
+                    }
                     // Unreachable source and inactive run: nothing to board or ride.
                     if !bit_is_set(&workspace.active_run_bits, run)
                         && (scan_flags & SCAN_CAN_BOARD == 0
@@ -408,8 +437,10 @@ impl TimetableKernel {
                     };
                     let mut run_updated = false;
                     if boarding_state >= 0 {
-                        forward_workspace.scalar_first_boarding[run] =
-                            forward_workspace.scalar_first_boarding[run].min(journey.sequence);
+                        if journey.sequence < forward_workspace.scalar_first_boarding[run] {
+                            forward_workspace.scalar_first_boarding[run] = journey.sequence;
+                            workspace.run_closure_tick[run] = workspace.closure_tick;
+                        }
                         let candidate_boardings = workspace.labels[boarding_state as usize]
                             .boardings
                             .saturating_add(1);
@@ -447,6 +478,7 @@ impl TimetableKernel {
                             }
                             workspace.expanded_run_start[run] = connection as i32;
                             workspace.run_predecessor_state[run] = boarding_state;
+                            workspace.run_closure_tick[run] = workspace.closure_tick;
                             run_updated = true;
                             stats.expanded_trip_runs += 1;
                         } else {
@@ -462,6 +494,7 @@ impl TimetableKernel {
                                     },
                                 )
                             {
+                                workspace.run_closure_tick[run] = workspace.closure_tick;
                                 stats.expanded_trip_runs += 1;
                             } else {
                                 stats.dominated_trip_boardings += 1;
@@ -507,8 +540,11 @@ impl TimetableKernel {
                     let trip = journey.trip as i32;
                     if connection > boarding && scan_flags & SCAN_BRIDGE_EXIT != 0 {
                         let bridge_arrival = connection_departure;
-                        if bridge_arrival <= input.horizon && bridge_arrival <= best.arrival {
-                            let bridge_stop = event.source_stop();
+                        let bridge_stop = event.source_stop();
+                        if bridge_arrival <= input.horizon
+                            && bridge_arrival <= best.arrival
+                            && !workspace.ride_candidate_later(epoch, bridge_stop, 1, bridge_arrival)
+                        {
                             let bridge_state = relax_connection_scan::<RETAIN_JOURNEY>(
                                 workspace,
                                 epoch,
@@ -551,6 +587,9 @@ impl TimetableKernel {
                         continue;
                     }
                     let alight_stop = arrival.to as usize;
+                    if workspace.ride_candidate_later(epoch, alight_stop, 1, connection_arrival) {
+                        continue;
+                    }
                     let alight_state = relax_connection_scan::<RETAIN_JOURNEY>(
                         workspace,
                         epoch,
@@ -583,14 +622,19 @@ impl TimetableKernel {
                         );
                     }
                 }
-                if !scan_time_needs_closure[time_index]
-                    || previous_changes == (stats.relaxed_stops, stats.expanded_trip_runs)
-                {
+                // Only a label arriving at this bucket's own time can board an
+                // earlier departure of the bucket. Later labels and run updates
+                // would repeat this pass's decisions.
+                if !closure || workspace.instant_labels == previous_instant_labels {
                     break;
                 }
+                // A replaced label can be a run's boarding predecessor, which
+                // later rides of that run read: revisit everything.
+                revisit_all = workspace.instant_replacements != previous_replacements;
             }
             time_index += 1;
         }
+        workspace.instant_time = f64::NEG_INFINITY;
         let scan_ns = scan_started.elapsed().as_nanos() as f64;
 
         if best.state >= 0 {

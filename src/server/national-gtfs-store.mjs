@@ -6009,6 +6009,8 @@ export function routeNationalGtfsReach(storePath, request, options = {}) {
     }) : routeNationalStreetMatrix(streetStorePath, {
       origins: [request.origin], destinations, mode, walkingSpeedKph: speed,
       maxDistanceKm: mode === 'drive' ? 750 : Math.min(maxWalkKm, cutoff / 60 * speed),
+      // Driving cells walk straight to their nearest road within the same limit.
+      ...(mode === 'drive' ? { maxWalkKm } : {}),
     })
     queryCount += 1
     if (['unsupported_gtfs_feature', 'coverage_incomplete'].includes(matrix.diagnostics?.failure?.code)) {

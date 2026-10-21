@@ -372,6 +372,43 @@ if (worker) {
   assert.equal(reverseDrive.status, 'blocked')
   assert.equal(reverseDrive.diagnostics.failureCode, 'no_path')
 
+  // A click beside a road attaches to the nearest point of the road segment,
+  // not to its nearest node, and walks there straight.
+  const besideRoad = routeNationalStreetStore(currentStore, {
+    ...driveRequest,
+    origin: { coordinate: [-70.9994, 42.0008], label: 'Beside the road', source: 'map' },
+    departMinutes: 489,
+  })
+  assert.equal(besideRoad.status, 'ready')
+  assert(besideRoad.diagnostics.originSnapDistanceM > 20 && besideRoad.diagnostics.originSnapDistanceM < 25,
+    'The origin projects onto the segment 22 m away; its nearest nodes are about 54 m away.')
+  assert.deepEqual(besideRoad.legs.map((leg) => leg.type), ['walk', 'drive'])
+  assert.equal(besideRoad.legs[0].walkSource, 'direct')
+  assert.equal(besideRoad.legs[0].streetPathVerified, false)
+  assert.deepEqual(besideRoad.legs[0].coordinates[0], [-70.9994, 42.0008])
+  assert(Math.abs(besideRoad.legs[1].coordinates[0][0] + 70.9994) < 1e-9)
+  assert(Math.abs(besideRoad.legs[1].coordinates[0][1] - 42.0010) < 1e-9)
+  assert.equal(besideRoad.legs[1].startMinutes, besideRoad.legs[0].endMinutes)
+  assert(besideRoad.walkMinutes > 0 && besideRoad.rideMinutes > 0)
+  assert(Math.abs(besideRoad.walkMinutes + besideRoad.rideMinutes - besideRoad.durationMinutes) < 1e-9)
+
+  // Beyond the walking limit there is no drivable road to reach on foot; the
+  // trip is blocked instead of crossing open ground as if by car.
+  const offRoad = { coordinate: [-71.0300, 42.0010], label: 'Far off-road', source: 'map' }
+  const tooFar = routeNationalStreetStore(currentStore, { ...driveRequest, origin: offRoad, departMinutes: 490 })
+  assert.equal(tooFar.status, 'blocked')
+  assert.equal(tooFar.diagnostics.failureCode, 'no_drivable_road_within_walk')
+  const longerWalk = routeNationalStreetStore(currentStore, {
+    ...driveRequest, origin: offRoad, maxWalkKm: 3, departMinutes: 491,
+  })
+  assert.equal(longerWalk.status, 'ready')
+  assert.equal(longerWalk.legs[0].type, 'walk')
+  assert(longerWalk.legs[0].distanceKm > 1.2)
+  const farMatrix = routeNationalStreetMatrix(currentStore, {
+    mode: 'drive', origins: [offRoad], destinations: [driveRequest.destination], maxStreetKm: 20,
+  })
+  assert.equal(farMatrix.rows[0].status, 'blocked')
+
   const walkMatrix = routeNationalStreetMatrix(currentStore, {
     mode: 'walk',
     origins: [
@@ -728,12 +765,17 @@ if (worker) {
   assert.equal(continuous.segments.length, 2)
   assert.deepEqual(continuous.segments[0].coordinates.at(-1), continuous.segments[1].coordinates[0],
     'Adjacent road segments must use the same graph node for their shared stop.')
-  assert.deepEqual(continuous.snappedCoordinates[1], [-70.9988, 42.0018])
-  assert.deepEqual(continuous.segments[1].coordinates, [[-70.9988, 42.0018], driveRequest.destination.coordinate],
-    'The next segment must start at the previous arrival node, even when another origin snap is faster.')
-  assert.equal(continuous.segments[0].distanceKm, 0)
-  assert.equal(continuous.segments[1].distanceKm, 0.125)
-  assert.equal(continuous.segments[1].durationMinutes, 8 / 60)
+  // The middle stop lies 33 m from the diagonal road 13 -> 12 and 44 m from
+  // node 13: it attaches to the nearest point of that road, which splits the
+  // same 125 m, 8 s road path between the two segments.
+  const [middleLon, middleLat] = continuous.snappedCoordinates[1]
+  const along = (middleLon + 70.9988) / (-70.9976 + 70.9988)
+  assert(along > 0.2 && along < 0.5, `The middle stop projects inside road 13 -> 12 (${along}).`)
+  assert(Math.abs(middleLat - (42.0018 - along * 0.0008)) < 1e-9)
+  assert.deepEqual(continuous.segments[1].coordinates, [continuous.snappedCoordinates[1], driveRequest.destination.coordinate],
+    'The next segment must start at the previous arrival point, even when another origin snap is faster.')
+  assert(Math.abs(continuous.segments[0].distanceKm + continuous.segments[1].distanceKm - 0.125) < 1e-6)
+  assert(Math.abs(continuous.segments[0].durationMinutes + continuous.segments[1].durationMinutes - 8 / 60) < 1e-6)
 
   const fallbackWorker = new Worker(new URL('../src/server/national-route-worker.mjs', import.meta.url))
   const fallbackResult = await new Promise((resolve, reject) => {

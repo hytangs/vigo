@@ -31,8 +31,9 @@ pub fn import(city_path: &str, options: &HashMap<String, String>) -> Result<Valu
     let mut city = City::open(city_path)?;
     city.load_drive()?;
     let drive = city.drive.as_mut().unwrap();
+    let (lons, lats) = drive.kernel.coordinates();
     config
-        .retain_near(&drive.lons, &drive.lats, 120.)
+        .retain_near(lons, lats, 120.)
         .map_err(std::io::Error::other)?;
     let city_ms = started.elapsed().as_secs_f64() * 1000. - config_ms;
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as i64;
@@ -44,12 +45,9 @@ pub fn import(city_path: &str, options: &HashMap<String, String>) -> Result<Valu
         .as_str()
         .ok_or("Missing street fingerprint")?;
     let matching = Instant::now();
-    let snapshot = drive.kernel.compile_traffic(
-        &batch.snapshot(fingerprint),
-        fingerprint,
-        &drive.lons,
-        &drive.lats,
-    )?;
+    let snapshot = drive
+        .kernel
+        .compile_traffic(&batch.snapshot(fingerprint), fingerprint)?;
     let mut prepared = snapshot.prepared();
     prepared["ingestion"] = json!({"provider":"ndw-datex2-v3-avg","configuredSites":config.site_count(),"outOfCitySites":config.excluded_site_count(),
         "configurationRejected":config.rejected,"measurementsRejected":batch.rejected,

@@ -387,7 +387,7 @@ Exact identifiers are case-sensitive. Multi-feed IDs may contain a feed scope an
 | `timeMinutes` | Alternative clock | Number 0–4319; never combine with `time` |
 | `timePreference` | `depart_at` | `depart_at` or `arrive_by`; aliases `depart` and `arrive` accepted |
 | `mode` | `transit` | `transit`, `walk`, `drive` |
-| `maxWalkKm` | 1.2 | Number 0–100; per transit access/egress endpoint or Reach terminal-walk budget |
+| `maxWalkKm` | 1.2 | Number 0–100; per transit access/egress endpoint, Reach terminal-walk budget, or Drive walk between a point and its road |
 | `maxTransfers` | No explicit cap | Integer 0–31; zero means at most one boarding |
 | `horizonMinutes` | 480 | Number 1–2880; Route/Matrix only |
 | `maxStreetKm` | 50 | Number 0.05–1000; Walk/Drive Route/Matrix limit |
@@ -395,7 +395,7 @@ Exact identifiers are case-sensitive. Multi-feed IDs may contain a feed scope an
 | `minimumTransferBufferMinutes` | 0 | Integer 0–60; extra time per subsequent transit transfer |
 | `requireTransitRide` | false | Transit Route/Matrix boarding policy |
 | `allowLongWalk` | true | When false, cap direct walking by `maxWalkKm` instead of `maxStreetKm` |
-| `walkSpeedKph` | City's walking policy, normally 4.8 | Number 1–8; Walk Route/Matrix and Reach only |
+| `walkSpeedKph` | City's walking policy, normally 4.8 | Number 1–8; walking legs, including a drive's walk to and from its road |
 | `disableCache` | false | Disable street endpoint caches; not a complete cold-run switch |
 | `requireCompleteServiceCoverage` | false | Reject missing active source scopes in a multi-feed service slice |
 | `routingDataMode` | Inferred from supplied observation input | `scheduled` or `realtime`; `dataMode` is an alias; do not supply both |
@@ -497,7 +497,7 @@ For a walk query, specify coordinates, walking speed, and a street-distance limi
 }
 ```
 
-Change `mode` to `drive` and remove `walkSpeedKph` for a drive query. Street paths follow directed OSM routing, including snap diagnostics; drive geometry uses its routed node sequence.
+Change `mode` to `drive` for a drive query. Street paths follow directed OSM routing. A drive attaches each free endpoint to the nearest point of a drivable road segment and enters or leaves that road mid-segment, in the road's own direction. The straight gap between the point and its road is a walk at `walkSpeedKph`, published as its own `walk` leg with `geometrySource: "coordinate-snap"`. A drive whose walk to a road would exceed `maxWalkKm` is blocked with `no_drivable_road_within_walk`; it is not driven across open ground. Drive geometry runs from the road point through the routed node sequence to the destination's road point.
 
 ### Direct walking policy
 
@@ -704,7 +704,7 @@ Run `node scripts/benchmark-service-reuse.mjs --reference /path/to/baseline-vigo
 
 Reach finds the streets and areas accessible from an origin within a set of travel-time limits. Transit queries combine timetable travel with walking over the prepared street network. Use `mode: "walk"` for walking only, or call `isochrone` as an alias of `reach`.
 
-Reach supports depart-at queries, including realtime transit. Driving Reach uses `mode: "drive"` and routes to cell centers through the prepared directed driving network. It uses road-speed estimates without live traffic, ignores pedestrian walk limits, and does not apply transit scenarios. The raster has a fixed extent (`extentRadiusKm`, default 8, maximum 40); points outside that extent are not evaluated. Driving uses a 750 km road-distance search cap and does not return pedestrian edge or node evidence. Studio offers Driving under Analyze → Reach and uses a 40 km extent.
+Reach supports depart-at queries, including realtime transit. Driving Reach uses `mode: "drive"` and routes to cell centers through the prepared directed driving network. It uses road-speed estimates without live traffic and does not apply transit scenarios. As in Drive Route, the origin and every cell center walk straight to their nearest drivable road; a cell center farther than `maxWalkKm` from any road is unreachable, and its walk counts toward the cutoff. The raster has a fixed extent (`extentRadiusKm`, default 8, maximum 40); points outside that extent are not evaluated. Driving uses a 750 km road-distance search cap and does not return pedestrian edge or node evidence. Studio offers Driving under Analyze → Reach and uses a 40 km extent.
 
 ### Request
 
@@ -1198,7 +1198,7 @@ This excerpt is the first ride, `legs[1]`. Other properties are omitted:
 
 | Leg field | Meaning and presence |
 | --- | --- |
-| `kind` | `ride` or `walk` within transit; `walk` or `drive` for a direct street route. |
+| `kind` | `ride` or `walk` within transit; `walk` for a direct walk; `drive`, between optional `walk` legs to and from its roads, for a drive. |
 | `from`, `to` | Materialized transit endpoint objects: `coordinate`, plus `stopId` and `name` when tied to a stop. Direct street legs omit these objects. |
 | `fromStopId`, `toStopId` | String identifiers when an endpoint is a transit stop. Coordinate endpoints omit these fields. |
 | `fromStop`, `toStop`, `trip` | Nullable indices into the active native timetable. They are not GTFS string IDs. |
@@ -1224,13 +1224,13 @@ To draw one leg as GeoJSON, use `{type: "LineString", coordinates: leg.coordinat
 | `station_selection` | Selected-stop endpoint connector; no street path was checked for that leg |
 | `unverified_transfer` | A transfer line with no materialized path, including a link between platforms of one parent station |
 
-Only transfers certified from OSM follow a street path; a parent-station link keeps its modeled time and a straight line. These labels apply to materialized transit legs. `streetPathVerified: true` identifies a graph-verified walking leg; false is explicit for the fallback labels. Ride legs and direct Walk/Drive legs do not use that flag in this version. Missing does not mean false. Graph verification does not establish wheelchair access, station-interior access, or fare eligibility.
+Only transfers certified from OSM follow a street path; a parent-station link keeps its modeled time and a straight line. These labels apply to materialized transit legs. `streetPathVerified: true` identifies a graph-verified walking leg; false is explicit for the fallback labels. A drive's walk to or from its road is a straight `coordinate-snap` line with `streetPathVerified: false`. Ride legs do not use that flag in this version. Missing does not mean false. Graph verification does not establish wheelchair access, station-interior access, or fare eligibility.
 
 Route always materializes geometry. Matrix journeys only add `coordinates`, `geometrySource`, and geometry-derived distances when `includeGeometry` is true. This changes detail, not whether the duration cell is reachable.
 
 #### Direct, via, window, and blocked variants
 
-Direct Walk/Drive results have a single street leg, `distanceMeters`, clocks, and `transfers: 0`. They omit transit totals such as `boardings` and `waitMinutes`. A transit request with `requireTransitRide: false` can return `mode: "walk"`; display the returned mode rather than the requested preference.
+Direct Walk results have a single street leg; Drive results have a drive leg, preceded or followed by a walk leg whenever an endpoint lies off its road. Both have `distanceMeters`, clocks, and `transfers: 0`. They omit transit totals such as `boardings` and `waitMinutes`. A transit request with `requireTransitRide: false` can return `mode: "walk"`; display the returned mode rather than the requested preference.
 
 Via routes have ordered `segments` and a top-level duration spanning them. They do not have one flattened `legs` array or aggregate transfer/walk/ride totals. Segment objects omit the outer dispatch metadata. No visit duration is added at a via point.
 
@@ -1242,7 +1242,7 @@ Reversing A → B to B → A in the fixture route produces this exact field sele
 {"status": "blocked", "mode": "transit", "reason": "no_path"}
 ```
 
-`no_access` means one endpoint has no admissible transit candidates; `no_path` means no path was found under the query. Direct street arrive-by can return `before_service_day` if it would require a negative departure clock. Drive may return its native reason. A failed via route returns `via_leg_blocked`, a zero-based `legIndex`, and the blocked segment under `leg`. Do not read duration or geometry without a ready outcome.
+`no_access` means one endpoint has no admissible transit candidates; `no_path` means no path was found under the query. Direct street arrive-by can return `before_service_day` if it would require a negative departure clock. Drive returns `no_drivable_road_within_walk` when an endpoint has no drivable road within `maxWalkKm`, and may return its native reason. A failed via route returns `via_leg_blocked`, a zero-based `legIndex`, and the blocked segment under `leg`. Do not read duration or geometry without a ready outcome.
 
 ### Matrix output
 

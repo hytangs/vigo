@@ -9,6 +9,7 @@ mod basemap_tiles;
 pub mod compiler;
 #[cfg(any(feature = "node", test))]
 mod decimal_rounding;
+mod drive_attachment;
 mod edge_attachment;
 pub(crate) mod fares;
 #[cfg(any(feature = "node", test))]
@@ -251,7 +252,19 @@ where
     RightResult: Send,
 {
     match ENDPOINT_ACCESS_POOL.as_ref() {
-        Some(pool) => pool.install(|| rayon::join(left, right)),
+        // The caller computes one side itself, so a request wakes one worker
+        // instead of handing both sides to the pool and blocking on a latch.
+        Some(pool) => {
+            let mut right_result = None;
+            let left_result = pool.in_place_scope(|scope| {
+                scope.spawn(|_| right_result = Some(right()));
+                left()
+            });
+            (
+                left_result,
+                right_result.expect("endpoint access task completed"),
+            )
+        }
         None => (left(), right()),
     }
 }

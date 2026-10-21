@@ -5601,6 +5601,33 @@
               }
             ],
             "description": "Optional directed drive-edge metric updates."
+          },
+          "originSnapSeconds": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Seconds to reach each candidate from its endpoint, when the caller prices the snap itself."
+          },
+          "targetSnapSeconds": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -5956,6 +5983,32 @@
               }
             ],
             "description": "Optional directed drive-edge metric updates."
+          },
+          "originSnapSeconds": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "targetSnapSeconds": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [

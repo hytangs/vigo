@@ -282,10 +282,6 @@ pub(crate) struct Drive {
     pub automatic_traffic: Option<std::sync::Arc<vigo_traffic::Snapshot>>,
     pub kernel: DriveKernel,
     pub image: Image,
-    pub lons: Vec<f64>,
-    pub lats: Vec<f64>,
-    pub spatial_offsets: Vec<u32>,
-    pub spatial_nodes: Vec<u32>,
 }
 pub struct City {
     pub(crate) path: PathBuf,
@@ -317,6 +313,9 @@ pub struct City {
     pub(crate) query_live: Option<Arc<super::realtime_poll::LiveSnapshot>>,
     pub(crate) live_request: Option<(Value, Option<String>)>,
     pub(crate) query_start_date: Option<String>,
+    /// Trace and detailed results keep the complete endpoint access evidence;
+    /// public results publish only its counts and timings.
+    pub(crate) full_access_evidence: bool,
     pub(crate) timetable_blocks: Option<TimetableBlockPool>,
     pub(crate) speed: f64,
     pub(crate) padding: f64,
@@ -623,6 +622,7 @@ impl City {
             query_live: None,
             live_request: None,
             query_start_date: None,
+            full_access_evidence: false,
             timetable_blocks: Some(Default::default()),
             speed,
             padding,
@@ -1268,10 +1268,11 @@ impl City {
         let (structure, time, distance) = cch_files(&path, "drive")?;
         let lons = image.f64("nodeLons")?;
         let lats = image.f64("nodeLats")?;
+        // The kernel owns the coordinates; it attaches free points to roads.
         let kernel = DriveKernel::new(DriveKernelInput {
             node_count: lons.len() as u32,
-            node_lons: lons.clone(),
-            node_lats: lats.clone(),
+            node_lons: lons,
+            node_lats: lats,
             edge_offsets: image.u32("edgeOffsets")?,
             edge_targets: image.u32("edgeTargets")?,
             edge_distances: None,
@@ -1282,16 +1283,10 @@ impl City {
             cch_time_metric_path: Some(time),
             cch_distance_metric_path: distance,
         })?;
-        let spatial_offsets = image.u32("spatialOffsets")?;
-        let spatial_nodes = image.u32("spatialNodeIndices")?;
         self.drive = Some(Drive {
             automatic_traffic: None,
             kernel,
             image,
-            lons,
-            lats,
-            spatial_offsets,
-            spatial_nodes,
         });
         Ok(())
     }

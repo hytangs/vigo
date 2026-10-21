@@ -248,6 +248,25 @@ struct ScalarWorkspace {
     // columns; most scanned departures are unreachable.
     reached_stop_bits: Vec<u64>,
     active_run_bits: Vec<u64>,
+    /// The departure time of the bucket being scanned. Only a label that
+    /// arrives by then can board another departure in the same bucket.
+    instant_time: f64,
+    instant_labels: u32,
+    /// Per stop, the arrivals of its two riding states (alighted, and walked
+    /// on after a ride), rounded up. Valid while the stop is active this
+    /// epoch. Most alight and transfer candidates are later than the retained
+    /// label; this dense copy rejects them without touching the label rows.
+    ride_arrival: Vec<[f32; 2]>,
+    /// Revisits of a zero-time bucket. Every visit of an event takes a new
+    /// tick; a stop records when it last gained a label arriving at the
+    /// bucket time, a run when its boarding state last changed. Ticks only
+    /// grow, so no array is reset between buckets or queries.
+    closure_tick: u64,
+    instant_stamp: u64,
+    instant_replacements: u32,
+    stop_closure_tick: Vec<u64>,
+    run_closure_tick: Vec<u64>,
+    event_closure_tick: Vec<u64>,
 }
 
 #[inline(always)]
@@ -284,6 +303,15 @@ impl ScalarWorkspace {
             reverse_reached_runs: vec![0; run_count],
             reached_stop_bits: vec![0; stop_count.div_ceil(64)],
             active_run_bits: vec![0; run_count.div_ceil(64)],
+            instant_time: f64::NEG_INFINITY,
+            instant_labels: 0,
+            ride_arrival: vec![[f32::INFINITY; 2]; stop_count],
+            closure_tick: 0,
+            instant_stamp: 0,
+            instant_replacements: 0,
+            stop_closure_tick: vec![0; stop_count],
+            run_closure_tick: vec![0; run_count],
+            event_closure_tick: Vec::new(),
         }
     }
 
@@ -305,6 +333,9 @@ impl ScalarWorkspace {
         self.run_generation.resize(runs, 0);
         self.reached_stop_bits.resize(stops.div_ceil(64), 0);
         self.active_run_bits.resize(runs.div_ceil(64), 0);
+        self.ride_arrival.resize(stops, [f32::INFINITY; 2]);
+        self.stop_closure_tick.resize(stops, 0);
+        self.run_closure_tick.resize(runs, 0);
     }
 
     fn begin_query(&mut self) -> u32 {
@@ -345,6 +376,30 @@ impl ScalarWorkspace {
             + self.touched_runs.capacity() * std::mem::size_of::<u32>()
             + self.reverse_reached_stops.len() * std::mem::size_of::<u32>()
             + self.reverse_reached_runs.len() * std::mem::size_of::<u32>()
+            + self.ride_arrival.len() * std::mem::size_of::<[f32; 2]>()
+            + (self.stop_closure_tick.len()
+                + self.run_closure_tick.len()
+                + self.event_closure_tick.capacity())
+                * std::mem::size_of::<u64>()
+    }
+
+    /// Whether a riding-state candidate at `stop` is certainly later than the
+    /// label it would have to replace. `slot` 0 walks on after a ride; 1 alights.
+    #[inline(always)]
+    fn ride_candidate_later(&self, epoch: u32, stop: usize, slot: usize, arrival: f64) -> bool {
+        self.active_stop_generation[stop] == epoch
+            && arrival > f64::from(self.ride_arrival[stop][slot])
+    }
+}
+
+/// The smallest f32 not below `value`.
+#[inline(always)]
+fn f32_at_least(value: f64) -> f32 {
+    let rounded = value as f32;
+    if f64::from(rounded) < value {
+        rounded.next_up()
+    } else {
+        rounded
     }
 }
 
@@ -851,6 +906,7 @@ fn relax_connection_scan<const RETAIN_JOURNEY: bool>(
         workspace.active_state_mask[stop] = 0;
         workspace.minimum_stop_boardings[stop] = u16::MAX;
         workspace.earliest_stop_arrival[stop] = f64::INFINITY;
+        workspace.ride_arrival[stop] = [f32::INFINITY; 2];
     }
     workspace.active_state_mask[stop] |= 1 << (state & (STATE_STRIDE - 1));
     workspace.minimum_stop_boardings[stop] = workspace.minimum_stop_boardings[stop].min(boardings);
@@ -861,6 +917,17 @@ fn relax_connection_scan<const RETAIN_JOURNEY: bool>(
         boardings,
         walking_seconds,
     };
+    if arrival <= workspace.instant_time {
+        workspace.instant_labels += 1;
+        workspace.stop_closure_tick[stop] = workspace.instant_stamp;
+        if retained.generation == epoch {
+            workspace.instant_replacements += 1;
+        }
+    }
+    let ride_slot = (state & (STATE_STRIDE - 1)).wrapping_sub(6);
+    if ride_slot < 2 {
+        workspace.ride_arrival[stop][ride_slot] = f32_at_least(arrival);
+    }
     if RETAIN_JOURNEY {
         workspace.predecessors[state] = ScalarPredecessor {
             state: from_state,
@@ -1135,6 +1202,11 @@ fn expand_connection_scan_transfer_edges<const RETAIN_JOURNEY: bool>(
     for edge in &transfer_edges[start..end] {
         let target = edge.stop();
         let duration = edge.duration();
+        if has_ride
+            && workspace.ride_candidate_later(epoch, target, 0, arrival + duration as f64)
+        {
+            continue;
+        }
         relax_connection_scan::<RETAIN_JOURNEY>(
             workspace,
             epoch,
@@ -2148,6 +2220,8 @@ struct ExactDeadlineCorridor {
     exit_events_scanned: u64,
     run_segments_scanned: u64,
     transfer_edges_scanned: u64,
+    /// Counted while the corridor is built, from the runs and stops it admits.
+    structure: CorridorStructureStats,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2189,7 +2263,7 @@ impl ParetoRestrictionMode {
     }
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct CorridorStructureStats {
     retained_run_layer_memberships: u64,
     total_run_layer_memberships: u64,
@@ -2201,21 +2275,45 @@ struct CorridorStructureStats {
     restriction_bytes: usize,
 }
 
+impl CorridorStructureStats {
+    fn new(stop_count: usize, run_count: usize, segment_count: usize, layers: usize) -> Self {
+        Self {
+            total_run_layer_memberships: (run_count * layers) as u64,
+            total_segment_layer_memberships: (segment_count * layers) as u64,
+            total_stop_deadline_memberships: (stop_count * (layers + 1)) as u64,
+            restriction_bytes: (layers + 1) * stop_count * std::mem::size_of::<u32>()
+                + layers * run_count * std::mem::size_of::<u8>(),
+            ..Self::default()
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn build_open_deadline_corridor(
     stop_count: usize,
     run_count: usize,
+    segment_count: usize,
     boarding_upper_bound: usize,
     apply_forward_filter: bool,
     forward_run_layers: Option<&[Vec<u8>]>,
     forward_universal_runs: &[u64],
+    run_start: &[u32],
+    run_end: &[u32],
 ) -> ExactDeadlineCorridor {
     let stop_deadlines = (0..=boarding_upper_bound)
         .map(|_| vec![u32::MAX; stop_count])
         .collect();
+    let mut structure =
+        CorridorStructureStats::new(stop_count, run_count, segment_count, boarding_upper_bound);
+    structure.retained_stop_deadline_memberships = structure.total_stop_deadline_memberships;
+    let mut retained_runs = vec![false; if apply_forward_filter { run_count } else { 0 }];
     let mut run_layers = Vec::with_capacity(boarding_upper_bound);
     for remaining in 0..boarding_upper_bound {
         if !apply_forward_filter {
             run_layers.push(vec![1; run_count]);
+            structure.retained_run_layer_memberships += run_count as u64;
+            structure.retained_segment_layer_memberships += segment_count as u64;
+            structure.retained_unique_runs = run_count as u32;
             continue;
         }
         let forward_round = boarding_upper_bound - remaining - 1;
@@ -2223,10 +2321,18 @@ fn build_open_deadline_corridor(
         run_layers.push(
             (0..run_count)
                 .map(|run| {
-                    u8::from(
-                        has_run_bit(forward_universal_runs, run)
-                            || forward_runs.is_some_and(|runs| runs[run] != 0),
-                    )
+                    let retained = has_run_bit(forward_universal_runs, run)
+                        || forward_runs.is_some_and(|runs| runs[run] != 0);
+                    if retained {
+                        structure.retained_run_layer_memberships += 1;
+                        structure.retained_segment_layer_memberships +=
+                            u64::from(run_end[run].saturating_sub(run_start[run]));
+                        if !retained_runs[run] {
+                            retained_runs[run] = true;
+                            structure.retained_unique_runs += 1;
+                        }
+                    }
+                    u8::from(retained)
                 })
                 .collect(),
         );
@@ -2237,9 +2343,13 @@ fn build_open_deadline_corridor(
         exit_events_scanned: 0,
         run_segments_scanned: 0,
         transfer_edges_scanned: 0,
+        structure,
     }
 }
 
+/// Reference count over the complete corridor; debug builds check the
+/// incremental counts against it.
+#[cfg(debug_assertions)]
 fn corridor_structure_stats(
     corridor: &ExactDeadlineCorridor,
     run_start: &[u32],
@@ -2851,6 +2961,8 @@ fn build_exact_deadline_corridor(
     from_stop: &columns::View<'_, u32>,
     can_board: &columns::View<'_, u8>,
     run_start: &[u32],
+    run_end: &[u32],
+    segment_count: usize,
     reverse_transfer_offset: &[u32],
     reverse_transfer_edges: &[TransferEdge],
     exit_event_offset: &[u32],
@@ -2900,6 +3012,11 @@ fn build_exact_deadline_corridor(
     let mut stop_deadlines = vec![initial_deadlines];
     let mut stop_lists = vec![initial_stops];
     let mut run_layers: Vec<Vec<u8>> = Vec::with_capacity(boarding_upper_bound);
+    let mut structure =
+        CorridorStructureStats::new(stop_count, run_count, segment_count, boarding_upper_bound);
+    // Layer masks only grow in the incremental case; otherwise retain a union.
+    let mut ever_retained = Vec::new();
+    let (mut layer_runs, mut layer_segments) = (0_u64, 0_u64);
     // A universal forward envelope is identical at every boarding round. Its
     // reverse corridor grows monotonically: process only newly admitted exits
     // and run segments, carrying the previous feasible-run mask forward.
@@ -2922,6 +3039,10 @@ fn build_exact_deadline_corridor(
         if !incremental {
             run_through.fill(0);
             processed_through.fill(0);
+            (layer_runs, layer_segments) = (0, 0);
+            if ever_retained.is_empty() {
+                ever_retained = vec![false; run_count];
+            }
         }
         let mut touched_runs = Vec::new();
         for stop in &stop_lists[remaining] {
@@ -2986,7 +3107,8 @@ fn build_exact_deadline_corridor(
                 }
             }
             run_segments_scanned = run_segments_scanned.saturating_add((end - start) as u64);
-            let mut boardable = run_mask[run] != 0;
+            let carried = run_mask[run] != 0;
+            let mut boardable = carried;
             for segment in (start..end).rev() {
                 if departure_seconds[segment] < layer_minimum_time {
                     break;
@@ -3011,6 +3133,19 @@ fn build_exact_deadline_corridor(
             }
             run_mask[run] = u8::from(boardable);
             processed_through[run] = run_through[run];
+            if boardable && !carried {
+                layer_runs += 1;
+                layer_segments += u64::from(run_end[run].saturating_sub(run_start[run]));
+                if !incremental && !ever_retained[run] {
+                    ever_retained[run] = true;
+                    structure.retained_unique_runs += 1;
+                }
+            }
+        }
+        structure.retained_run_layer_memberships += layer_runs;
+        structure.retained_segment_layer_memberships += layer_segments;
+        if incremental {
+            structure.retained_unique_runs = layer_runs as u32;
         }
         let next_boarding_floor = boarding_upper_bound - remaining - 1;
         for index in 0..destination_stops.len() {
@@ -3055,12 +3190,15 @@ fn build_exact_deadline_corridor(
         stop_deadlines.push(next_deadlines);
         stop_lists.push(next_stops);
     }
+    structure.retained_stop_deadline_memberships =
+        stop_lists.iter().map(|stops| stops.len() as u64).sum();
     ExactDeadlineCorridor {
         stop_deadlines,
         run_layers,
         exit_events_scanned,
         run_segments_scanned,
         transfer_edges_scanned,
+        structure,
     }
 }
 

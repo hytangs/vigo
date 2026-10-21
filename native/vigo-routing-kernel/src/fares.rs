@@ -301,7 +301,14 @@ pub(crate) fn fare_event_day(
     }
     let agency: chrono_tz::Tz = agency_timezone.parse().ok()?;
     let event: chrono_tz::Tz = event_timezone.parse().ok()?;
-    let date = NaiveDate::parse_from_str(service_date, "%Y-%m-%d").ok()?;
+    // The shape is validated above: read the digits rather than reparsing a
+    // format. Impossible calendar dates still yield None.
+    let number = |range: std::ops::Range<usize>| {
+        b[range]
+            .iter()
+            .fold(0_u32, |value, digit| value * 10 + u32::from(digit - b'0'))
+    };
+    let date = NaiveDate::from_ymd_opt(number(0..4) as i32, number(5..7), number(8..10))?;
     let LocalResult::Single(noon) = agency.from_local_datetime(&date.and_hms_opt(12, 0, 0)?) else {
         return None;
     };
@@ -753,8 +760,8 @@ impl Index {
         Some(matched)
     }
 
-    fn v2_options(
-        &self,
+    fn v2_options<'a>(
+        &'a self,
         candidate: &Candidate,
         leg: &FareLeg,
         service_date: &str,
@@ -781,24 +788,26 @@ impl Index {
         } else {
             (None, None)
         };
-        let mut memo: HashMap<(bool, String), Option<bool>> = HashMap::new();
+        // Rules share a handful of timeframe groups. Key the memo by the
+        // group text the rule already holds instead of allocating per rule.
+        let mut memo: Vec<(bool, std::borrow::Cow<'a, str>, Option<bool>)> = Vec::new();
         let mut applicable = vec![];
         for &r in &candidate.rules {
             let rule = &self.leg_rules[r];
-            let mut test = |to: bool, group: &Value, day: Option<&FareEventDay>| {
-                *memo
-                    .entry((
-                        to,
-                        key_of(
-                            rule,
-                            if to {
-                                "to_timeframe_group_id"
-                            } else {
-                                "from_timeframe_group_id"
-                            },
-                        ),
-                    ))
-                    .or_insert_with(|| self.timeframe_matches(group, day))
+            let mut test = |to: bool, group: &'a Value, day: Option<&FareEventDay>| {
+                let key = match group {
+                    Value::String(text) => std::borrow::Cow::Borrowed(text.as_str()),
+                    other if truthy(other) => std::borrow::Cow::Owned(js_text(other)),
+                    _ => std::borrow::Cow::Borrowed(""),
+                };
+                if let Some((_, _, matched)) =
+                    memo.iter().find(|(side, known, _)| *side == to && *known == key)
+                {
+                    return *matched;
+                }
+                let matched = self.timeframe_matches(group, day);
+                memo.push((to, key, matched));
+                matched
             };
             let from_match = test(
                 false,

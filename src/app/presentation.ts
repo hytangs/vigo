@@ -73,7 +73,9 @@ export function routingPlanRouteSequence(plan: RoutingPlan) {
     .filter((label): label is string => Boolean(label))
     .filter((label, index, labels) => labels.indexOf(label) === index)
   if (rideLabels.length) return rideLabels.join(' -> ')
-  return plan.travelMode === 'transit' ? 'No scheduled ride' : routingLegPrimaryLabel(plan.legs[0] ?? {
+  // A drive can begin with a short walk to its road; name the drive itself.
+  const streetLeg = plan.legs.find((leg) => leg.type === plan.travelMode) ?? plan.legs[0]
+  return plan.travelMode === 'transit' ? 'No scheduled ride' : routingLegPrimaryLabel(streetLeg ?? {
     type: plan.travelMode === 'drive' ? 'drive' : 'walk',
     fromName: plan.origin.label,
     toName: plan.destination.label,

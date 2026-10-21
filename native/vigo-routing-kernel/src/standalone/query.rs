@@ -18,11 +18,18 @@ pub(crate) struct Candidates {
     pub evidence: Option<EndpointRoleResult>,
 }
 impl Candidates {
-    fn diagnostics(&self, point: &Point) -> Result<Value> {
-        self.evidence.as_ref().map_or_else(
-            || Ok(json!({"stopId":point.stop,"exactStopAccess":true})),
-            |evidence| Ok(serde_json::to_value(evidence)?),
-        )
+    fn diagnostics(&self, point: &Point, full: bool) -> Result<Value> {
+        let Some(evidence) = &self.evidence else {
+            return Ok(json!({"stopId":point.stop,"exactStopAccess":true}));
+        };
+        if full {
+            return Ok(serde_json::to_value(evidence)?);
+        }
+        // What public summaries and profiles read: candidates and timings.
+        Ok(json!({"memberIndices":evidence.member_indices,"cacheHit":evidence.cache_hit,
+            "cchAccelerated":evidence.cch_accelerated,"queryNs":evidence.query_ns,
+            "accessReductionNs":evidence.access_reduction_ns,"snapNs":evidence.snap_ns,
+            "searchNs":evidence.search_ns}))
     }
 }
 pub(crate) struct Options {
@@ -153,8 +160,10 @@ impl City {
             .as_ref()
             .and(request["serviceDate"].as_str())
             .map(str::to_owned);
+        self.full_access_evidence = detailed || request["diagnostics"] == "trace";
         let execution = self.execute(command, &query);
         self.query_start_date = None;
+        self.full_access_evidence = false;
         let release_memory = previous_preparations != self.timetable_preparations
             || previous_evictions != self.timetable_cache.evictions
             || matches!(command, "reach" | "isochrone" | "matrix");
@@ -954,8 +963,9 @@ impl City {
             output["alternativeSearch"] = search;
         }
         output["diagnostics"] = json!({"search":{"startSeconds":opt.start,"endSeconds":opt.end,"horizonScope":"timetable_scan","maxTransfers":q["maxTransfers"],"allowStreetTransfers":q.get("allowStreetTransfers").unwrap_or(&Value::Bool(true)),"minimumTransferBufferMinutes":q.get("minimumTransferBufferMinutes").unwrap_or(&json!(0))},"native":result});
-        output["diagnostics"]["originAccess"] = a.diagnostics(&origin)?;
-        output["diagnostics"]["destinationAccess"] = b.diagnostics(&destination)?;
+        output["diagnostics"]["originAccess"] = a.diagnostics(&origin, self.full_access_evidence)?;
+        output["diagnostics"]["destinationAccess"] =
+            b.diagnostics(&destination, self.full_access_evidence)?;
         if output["status"] == "blocked" {
             output["access"] = json!({"origin":self.access_status(&origin,"origin",&a,&opt,true)?,
                 "destination":self.access_status(&destination,"destination",&b,&opt,true)?});
@@ -1312,7 +1322,9 @@ impl City {
         opt: &Options,
         mode: &str,
     ) -> Result<Value> {
-        let (seconds, distance, coordinates, diagnostics) = match mode {
+        // A street trip is one routed path, or for driving a road path between
+        // two straight walks from each free endpoint to its road.
+        let (legs, diagnostics) = match mode {
             "walk" => {
                 let speed = opt.walk_speed.unwrap_or(self.speed);
                 let limit = self.direct_walk_limit(q, opt)?;
@@ -1328,44 +1340,103 @@ impl City {
                     return Ok(json!({"status":"blocked","reason":"no_path","mode":mode}));
                 }
                 (
-                    r.distance_m / speed * 3.6,
-                    r.distance_m,
-                    walking_coordinates(&r.coordinates, origin.coordinate, destination.coordinate),
+                    vec![StreetLeg {
+                        kind: "walk",
+                        seconds: r.distance_m / speed * 3.6,
+                        meters: r.distance_m,
+                        coordinates: walking_coordinates(
+                            &r.coordinates,
+                            origin.coordinate,
+                            destination.coordinate,
+                        ),
+                        source: "osm",
+                        verified: true,
+                    }],
                     serde_json::to_value(&r)?,
                 )
             }
             "drive" => {
                 self.load_drive()?;
+                let walking_speed_kph = opt.walk_speed.unwrap_or(self.speed);
                 let d = self.drive.as_mut().unwrap();
-                let (origin_nodes, origin_snap_meters) = d.snap(origin.coordinate)?;
-                let (target_nodes, target_snap_meters) = d.snap(destination.coordinate)?;
                 let (traffic, traffic_diagnostics) =
                     d.traffic(q.get("traffic"), realtime_drive(q))?;
-                let r = d.kernel.route_exact(DriveQueryInput {
-                    origin_nodes,
-                    origin_snap_meters,
-                    target_nodes,
-                    target_snap_meters,
+                let r = d.kernel.route_coordinates(DriveCoordinateRouteInput {
+                    origin_lon: origin.coordinate[0],
+                    origin_lat: origin.coordinate[1],
+                    destination_lon: destination.coordinate[0],
+                    destination_lat: destination.coordinate[1],
+                    maximum_walk_meters: opt.walk_m,
+                    walking_speed_kph,
                     maximum_distance_meters: opt.street_m,
                     traffic,
+                    nearest_road_only: None,
                 })?;
+                let mut diagnostics = serde_json::to_value(&r.search)?;
+                diagnostics["originRoadMeters"] = json!(r.origin_road_meters);
+                diagnostics["destinationRoadMeters"] = json!(r.destination_road_meters);
+                diagnostics["maximumWalkMeters"] = json!(opt.walk_m);
+                let diagnostics = drive_diagnostics(diagnostics, traffic_diagnostics);
                 if r.status != "ready" {
                     return Ok(
-                        json!({"status":"blocked","reason":r.reason,"mode":mode,"diagnostics":drive_diagnostics(serde_json::to_value(r)?, traffic_diagnostics)}),
+                        json!({"status":"blocked","reason":r.reason,"mode":mode,"diagnostics":diagnostics}),
                     );
                 }
-                (
-                    r.duration_seconds.ok_or("Missing drive duration")?,
-                    r.distance_meters.ok_or("Missing drive distance")?,
-                    r.node_indices
-                        .iter()
-                        .map(|&i| [d.lons[i as usize], d.lats[i as usize]])
-                        .collect(),
-                    drive_diagnostics(serde_json::to_value(r)?, traffic_diagnostics),
-                )
+                let road: Vec<[f64; 2]> = r
+                    .drive_coordinates
+                    .chunks_exact(2)
+                    .map(|p| [p[0], p[1]])
+                    .collect();
+                let walk = |seconds: Option<f64>, meters: Option<f64>, from, to| StreetLeg {
+                    kind: "walk",
+                    seconds: seconds.unwrap_or(0.),
+                    meters: meters.unwrap_or(0.),
+                    coordinates: vec![from, to],
+                    source: "coordinate-snap",
+                    verified: false,
+                };
+                let first = walk(
+                    r.origin_walk_seconds,
+                    r.origin_walk_meters,
+                    origin.coordinate,
+                    road[0],
+                );
+                let last = walk(
+                    r.destination_walk_seconds,
+                    r.destination_walk_meters,
+                    road[road.len() - 1],
+                    destination.coordinate,
+                );
+                let drive = StreetLeg {
+                    kind: "drive",
+                    seconds: r.drive_seconds.ok_or("Missing drive duration")?,
+                    meters: r.drive_meters.ok_or("Missing drive distance")?,
+                    coordinates: road,
+                    source: "osm",
+                    verified: true,
+                };
+                // Sub-meter gaps are rounding, not walks; keep their seconds.
+                let mut legs = vec![];
+                let mut drive = drive;
+                for gap in [&first, &last] {
+                    if gap.meters < MINIMUM_CONNECTOR_METERS {
+                        drive.seconds += gap.seconds;
+                        drive.meters += gap.meters;
+                    }
+                }
+                if first.meters >= MINIMUM_CONNECTOR_METERS {
+                    legs.push(first);
+                }
+                legs.push(drive);
+                if last.meters >= MINIMUM_CONNECTOR_METERS {
+                    legs.push(last);
+                }
+                (legs, diagnostics)
             }
             _ => return fail("mode must be transit, walk, or drive"),
         };
+        let seconds: f64 = legs.iter().map(|leg| leg.seconds).sum();
+        let distance: f64 = legs.iter().map(|leg| leg.meters).sum();
         let (departure, arrival) = if opt.arrive {
             (opt.time - seconds, opt.time)
         } else {
@@ -1374,10 +1445,20 @@ impl City {
         if departure < 0. {
             return Ok(json!({"status":"blocked","reason":"before_service_day","mode":mode}));
         }
+        let mut clock = departure;
+        let legs: Vec<Value> = legs
+            .into_iter()
+            .map(|leg| {
+                let start = clock;
+                clock += leg.seconds;
+                json!({"kind":leg.kind,"departureMinutes":start/60.,"arrivalMinutes":clock/60.,
+                    "durationMinutes":leg.seconds/60.,"distanceMeters":leg.meters,
+                    "coordinates":leg.coordinates,"geometrySource":leg.source,
+                    "streetPathVerified":leg.verified})
+            })
+            .collect();
         Ok(
-            json!({"status":"ready","mode":mode,"departureMinutes":departure/60.,"arrivalMinutes":arrival/60.,"durationMinutes":seconds/60.,"distanceMeters":distance,"transfers":0,"legs":[{"kind":mode,"departureMinutes":departure/60.,"arrivalMinutes":arrival/60.,"durationMinutes":seconds/60.,"distanceMeters":distance,"coordinates":coordinates,
-                // A routed street path between the two free endpoints.
-                "geometrySource":"osm","streetPathVerified":true}],"diagnostics":diagnostics}),
+            json!({"status":"ready","mode":mode,"departureMinutes":departure/60.,"arrivalMinutes":arrival/60.,"durationMinutes":seconds/60.,"distanceMeters":distance,"transfers":0,"legs":legs,"diagnostics":diagnostics}),
         )
     }
     fn street_matrix(
@@ -1411,18 +1492,18 @@ impl City {
             }
             "drive" => {
                 self.load_drive()?;
+                let walking_speed_kph = opt.walk_speed.unwrap_or(self.speed);
                 let d = self.drive.as_mut().unwrap();
-                let a = d.pack(origins)?;
-                let b = d.pack(destinations)?;
                 let (traffic, traffic_diagnostics) =
                     d.traffic(q.get("traffic"), realtime_drive(q))?;
-                let r = d.kernel.route_matrix(DriveMatrixInput {
-                    origin_offsets: a.0,
-                    origin_nodes: a.1,
-                    origin_snap_meters: a.2,
-                    target_offsets: b.0,
-                    target_nodes: b.1,
-                    target_snap_meters: b.2,
+                let r = d.kernel.route_coordinate_matrix(DriveCoordinateMatrixInput {
+                    origin_coordinates: origins.iter().flat_map(|p| p.coordinate).collect(),
+                    destination_coordinates: destinations
+                        .iter()
+                        .flat_map(|p| p.coordinate)
+                        .collect(),
+                    maximum_walk_meters: opt.walk_m,
+                    walking_speed_kph,
                     maximum_distance_meters: opt.street_m,
                     traffic,
                 })?;
@@ -1493,85 +1574,6 @@ impl City {
 }
 
 impl super::city::Drive {
-    fn nearby(&self, p: [f64; 2], radius: f64) -> Result<Vec<(u32, f64)>> {
-        let h = &self.image.header;
-        let cell = h["spatialCellDegrees"]
-            .as_f64()
-            .ok_or("Invalid drive cell size")?;
-        let rows = h["spatialRows"].as_u64().ok_or("Invalid drive grid")? as i64;
-        let columns = h["spatialColumns"].as_u64().ok_or("Invalid drive grid")? as i64;
-        let x = ((p[0] - h["spatialMinLon"].as_f64().ok_or("Invalid drive bounds")?) / cell).floor()
-            as i64;
-        let y = ((p[1] - h["spatialMinLat"].as_f64().ok_or("Invalid drive bounds")?) / cell).floor()
-            as i64;
-        let mut candidates = vec![];
-        let dy = (radius / 111_000. / cell).ceil() as i64 + 1;
-        let dx = (radius / (111_000. * p[1].to_radians().cos().abs().max(0.01)) / cell).ceil()
-            as i64
-            + 1;
-        for r in (y - dy).max(0)..=(y + dy).min(rows - 1) {
-            for c in (x - dx).max(0)..=(x + dx).min(columns - 1) {
-                let i = (r * columns + c) as usize;
-                let start = *self
-                    .spatial_offsets
-                    .get(i)
-                    .ok_or("Invalid drive spatial index")?;
-                let end = *self
-                    .spatial_offsets
-                    .get(i + 1)
-                    .ok_or("Invalid drive spatial index")?;
-                for &node in self
-                    .spatial_nodes
-                    .get(start as usize..end as usize)
-                    .ok_or("Invalid drive spatial offsets")?
-                {
-                    let n = node as usize;
-                    let distance = haversine(
-                        p,
-                        [*self.lons.get(n).ok_or("Invalid drive node")?, self.lats[n]],
-                    );
-                    if distance <= radius {
-                        candidates.push((node, distance));
-                    }
-                }
-            }
-        }
-        candidates.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
-        Ok(candidates)
-    }
-    fn snap(&self, p: [f64; 2]) -> Result<(Vec<u32>, Vec<f64>)> {
-        let mut candidates = vec![];
-        for radius in [60., 120., 350.] {
-            candidates = self.nearby(p, radius)?;
-            if !candidates.is_empty() {
-                break;
-            }
-        }
-        if candidates.first().is_none_or(|c| c.1 > 25.) {
-            for radius in [350., 1000., 3000., 5000.] {
-                candidates = self.nearby(p, radius)?;
-                if candidates.len() >= 48 {
-                    break;
-                }
-            }
-            candidates.truncate(48);
-        } else {
-            candidates.truncate(6);
-        }
-        Ok(candidates.into_iter().unzip())
-    }
-    fn pack(&self, points: &[Point]) -> Result<(Vec<u32>, Vec<u32>, Vec<f64>)> {
-        let mut offsets = vec![0];
-        let mut nodes = vec![];
-        let mut meters = vec![];
-        for p in points {
-            let (n, m) = self.snap(p.coordinate)?;
-            nodes.extend(n);
-            meters.extend(m);
-            offsets.push(nodes.len() as u32);
-        }
-        Ok((offsets, nodes, meters))
-    }
     fn traffic(
         &mut self,
         value: Option<&Value>,
@@ -1581,8 +1583,7 @@ impl super::city::Drive {
             let fingerprint = self.image.header["identity"]["sourceFingerprint"]
                 .as_str()
                 .ok_or("Missing street fingerprint")?;
-            self.kernel
-                .compile_traffic(value, fingerprint, &self.lons, &self.lats)?
+            self.kernel.compile_traffic(value, fingerprint)?
         } else if automatic && value.is_none() {
             let Some(snapshot) = &self.automatic_traffic else {
                 return Ok((
@@ -1867,6 +1868,19 @@ fn validate_request(command: &str, q: &Value, polling: bool, live: bool) -> Resu
 
 // Street kernels return graph geometry. Public walking journeys also retain
 // the requested endpoints, including a valid two-point zero-length line.
+/// Gaps shorter than this between a point and its road are not published as
+/// separate walks.
+const MINIMUM_CONNECTOR_METERS: f64 = 0.5;
+
+struct StreetLeg {
+    kind: &'static str,
+    seconds: f64,
+    meters: f64,
+    coordinates: Vec<[f64; 2]>,
+    source: &'static str,
+    verified: bool,
+}
+
 fn walking_coordinates(raw: &[f64], origin: [f64; 2], destination: [f64; 2]) -> Vec<[f64; 2]> {
     let mut points = Vec::with_capacity(raw.len() / 2 + 2);
     points.push(origin);

@@ -1142,19 +1142,25 @@ export function normalizeDriveTrafficSnapshot(accelerator, value, streetSourceFi
   }
 }
 
-export function routeNativeDriveExact(accelerator, request) {
+// Drive between two free coordinates. The kernel attaches each endpoint to its
+// nearest drivable road by segment projection; the gap is a straight walk,
+// and a gap longer than the walking limit blocks the trip.
+export function routeNativeDriveCoordinates(accelerator, request) {
   const record = prepareNativeDriveKernel(accelerator)
-  const result = record.kernel.routeExact({
-    originNodes: request.origins.map((candidate) => candidate.nodeIndex),
-    originSnapMeters: request.origins.map((candidate) => candidate.distanceKm * 1_000),
-    targetNodes: request.targets.map((candidate) => candidate.nodeIndex),
-    targetSnapMeters: request.targets.map((candidate) => candidate.distanceKm * 1_000),
+  const result = record.kernel.routeCoordinates({
+    originLon: request.origin[0],
+    originLat: request.origin[1],
+    destinationLon: request.destination[0],
+    destinationLat: request.destination[1],
+    maximumWalkMeters: request.maximumWalkKm * 1_000,
+    walkingSpeedKph: request.walkingSpeedKph,
     maximumDistanceMeters: request.maximumDistanceKm * 1_000,
     ...(request.traffic ? { traffic: request.traffic } : {}),
+    ...(request.nearestRoadOnly ? { nearestRoadOnly: true } : {}),
   })
   return {
     ...result,
-    queryMs: normalizeNativeMilliseconds(result.queryNs),
+    queryMs: normalizeNativeMilliseconds(result.search?.queryNs ?? 0),
     configureMs: record.configureMs,
   }
 }
@@ -2263,36 +2269,14 @@ export function routeNativeWalkMatrix(storePath, request) {
   }
 }
 
-export function routeNativeDriveMatrix(accelerator, request) {
+export function routeNativeDriveCoordinateMatrix(accelerator, request) {
   const record = prepareNativeDriveKernel(accelerator)
-  const originOffsets = [0]
-  const originNodes = []
-  const originSnapMeters = []
-  for (const candidates of request.originCandidateSets ?? []) {
-    for (const candidate of candidates) {
-      originNodes.push(candidate.nodeIndex)
-      originSnapMeters.push(candidate.distanceKm * 1_000)
-    }
-    originOffsets.push(originNodes.length)
-  }
-  const targetOffsets = [0]
-  const targetNodes = []
-  const targetSnapMeters = []
-  for (const candidates of request.destinationCandidateSets ?? []) {
-    for (const candidate of candidates) {
-      targetNodes.push(candidate.nodeIndex)
-      targetSnapMeters.push(candidate.distanceKm * 1_000)
-    }
-    targetOffsets.push(targetNodes.length)
-  }
   const startedAt = performance.now()
-  const result = record.kernel.routeMatrix({
-    originOffsets,
-    originNodes,
-    originSnapMeters,
-    targetOffsets,
-    targetNodes,
-    targetSnapMeters,
+  const result = record.kernel.routeCoordinateMatrix({
+    originCoordinates: request.originCoordinates,
+    destinationCoordinates: request.destinationCoordinates,
+    maximumWalkMeters: request.maximumWalkKm * 1_000,
+    walkingSpeedKph: request.walkingSpeedKph,
     maximumDistanceMeters: request.maximumDistanceKm * 1_000,
     ...(request.traffic ? { traffic: request.traffic } : {}),
   })
