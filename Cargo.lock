@@ -1410,6 +1410,7 @@ dependencies = [
  "ureq",
  "vigo-format",
  "vigo-gtfs",
+ "vigo-model",
  "vigo-prepare",
  "vigo-route",
  "vigo-traffic",

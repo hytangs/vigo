@@ -1016,7 +1016,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
   const prefix = scope ? `${scope}\u001f` : ''
   const streamTable = (entry, onRow, options) => streamGtfsZipCsv(archive, entry, prefix
     ? (row) => {
-        for (const field of ['stop_id', 'route_id', 'trip_id', 'service_id', 'shape_id', 'from_stop_id', 'to_stop_id', 'from_trip_id', 'to_trip_id', 'from_route_id', 'to_route_id']) {
+        for (const field of ['stop_id', 'route_id', 'trip_id', 'service_id', 'shape_id', 'block_id', 'from_stop_id', 'to_stop_id', 'from_trip_id', 'to_trip_id', 'from_route_id', 'to_route_id']) {
           if (String(row[field] ?? '').trim()) row[field] = prefix + row[field]
         }
         if (row.parent_station) row.parent_station = prefix + row.parent_station
@@ -1187,10 +1187,12 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
         }
         return [row.route_id, row.route_short_name || '', row.route_long_name || '', numeric(row.route_type, 3), row.route_color || '']
       })
+    const insertTripOperations = db.prepare('INSERT INTO trip_operations VALUES(?,?,?)')
     const insertTripDetails = db.prepare('INSERT INTO trip_details VALUES(?,?,?)')
     await importTable('trips.txt', 0.14,
       'INSERT INTO trips VALUES(?,?,?,?)',
       (row) => {
+        insertTripOperations.run(row.trip_id, String(row.block_id ?? '').trim() || null, requiredGtfsEnum(row.bikes_allowed, [0, 1, 2], 'bikes_allowed', row.trip_id, 0))
         insertTripDetails.run(row.trip_id, row.trip_headsign || null, row.trip_short_name || null)
         if (String(row.block_id ?? '').trim()) featureInventory.blockTripCount += 1
         const wheelchairAccessible = String(row.wheelchair_accessible ?? '').trim()
@@ -1261,6 +1263,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
           requiredGtfsEnum(row.exception_type, [1, 2], 'exception_type', context),
         ]
       })
+    const insertTransferRule = db.prepare('INSERT INTO transfer_rules VALUES(?,?,?,?,?,?,?,?)')
     const insertTripLink = db.prepare('INSERT INTO trip_links VALUES(?,?,?)')
     await importTable('transfers.txt', 0.27,
       'INSERT OR REPLACE INTO transfers VALUES(?,?,?,?)',
@@ -1274,6 +1277,8 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
         if (!Number.isInteger(minimumTransferTime) || minimumTransferTime < 0) {
           throw new Error(`Invalid GTFS min_transfer_time for ${transferContext}: ${minimumTransferTimeText || '(missing)'}.`)
         }
+        if (transferType < 4 && (!String(row.from_stop_id ?? '').trim() || !String(row.to_stop_id ?? '').trim())) throw new Error('GTFS ordinary transfers require both stop selectors.')
+        insertTransferRule.run(...['from_stop_id','to_stop_id','from_route_id','to_route_id','from_trip_id','to_trip_id'].map(key => String(row[key] ?? '').trim() || null), transferType, minimumTransferTime)
         if (transferType === 1) featureInventory.timedTransferCount += 1
         if (transferType === 4 || transferType === 5) {
           featureInventory.inSeatTransferCount += 1
@@ -1303,14 +1308,13 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
         const startTime = gtfsSeconds(row.start_time)
         const endTime = gtfsSeconds(row.end_time)
         const headwaySecs = numeric(row.headway_secs, 0)
-        const exactTimes = numeric(row.exact_times, 0)
-        if (startTime === null || endTime === null || endTime < startTime || !Number.isInteger(headwaySecs) || headwaySecs <= 0) {
+        const exactTimes = requiredGtfsEnum(row.exact_times, [0, 1], 'exact_times', row.trip_id, 0)
+        if (startTime === null || endTime === null || endTime <= startTime || !Number.isInteger(headwaySecs) || headwaySecs <= 0) {
           throw new Error(`Invalid GTFS frequency window for trip ${row.trip_id || '(missing trip_id)'}.`)
         }
         if (exactTimes === 1) featureInventory.exactFrequencyCount += 1
         else {
           featureInventory.inexactFrequencyCount += 1
-          excludedTripIds.add(row.trip_id)
         }
         return [row.trip_id, startTime, endTime, headwaySecs, exactTimes]
       })
@@ -1502,23 +1506,16 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
       'A single routing store cannot yet resolve service-day coordinates across multiple agency timezones.')
     featureInventory.exactFrequencyExpandedTripCount = exactFrequencyExpandedTripCount
     featureInventory.exactFrequencyExpandedConnectionCount = exactFrequencyExpandedConnectionCount
-    limitFeature('frequency_based_service', featureInventory.inexactFrequencyCount,
-      'Headway-based frequency windows with exact_times=0 remain excluded; exact_times=1 windows are expanded into fixed departures during import.')
+    if (featureInventory.inexactFrequencyCount) routingLimitations.push({code:'frequency_based_service',count:featureInventory.inexactFrequencyCount,exactness:'approximate',detail:'Rust headway routing assumes half a headway of waiting, rounded up to whole seconds, after service opens. Times are estimates, not scheduled departures.'})
     limitFeature('on_demand_boarding_or_alighting', featureInventory.onDemandPickupStopTimeCount + featureInventory.onDemandDropOffStopTimeCount,
       'pickup_type/drop_off_type values 2 and 3 require rider-agency coordination; the default routing request conservatively treats those events as unavailable.')
     limitFeature('continuous_pickup_or_drop_off', featureInventory.routeContinuousRuleCount + featureInventory.tripContinuousRuleCount + featureInventory.continuousPickupStopTimeCount + featureInventory.continuousDropOffStopTimeCount,
       'Fixed-stop service is retained, but continuous pickup or drop-off between scheduled stops is not represented by the point-to-point router.')
-    limitFeature('scoped_transfer_rules', featureInventory.routeSpecificTransferCount + featureInventory.tripSpecificTransferCount,
-      'Route- or trip-scoped transfer rows are retained in the source inventory but excluded from the generic stop-pair transfer graph.')
-    const linkedStopGaps = db.prepare(`SELECT COUNT(*) AS n FROM trip_links l WHERE transfer_type=4 AND
-      (SELECT to_stop_id FROM connections WHERE trip_id=l.from_trip_id ORDER BY stop_sequence DESC LIMIT 1)
-      <> (SELECT from_stop_id FROM connections WHERE trip_id=l.to_trip_id ORDER BY stop_sequence LIMIT 1)`).get().n
-    limitFeature('in_seat_stop_gap', linkedStopGaps,
-      'Explicit in-seat links between different terminal stops are retained but not routed; onboard movement between those stops has no timed connection.')
+
     limitFeature('block_interlining', featureInventory.blockTripCount,
-      'block_id is retained as an operational limitation; VIGO does not infer passenger in-seat continuation from it.')
+      'Rust infers consecutive same-terminal block continuations within one service_id and service day. Different-terminal, cross-service and ambiguous block continuations still require explicit linked trips.')
     limitFeature('timed_transfer_guarantee', featureInventory.timedTransferCount,
-      'Timed-transfer guarantee rows are excluded from the generic stop-pair transfer graph.')
+      'Timed transfers waive the default transfer buffer in Rust. Vehicle holding after a missed scheduled connection is not predicted.')
     limitFeature('pathway_accessibility', wheelchair ? 0 : featureInventory.pathwayAccessibilityRuleCount,
       'Pathway direction and traversal time are used, but accessibility attributes are not query constraints.')
     limitFeature('unpriced_pathways', featureInventory.unpricedPathwayCount ?? 0,
@@ -1550,8 +1547,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
       stopTimeCount: counts['stop_times.txt'] ?? 0,
       connectionCount,
       connectionPermissionCount: countFeedRows('connection_permissions', 'trip_id'),
-      minimumServiceTimeSeconds: Number(db.prepare('SELECT COALESCE(MIN(departure),0) AS earliest FROM connections').get().earliest),
-      maximumServiceTimeSeconds: Number(db.prepare('SELECT COALESCE(MAX(arrival),0) AS latest FROM connections').get().latest),
+      ...serviceTimeBounds(db),
       boardingAlightingModel: 'sparse-connection-permissions-v1',
       departureIndexState: forCity ? 'deferred' : 'ready',
       stopAccessRoleIndexVersion,
@@ -1559,7 +1555,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
       calendarDateCount: counts['calendar_dates.txt'] ?? 0,
       transferCount: countFeedRows('transfers', 'from_stop_id'),
       frequencyCount: counts['frequencies.txt'] ?? 0,
-      frequencyRoutingModel: exactFrequencyExpandedTripCount > 0 ? 'exact_times_1_expanded_fixed_departures' : 'none',
+      frequencyRoutingModel: featureInventory.inexactFrequencyCount > 0 ? 'native_half_headway_estimates' : exactFrequencyExpandedTripCount > 0 ? 'exact_times_1_expanded_fixed_departures' : 'none',
       shapePointCount: counts['shapes.txt'] ?? 0,
       bridgedUntimedGapCount,
       routeServiceCatalogVersion: routeServiceCatalogSchemaVersion,
@@ -1652,6 +1648,26 @@ function sqlLiteral(value) {
   return `'${String(value).replace(/'/g, "''")}'`
 }
 
+// Frequency templates are relative shapes: availability extends to the end of
+// their service windows, including tails after midnight.
+function serviceTimeBounds(db) {
+  const row = db.prepare(`
+    SELECT COALESCE(MIN(first), 0) AS first, COALESCE(MAX(last), 0) AS last
+    FROM (
+      SELECT MIN(departure) AS first, MAX(arrival) AS last FROM connections
+      UNION ALL
+      SELECT f.start_time AS first, f.end_time + h.duration AS last
+      FROM frequencies f
+      JOIN (
+        SELECT trip_id, MAX(arrival) - MIN(departure) AS duration
+        FROM headway_connections GROUP BY trip_id
+      ) h ON h.trip_id = f.trip_id
+      WHERE f.exact_times = 0
+    )
+  `).get()
+  return { minimumServiceTimeSeconds: Number(row.first), maximumServiceTimeSeconds: Number(row.last) }
+}
+
 function mergedGtfsMetadata(db, descriptors, metadataByStore, nearbyTransfers, forCity) {
   const featureInventory = {}
   for (const source of metadataByStore) {
@@ -1705,8 +1721,7 @@ function mergedGtfsMetadata(db, descriptors, metadataByStore, nearbyTransfers, f
     tripCount: count('trips'),
     stopTimeCount: metadataByStore.reduce((sum, metadata) => sum + Number(metadata.stopTimeCount ?? 0), 0),
     connectionCount: count('connections'),
-    minimumServiceTimeSeconds: Number(db.prepare('SELECT COALESCE(MIN(departure),0) AS earliest FROM connections').get().earliest),
-    maximumServiceTimeSeconds: Number(db.prepare('SELECT COALESCE(MAX(arrival),0) AS latest FROM connections').get().latest),
+    ...serviceTimeBounds(db),
     connectionPermissionCount: count('connection_permissions'),
     boardingAlightingModel: 'sparse-connection-permissions-v1',
     departureIndexState: forCity ? 'deferred' : 'ready',
@@ -1831,9 +1846,21 @@ export async function mergeNationalGtfsStores({ stores, outputPath, onProgress, 
           FROM ${alias}.sqlite_master
           WHERE type='table' AND name='connection_permissions'
         `).get()?.ready === 1
+        if (db.prepare(`SELECT 1 FROM ${alias}.sqlite_master WHERE name='trip_origins'`).get()) db.exec(`INSERT INTO trip_origins SELECT ${prefixSql} || trip_id,${prefixSql} || source_trip_id FROM ${alias}.trip_origins`)
+        if (db.prepare(`SELECT 1 FROM ${alias}.sqlite_master WHERE name='headway_connections'`).get()) {
+          db.exec(`INSERT INTO headway_connections SELECT departure,arrival,${prefixSql} || trip_id,${prefixSql} || route_id,${prefixSql} || service_id,direction_id,${prefixSql} || from_stop_id,${prefixSql} || to_stop_id,stop_sequence FROM ${alias}.headway_connections`)
+        }
+        if (db.prepare(`SELECT 1 FROM ${alias}.sqlite_master WHERE type='table' AND name='transfer_rules'`).get()) {
+          db.exec(`INSERT INTO transfer_rules SELECT ${['from_stop_id','to_stop_id','from_route_id','to_route_id','from_trip_id','to_trip_id'].map(key => `CASE WHEN ${key} IS NULL THEN NULL ELSE ${prefixSql} || ${key} END`).join(',')}, transfer_type,min_transfer_time FROM ${alias}.transfer_rules`)
+        }
         if (db.prepare(`SELECT 1 FROM ${alias}.sqlite_master WHERE type='table' AND name='trip_links'`).get()) {
           db.exec(`INSERT INTO trip_links SELECT ${prefixSql} || from_trip_id,
             ${prefixSql} || to_trip_id, transfer_type FROM ${alias}.trip_links`)
+        }
+        if (db.prepare(`SELECT 1 FROM ${alias}.sqlite_master WHERE type='table' AND name='trip_operations'`).get()) {
+          db.exec(`INSERT INTO trip_operations SELECT ${prefixSql} || trip_id,
+            CASE WHEN block_id IS NULL THEN NULL ELSE ${prefixSql} || block_id END,
+            bikes_allowed FROM ${alias}.trip_operations`)
         }
         if (hasConnectionPermissions) {
           db.exec(`

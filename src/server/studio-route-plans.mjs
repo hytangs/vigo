@@ -185,6 +185,7 @@ function studioLeg(leg, index, count, body) {
     routeShortName: route.shortName || route.longName || leg.routeId, routeColor: route.color || undefined,
     tripId: leg.tripId, directionId: leg.directionId ?? undefined,
     headsign: leg.headsign ?? undefined,
+    ...(leg.headwayEstimate ? { headwayEstimate: leg.headwayEstimate } : {}),
     ...(leg.inSeatSeconds != null ? { inSeatSeconds: leg.inSeatSeconds } : {}),
     ...shared, stopIds: leg.stopIds, stopCount: leg.stopCount,
     ...(leg.intermediateStops ? { intermediateStops: leg.intermediateStops } : {}),

@@ -119,8 +119,10 @@ try {
   assert.equal(scalar.bestArrival, 30600)
   assert.equal(scalar.reason, null, 'A nullable result field remains present')
   const baseline = examples.find(e => e.command === 'reach' && !e.request.scenario)
-  const proposed = execute('reach', { ...baseline.request, scenario: { excludedTripIds: ['T2'] }, bounds: baseline.result.surface.bounds })
-  const comparison = execute('compare', { before: baseline.result, after: proposed })
+  const comparableRequest = { ...baseline.request, bounds: baseline.result.surface.bounds }
+  const before = execute('reach', comparableRequest)
+  const proposed = execute('reach', { ...comparableRequest, scenario: { excludedTripIds: ['T2'] } })
+  const comparison = execute('compare', { before, after: proposed })
   assert.equal(comparison.sign, 'after-minus-before'); checks++
   function outputCase(name, command, request) {
     const result = execute(command, request)
@@ -132,7 +134,7 @@ try {
   const blockedRoute = outputCase('blocked-route', 'route', {
     ...examples[0].request, origin: { stopId: 'B' }, destination: { stopId: 'A' },
   })
-  const arithmeticGrid = values => ({ cityRevision: ready.cityRevision, stops: [],
+  const arithmeticGrid = values => ({ cityRevision: ready.cityRevision, assumptionsFingerprint: 'synthetic-arithmetic-grid', stops: [],
     surface: { width: 2, height: 2, bounds: [0, 0, 2, 2], values } })
   const arithmeticComparison = outputCase('comparison', 'compare', {
     before: arithmeticGrid([10, null, 20, null]), after: arithmeticGrid([8, 15, null, null]),

@@ -206,6 +206,84 @@
         },
         "type": "object"
       },
+      "AllDayQuery": {
+        "properties": {
+          "endMinutes": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "startMinutes": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "stepMinutes": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "startMinutes",
+          "endMinutes",
+          "stepMinutes"
+        ],
+        "type": "object"
+      },
+      "AllDaySummary": {
+        "properties": {
+          "aggregation": {
+            "type": "string"
+          },
+          "endExclusive": {
+            "type": "boolean"
+          },
+          "meanCondition": {
+            "type": "string"
+          },
+          "sampleCount": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "stepMinutes": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "walkingPreparation": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sampleCount",
+          "stepMinutes",
+          "endExclusive",
+          "aggregation",
+          "meanCondition",
+          "walkingPreparation"
+        ],
+        "type": "object"
+      },
+      "AllDayWindow": {
+        "additionalProperties": false,
+        "properties": {
+          "endMinutes": {
+            "format": "uint32",
+            "maximum": 1440,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "startMinutes": {
+            "format": "uint32",
+            "maximum": 1439,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "AlternativeRanking": {
         "oneOf": [
           {
@@ -1152,6 +1230,29 @@
         ],
         "type": "object"
       },
+      "HeadwayEstimate": {
+        "properties": {
+          "expectedWaitSeconds": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "headwaySeconds": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "waitingAssumption": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "headwaySeconds",
+          "waitingAssumption",
+          "expectedWaitSeconds"
+        ],
+        "type": "object"
+      },
       "HttpCapabilities": {
         "properties": {
           "boundedConnections": {
@@ -1895,6 +1996,9 @@
       "Meta": {
         "description": "How this Result was computed and how to reproduce it.",
         "properties": {
+          "assumptionsFingerprint": {
+            "type": "string"
+          },
           "cityRevision": {
             "type": [
               "string",
@@ -2350,6 +2454,11 @@
             "type": "string"
           },
           {
+            "const": "surface",
+            "description": "Raster only, without polygon construction.",
+            "type": "string"
+          },
+          {
             "const": "map",
             "description": "Areas for the full reached extent, without rasters or stop lists.",
             "type": "string"
@@ -2367,6 +2476,9 @@
       },
       "ReachQuery": {
         "properties": {
+          "allDay": {
+            "$ref": "#/components/schemas/AllDayQuery"
+          },
           "dataMode": {
             "$ref": "#/components/schemas/DataMode"
           },
@@ -2397,7 +2509,6 @@
         "required": [
           "serviceDate",
           "timePreference",
-          "requestedTime",
           "dataMode"
         ],
         "type": "object"
@@ -2406,6 +2517,10 @@
         "additionalProperties": false,
         "description": "`POST /v1/reach` (and `/v1/isochrone`): where an origin reaches\nwithin cutoffs or, arriving by the requested time, where a\ndestination is reached from.",
         "properties": {
+          "allDay": {
+            "$ref": "#/components/schemas/AllDayWindow",
+            "description": "Five-minute streaming aggregation over a service-day window."
+          },
           "allowStreetTransfers": {
             "default": true,
             "description": "Default `true`.",
@@ -2581,6 +2696,9 @@
           "accessibility": {
             "$ref": "#/components/schemas/Accessibility"
           },
+          "allDay": {
+            "$ref": "#/components/schemas/AllDaySummary"
+          },
           "areas": {
             "$ref": "#/components/schemas/CutoffFeatures",
             "description": "Areas within each cutoff. With `reachFormat: \"map\"`, these cover the\nfull reached extent."
@@ -2671,8 +2789,7 @@
           "mode",
           "query",
           "meta",
-          "cutoffsSeconds",
-          "areas"
+          "cutoffsSeconds"
         ],
         "type": "object"
       },
@@ -2717,10 +2834,38 @@
             "minimum": 0,
             "type": "integer"
           },
+          "meanReachableDurationSeconds": {
+            "items": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "type": "array"
+          },
           "nodes": {
             "description": "Reached street nodes, with `includeNodes`.",
             "items": {
               "$ref": "#/components/schemas/SurfaceNode"
+            },
+            "type": "array"
+          },
+          "reachableSamples": {
+            "items": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "reachableSamplesByCutoff": {
+            "items": {
+              "items": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
             },
             "type": "array"
           },
@@ -2745,8 +2890,7 @@
         "required": [
           "width",
           "height",
-          "bounds",
-          "valuesSeconds"
+          "bounds"
         ],
         "type": "object"
       },
@@ -3578,6 +3722,11 @@
             "const": "realtime",
             "description": "Realtime predictions for this trip were applied.",
             "type": "string"
+          },
+          {
+            "const": "headway_estimate",
+            "description": "Expected timing under the declared headway waiting model.",
+            "type": "string"
           }
         ]
       },
@@ -4337,6 +4486,9 @@
           "geometry": {
             "description": "Where the line came from: `gtfs_shape` (aligned to the feed's shape),\n`stop_sequence` (straight lines between stops) or `unknown`.",
             "type": "string"
+          },
+          "headway": {
+            "$ref": "#/components/schemas/HeadwayEstimate"
           },
           "schedule": {
             "$ref": "#/components/schemas/ScheduleQuality"

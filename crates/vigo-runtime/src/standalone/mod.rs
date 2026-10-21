@@ -21,6 +21,7 @@ mod reach;
 mod realtime_poll;
 mod scenario;
 mod scenario_route;
+mod service;
 mod shared_legs;
 mod timetable_cache;
 mod traffic;
@@ -121,6 +122,13 @@ pub fn compare(before: &Value, after: &Value) -> Result<Value> {
     }
     if before["cityRevision"] != after["cityRevision"] {
         return fail("Reach comparison requires the same City revision");
+    }
+    if before["assumptionsFingerprint"]
+        .as_str()
+        .is_none_or(str::is_empty)
+        || before["assumptionsFingerprint"] != after["assumptionsFingerprint"]
+    {
+        return fail("Reach comparison requires matching routing assumptions");
     }
     let a = &before["surface"];
     let b = &after["surface"];

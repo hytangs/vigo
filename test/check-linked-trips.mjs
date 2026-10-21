@@ -12,13 +12,18 @@ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'vigo-linked-trips-'))
 const children=[]
 let checks=0
 try {
- for(const variant of ['linked','zero','forbidden','missing','chain','split','overlap','no-boarding']) {
-  const type=variant==='forbidden'?5:variant==='missing'?null:4
+ for(const variant of ['linked','block','different-terminal','zero','forbidden','missing','chain','split','overlap','no-boarding']) {
+  const type=variant==='forbidden'?5:['missing','block'].includes(variant)?null:4
   const inputDir=path.join(dir,variant);fs.mkdirSync(inputDir)
   const input=await writeCliFixtureInputs(inputDir)
   const zip=await JSZip.loadAsync(fs.readFileSync(input.gtfsPath))
   zip.file('trips.txt','route_id,service_id,trip_id,direction_id,trip_headsign,block_id\nR1,WKD,T1,0,First destination,SAME\nR2,WKD,T2,1,Second destination,SAME\n')
+  if(variant==='missing') zip.file('trips.txt',(await zip.file('trips.txt').async('string')).replaceAll(',SAME',','))
   if(type!==null) zip.file('transfers.txt',`from_trip_id,to_trip_id,transfer_type\nT1,T2,${type}\n`)
+  if(variant==='different-terminal') {
+   zip.file('stops.txt',(await zip.file('stops.txt').async('string'))+'Y,Other terminal,38.91,-77.01\n')
+   zip.file('stop_times.txt',(await zip.file('stop_times.txt').async('string')).replace('08:15:00,08:15:00,X','08:15:00,08:15:00,Y'))
+  }
   if(variant==='zero') zip.file('stop_times.txt',(await zip.file('stop_times.txt').async('string')).replaceAll('08:15:00','08:10:00'))
   if(variant==='overlap') zip.file('stop_times.txt',(await zip.file('stop_times.txt').async('string')).replaceAll('08:15:00','08:09:00'))
   if(variant==='no-boarding') zip.file('stop_times.txt','trip_id,arrival_time,departure_time,stop_id,stop_sequence,pickup_type,drop_off_type\nT1,08:00:00,08:00:00,A,1,0,0\nT1,08:10:00,08:10:00,X,2,1,1\nT2,08:15:00,08:15:00,X,1,1,1\nT2,08:30:00,08:30:00,B,2,0,0\n')
@@ -39,7 +44,7 @@ try {
   const base={kind:'route',origin:{stopId:'A'},destination:{stopId:'B'},serviceDate:'2026-07-15',timeMinutes:480,maxWalkKm:.01,maxTransfers:0,requireTransitRide:true,includeGeometry:true,diagnostics:'trace'}
   for(const reverse of [false,true]) {
    const r=await run({...base,...(reverse?{timePreference:'arrive_by',timeMinutes:510}:{})})
-   if(type!==4 || variant==='overlap') {assert.equal(r.status,'not_found',JSON.stringify(r));checks++;continue}
+   if((type!==4 && variant!=='block') || variant==='overlap') {assert.equal(r.status,'not_found',JSON.stringify(r));checks++;continue}
    assert.equal(r.status,'ok',JSON.stringify(r))
    assert.equal(r.journey.transfers,0);assert.equal(r.journey.boardings,1)
    const rides=r.journey.legs.filter(l=>l.type==='transit')
@@ -50,9 +55,13 @@ try {
    assert.equal(r.journey.ridingSeconds,1800)
    assert.equal(r.journey.waitingSeconds,0)
    assert.equal(r.journey.arrivalTime,'08:30:00')
+   if(variant==='different-terminal') {
+    assert.equal(rides[0].to.stop.id,'X')
+    assert.equal(rides[1].from.stop.id,'Y')
+   }
    checks++
   }
-  if(type===4 && variant!=='overlap') {
+  if((type===4 || variant==='block') && variant!=='overlap') {
    const r=await run({...base,kind:'matrix',includeJourneys:true,origins:[base.origin],destinations:[base.destination],origin:undefined,destination:undefined})
    assert.deepEqual(r.durationsSeconds,[[1800]])
    assert.equal(r.journeys[0][0].boardings,1)
@@ -72,13 +81,27 @@ try {
    const delayed=await run({...base,routingDataMode:'realtime',realtimeSnapshot:{feedTimestamp:now,tripUpdates:[{tripId:'T2',delaySeconds:120}]}})
    assert.equal(delayed.journey.arrivalTime,'08:32:00')
    assert.equal(delayed.journey.legs.filter(l=>l.type==='transit')[1].continuation.durationSeconds,variant==='zero'?120:420)
+   if(variant==='linked') {
+    const replacement={feedTimestamp:now,tripUpdates:[{tripId:'T2',scheduleRelationship:'REPLACEMENT',stopTimeUpdates:[
+     {stopId:'A',stopSequence:1,arrival:{time:Date.parse('2026-07-15T08:15:00-04:00')/1000},departure:{time:Date.parse('2026-07-15T08:15:00-04:00')/1000}},
+     {stopId:'B',stopSequence:2,arrival:{time:Date.parse('2026-07-15T08:35:00-04:00')/1000},departure:{time:Date.parse('2026-07-15T08:35:00-04:00')/1000}}
+    ]}]}
+    const changed=await run({...base,routingDataMode:'realtime',realtimeSnapshot:replacement})
+    assert.equal(changed.status,'ok')
+    assert.equal(changed.journey.arrivalTime,'08:35:00')
+    const oldBoarding=await run({...base,origin:{stopId:'X'},timeMinutes:495,routingDataMode:'realtime',realtimeSnapshot:replacement})
+    assert.equal(oldBoarding.status,'not_found')
+    const restored=await run(base)
+    assert.equal(restored.journey.arrivalTime,'08:30:00')
+    checks+=3
+   }
    const canceled=await run({...base,routingDataMode:'realtime',realtimeSnapshot:{feedTimestamp:now,tripUpdates:[{tripId:'T2',scheduleRelationship:'CANCELED'}]}})
    assert.equal(canceled.status,'not_found')
    const reach=await run({kind:'reach',origin:base.origin,serviceDate:base.serviceDate,timeMinutes:480,maxWalkKm:.01,maxTransfers:0,cutoffsMinutes:[45],extentRadiusKm:3,rasterSize:16,reachFormat:'surface',diagnostics:'trace'})
    assert.equal(reach.status,'ok')
    assert.equal(reach.trace.stops.find(s=>s.stopId==='B').durationMinutes,30)
    checks+=6
-   const partial=await run({...base,origin:{stopId:'X'},timeMinutes:495})
+   const partial=await run({...base,origin:{stopId:variant==='different-terminal'?'Y':'X'},timeMinutes:495})
    if(variant==='no-boarding' || variant==='zero') assert.equal(partial.status,'not_found')
    else {
     assert.equal(partial.journey.legs.filter(l=>l.type==='transit').length,1)

@@ -21,6 +21,7 @@ path = "src/bin/vigo.rs"
 required-features = ["standalone"]
 
 [dependencies]
+vigo-model = { path = "../vigo-model" }
 vigo-traffic = { path = "../vigo-traffic" }
 vigo-route = { path = "../vigo-route" }
 vigo-format = { path = "../vigo-format" }

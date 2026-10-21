@@ -844,3 +844,138 @@ fn retained_clocks_revalidate_like_the_snapshot() {
         assert_eq!(validity(&retained, now), validity(&snapshot, now), "{now}");
     }
 }
+
+#[test]
+fn replacement_uses_new_sequence_and_requires_complete_absolute_clocks() {
+    let names = vec!["A".into(), "B".into(), "C".into()];
+    let update = json!({"stopTimeUpdates":[
+      {"stopId":"C","stopSequence":2,"arrival":{"time":100},"departure":{"time":100}},
+      {"stopId":"B","stopSequence":5,"arrival":{"time":200},"departure":{"time":210}},
+      {"stopId":"A","stopSequence":8,"arrival":{"time":300},"departure":{"time":300}}
+    ]});
+    let convert = |n| Some(n as f64);
+    let (calls, _) = replacement_calls(&names, &update, &convert, &mut 0, None).unwrap();
+    assert_eq!(
+        calls.iter().map(|c| c.stop).collect::<Vec<_>>(),
+        vec![2, 1, 0]
+    );
+    assert_eq!(calls[1].departure, 210.);
+    for field in ["stopId", "stopSequence", "arrival", "departure"] {
+        let mut broken = update.clone();
+        broken["stopTimeUpdates"][1]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+        assert!(replacement_calls(&names, &broken, &convert, &mut 0, None).is_err());
+    }
+    let mut restricted = update.clone();
+    restricted["stopTimeUpdates"][1]["stopTimeProperties"] =
+        json!({"pickupType":1,"dropOffType":2});
+    let (restricted, _) = replacement_calls(&names, &restricted, &convert, &mut 0, None).unwrap();
+    assert!(!restricted[1].can_board && !restricted[1].can_alight);
+    let mut backwards = update.clone();
+    backwards["stopTimeUpdates"][1]["arrival"]["time"] = json!(99);
+    assert!(replacement_calls(&names, &backwards, &convert, &mut 0, None).is_err());
+    let ambiguous = vec![
+        "feed1\u{1f}A".into(),
+        "feed2\u{1f}A".into(),
+        "B".into(),
+        "C".into(),
+    ];
+    assert!(replacement_calls(&ambiguous, &update, &convert, &mut 0, None).is_err());
+    let scoped = vec![
+        "feed1\u{1f}A".into(),
+        "feed2\u{1f}A".into(),
+        "feed1\u{1f}B".into(),
+        "feed1\u{1f}C".into(),
+    ];
+    let (calls, _) = replacement_calls(&scoped, &update, &convert, &mut 0, Some("feed1")).unwrap();
+    assert_eq!(
+        calls.iter().map(|c| c.stop).collect::<Vec<_>>(),
+        vec![3, 2, 0]
+    );
+    assert!(replacement_calls(&scoped, &update, &convert, &mut 0, Some("feed2")).is_err());
+}
+
+#[test]
+fn replacement_overlay_does_not_retain_the_original_stop_sequence() {
+    let names = names(&["A", "B", "C"], 1);
+    let columns = Columns::new([
+        vec![100, 200],
+        vec![200, 300],
+        vec![0, 1],
+        vec![1, 2],
+        vec![1, 2],
+        vec![0, 0],
+        vec![0, 2],
+    ]);
+    let date = NaiveDate::from_ymd_opt(2026, 9, 15).unwrap();
+    let epoch = date.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp();
+    for relationship in [json!("REPLACEMENT"), json!(5)] {
+        let snapshot = json!({"feedTimestamp":epoch,"tripUpdates":[{
+            "tripId":"T0","scheduleRelationship":relationship,"stopTimeUpdates":[
+                {"stopId":"C","stopSequence":1,"arrival":{"time":epoch+120},"departure":{"time":epoch+120}},
+                {"stopId":"A","stopSequence":2,"arrival":{"time":epoch+240},"departure":{"time":epoch+240}}
+            ]
+        }]});
+        let overlay = apply(
+            &columns.schedule(&names),
+            &Input {
+                snapshot: &snapshot,
+                start_date: None,
+            },
+            Clock {
+                date,
+                zone: Some(chrono_tz::UTC),
+            },
+            epoch as f64,
+        )
+        .unwrap();
+        assert_eq!(
+            overlay.outcomes,
+            vec![Outcome::Applied {
+                trip: 0,
+                omitted: 0
+            }]
+        );
+        assert_eq!(overlay.view.from_stop.as_ref(), &[2]);
+        assert_eq!(overlay.view.to_stop.as_ref(), &[0]);
+        assert_eq!(overlay.view.departure_seconds.as_ref(), &[120]);
+        assert_eq!(overlay.view.arrival_seconds.as_ref(), &[240]);
+    }
+}
+
+#[test]
+fn vehicle_prediction_does_not_retime_an_entire_headway_template() {
+    let names = names(&["A", "B"], 1);
+    let columns = Columns::new([
+        vec![100],
+        vec![200],
+        vec![0],
+        vec![1],
+        vec![1],
+        vec![0],
+        vec![0, 1],
+    ]);
+    let schedule = columns.schedule(&names);
+    let feed = 1_789_444_800_i64;
+    let clock = Clock {
+        date: NaiveDate::from_ymd_opt(2026, 9, 15).unwrap(),
+        zone: None,
+    };
+    for update in [
+        json!({"tripId":"T0","delaySeconds":60}),
+        json!({"tripId":"T0","scheduleRelationship":"CANCELED"}),
+    ] {
+        let snapshot = json!({"feedTimestamp":feed,"tripUpdates":[update]});
+        let input = Input {
+            snapshot: &snapshot,
+            start_date: None,
+        };
+        let overlay =
+            apply_with_headways(&schedule, &input, clock, feed as f64, &["T0".into()]).unwrap();
+        assert_eq!(overlay.outcomes, vec![Outcome::Unsupported]);
+        assert_eq!(overlay.view.departure_seconds.to_vec(), vec![100]);
+        assert_eq!(overlay.view.arrival_seconds.to_vec(), vec![200]);
+    }
+}

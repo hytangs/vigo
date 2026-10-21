@@ -262,7 +262,19 @@ const MAXIMUM_TIME: f64 = 1_048_575.;
 
 /// Compiles the realtime view of `schedule`. The schedule stays unchanged, so
 /// every later snapshot reuses the same resident source.
+#[cfg(any(feature = "node", test))]
 pub(crate) fn apply(schedule: &Schedule, input: &Input, clock: Clock, now: f64) -> Result<Overlay> {
+    apply_with_headways(schedule, input, clock, now, &[])
+}
+
+/// Vehicle-instance updates cannot retime a whole frequency template.
+pub(crate) fn apply_with_headways(
+    schedule: &Schedule,
+    input: &Input,
+    clock: Clock,
+    now: f64,
+    headways: &[String],
+) -> Result<Overlay> {
     let snapshot = input.snapshot;
     let start_date = input.start_date;
     let names = schedule.names;
@@ -337,6 +349,9 @@ pub(crate) fn apply(schedule: &Schedule, input: &Input, clock: Clock, now: f64) 
         let Some(trip) = resolve(update) else {
             return Outcome::Unmatched;
         };
+        if headways.iter().any(|id| id == &names.trip_ids[trip]) {
+            return Outcome::Unsupported;
+        }
         if identities.get(&trip).copied().unwrap_or(0) > 1 || !seen.insert(trip) {
             return Outcome::Duplicate;
         }
@@ -362,20 +377,33 @@ pub(crate) fn apply(schedule: &Schedule, input: &Input, clock: Clock, now: f64) 
             canceled[trip] = 1;
             return Outcome::Canceled { trip: trip as u32 };
         }
-        if relationship.is_some_and(|v| v != "SCHEDULED" && v != 0) {
+        let replacement = relationship.is_some_and(|v| v == "REPLACEMENT" || v == 5);
+        if !replacement && relationship.is_some_and(|v| v != "SCHEDULED" && v != 0) {
             return Outcome::Unsupported;
         }
         let boundary = source_boundary(snapshot, update, now, &service_seconds);
-        let predicted = scheduled_calls(schedule, trip).and_then(|calls| {
-            predict(
-                calls,
+        let predicted = if replacement {
+            replacement_calls(
                 &names.stop_ids,
                 update,
                 &service_seconds,
-                boundary,
                 &mut total,
+                names.trip_ids[trip]
+                    .rsplit_once('\u{1f}')
+                    .map(|(scope, _)| scope),
             )
-        });
+        } else {
+            scheduled_calls(schedule, trip).and_then(|calls| {
+                predict(
+                    calls,
+                    &names.stop_ids,
+                    update,
+                    &service_seconds,
+                    boundary,
+                    &mut total,
+                )
+            })
+        };
         match predicted {
             Ok((stops, omitted)) => {
                 replacements.push(RealtimeTripInput {
@@ -456,6 +484,107 @@ fn scheduled_calls(
         can_alight: schedule.can_alight[end - 1] != 0,
     });
     Ok(calls)
+}
+
+/// A replacement is a complete new stop sequence, not delays applied to the
+/// old calls. Require absolute clocks and known, unambiguous City stops. This
+/// also prevents an incomplete replacement from silently retaining old service.
+fn replacement_calls(
+    stop_ids: &[String],
+    update: &Value,
+    service_seconds: &dyn Fn(i64) -> Option<f64>,
+    total: &mut usize,
+    scope: Option<&str>,
+) -> std::result::Result<(Vec<RealtimeCallInput>, usize), Rejection> {
+    let rows = update["stopTimeUpdates"].as_array().ok_or(Invalid)?;
+    *total += rows.len();
+    if rows.len() < 2 || rows.len() > 32768 || *total > 500_000 {
+        return Err(Invalid);
+    }
+    let mut stops: HashMap<&str, Option<u32>> = HashMap::with_capacity(stop_ids.len());
+    for (index, name) in stop_ids.iter().enumerate() {
+        if scope.is_some_and(|scope| name.rsplit_once('\u{1f}').map(|(s, _)| s) != Some(scope)) {
+            continue;
+        }
+        for key in [
+            Some(name.as_str()),
+            name.contains('\u{1f}').then(|| local_id(name)),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            stops
+                .entry(key)
+                .and_modify(|value| *value = None)
+                .or_insert(Some(index as u32));
+        }
+    }
+    let mut calls = Vec::with_capacity(rows.len());
+    let mut previous = -1.;
+    let mut sequence = None;
+    for row in rows {
+        if row
+            .get("scheduleRelationship")
+            .is_some_and(|v| v != "SCHEDULED" && v != 0)
+        {
+            return Err(Unsupported);
+        }
+        let id = row["stopId"].as_str().ok_or(Invalid)?;
+        let stop = stops.get(id).copied().flatten().ok_or(Invalid)?;
+        let seq = row["stopSequence"]
+            .as_u64()
+            .filter(|n| *n <= u32::MAX as u64)
+            .ok_or(Invalid)?;
+        if sequence.is_some_and(|last| seq <= last) {
+            return Err(Invalid);
+        }
+        sequence = Some(seq);
+        let clock = |key: &str| -> std::result::Result<Option<f64>, Rejection> {
+            row.get(key)
+                .map(|event| service_seconds(event["time"].as_i64().ok_or(Invalid)?).ok_or(Invalid))
+                .transpose()
+        };
+        let arrival = clock("arrival")?.ok_or(Invalid)?;
+        let departure = clock("departure")?.ok_or(Invalid)?;
+        let properties = &row["stopTimeProperties"];
+        if properties
+            .get("assignedStopId")
+            .is_some_and(|v| v.as_str() != Some(id))
+        {
+            return Err(Invalid);
+        }
+        let permitted = |key: &str| -> std::result::Result<bool, Rejection> {
+            match properties.get(key) {
+                None => Ok(true),
+                Some(value) => match value.as_u64() {
+                    Some(0) => Ok(true),
+                    Some(1..=3) => Ok(false),
+                    _ => Err(Invalid),
+                },
+            }
+        };
+        if !arrival.is_finite()
+            || !departure.is_finite()
+            || arrival < previous
+            || arrival < 0.
+            || departure < arrival
+            || departure > MAXIMUM_TIME
+            || arrival.fract() != 0.
+            || departure.fract() != 0.
+        {
+            return Err(Invalid);
+        }
+        previous = departure;
+        calls.push(RealtimeCallInput {
+            stop,
+            arrival,
+            departure,
+            sequence: seq as f64,
+            can_board: permitted("pickupType")?,
+            can_alight: permitted("dropOffType")?,
+        });
+    }
+    Ok((calls, 0))
 }
 
 /// Applies one trip update to its scheduled calls. Arrival and departure stay

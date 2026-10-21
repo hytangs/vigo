@@ -34,6 +34,9 @@ impl TimetableKernel {
             ));
         }
 
+        if self.service.is_some() {
+            return self.service_scalar(input);
+        }
         if let Some(maximum) = input.maximum_boardings {
             boarding_layers(Some(maximum))?;
             self.query.forward_workspace.scalar_identity = None;
@@ -157,6 +160,7 @@ impl TimetableKernel {
         }
         let transfer_buffer_seconds = self.minimum_transfer_buffer_seconds;
         let Self {
+            service: _,
             stop_count: _,
             run_count: _,
             departure_seconds: _,

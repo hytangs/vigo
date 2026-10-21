@@ -2,7 +2,7 @@
 
 The public VIGO contract in Rust: every request the engine accepts and every Result it returns, as typed structs with their JSON Schema.
 
-The types describe VIGO 0.5.2 exactly. Reading a recorded Result into them and writing it back produces the same JSON, number forms included. The engine does not use this crate yet; that starts in M1.
+The types describe VIGO 0.5.2 exactly. Reading a recorded Result into them and writing it back produces the same JSON, number forms included. The runtime now uses the typed headway estimate payload. Other public envelopes still use the existing JSON projection; the corpus round-trip checks guard that remaining boundary.
 
 ## What it contains
 

@@ -426,6 +426,9 @@ impl TimetableKernel {
         input: &TimetableMatrixQueryInput,
         output: TimetableMatrixQueryResult,
     ) -> Result<TimetableMatrixQueryResult> {
+        if self.service.is_some() {
+            return self.service_matrix_journeys(input, output);
+        }
         let mut workspace = self
             .query
             .journey_workspace

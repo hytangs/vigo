@@ -232,6 +232,13 @@ impl City {
                     .as_str()
                     .map_or(json!("public"), |model| json!(model));
         }
+        if matches!(command, "route" | "matrix" | "reach" | "isochrone") {
+            raw["assumptionsFingerprint"] = json!(crate::presentation::comparison_fingerprint(
+                command,
+                request,
+                &self.manifest["revisionId"]
+            ));
+        }
         if detailed {
             let mut result = json!({"schema":"vigo.stream.detail.v1","status":"ok"});
             result["trace"] = raw;

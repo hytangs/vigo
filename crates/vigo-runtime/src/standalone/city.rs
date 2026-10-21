@@ -1152,6 +1152,15 @@ impl City {
         } else {
             instances
         };
+        let service_offsets: HashMap<String, i32> = instances
+            .as_ref()
+            .map(|items: &Vec<ServiceInstance>| {
+                items
+                    .iter()
+                    .map(|i| (i.service_date.clone(), i.offset_seconds))
+                    .collect()
+            })
+            .unwrap_or_default();
         self.retire_timetable();
         self.timetable_preparations += 1;
         let mut services = self.services_on(date)?;
@@ -1213,7 +1222,13 @@ impl City {
                 start_date: start_date.as_deref(),
             };
             let clock = realtime_clock(input.snapshot, request, &self.metadata)?;
-            let overlay = realtime::apply(&base.schedule(), &input, clock, now)?;
+            let headways: Vec<String> = self
+                .db
+                .prepare("SELECT DISTINCT trip_id FROM frequencies WHERE exact_times=0")?
+                .query_map([], |r| r.get(0))?
+                .collect::<std::result::Result<_, _>>()?;
+            let overlay =
+                realtime::apply_with_headways(&base.schedule(), &input, clock, now, &headways)?;
             let mut diagnostics = realtime_diagnostics(&overlay, input.snapshot);
             if let Some(live) = live
                 .as_deref()
@@ -1223,6 +1238,25 @@ impl City {
                     "feeds":input.snapshot["feeds"]});
             }
             let mut compiled = overlay.view;
+            // A replacement may introduce calls absent from the scheduled trip.
+            // Reapply the prepared accessibility profile to those new calls.
+            if self.metadata["accessibility"]["profile"] == "wheelchair-strict-v1" {
+                let mut statement = self
+                    .db
+                    .prepare("SELECT stop_id FROM wheelchair_stops WHERE boarding=1")?;
+                let accessible: HashSet<String> = statement
+                    .query_map([], |r| r.get(0))?
+                    .collect::<std::result::Result<_, _>>()?;
+                for i in 0..compiled.from_stop.len() {
+                    if !accessible.contains(&base.names.stop_ids[compiled.from_stop[i] as usize]) {
+                        compiled.can_board[i] = 0;
+                    }
+                    if !accessible.contains(&base.names.stop_ids[compiled.to_stop[i] as usize]) {
+                        compiled.can_alight[i] = 0;
+                    }
+                }
+            }
+
             if input.snapshot.get("alerts").is_some() {
                 let parents = &self.transfers_for(&base.names.stop_ids).parents;
                 alerts = realtime::apply_alerts(
@@ -1304,7 +1338,8 @@ impl City {
         }
         let index_ms = index_started.elapsed().as_secs_f64() * 1000.;
         let kernel_started = std::time::Instant::now();
-        let kernel = TimetableKernel::new(TimetableKernelInput {
+        let semantics = super::service::load(&self.db, &names, &links, &source, &service_offsets)?;
+        let mut kernel = TimetableKernel::new(TimetableKernelInput {
             stop_count: source.stop_count,
             run_count: source.run_count,
             departure_seconds: source.departure_seconds,
@@ -1327,6 +1362,9 @@ impl City {
             same_stop_transfer_minimum: Some(transfers.same_stop_transfer_minimum.clone().into()),
             minimum_transfer_buffer_seconds: Some(buffer as u32 * 60),
         })?;
+        if let Some(semantics) = semantics {
+            kernel.set_service_semantics(semantics)?;
+        }
         self.timetable_preparation_profile = json!({"setupMs":calendar_ms,"sourceAndRealtimeMs":source_ms,"sourceReused":source_reused,
             "indexMs":index_ms,"kernelMs":kernel_started.elapsed().as_secs_f64()*1000.});
         self.timetable = Some(Timetable {

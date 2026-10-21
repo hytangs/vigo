@@ -165,7 +165,9 @@ fn leg(v: &mut Value, geometry: bool) -> Value {
             );
         }
         // Realtime predictions replace the source times of the whole ride.
-        let schedule = if v["realtimeTrip"] == true {
+        let schedule = if !v["headwayEstimate"].is_null() {
+            "headway_estimate"
+        } else if v["realtimeTrip"] == true {
             "realtime"
         } else if v["sourceEqualTime"] == true
             || v["bridgedUntimedGapCount"].as_f64().unwrap_or(0.) > 0.
@@ -175,6 +177,9 @@ fn leg(v: &mut Value, geometry: bool) -> Value {
             "timetable"
         };
         out["quality"] = json!({"geometry":source,"schedule":schedule});
+        if let Some(estimate) = v.get("headwayEstimate") {
+            out["quality"]["headway"] = estimate.clone();
+        }
         if let Some(fare) = v.get("fare") {
             out["fare"] = fare.clone();
         }
@@ -659,8 +664,10 @@ pub fn format_owned(kind: &str, request: &Value, mut raw: Value) -> Value {
             o.remove(k);
         }
     }
+    let assumptions_fingerprint = comparison_fingerprint(kind, request, &json!(revision));
     let mut meta = json!({"engineVersion":env!("CARGO_PKG_VERSION"),"cityRevision":revision,
         "requestId":request.get("id").cloned().unwrap_or_else(||json!(request_id())),
+        "assumptionsFingerprint":assumptions_fingerprint,
         "queryFingerprint":digest(&json!({"kind":kind,"query":fingerprint_query,"cityRevision":revision})),
         "computeUs":compute.map(|n|(n*1000.).round() as i64),
         "computeScope":"query_dispatch_including_materialization"});
@@ -1136,6 +1143,12 @@ pub fn compare(before: &Value, after: &Value) -> Result<Value, String> {
     if before["schema"] != after["schema"] {
         return Err("compare requires results from the same query family".into());
     }
+    let assumptions = &before["meta"]["assumptionsFingerprint"];
+    if assumptions.as_str().is_none_or(str::is_empty)
+        || assumptions != &after["meta"]["assumptionsFingerprint"]
+    {
+        return Err("Comparison requires matching routing assumptions; recompute older results with the same request settings".into());
+    }
     let schema = before["schema"].as_str().unwrap_or("");
     let mut out = json!({"schema":"vigo.compare.v1","status":"ok","beforeStatus":before["status"],"afterStatus":after["status"],
         "cityRevisions":{"before":before["meta"]["cityRevision"],"after":after["meta"]["cityRevision"]}});
@@ -1262,7 +1275,7 @@ mod regressions {
     }
     #[test]
     fn compare_rejects_incompatible_grids() {
-        let a = json!({"schema":"vigo.reach.v1","surface":{"width":1,"height":1,"bounds":[0,0,1,1],"valuesSeconds":[100]}});
+        let a = json!({"schema":"vigo.reach.v1","meta":{"assumptionsFingerprint":"fixture"},"surface":{"width":1,"height":1,"bounds":[0,0,1,1],"valuesSeconds":[100]}});
         let mut b = a.clone();
         b["surface"]["valuesSeconds"] = json!([80]);
         assert_eq!(compare(&a, &b).unwrap()["meanChangeSeconds"], -20.);
@@ -1387,4 +1400,35 @@ mod detailed_choice_tests {
             format_owned("route", &request, projected)["alternatives"]
         );
     }
+}
+
+/// Routing assumptions shared by raw and public comparisons. Scenario and live
+/// observations are the compared interventions; output options do not affect costs.
+pub(crate) fn comparison_fingerprint(kind: &str, request: &Value, revision: &Value) -> String {
+    let mut assumptions = request.clone();
+    let _ = normalize_points(&mut assumptions);
+    if let Some(values) = assumptions.as_object_mut() {
+        for key in [
+            "id",
+            "kind",
+            "diagnostics",
+            "includeGeometry",
+            "includeLimitations",
+            "scenario",
+            "scenarioId",
+            "realtimeSnapshot",
+            "trafficSnapshot",
+            "traffic",
+            "dataMode",
+            "routingDataMode",
+            "includeJourneys",
+            "reachFormat",
+            "surfaceReuse",
+        ] {
+            values.remove(key);
+        }
+    }
+    digest(
+        &json!({"version":"vigo.assumptions.v1","kind":kind,"query":assumptions,"cityRevision":revision,"engineVersion":env!("CARGO_PKG_VERSION")}),
+    )
 }

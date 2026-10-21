@@ -693,8 +693,8 @@ New raw imports record a feature inventory. Fixed-stop pickup and drop-off
 permissions are compiled per connection: illegal board points are absent from
 the departure index, illegal alight points cannot create a reachable state, and
 a passenger already aboard may remain on the trip through either kind of
-restricted stop. Unsupported transfer semantics are omitted from the generic
-stop-pair transfer graph. The remaining network is routed as a
+restricted stop. Scoped transfers use native arriving-trip state rather than
+the generic stop-pair graph; unsupported semantics remain disclosed. The admitted network is routed as a
 `supported_scheduled_core`, with any exclusions attached to every result. This
 is qualified coverage, not an exact claim over the whole feed. Among otherwise
 importable GTFS semantics, only multiple agency timezones currently block the
@@ -707,14 +707,14 @@ whole store.
 | Calendar plus exceptions | Yes | Exceptions override the weekly calendar for the date. | Supported. |
 | Missing both calendar tables | Rejected | No service date can be established. | Rejected malformed input. |
 | Times greater than 24 hours | Yes | Preserved as seconds on the originating service day. | Supported within the query horizon. |
-| Trips crossing midnight | Yes | Connections remain ordered on the originating service-day coordinate. The caller must query that date with a value above 24 hours; VIGO does not automatically merge yesterday's active trips into a `01:00` civil-date query. | Supported only under explicit service-day coordinates and within the horizon. |
+| Trips crossing midnight | Yes | Connections retain their originating service date. Native clock-date requests load active adjacent service days, including overnight headway windows. | Supported within the service-day range and query horizon. |
 | Trips extending across more than one midnight | Parsed | Same coordinate model; default horizon may exclude them and the public CLI clock is bounded. | Bounded; caller must set a sufficient horizon and service-day coordinate. |
 | Invalid minute or second fields | Rejected | Values such as `08:60:00` or `08:00:60` do not normalize silently. | Rejected malformed input. |
-| Agency timezone, one timezone | Inventoried | Caller supplies local service date and clock; no zoned-instant conversion. | Partial; DST instant semantics unsupported. |
+| Agency timezone, one timezone | Inventoried | Native service epochs use local noon minus twelve elapsed hours; realtime instants use the same timezone. | Calendar, overnight and DST regression checks cover the native APIs. |
 | Multiple agency timezones in one store | Inventoried | Exact routing is blocked. | Unsupported and visible. |
 | `frequencies.txt`, `exact_times=1` | Yes, bounded | The template trip is expanded into deterministic fixed departures for each declared frequency window. Generated instances retain route, service, permissions, and shape identity. | Supported for bounded deterministic windows. |
-| `frequencies.txt`, `exact_times=0` | Retained for inspection | No stochastic or deterministic headway waiting model is inferred. The template trip is omitted from compiled connections. | Excluded from the supported scheduled core; visible limitation. |
-| Overlapping frequency windows | Yes, bounded | Deterministic windows expand independently and duplicate generated departures collapse by trip/departure identity; inexact headway templates remain excluded. | Supported for bounded `exact_times=1`; visible limitation only for `exact_times=0`. |
+| `frequencies.txt`, `exact_times=0` | Estimated in Rust | Separate templates use half-headway waiting after service opens; returned legs disclose the assumption. | Estimated service, not scheduled precision. |
+| Overlapping or mixed frequency windows | Rejected | Import requires nonoverlapping windows and a single `exact_times` value per trip. | Invalid feed rejected before publication. |
 | Shapes present | Yes | Ordered trip stops are matched to a monotone shape slice. | Supported for rendering; feasibility never depends on shape. |
 | Shapes missing or unusable | Yes | Timetable route remains valid. Ordinary network lenses show no inferred route alignment; selected-itinerary and Shape/Risk QA views may show a dashed, explicitly inferred stop sequence. | Timetable supported; published ride geometry unavailable. |
 | Duplicate stop names | Yes | Identity is `stop_id`, not name. | Supported. |
@@ -726,15 +726,15 @@ whole store.
 | Transfer type 1 timed transfer | Inventoried | The guarantee is not represented; the row is omitted from the generic stop-pair transfer graph. Other supported scheduled service remains routable. | Excluded from the supported scheduled core; visible limitation. |
 | Transfer type 2 minimum time | Yes | Declared minimum traversal time is enforced. | Supported. |
 | Transfer type 3 forbidden | Yes | Directed pair, including expanded parent/platform pairs, is forbidden and cannot be regenerated by proximity. A same-stop prohibition blocks reboarding after a ride while preserving an origin's initial boarding. | Supported with permanent SQLite, compact-kernel, and matrix regressions. |
-| Transfer type 4/5 in-seat semantics | Retained in optional `trip_links` | Rust compiles explicit type 4 links at a shared terminal into through runs; type 5 never grants a continuation. Source trip identities and dwell remain visible. | Route, Matrix and Reach count one boarding. Different-terminal links remain a visible limitation. |
-| Route- or trip-scoped transfer selectors | Inventoried | The stop-pair schema cannot preserve the selector, so the entire scoped row is omitted rather than generalized to every trip. | Excluded from the supported scheduled core; visible limitation. |
+| Transfer type 4/5 in-seat semantics | Retained in optional `trip_links` | Rust compiles explicit type 4 links, including different terminal stops, into through runs; type 5 never grants a continuation. Source trip identities and dwell remain visible. | Route, Matrix and Reach count one boarding; onboard movement and dwell are riding time. |
+| Route- or trip-scoped transfer selectors | Native | Lossless selectors, parent-station expansion and GTFS specificity are evaluated with arriving-trip state. | Route, Matrix and Reach share the operator. |
 | Nearby stops without explicit transfer | Prepared | One native multi-target street search creates every directed OSM-reachable alight-to-board edge within 500 m. Each edge stores its routed distance; unproved radial pairs remain visible counts. | Supported within the City street model. |
 | `pickup_type=1` / `drop_off_type=1` | Yes | The complete scheduled trip is retained. Boarding is prohibited only at a stop with `pickup_type=1`; alighting is prohibited only at a stop with `drop_off_type=1`; through-riding remains legal. | Supported for fixed-stop routing. |
 | `pickup_type` / `drop_off_type` values 2/3 | Inventoried | The complete scheduled trip is retained, but rider-agency coordination is not a request capability, so the affected board or alight event is conservatively unavailable. | Fixed-stop core retained with visible `on_demand_boarding_or_alighting` limitation. |
 | Continuous pickup/drop-off | Inventoried | Scheduled fixed-stop service remains routable. Continuous boarding or alighting between scheduled stops is not represented. | Fixed-stop core retained with visible limitation. |
 | Loop routes | Yes | Sequence, not stop identity, orders a trip; reconstruction can retain repeated locations. | Supported, with adversarial regression coverage required. |
 | Repeated stop in one trip | Yes | Distinct `stop_sequence` events remain distinct. | Supported. |
-| `block_id` interlining | Inventoried | Each trip remains routable as ordinary scheduled service, but VIGO does not infer an in-seat continuation between trips sharing a block. | Included scheduled trips with a visible interlining limitation. |
+| `block_id` interlining | Partial | Consecutive same-terminal trips with a shared block, service ID and service day use Rust through-runs; explicit links take precedence. | Other block models require explicit links. |
 | Duplicate stop, route, trip, or calendar IDs | Rejected | A primary-key conflict aborts the temporary build; no partial store is published. | Rejected malformed input with adversarial atomicity coverage. |
 | Missing shape ID referenced by a trip | Yes | Timetable routing remains available, but published alignment is unavailable; any selected/QA stop-sequence line is dashed and marked inferred. | Timetable supported; published ride geometry unavailable. |
 | Untimed interior stop-time gaps | Yes | Timed endpoints remain connected and the itinerary reports `interpolated-stop-time-gap`; no exact timestamp is claimed for omitted interior events. | Supported with degraded timing precision. |
@@ -751,10 +751,9 @@ stable code:
 The following nonblocking `routingLimitations` codes put results in
 `supported_scheduled_core` mode:
 
-- `frequency_based_service` for `exact_times=0` headway windows;
+- `frequency_based_service` for `exact_times=0` headway estimates (half-headway waiting, rounded up to whole seconds);
 - `on_demand_boarding_or_alighting`;
 - `continuous_pickup_or_drop_off`;
-- `scoped_transfer_rules`;
 - `timed_transfer_guarantee`;
 - `in_seat_transfer_rules`;
 - `block_interlining`.
@@ -769,6 +768,29 @@ A ready result in `supported_scheduled_core` mode is optimal only over that
 compiled core. A `no_path` result in the same mode means no path exists in the
 core; an excluded trip or transfer rule could still change full-feed
 reachability.
+
+Scoped transfers are retained losslessly in the optional `transfer_rules` table.
+Rust retains the arriving physical trip while evaluating the six GTFS specificity
+levels, so a prohibited earlier arrival cannot erase a legal later connection.
+Route, Matrix, Reach and their reverse searches use that same stateful operator.
+Timed rules waive the default transfer buffer; holding a vehicle after its
+scheduled departure is not predicted. Shared-leg substitutions are suppressed
+on these timetables because that API has no incoming-trip context.
+
+Headway templates live in optional `headway_connections`, separate from fixed
+`connections`; older readers therefore cannot advertise them as exact departures.
+For a ready time t at a stop, the estimate boards at max(t, service opening) plus
+ceil(headway / 2), strictly before the window closes. This is an explicit model,
+not a punctuality guarantee. Transit legs identify `headway_estimate` and expose
+the headway and waiting assumption. Matrix and Reach inherit the same estimate.
+Realtime vehicle-instance updates to headway templates are reported as unsupported;
+a single vehicle prediction must not retime the entire frequency window.
+
+Public comparisons require matching `assumptionsFingerprint` values. Scenario
+and observation payloads are interventions excluded from that fingerprint; route
+constraints, City revision and engine version are included. Older results must
+be recomputed before comparison. Equivalent requests with omitted versus explicit
+defaults are conservatively treated as different until normalized.
 
 ### Required fixture policy
 
@@ -811,7 +833,7 @@ The optional `trip_links` SQLite table preserves `from_trip_id`, `to_trip_id`, a
 remain readable. A City whose importer discarded these rows must be rebuilt
 from the original GTFS; no runtime can recover the missing evidence.
 
-The Rust runtime compiles active, chronological, same-terminal type 4 chains
+The Rust runtime compiles active, chronological type 4 chains
 once per timetable view, after realtime updates. Splitting and coupling produce
 bounded through paths. Original trips remain available for partial journeys and
 for reconstructing source trip IDs, shapes, headsigns and service dates. No new
@@ -819,6 +841,10 @@ search algorithm or JavaScript routing path is introduced. Ordinary Cities have
 no extra connection arrays; linked paths add only their own connections. Limits
 (512 trips per path, 200,000 paths, and four times the original segment count
 with a 100,000-segment floor) fail explicitly rather than truncate results.
+Path retention is also capped at one million trip references. Before copying
+columns, an estimate including spare vector capacity, physical-part copies and
+name tables must fit one eighth of detected memory capacity, capped at 128 MiB.
+This bounds estimated additional allocations; it is not a process RSS guarantee.
 
 A public transit leg following an in-seat continuation has
 `continuation: { "type": "stay_aboard", "durationSeconds": 300 }`, for example.
@@ -829,18 +855,35 @@ alighting restrictions at the boundary do not force passengers off the vehicle.
 Through-journey fares remain unavailable where the fare catalog cannot describe
 the corresponding fare-leg joins; VIGO does not invent an additional or free fare.
 
-Links whose terminal stops differ are retained with an `in_seat_stop_gap`
-limitation, but are not compiled: the feed has no timed connection describing
-that onboard movement. Overlapping clocks, canceled/truncated endpoints and
-inactive trips do not establish continuity. Matching route labels, nearby times
-or `block_id` alone never establish a passenger continuation. Authoring tools
-must provide an explicit valid link and synchronized schedules; a missing link
-or unexplained timetable gap cannot safely be repaired by the router.
+Explicit links may connect different terminal stops: the interval between the
+first trip's arrival and the next trip's departure is onboard movement or dwell.
+It is included in riding time, without inventing a passenger walking leg.
+Overlapping clocks, canceled/truncated endpoints and inactive trips do not
+establish continuity.
+
+The optional `trip_operations` table retains block identifiers and bicycle
+permissions. Rust infers consecutive same-terminal block continuations only
+within one service ID and service day. Adjacency comes from the original
+schedule, so cancellation cannot skip over a missing middle trip. Explicit
+links (including type 5) take precedence. Different-terminal blocks and blocks
+spanning different service IDs still need explicit links. Old Cities without
+these optional tables retain their existing behavior.
 
 `node test/check-linked-trips.mjs` checks raw-GTFS import, forward/reverse Route,
 Matrix, Reach, source identities, dwell, boarding restrictions, realtime,
 branching and scenario exclusions. The native unit tests cover service-day
 boundaries and invalid continuity.
+
+
+### Realtime replacement trips
+
+GTFS Realtime `REPLACEMENT` (experimental, enum value 5) replaces a known trip's
+complete stop sequence in Rust. Every call must identify an unambiguous existing
+City stop and an increasing stop sequence, with absolute arrival/departure clocks
+at every call. Changed intermediate stops and realtime pickup/drop-off
+restrictions are supported. Incomplete, backwards or unknown-stop replacements are
+rejected and reported in realtime diagnostics. `NEW` and `DUPLICATED` still need
+new trip identity construction and are not supported by this replacement path.
 
 
 ## Source layout and delivery

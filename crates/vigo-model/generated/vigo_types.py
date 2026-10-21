@@ -66,6 +66,35 @@ AlertTrip = TypedDict(
     },
 )
 
+AllDayQuery = TypedDict(
+    "AllDayQuery",
+    {
+        "endMinutes": int,
+        "startMinutes": int,
+        "stepMinutes": int,
+    },
+)
+
+AllDaySummary = TypedDict(
+    "AllDaySummary",
+    {
+        "aggregation": str,
+        "endExclusive": bool,
+        "meanCondition": str,
+        "sampleCount": int,
+        "stepMinutes": int,
+        "walkingPreparation": str,
+    },
+)
+
+AllDayWindow = TypedDict(
+    "AllDayWindow",
+    {
+        "endMinutes": NotRequired[int],
+        "startMinutes": NotRequired[int],
+    },
+)
+
 AlternativeRanking = Literal["pareto"] | Literal["ranked"]
 
 # How alternatives were found: requested alternatives, or a journey window.
@@ -229,6 +258,15 @@ GtfsSource = TypedDict(
     },
 )
 
+HeadwayEstimate = TypedDict(
+    "HeadwayEstimate",
+    {
+        "expectedWaitSeconds": int,
+        "headwaySeconds": int,
+        "waitingAssumption": str,
+    },
+)
+
 HttpCapabilities = TypedDict(
     "HttpCapabilities",
     {
@@ -362,7 +400,7 @@ ReachCapabilities = TypedDict(
     },
 )
 
-ReachFormat = Literal["full"] | Literal["map"]
+ReachFormat = Literal["full"] | Literal["surface"] | Literal["map"]
 
 # Reach covers transit, walking, and driving travel times.
 ReachMode = Literal["transit", "walk", "drive"]
@@ -404,7 +442,7 @@ SampledAlternatives = TypedDict(
 
 ScheduleMode = Literal["frequency", "preserve-trips"]
 
-ScheduleQuality = Literal["timetable"] | Literal["source_time_limitations"] | Literal["realtime"]
+ScheduleQuality = Literal["timetable"] | Literal["source_time_limitations"] | Literal["realtime"] | Literal["headway_estimate"]
 
 ScheduledTrip = TypedDict(
     "ScheduledTrip",
@@ -787,10 +825,13 @@ ReachSurface = TypedDict(
         # Reached street intervals, with `includeStreetEdges`.
         "edges": NotRequired[StreetEdges],
         "height": int,
+        "meanReachableDurationSeconds": NotRequired[list[float | None]],
         # Reached street nodes, with `includeNodes`.
         "nodes": NotRequired[list[SurfaceNode]],
+        "reachableSamples": NotRequired[list[int]],
+        "reachableSamplesByCutoff": NotRequired[list[list[int]]],
         # Seconds per cell; `null` when unreachable.
-        "valuesSeconds": list[int | None],
+        "valuesSeconds": NotRequired[list[int | None]],
         "width": int,
     },
 )
@@ -896,6 +937,7 @@ TransitQuality = TypedDict(
         # Where the line came from: `gtfs_shape` (aligned to the feed's shape),
         # `stop_sequence` (straight lines between stops) or `unknown`.
         "geometry": str,
+        "headway": NotRequired[HeadwayEstimate],
         "schedule": ScheduleQuality,
     },
 )
@@ -1005,6 +1047,7 @@ MatrixQuery = TypedDict(
 Meta = TypedDict(
     "Meta",
     {
+        "assumptionsFingerprint": NotRequired[str],
         "cityRevision": str | None,
         # `query_dispatch_including_materialization`.
         "computeScope": str,
@@ -1053,12 +1096,13 @@ Point = Coordinate | Place
 ReachQuery = TypedDict(
     "ReachQuery",
     {
+        "allDay": NotRequired[AllDayQuery],
         "dataMode": DataMode,
         # Arrive-by Reach.
         "destination": NotRequired[QueryPlace],
         # Depart-at Reach.
         "origin": NotRequired[QueryPlace],
-        "requestedTime": str | None,
+        "requestedTime": NotRequired[str | None],
         "serviceDate": str | None,
         "timePreference": TimePreference,
     },
@@ -1300,9 +1344,10 @@ ReachResult = TypedDict(
     "ReachResult",
     {
         "accessibility": NotRequired[Accessibility],
+        "allDay": NotRequired[AllDaySummary],
         # Areas within each cutoff. With `reachFormat: "map"`, these cover the
         # full reached extent.
-        "areas": CutoffFeatures,
+        "areas": NotRequired[CutoffFeatures],
         # Full reached extent, with `reachFormat: "map"`.
         "bounds": NotRequired[Bounds],
         "contours": NotRequired[CutoffFeatures],
@@ -1444,6 +1489,8 @@ Journey = TypedDict(
 ReachRequest = TypedDict(
     "ReachRequest",
     {
+        # Five-minute streaming aggregation over a service-day window.
+        "allDay": NotRequired[AllDayWindow],
         # Default `true`.
         "allowStreetTransfers": NotRequired[bool],
         "bounds": NotRequired[Bounds],

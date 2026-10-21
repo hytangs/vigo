@@ -1,4 +1,4 @@
-import { nativeRouteRequest, onServiceDate, studioRouteResponse } from '../server/studio-route-plans.mjs'
+import { nativeRouteRequest, studioRouteResponse } from '../server/studio-route-plans.mjs'
 import { routingResultStatus } from '../server/gtfs/route-results.mjs'
 import { wheelchairDescription, validateWheelchairRequest } from '../server/wheelchair-policy.mjs'
 import fs from 'node:fs'
@@ -276,9 +276,9 @@ async function routeOne(
   if (alternatives) Object.assign(query, { alternatives: alternatives.count, alternativeRanking: alternatives.ranking,
     alternativeSlackMinutes: alternatives.arrivalSlackSeconds / 60 })
   const { trace, openMs } = await queryNativeCity(path.dirname(path.dirname(storePath)), query)
-  const response = studioRouteResponse(onServiceDate(trace, request.serviceDate, trace.timeZone), request)
+  const response = studioRouteResponse(trace, request)
   const choices: RoutingPlan[] = response.choices.map((plan: RoutingPlan) => decorateCliRoutingPlan({ ...plan,
-    diagnostics: { ...plan.diagnostics, ...(trace.clockDate ? { clockDate: request.serviceDate } : {}),
+    diagnostics: { ...plan.diagnostics, ...(trace.clockDate ? { clockDate: trace.clockDate } : {}),
       ...(trace.window ? { departureWindow: { centerMinutes: request.departMinutes,
         beforeMinutes: request.departMinutes - trace.window.startMinutes,
         afterMinutes: trace.window.endMinutes - request.departMinutes,

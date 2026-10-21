@@ -51,6 +51,8 @@ try {
   assert.match(linkedHtml, /Stay aboard/)
   assert.match(linkedHtml, /onboard layover/)
   assert.doesNotMatch(linkedHtml, /No time between vehicles|wait at Destination/)
+  const estimated={...plan,legs:plan.legs.map(leg=>({...leg,headwayEstimate:{headwaySeconds:600,expectedWaitSeconds:300,waitingAssumption:'half_headway'}}))}
+  assert.match(renderToStaticMarkup(createElement(RoutingItinerary,{plan:estimated})),/Estimated timing/)
   const routeHtml = renderToStaticMarkup(createElement(RoutingItinerary, { plan }))
   const reachHtml = renderToStaticMarkup(createElement(ReachPointInspector, { inspection: {
     point: destination, source: { id: 'fixture', result }, plan, loading: false, error: '', close() {}, retry() {},
@@ -89,6 +91,8 @@ try {
   const screenshot = path.join(directory, 'journey-stops.png')
   const main = path.join(directory, 'main.cjs')
   await fs.writeFile(main, `const {app,BrowserWindow}=require('electron');
+// Xvfb has no GPU compositor; capturePage must use software rendering.
+if(process.platform==='linux') app.disableHardwareAcceleration();
 app.setPath('userData',${JSON.stringify(path.join(directory, 'profile'))});
 app.whenReady().then(async()=>{try{
 const w=new BrowserWindow({width:620,height:760,show:true,webPreferences:{sandbox:true,contextIsolation:true}});

@@ -466,12 +466,29 @@ impl City {
                         v["alerts"] = Value::Array(ride);
                     }
                 }
+                let estimate =
+                    t.kernel
+                        .headway_seconds(trip, leg.departure, leg.board_sequence.unwrap_or(0.));
+                if let Some(headway) = estimate {
+                    v["headwayEstimate"] = serde_json::to_value(vigo_model::HeadwayEstimate {
+                        headway_seconds: headway,
+                        waiting_assumption: "half_headway".into(),
+                        expected_wait_seconds: headway.div_ceil(2),
+                    })?;
+                }
+                let shift = if estimate.is_some() {
+                    leg.departure
+                        - t.kernel
+                            .ride_departure(trip, leg.board_sequence.unwrap_or(0.))?
+                } else {
+                    0.
+                };
                 let calls = t.kernel.ride_calls(trip);
                 v["intermediateStops"] = Value::Array(calls[first + 1..last].iter().map(|c| {
                     let id = &t.stop_ids[c.stop as usize];
                     let stop = self.stop(id)?;
                     Ok(json!({"stopId":id,"name":stop.name,"coordinate":[stop.lon,stop.lat],
-                        "arrival":c.arrival,"departure":c.departure}))
+                        "arrival":c.arrival.map(|v|f64::from(v)+shift),"departure":c.departure.map(|v|f64::from(v)+shift)}))
                 }).collect::<Result<Vec<Value>>>()?);
                 if geometry {
                     let trip_coordinates: Vec<_> = ids

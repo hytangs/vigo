@@ -15,8 +15,8 @@ impl TimetableKernel {
             + self.trip_start.len() * std::mem::size_of::<u32>()
             + self.forbidden_same_stop.len() * std::mem::size_of::<u8>()
             + self.same_stop_transfer_minimum.len() * std::mem::size_of::<u32>();
-        let native_index_bytes = self.departure_events.capacity()
-            * std::mem::size_of::<DepartureEvent>()
+        let native_index_bytes = self.service.as_ref().map_or(0, |s| s.byte_length())
+            + self.departure_events.capacity() * std::mem::size_of::<DepartureEvent>()
             + self.departure_offset.capacity() * std::mem::size_of::<u32>()
             + self.transfer_edges.capacity() * std::mem::size_of::<TransferEdge>()
             + self.transfer_offset.capacity() * std::mem::size_of::<u32>()
@@ -46,7 +46,12 @@ impl TimetableKernel {
             native_index_bytes: native_index_bytes as f64,
             array_bytes: array_bytes as f64,
             zero_copy_arrays: self.departure_seconds.is_external(),
-            algorithm: "exact_connection_scan_no_heuristic".to_owned(),
+            algorithm: if self.service.is_some() {
+                "stateful_service_search"
+            } else {
+                "exact_connection_scan_no_heuristic"
+            }
+            .to_owned(),
         }
     }
 }

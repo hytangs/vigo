@@ -1,7 +1,7 @@
 //! Stream admitted stop times into the permanent 0.5 connections layout.
 //! The caller must close its SQLite handles before transferring ownership here.
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use vigo_route::types::*;
 
 type CompileResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -181,9 +181,22 @@ fn compile(
     let mut insert_trip = db.prepare("INSERT OR IGNORE INTO trips VALUES(?,?,?,?)")?;
     let mut shape_lookup = db.prepare("SELECT shape_id FROM trip_shapes WHERE trip_id=?")?;
     let mut insert_shape = db.prepare("INSERT OR IGNORE INTO trip_shapes VALUES(?,?)")?;
+    db.execute_batch("CREATE TABLE IF NOT EXISTS trip_origins(trip_id TEXT PRIMARY KEY, source_trip_id TEXT NOT NULL) WITHOUT ROWID")?;
+    let mut origin = db.prepare("INSERT OR IGNORE INTO trip_origins VALUES(?,?)")?;
     let mut copy_details = db.prepare(
         "INSERT INTO trip_details SELECT ?,headsign,short_name FROM trip_details WHERE trip_id=?",
     )?;
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS headway_connections AS SELECT * FROM connections WHERE 0",
+    )?;
+    let headway_trips: HashMap<String, f64> = db
+        .prepare(
+            "SELECT trip_id,MIN(start_time) FROM frequencies WHERE exact_times=0 GROUP BY trip_id",
+        )?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<std::result::Result<_, _>>()?;
+    let mut insert_headway =
+        db.prepare("INSERT INTO headway_connections VALUES(?,?,?,?,?,?,?,?,?)")?;
     let mut insert = db.prepare("INSERT INTO connections VALUES(?,?,?,?,?,?,?,?,?)")?;
     let mut permissions = db.prepare("INSERT INTO connection_permissions VALUES(?,?,?,?)")?;
     let mut source = stage.prepare("SELECT trip_id,stop_sequence,stop_id,arrival,departure,can_board,can_alight FROM stop_times ORDER BY trip_id,stop_sequence")?;
@@ -294,6 +307,7 @@ fn compile(
                         trip.service,
                         trip.direction
                     ])?;
+                    origin.execute(params![instance.trip_id, row.trip_id])?;
                     copy_details.execute(params![instance.trip_id, row.trip_id])?;
                     let shape: Option<String> = shape_lookup
                         .query_row([&row.trip_id], |r| r.get(0))
@@ -306,14 +320,21 @@ fn compile(
                 if instances.is_empty() {
                     instances.push(Instance {
                         trip_id: row.trip_id.clone(),
-                        offset: 0.0,
+                        offset: headway_trips
+                            .get(&row.trip_id)
+                            .map_or(0.0, |start| start - departure.unwrap_or(0.0)),
                     });
                 }
                 trip.instances = Some(instances);
             }
             if let (Some(departure), Some(arrival)) = (departure, arrival) {
                 for instance in trip.instances.as_ref().expect("instances initialized") {
-                    insert.execute(params![
+                    let target = if headway_trips.contains_key(&row.trip_id) {
+                        &mut insert_headway
+                    } else {
+                        &mut insert
+                    };
+                    target.execute(params![
                         departure + instance.offset,
                         arrival + instance.offset,
                         instance.trip_id,

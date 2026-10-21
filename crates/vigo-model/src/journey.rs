@@ -179,6 +179,8 @@ pub enum ScheduleQuality {
     SourceTimeLimitations,
     /// Realtime predictions for this trip were applied.
     Realtime,
+    /// Expected timing under the declared headway waiting model.
+    HeadwayEstimate,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -201,6 +203,16 @@ pub struct TransitQuality {
     /// `stop_sequence` (straight lines between stops) or `unknown`.
     pub geometry: String,
     pub schedule: ScheduleQuality,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub headway: Option<HeadwayEstimate>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct HeadwayEstimate {
+    pub headway_seconds: u32,
+    pub waiting_assumption: String,
+    pub expected_wait_seconds: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

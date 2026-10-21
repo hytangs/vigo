@@ -76,6 +76,26 @@ export interface AlertTrip {
   tripId?: string;
 }
 
+export interface AllDayQuery {
+  endMinutes: number;
+  startMinutes: number;
+  stepMinutes: number;
+}
+
+export interface AllDaySummary {
+  aggregation: string;
+  endExclusive: boolean;
+  meanCondition: string;
+  sampleCount: number;
+  stepMinutes: number;
+  walkingPreparation: string;
+}
+
+export interface AllDayWindow {
+  endMinutes?: number;
+  startMinutes?: number;
+}
+
 export type AlternativeRanking = "pareto" | "ranked";
 
 /**
@@ -361,6 +381,12 @@ export interface GtfsSource {
   name: string | null;
 }
 
+export interface HeadwayEstimate {
+  expectedWaitSeconds: number;
+  headwaySeconds: number;
+  waitingAssumption: string;
+}
+
 export interface HttpCapabilities {
   boundedConnections: boolean;
   boundedQueue: boolean;
@@ -592,6 +618,7 @@ export interface MatrixResult {
  * How this Result was computed and how to reproduce it.
  */
 export interface Meta {
+  assumptionsFingerprint?: string;
   cityRevision: string | null;
   /** `query_dispatch_including_materialization`. */
   computeScope: string;
@@ -746,7 +773,7 @@ export interface ReachCapabilities {
   timePreferences: string[];
 }
 
-export type ReachFormat = "full" | "map";
+export type ReachFormat = "full" | "surface" | "map";
 
 /**
  * Reach covers transit, walking, and driving travel times.
@@ -754,12 +781,13 @@ export type ReachFormat = "full" | "map";
 export type ReachMode = "transit" | "walk" | "drive";
 
 export interface ReachQuery {
+  allDay?: AllDayQuery;
   dataMode: DataMode;
   /** Arrive-by Reach. */
   destination?: QueryPlace;
   /** Depart-at Reach. */
   origin?: QueryPlace;
-  requestedTime: string | null;
+  requestedTime?: string | null;
   serviceDate: string | null;
   timePreference: TimePreference;
 }
@@ -770,6 +798,8 @@ export interface ReachQuery {
  * destination is reached from.
  */
 export interface ReachRequest {
+  /** Five-minute streaming aggregation over a service-day window. */
+  allDay?: AllDayWindow;
   /** Default `true`. */
   allowStreetTransfers?: boolean;
   bounds?: Bounds;
@@ -831,9 +861,10 @@ export interface ReachRequest {
 
 export interface ReachResult {
   accessibility?: Accessibility;
+  allDay?: AllDaySummary;
   /** Areas within each cutoff. With `reachFormat: "map"`, these cover the */
   /** full reached extent. */
-  areas: CutoffFeatures;
+  areas?: CutoffFeatures;
   /** Full reached extent, with `reachFormat: "map"`. */
   bounds?: Bounds;
   contours?: CutoffFeatures;
@@ -878,10 +909,13 @@ export interface ReachSurface {
   /** Reached street intervals, with `includeStreetEdges`. */
   edges?: StreetEdges;
   height: number;
+  meanReachableDurationSeconds?: Array<number | null>;
   /** Reached street nodes, with `includeNodes`. */
   nodes?: SurfaceNode[];
+  reachableSamples?: number[];
+  reachableSamplesByCutoff?: number[][];
   /** Seconds per cell; `null` when unreachable. */
-  valuesSeconds: Array<number | null>;
+  valuesSeconds?: Array<number | null>;
   width: number;
 }
 
@@ -1130,7 +1164,7 @@ export interface ScenarioService {
 
 export type ScheduleMode = "frequency" | "preserve-trips";
 
-export type ScheduleQuality = "timetable" | "source_time_limitations" | "realtime";
+export type ScheduleQuality = "timetable" | "source_time_limitations" | "realtime" | "headway_estimate";
 
 export interface ScheduledTrip {
   arrivalOffsetsSeconds: number[];
@@ -1361,6 +1395,7 @@ export interface TransitQuality {
   /** Where the line came from: `gtfs_shape` (aligned to the feed's shape), */
   /** `stop_sequence` (straight lines between stops) or `unknown`. */
   geometry: string;
+  headway?: HeadwayEstimate;
   schedule: ScheduleQuality;
 }
 

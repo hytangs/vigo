@@ -90,6 +90,7 @@ function stopTimeEventToRecord(event) {
 function stopTimeUpdateToRecord(update) {
   return compactObject({
     stopSequence: numeric(update?.stopSequence),
+    stopTimeProperties: update?.stopTimeProperties,
     stopId: update?.stopId,
     scheduleRelationship: enumLabel(
       gtfsRealtime.StopTimeUpdate.ScheduleRelationship,

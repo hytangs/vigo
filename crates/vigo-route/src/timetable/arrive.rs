@@ -30,6 +30,9 @@ impl TimetableKernel {
             ));
         }
 
+        if self.service.is_some() {
+            return self.service_arrive(&input);
+        }
         if let Some(cap) = input.maximum_boardings {
             boarding_layers(Some(cap))?;
             // The unrestricted latest departure is an upper bound for every
@@ -142,6 +145,7 @@ impl TimetableKernel {
         }
         let transfer_buffer_seconds = self.minimum_transfer_buffer_seconds;
         let Self {
+            service: _,
             stop_count: _,
             run_count: _,
             departure_seconds: _,

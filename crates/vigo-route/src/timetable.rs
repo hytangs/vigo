@@ -1,3 +1,5 @@
+mod service;
+pub use service::{HeadwayWindow, ServiceSemantics, TransferRule};
 mod columns;
 pub use columns::TimetableBlockPool;
 type SourceU32 = columns::Column<u32>;
@@ -3244,6 +3246,7 @@ fn boarding_ready_time(
         }
 }
 pub struct TimetableKernel {
+    service: Option<service::ServiceIndex>,
     stop_count: usize,
     run_count: usize,
     departure_seconds: SourceU32,

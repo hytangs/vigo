@@ -89,13 +89,14 @@ export function RoutingItinerary({ plan, destinationLabel }: { plan: RoutingPlan
           <strong className="journey-place">{index === 0 ? journeyPlace(leg.fromName, plan.origin.label && !coordinateLabel.test(plan.origin.label) ? plan.origin.label : 'Start')
             : via !== undefined ? <>{viaLabel}{/^Via stop \d+$/.test(viaLabel) ? null : <span className="journey-via-tag">Via {via + 1}</span>}</> : leg.fromName}</strong>
           <div className="journey-leg-body">
+            {leg.headwayEstimate ? <p className="journey-caution">Estimated timing · every {formatRoutingMinutes(leg.headwayEstimate.headwaySeconds / 60)} · assumes {formatRoutingMinutes(leg.headwayEstimate.expectedWaitSeconds / 60)} waiting</p> : null}
             {leg.inSeatSeconds != null ? <p className="journey-wait">Stay aboard{leg.inSeatSeconds > 0 ? ` · ${formatRoutingMinutes(leg.inSeatSeconds / 60)} onboard layover` : ''}</p> : null}
             {wait > 0 ? <p className="journey-wait"><Clock3 size={12} aria-hidden="true" />{formatRoutingMinutes(wait)} wait at {leg.fromName}</p> : null}
             {immediateVehicleChange ? <p className="journey-caution">No time between vehicles</p> : null}
             {transfer && (leg.geometrySource === 'stop_coordinate_fallback' || leg.stationAccessStatus === 'unverified') ? <p className="journey-leg-meta">Station connection · map line approximate</p> : null}
             {ride ? <div className="journey-ride">
               <span className="journey-route"><RouteTypeIcon routeType={leg.routeType} size={13} />{routingLegPrimaryLabel(leg)}</span>
-              <span className="journey-leg-meta">{leg.scenarioService ? <span className="journey-planned">Planned · {leg.scenarioService.scenarioName} · </span> : null}{leg.stopCount > 0 ? `${leg.stopCount} ${leg.scenarioService ? 'planned' : 'scheduled'} stop${leg.stopCount === 1 ? '' : 's'}` : 'Transit ride'} · {formatRoutingLegDuration(leg)}</span>
+              <span className="journey-leg-meta">{leg.scenarioService ? <span className="journey-planned">Planned · {leg.scenarioService.scenarioName} · </span> : null}{leg.stopCount > 0 ? `${leg.stopCount} ${leg.headwayEstimate ? 'service' : leg.scenarioService ? 'planned' : 'scheduled'} stop${leg.stopCount === 1 ? '' : 's'}` : 'Transit ride'} · {formatRoutingLegDuration(leg)}</span>
             </div> : <p className="journey-move">
               <MoveIcon size={13} aria-hidden="true" />
               <span>{transfer ? routingLegPrimaryLabel(leg) : leg.type === 'drive' ? 'Drive' : 'Walk'}</span>

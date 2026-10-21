@@ -42,7 +42,7 @@ impl City {
         buffer: u32,
         complete_service_coverage: bool,
     ) -> Result<Timetable> {
-        if super::linked_trips::present(&self.db)? {
+        if super::linked_trips::present(&self.db)? || super::service::present(&self.db)? {
             return fail("Linked trips require source preparation");
         }
         let mut sorted: Vec<_> = services.iter().map(String::as_str).collect();

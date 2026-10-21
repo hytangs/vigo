@@ -610,7 +610,11 @@ fn reconstruct(
         let ride = chain.kinds[i] == 2;
         let arrival = chain.arrivals[i];
         let start = if ride {
-            kernel.ride_departure(chain.trips[i] as u32, chain.board[i])?
+            if kernel.service_enabled() {
+                arrival - f64::from(chain.durations[i])
+            } else {
+                kernel.ride_departure(chain.trips[i] as u32, chain.board[i])?
+            }
         } else {
             clock
         };

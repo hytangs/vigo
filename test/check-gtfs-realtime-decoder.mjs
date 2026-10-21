@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { PbfWriter } from 'pbf'
+import { realtimeSnapshotFromFeed } from '../src/server/realtime-snapshot.mjs'
 import { decodeGtfsRealtimeFeed, gtfsRealtimeEnums } from '../src/server/gtfs-realtime-decoder.mjs'
 
 function writeHeader(value, pbf) {
@@ -55,6 +56,7 @@ function writeStopTimeUpdate(value, pbf) {
   pbf.writeMessage(3, writeStopTimeEvent, value.departure)
   pbf.writeStringField(4, value.stopId)
   pbf.writeVarintField(5, value.scheduleRelationship)
+  pbf.writeMessage(6, (_, properties) => { properties.writeVarintField(3, 1); properties.writeVarintField(4, 2) }, {})
 }
 
 function writeTripUpdate(value, pbf) {
@@ -196,3 +198,5 @@ const deletedWriter = new PbfWriter()
 deletedWriter.writeMessage(1, writeHeader, { version: '2.0', incrementality: 0, timestamp: 1_700_000_000 })
 deletedWriter.writeMessage(2, (_, out) => { out.writeStringField(1, 'deleted'); out.writeBooleanField(2, true) })
 assert.throws(() => decodeGtfsRealtimeFeed(deletedWriter.finish()), /is_deleted requires unsupported DIFFERENTIAL/)
+
+assert.deepEqual(realtimeSnapshotFromFeed(feed, 'fixture', Date.now(), 'application/x-protobuf').tripUpdates[0].stopTimeUpdates[0].stopTimeProperties, { pickupType: 1, dropOffType: 2 })

@@ -55,6 +55,9 @@ impl TimetableKernel {
                 "Rust timetable overlay supplemental transfer arrays are inconsistent.",
             ));
         }
+        if self.service.is_some() {
+            return self.service_overlay(&input);
+        }
         let supplemental_transfer_edges = input
             .supplemental_transfer_to
             .iter()
@@ -143,6 +146,7 @@ impl TimetableKernel {
         let base_run_count = self.run_count;
         let transfer_buffer_seconds = self.minimum_transfer_buffer_seconds;
         let Self {
+            service: _,
             stop_count: _,
             run_count: _,
             departure_seconds: _,
