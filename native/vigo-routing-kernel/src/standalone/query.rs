@@ -26,10 +26,12 @@ impl Candidates {
             return Ok(serde_json::to_value(evidence)?);
         }
         // What public summaries and profiles read: candidates and timings.
-        Ok(json!({"memberIndices":evidence.member_indices,"cacheHit":evidence.cache_hit,
+        Ok(
+            json!({"memberIndices":evidence.member_indices,"cacheHit":evidence.cache_hit,
             "cchAccelerated":evidence.cch_accelerated,"queryNs":evidence.query_ns,
             "accessReductionNs":evidence.access_reduction_ns,"snapNs":evidence.snap_ns,
-            "searchNs":evidence.search_ns}))
+            "searchNs":evidence.search_ns}),
+        )
     }
 }
 pub(crate) struct Options {
@@ -1015,7 +1017,8 @@ impl City {
             output["alternativeSearch"] = search;
         }
         output["diagnostics"] = json!({"search":{"startSeconds":opt.start,"endSeconds":opt.end,"horizonScope":"timetable_scan","maxTransfers":q["maxTransfers"],"allowStreetTransfers":q.get("allowStreetTransfers").unwrap_or(&Value::Bool(true)),"minimumTransferBufferMinutes":q.get("minimumTransferBufferMinutes").unwrap_or(&json!(0))},"native":result});
-        output["diagnostics"]["originAccess"] = a.diagnostics(&origin, self.full_access_evidence)?;
+        output["diagnostics"]["originAccess"] =
+            a.diagnostics(&origin, self.full_access_evidence)?;
         output["diagnostics"]["destinationAccess"] =
             b.diagnostics(&destination, self.full_access_evidence)?;
         if output["status"] == "blocked" {
@@ -1548,17 +1551,19 @@ impl City {
                 let d = self.drive.as_mut().unwrap();
                 let (traffic, traffic_diagnostics) =
                     d.traffic(q.get("traffic"), realtime_drive(q))?;
-                let r = d.kernel.route_coordinate_matrix(DriveCoordinateMatrixInput {
-                    origin_coordinates: origins.iter().flat_map(|p| p.coordinate).collect(),
-                    destination_coordinates: destinations
-                        .iter()
-                        .flat_map(|p| p.coordinate)
-                        .collect(),
-                    maximum_walk_meters: opt.walk_m,
-                    walking_speed_kph,
-                    maximum_distance_meters: opt.street_m,
-                    traffic,
-                })?;
+                let r = d
+                    .kernel
+                    .route_coordinate_matrix(DriveCoordinateMatrixInput {
+                        origin_coordinates: origins.iter().flat_map(|p| p.coordinate).collect(),
+                        destination_coordinates: destinations
+                            .iter()
+                            .flat_map(|p| p.coordinate)
+                            .collect(),
+                        maximum_walk_meters: opt.walk_m,
+                        walking_speed_kph,
+                        maximum_distance_meters: opt.street_m,
+                        traffic,
+                    })?;
                 (
                     r.distances_m.clone(),
                     r.durations_s.iter().map(|v| v / 60.).collect(),

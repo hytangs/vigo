@@ -64,11 +64,7 @@ impl Runtime {
             let fingerprint = drive.image.header["identity"]["sourceFingerprint"]
                 .as_str()
                 .ok_or("Missing street fingerprint")?;
-            Some(
-                drive
-                    .kernel
-                    .compile_traffic(value, fingerprint)?,
-            )
+            Some(drive.kernel.compile_traffic(value, fingerprint)?)
         };
         drive.automatic_traffic = snapshot;
         city.polling_enabled = true;

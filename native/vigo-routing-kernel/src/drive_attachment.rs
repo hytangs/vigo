@@ -33,7 +33,9 @@ pub(crate) struct DriveGraph<'a> {
 impl DriveGraph<'_> {
     fn edge_source(&self, edge: usize) -> usize {
         // The last node whose first out-edge is at or before `edge`.
-        self.edge_offsets.partition_point(|&offset| offset as usize <= edge) - 1
+        self.edge_offsets
+            .partition_point(|&offset| offset as usize <= edge)
+            - 1
     }
 }
 
@@ -483,8 +485,14 @@ mod tests {
         let forward = |a: &Attachment, edge| *a.candidates.iter().find(|c| c.edge == edge).unwrap();
         let (seconds, meters) =
             same_edge(&forward(&origin, 0), &forward(&destination, 0), &graph).unwrap();
-        assert!((meters - (0.6 * 1_112.0 + 2.0 * 11.12)).abs() < 1.0, "{meters}");
-        assert!((seconds - (0.6 * 80.0 + 2.0 * 11.12 / speed)).abs() < 0.1, "{seconds}");
+        assert!(
+            (meters - (0.6 * 1_112.0 + 2.0 * 11.12)).abs() < 1.0,
+            "{meters}"
+        );
+        assert!(
+            (seconds - (0.6 * 80.0 + 2.0 * 11.12 / speed)).abs() < 0.1,
+            "{seconds}"
+        );
         // Against the edge's direction there is no direct trip on edge 0.
         assert!(same_edge(&forward(&destination, 0), &forward(&origin, 0), &graph).is_none());
     }

@@ -800,8 +800,9 @@ impl Index {
                     other if truthy(other) => std::borrow::Cow::Owned(js_text(other)),
                     _ => std::borrow::Cow::Borrowed(""),
                 };
-                if let Some((_, _, matched)) =
-                    memo.iter().find(|(side, known, _)| *side == to && *known == key)
+                if let Some((_, _, matched)) = memo
+                    .iter()
+                    .find(|(side, known, _)| *side == to && *known == key)
                 {
                     return *matched;
                 }

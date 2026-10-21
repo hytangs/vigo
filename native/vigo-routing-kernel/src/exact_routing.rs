@@ -2066,9 +2066,9 @@ impl DriveKernel {
         for origin in origins {
             for destination in destinations {
                 if let Some((seconds, meters)) = same_edge(origin, destination, &graph)
-                    && best.as_ref().is_none_or(|known| {
-                        drive_value_better(seconds, meters, known.0, known.1)
-                    })
+                    && best
+                        .as_ref()
+                        .is_none_or(|known| drive_value_better(seconds, meters, known.0, known.1))
                 {
                     best = Some((seconds, meters, *origin, *destination));
                 }
