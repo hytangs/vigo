@@ -136,6 +136,7 @@
   "check:public-results": [
     "test/check-public-result-serialization.mjs",
     "test/check-public-results.mjs",
+    "test/check-direct-service-alternatives.mjs",
     "test/check-service-benchmark.mjs"
   ],
   "check:correctness": [

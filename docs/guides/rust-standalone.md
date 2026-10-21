@@ -535,6 +535,23 @@ Ask for several journeys at one time, plan through intermediate points, or compa
 }
 ```
 
+### Displaying direct-service choices
+
+A journey window samples optimal departures; it does not guarantee that a slower
+parallel service appears. For a depart-at transit interface that offers both fast
+journeys and direct services, request `alternatives: 9` with
+`alternativeRanking: "ranked"`, then make a second request with the same endpoints,
+date, time and walking limits and `maxTransfers: 0`. Merge the successful journeys,
+sort by arrival, and deduplicate equivalent departures for presentation. Keep the
+fastest journey as the recommendation. The second search prevents faster transfer
+combinations from occupying every slot before a useful direct service is returned.
+
+Remove `windowMinutes` when requesting alternatives. Retain the existing window
+or single-journey request for arrive-by searches, which do not support ranked
+alternatives. Preserve the source boarding/alighting restrictions and station
+access costs in both requests. This policy adds a second query and remains bounded
+by the requested count and arrival slack; it is not an exhaustive list of services.
+
 ### Shared-leg services
 
 Set `sharedLegs: true` on a transit Route request to expose other services on the
