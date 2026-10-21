@@ -58,7 +58,7 @@ export const StudioRail = memo(function StudioRail({ hasActiveData }: { hasActiv
   )
 })
 
-/** The workspace sidebar: the rail and the Route or Analyze panel. */
+/** Keep the rail mounted while switching workspace panels and Settings. */
 export const VigoSidebar = memo(function VigoSidebar() {
   countRender('VigoSidebar')
   const activeRouteTool = useStore(shell, (state) => state.activeRouteTool)
@@ -66,14 +66,14 @@ export const VigoSidebar = memo(function VigoSidebar() {
   return (
     <aside className="app-sidebar" aria-label="City navigation">
       <StudioRail hasActiveData={hasActiveData} />
-      <section className={classNames('sidebar-panel', `is-${activeRouteTool}`)} aria-label="City panel" data-map-occluder>
+      {activeRouteTool === 'data' || activeRouteTool === 'agency' ? null : <section className={classNames('sidebar-panel', `is-${activeRouteTool}`)} aria-label="City panel" data-map-occluder>
         {!hasActiveData ? (
           <div className="sidebar-empty-note">
             <strong>No routes indexed</strong>
             <span>Load a GTFS ZIP to create route patterns, stops, schedules, and the network map.</span>
           </div>
         ) : activeRouteTool === 'analyze' ? <AnalyzePanel /> : <SidebarRouteBox />}
-      </section>
+      </section>}
     </aside>
   )
 })

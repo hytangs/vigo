@@ -2,7 +2,7 @@ import { CityLibraryPage, CityStart, CityWorkspace, LibraryRecovery } from './co
 import { NetworkWorkspace } from './components/studio/NetworkWorkspace'
 import { RouteSurface } from './components/studio/RouteSurface'
 import { ProjectDialog, RoutingDetail, RuntimeAlert, SetupDialog, StudioTopbar } from './components/studio/StudioShell'
-import { StudioRail, VigoSidebar } from './components/studio/StudioSidebar'
+import { VigoSidebar } from './components/studio/StudioSidebar'
 
 import './App.css'
 import { hasOperationsData } from './app/projectState'
@@ -51,11 +51,7 @@ export default function App() {
       <RuntimeAlert />
 
       <div className="shell-body">
-        {page === 'projects' ? null : tool === 'data' || tool === 'agency' ? (
-          <aside className="app-sidebar" aria-label="City navigation">
-            <StudioRail hasActiveData={layout.cityData} />
-          </aside>
-        ) : <VigoSidebar />}
+        {page === 'projects' ? null : <VigoSidebar />}
 
         <div className="app-frame">
           {layout.storageRecovery && !settingsOpen ? <LibraryRecovery />

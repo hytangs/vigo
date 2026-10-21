@@ -30,7 +30,6 @@
     border: 0;
     border-radius: var(--panel-radius);
     box-shadow: var(--elev-2);
-    animation: stage-panel-in var(--duration-slow) var(--ease-emphasis) both;
   }
 }
 
@@ -39,9 +38,12 @@
 
 /* Head: the view switch, feed freshness and tools. */
 .agency-navigation { justify-content: space-between; }
-.agency-navigation .agency-tabs { flex: 0 1 180px; }
+.agency-navigation .agency-tabs { flex: 1 1 auto; }
 .agency-navigation-tools { display: flex; flex: none; align-items: center; gap: 2px; margin-left: auto; }
 .agency-mobile-map-toggle { display: none; }
+/* Keep the view labels readable; freshness details remain in the disclosure. */
+.agency-navigation .agency-feed-health > summary { width: 28px; height: 28px; justify-content: center; padding: 0; }
+.agency-navigation .agency-feed-health > summary > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 .agency-feed-health { position: relative; }
 .agency-feed-health > summary {

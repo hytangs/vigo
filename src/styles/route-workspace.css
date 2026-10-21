@@ -37,7 +37,6 @@
     border: 0;
     border-radius: var(--panel-radius);
     box-shadow: var(--elev-2);
-    animation: stage-panel-in var(--duration-slow) var(--ease-emphasis) both;
   }
 }
 

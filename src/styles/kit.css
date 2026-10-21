@@ -54,7 +54,7 @@
 }
 
 .studio-tabs > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.studio-tabs > button > svg { flex: none; }
+.studio-tabs > button > svg { width: 14px; height: 14px; flex: none; stroke-width: 2; }
 
 .studio-tabs > button:is([aria-selected="true"], [aria-pressed="true"], .is-active) {
   color: var(--text-1);

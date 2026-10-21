@@ -1,10 +1,10 @@
 import { useEffect, useRef, type ReactNode } from 'react'
-import { Download, FileText, Map, MoreHorizontal, Radio, RefreshCw } from 'lucide-react'
+import { Download, FileText, LayoutDashboard, Route, Map, MoreHorizontal, Radio, RefreshCw } from 'lucide-react'
 
 export type AgencyMode = 'overview' | 'live'
 const views = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'live', label: 'Routes' },
+  { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { id: 'live', label: 'Routes', icon: Route },
 ] as const
 
 export function AgencyNavigation({ mode, onChange, health, mapOpen, onToggleMap, onRefresh, onFeeds, onExport, onExportReport }: {
@@ -33,7 +33,7 @@ export function AgencyNavigation({ mode, onChange, health, mapOpen, onToggleMap,
     action()
   }
   return <nav className="agency-navigation inspector-head" aria-label="Network navigation">
-    <div className="studio-tabs agency-tabs" role="tablist" aria-label="Network views">{views.map(({ id, label }, index) => <button
+    <div className="studio-tabs agency-tabs" role="tablist" aria-label="Network views">{views.map(({ id, label, icon: Icon }, index) => <button
       key={id} role="tab" id={`agency-tab-${id}`} aria-selected={mode === id} aria-controls={`agency-${id}`}
       tabIndex={mode === id || (!views.some(view => view.id === mode) && index === 0) ? 0 : -1}
       onClick={() => choose(id)} onKeyDown={event => {
@@ -42,7 +42,7 @@ export function AgencyNavigation({ mode, onChange, health, mapOpen, onToggleMap,
         const next = event.key === 'Home' ? 0 : event.key === 'End' ? views.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : views.length - 1)) % views.length
         choose(views[next].id)
         document.getElementById(`agency-tab-${views[next].id}`)?.focus()
-      }}>{label}</button>)}</div>
+      }}><Icon size={14} aria-hidden="true" /><span>{label}</span></button>)}</div>
     <div className="agency-navigation-tools">
       <div className="agency-live-indicator">{health}</div>
       <button className="kit-icon-button agency-mobile-map-toggle" aria-label={mapOpen ? 'Hide map' : 'Show map'} aria-pressed={mapOpen} onClick={onToggleMap}><Map size={16} /></button>

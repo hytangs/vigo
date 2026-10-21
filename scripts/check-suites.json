@@ -104,6 +104,7 @@
     "test/check-engine-recovery-runtime.mjs",
     "test/check-city-intake-runtime.mjs",
     "test/check-primary-navigation-runtime.mjs",
+    "test/check-workspace-transitions-runtime.mjs",
     "test/check-street-transfer-selection-ui.mjs",
     "test/check-scenario-draft-lifecycle.mjs",
     "test/check-map-runtime.mjs",

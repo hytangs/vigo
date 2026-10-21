@@ -12,7 +12,7 @@ export function AgencyFeedHealth({ feeds, refreshFailed = false }: { feeds: Feed
     return () => document.removeEventListener('pointerdown', close)
   }, [])
   return <details ref={disclosure} className="agency-feed-health" data-health={health.status} onKeyDown={event => { if (event.key === 'Escape' && disclosure.current) { disclosure.current.open = false; disclosure.current.querySelector('summary')?.focus() } }}>
-    <summary><i aria-hidden="true" />{health.label}<ChevronDown size={11} aria-hidden="true" /></summary>
+    <summary title={health.label}><i aria-hidden="true" /><span>{health.label}</span><ChevronDown size={11} aria-hidden="true" /></summary>
     <ul aria-label="Feed freshness">{feeds.map((feed, index) => <li key={`${feed.sourceUrl}/${index}`}>
       <strong>{feed.kind === 'tripUpdates' ? 'Predictions' : feed.kind === 'vehicles' ? 'Vehicle positions' : feed.kind === 'alerts' ? 'Alerts' : 'Feed'}</strong>
       <span>{feed.status === 'fresh' ? 'Current' : feed.status === 'stale' ? 'Stale' : feed.status === 'error' ? 'Refresh failed' : 'Time unknown'} · {feedAgeLabel(feed)}</span>
