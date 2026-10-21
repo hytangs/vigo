@@ -34,11 +34,13 @@ class RuntimeLicenseTests(unittest.TestCase):
                 )
                 (root / "LICENSE").write_text(f"License text for {name}\n")
 
-            crate("vigo-routing-kernel", '\n[dependencies]\nshared = { path = "shared" }\n'
+            crate("vigo-routing-kernel", '\n[features]\nstandalone = ["dep:standalone-only"]\n'
+                  '\n[dependencies]\nshared = { path = "shared" }\n'
+                  'standalone-only = { path = "standalone-only", optional = true }\n'
                   '\n[target.\'cfg(windows)\'.dependencies]\nwindows-only = { path = "windows-only" }\n'
                   '\n[target.\'cfg(unix)\'.dependencies]\nunix-only = { path = "unix-only" }\n')
             crate("shared", '\n[dependencies]\ntransitive = { path = "../transitive" }\n')
-            for name in ("transitive", "windows-only", "unix-only"):
+            for name in ("transitive", "windows-only", "unix-only", "standalone-only"):
                 crate(name)
             for name in ("jszip", "papaparse", "pbf", "js-transitive"):
                 root = engine / "node_modules" / name
@@ -60,7 +62,9 @@ class RuntimeLicenseTests(unittest.TestCase):
             ):
                 with self.subTest(target=target):
                     notices = PREPARE["third_party_notices"](engine, target)
-                    for name in ("shared", "transitive", included, "jszip", "papaparse", "pbf", "js-transitive"):
+                    # The staged `vigo` executable links feature-only crates too.
+                    for name in ("shared", "transitive", "standalone-only", included,
+                                 "jszip", "papaparse", "pbf", "js-transitive"):
                         self.assertIn(f"{name} 1.0.0 (MIT)", notices)
                         self.assertIn(f"License text for {name}\n", notices)
                     self.assertNotIn(excluded, notices)

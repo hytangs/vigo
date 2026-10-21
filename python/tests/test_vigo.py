@@ -180,10 +180,10 @@ class VigoPythonTest(unittest.TestCase):
             dated = city.run(vigo.Reach(destination=[0, 0], arrive_by=dt.datetime(2026, 7, 18, 9, 5, tzinfo=dt.timezone.utc)))
             self.assertEqual((dated.query["time"], dated.query["serviceDate"]), ("09:05", "2026-07-18"))
             self.assertEqual(dated.query["destination"], {"coordinate": [0.0, 0.0]})
-            # Depart-at requests keep their established form and 08:00 default.
+            # Both directions send one request form; depart-at keeps its 08:00 default.
             depart = city.reach("A", service_date="2026-07-15")
             self.assertEqual((depart.query["origin"], depart.query["time"]), ("A", "08:00"))
-            self.assertNotIn("timePreference", depart.query)
+            self.assertEqual(depart.query["timePreference"], "depart_at")
             self.assertNotIn("destination", depart.query)
             planned = city.scenario("planned", without_routes=["R1"]).reach(
                 destination="B", arrive_by="08:30", service_date="2026-07-15")

@@ -109,6 +109,8 @@ jobs:
         working-directory: .
       - run: npm run build:rust-routing-kernel
         working-directory: .
+      - run: npm run build:standalone
+        working-directory: .
       - run: npm run build:cli
         working-directory: .
       - run: python scripts/prepare-runtime.py --engine ..
