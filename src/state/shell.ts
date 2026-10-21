@@ -20,7 +20,6 @@ export type ShellState = {
   page: 'projects' | 'project'
   activeRouteTool: RouteToolKey
   dataSection: DataSection
-  sidebarCollapsed: boolean
   backgroundTasksOpen: boolean
   query: string
   recentSearchIds: string[]
@@ -56,7 +55,6 @@ const initialShellState = (): ShellState => ({
   page: 'projects',
   activeRouteTool: savedRouteTool(),
   dataSection: 'feeds',
-  sidebarCollapsed: false,
   backgroundTasksOpen: false,
   query: '',
   recentSearchIds: navigation.memory.recentSearchIds,

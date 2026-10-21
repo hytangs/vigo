@@ -356,6 +356,11 @@ function installDesktopBridge() {
     if (action === 'setChromeState') {
       const appearance = message.appearance === 'dark' ? 'dark' : 'light'
       nativeTheme.themeSource = appearance
+      const menu = Menu.getApplicationMenu()
+      const chooseCity = menu?.getMenuItemById('choose-city')
+      const settings = menu?.getMenuItemById('settings')
+      if (chooseCity) chooseCity.enabled = message.canChooseCity === true
+      if (settings) settings.enabled = message.canOpenSettings === true
       if (mainWindow && typeof message.title === 'string') {
         mainWindow.setTitle(message.title.trim() || 'VIGO Studio')
       }
@@ -374,6 +379,7 @@ function installMenu() {
       label: 'VIGO Studio',
       submenu: [
         { role: 'about' },
+        { id: 'settings', enabled: false, label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => sendCommand('openSettings') },
         { type: 'separator' },
         { role: 'hide' },
         { role: 'hideOthers' },
@@ -385,7 +391,7 @@ function installMenu() {
     {
       label: 'File',
       submenu: [
-        { label: 'Choose City', accelerator: 'CmdOrCtrl+O', click: () => sendCommand('toggleSidebar') },
+        { id: 'choose-city', enabled: false, label: 'Choose City', accelerator: 'CmdOrCtrl+O', click: () => sendCommand('chooseCity') },
         { type: 'separator' },
         { role: 'close' },
       ],
@@ -405,9 +411,6 @@ function installMenu() {
     {
       label: 'View',
       submenu: [
-        { label: 'Back', accelerator: 'Alt+Left', click: () => sendCommand('navigateBack') },
-        { label: 'Forward', accelerator: 'Alt+Right', click: () => sendCommand('navigateForward') },
-        { type: 'separator' },
         { role: 'togglefullscreen' },
       ],
     },

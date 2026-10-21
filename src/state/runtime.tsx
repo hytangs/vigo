@@ -45,7 +45,7 @@ import {
 import { followActivePreparationJobs, registerStreetRetry, resetPreparation, syncImportFlags, waitForImportJob } from './preparation'
 import { registerRouteEngineReset, resetRoute, route, routeDateAlignment, routingStreetState, routeScenario } from './route'
 import { resetScenarios, scenarios, scenarioLibrary } from './scenarios'
-import { activePreparationJobIds, importJobs, isProjectEmpty, preview, routingScope, selectedProject } from './scope'
+import { activePreparationJobIds, importJobs, preview, routingScope, selectedProject } from './scope'
 import { navigation, resetShell, routeToolStorageKey, setApiError, shell } from './shell'
 
 /**
@@ -125,13 +125,12 @@ function ShellRuntime() {
   const accent = useStore(shell, (state) => state.accent)
   const page = useStore(shell, (state) => state.page)
   const activeRouteTool = useStore(shell, (state) => state.activeRouteTool)
-  const sidebarCollapsed = useStore(shell, (state) => state.sidebarCollapsed)
-  const projectEmpty = useStudio(isProjectEmpty)
   const chrome = useStudioRecord(() => {
     const project = selectedProject()
     return {
       title: page === 'projects' ? 'Cities' : quietMapLabel(project.name),
-      canGoForward: page === 'projects' && city.get().projects.some((entry) => entry.id === project.id),
+      canChooseCity: page === 'project',
+      canOpenSettings: page !== 'project' || activeRouteTool !== 'data' || shell.get().dataSection !== 'preferences',
     }
   })
 
@@ -144,23 +143,12 @@ function ShellRuntime() {
     syncDesktopChromeState({
       appearance,
       title: chrome.title,
-      sidebarAvailable: page === 'project' && !projectEmpty,
-      sidebarCollapsed,
-      canGoBack: page === 'project',
-      canGoForward: chrome.canGoForward,
+      canChooseCity: chrome.canChooseCity,
+      canOpenSettings: chrome.canOpenSettings,
     })
-  }, [appearance, chrome, projectEmpty, page, sidebarCollapsed])
+  }, [appearance, chrome])
 
   useEffect(() => subscribeDesktopCommands(handleDesktopCommand), [])
-
-  useEffect(() => {
-    if (page !== 'project' || projectEmpty) shell.set({ sidebarCollapsed: false })
-  }, [projectEmpty, page])
-
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => window.dispatchEvent(new Event('resize')))
-    return () => window.cancelAnimationFrame(frame)
-  }, [sidebarCollapsed])
 
   useEffect(() => {
     document.documentElement.dataset.accent = accent
