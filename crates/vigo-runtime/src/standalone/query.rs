@@ -310,8 +310,23 @@ impl City {
         } else {
             number(query, "horizonMinutes", 480., 1., 2880.)? * 60.
         };
+        let planner = query["journeyPolicy"] == "alternatives-v1";
+        let horizon = if planner && !flag(query, "requireTransitRide", false)? {
+            let meters = if flag(query, "allowLongWalk", false)? {
+                opt.street_m
+            } else {
+                opt.walk_m.min(opt.street_m)
+            };
+            horizon.max(meters / opt.walk_speed.unwrap_or(self.speed) * 3.6)
+        } else {
+            horizon
+        };
         let reserve = number(query, "arrivalBufferMinutes", 0., 0., 120.)? * 60.;
-        let window = number(query, "windowMinutes", 0., 0., 240.)? * 60.;
+        let window = if planner {
+            15. * 60.
+        } else {
+            number(query, "windowMinutes", 0., 0., 240.)? * 60.
+        };
         if opt.time >= horizon + reserve + window {
             return Ok(None);
         }
@@ -699,6 +714,14 @@ impl City {
         padding: f64,
         overhead: f64,
     ) -> Result<Candidates> {
+        if opt.walk_m == 0. {
+            return Ok(Candidates {
+                stops: vec![],
+                seconds: vec![],
+                terminal_transfers: false,
+                evidence: None,
+            });
+        }
         let result = self.street.route_endpoint(EndpointRoleInput {
             longitude: point.coordinate[0],
             latitude: point.coordinate[1],
@@ -717,7 +740,7 @@ impl City {
         role: &str,
         opt: &Options,
     ) -> Result<Vec<Candidates>> {
-        if points.iter().any(|point| point.stop.is_some()) {
+        if opt.walk_m == 0. || points.iter().any(|point| point.stop.is_some()) {
             return points
                 .iter()
                 .map(|point| self.candidates(point, role, opt))
@@ -772,7 +795,7 @@ impl City {
         destination: &Point,
         opt: &Options,
     ) -> Result<(Candidates, Candidates)> {
-        if origin.stop.is_some() || destination.stop.is_some() {
+        if opt.walk_m == 0. || origin.stop.is_some() || destination.stop.is_some() {
             return Ok((
                 self.candidates(origin, "origin", opt)?,
                 self.candidates(destination, "destination", opt)?,
@@ -901,6 +924,9 @@ impl City {
         (unique, indices)
     }
     pub fn route(&mut self, q: &Value) -> Result<Value> {
+        if q.get("journeyPolicy").is_some() {
+            return self.planner_route(q);
+        }
         if q.get("scenario")
             .is_some_and(|scenario| !scenario.is_null())
         {
@@ -1936,6 +1962,7 @@ fn validate_request(command: &str, q: &Value, polling: bool, live: bool) -> Resu
             "windowStepMinutes",
             "alternatives",
             "alternativeRanking",
+            "journeyPolicy",
             "alternativeSlackMinutes",
             "sharedLegs",
             "windowChoices",

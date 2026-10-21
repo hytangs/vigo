@@ -1967,3 +1967,27 @@ and [OSM wheelchair tags](https://wiki.openstreetmap.org/wiki/Key:wheelchair).
 The public synthetic regression is `npm run check:wheelchair`; it checks
 accessible alternatives through both CLIs and authenticated HTTP, as well as
 Matrix, Reach, reverse routing and profile mismatch rejection.
+
+### Native planner integration
+
+Clients can request `journeyPolicy: "alternatives-v1"` on transit Route. Capabilities
+exposes `route.journeyPolicies`; deployment checks should require this value before
+switching an adapter. The policy returns the ordinary `vigo.route.v1` journey and
+alternatives, preserving direct transit and a permitted direct walk. It orders by
+arrival (departure for arrive-by), then walking and boardings. Journeys sharing the same boarding/alighting stations, modes and walking policy
+are bundled; GTFS parent-station identifiers determine station membership. Do not combine it with explicit alternatives, windows or via
+points. Arrive-by retains a 15-minute earlier-arrival window sampled every five minutes.
+
+`expandedWalkKm` is explicit permission for a wider transit-access search; omit it
+when the user sets a binding walking limit. Wider choices must improve the time
+objective or shorten travel after initial waiting, and carry `expandedWalkingLimitKm`. A whole-trip walk uses at most
+`maxWalkKm` unless `allowLongWalk` explicitly permits `maxStreetKm`. Limits below
+50 metres do not trigger a widened street query. `requireTransitRide` excludes
+walking-only choices. Optional wider-search failures preserve ordinary results.
+
+Use `sharedLegs: true` for native single-leg substitutions and observed departure
+frequency. Missing or truncated frequency evidence must remain unknown; it is not
+a zero headway or a complete route-wide schedule. The client remains responsible
+for labels, rendering, authentication, cancellation, deadlines and bounded caching.
+The policy consolidates HTTP requests; it still performs bounded searches inside
+the resident Rust engine and is not a claim of one algorithm traversal.

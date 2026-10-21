@@ -7442,6 +7442,13 @@
             "default": 0,
             "description": "Additional transit journeys for a depart-at transit query at the requested time; 0 turns alternatives off. Not combined with arrive-by, via points or journey windows."
           },
+          "journeyPolicy": {
+            "type": "string",
+            "enum": [
+              "alternatives-v1"
+            ],
+            "description": "Resident native planner policy retaining direct transit and permitted walking alternatives. Owns alternatives and windows; optional expandedWalkKm is explicit opt-in."
+          },
           "alternativeRanking": {
             "type": "string",
             "enum": [
@@ -11003,6 +11010,11 @@
             "items": {
               "$ref": "#/components/schemas/PublicLeg"
             }
+          },
+          "expandedWalkingLimitKm": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Explicitly permitted wider access budget used by this choice."
           },
           "sharedLegAlternatives": {
             "$ref": "#/components/schemas/SharedLegAlternatives"

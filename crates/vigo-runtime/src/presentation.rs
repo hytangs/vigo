@@ -358,6 +358,9 @@ fn journey(v: &mut Value, geometry: bool) -> Value {
 fn route_journey(v: &mut Value, q: &Value, geometry: bool) -> Value {
     let mut shared = v["sharedLegAlternatives"].take();
     let mut result = journey(v, geometry);
+    if result.is_object() && v["expandedWalkingLimitKm"].is_number() {
+        result["expandedWalkingLimitKm"] = v["expandedWalkingLimitKm"].clone();
+    }
     complete_journey_endpoints(&mut result, &q["origin"], &q["destination"]);
     if result.is_object() && shared.is_object() {
         if let Some(options) = shared["options"].as_array_mut() {

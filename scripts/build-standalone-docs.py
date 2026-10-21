@@ -287,6 +287,7 @@ def specification(native):
         'windowMinutes':number(0,240,0),'windowStepMinutes':number(1,60,1),
         'sharedLegs':{**boolean(), 'description':'Bundle feasible services sharing an ordered stop pattern and proven path. Transit Route without via points only. Each option retains a complete timed journey; see shared-leg services in the guide.'},
         'alternatives':number(0,9,0,integer=True,description='Additional transit journeys for a depart-at transit query at the requested time; 0 turns alternatives off. Not combined with arrive-by, via points or journey windows.'),
+        'journeyPolicy':text('alternatives-v1',description='Resident native planner policy retaining direct transit and permitted walking alternatives. Owns alternatives and windows; optional expandedWalkKm is explicit opt-in.'),
         'alternativeRanking':text('pareto','ranked',default='pareto',description='pareto returns nondominated arrival/boarding/walking trade-offs; ranked returns the earliest distinct vehicle sequences, dominated ones included. Requires alternatives.'),
         'alternativeSlackMinutes':number(0,120,15,description='Latest arrival admitted for an alternative, in minutes after the primary arrival. Requires alternatives.')},['origin','destination'],allOf=[clock_rule,transit_date,mode_rule,{'not':{'required':['via','waypoints']}}],
         description='Additional mode constraints, source identities, freshness, and via/window combinations are validated by the runtime. Route includes available leg GeoJSON by default. Set includeGeometry: false to omit coordinate arrays. Geometry retains source precision and provenance; inferred station links remain labeled.')
@@ -394,6 +395,7 @@ def specification(native):
     schemas['PublicJourney'] = obj({'clockDate':text(description='Date anchoring all elapsed service clocks in this journey, including overnight arrive-by searches.'),'departureTime':text(),'arrivalTime':text(),'durationSeconds':seconds,
         **{k:nullable_seconds for k in ['walkingSeconds','waitingSeconds','ridingSeconds','drivingSeconds']},
         'boardings':seconds,'transfers':seconds,'legs':array(ref('PublicLeg')),
+        'expandedWalkingLimitKm':number(0,description='Explicitly permitted wider access budget used by this choice.'),
         'sharedLegAlternatives':ref('SharedLegAlternatives')},
         ['departureTime','arrivalTime','durationSeconds','walkingSeconds','waitingSeconds','ridingSeconds','boardings','transfers','legs'],strict=False)
     schemas['SharedLegFrequency'] = obj({

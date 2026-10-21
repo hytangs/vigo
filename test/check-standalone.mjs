@@ -78,6 +78,21 @@ try {
     assert.equal(fallback.status, 'ready', 'No transit access must still allow the requested direct-walk comparison')
     assert.equal(fallback.mode, 'walk')
   }
+  // Policy composition must preserve independently queried direct/transit/walk results.
+  for (const timePreference of ['depart_at', 'arrive_by']) {
+    const q = { ...coordinate, timePreference, time: timePreference === 'arrive_by' ? '08:30' : '07:55', requireTransitRide: false, allowLongWalk: true, maxStreetKm: 5 }
+    const composed = run('route', { ...q, journeyPolicy: 'alternatives-v1', sharedLegs: true })
+    const choices = [composed, ...(composed.choices || [])].filter(p => p.status === 'ready')
+    for (const options of [{}, { maxTransfers: 0, requireTransitRide: true }, { mode: 'walk' }]) {
+      const independent = run('route', { ...q, ...options })
+      if (independent.status === 'ready') assert(choices.some(p => p.arrivalMinutes === independent.arrivalMinutes &&
+        p.departureMinutes === independent.departureMinutes && p.mode === independent.mode), 'Independent witness retained')
+    }
+    const noWalk = run('route', { ...q, maxWalkKm: 0, allowLongWalk: false, journeyPolicy: 'alternatives-v1' })
+    assert([noWalk, ...(noWalk.choices || [])].every(p => p.status !== 'ready' || p.legs.some(l => l.kind === 'ride')))
+  }
+  rejects('route', { ...base, journeyPolicy: 'unknown' }, /journeyPolicy/)
+  rejects('route', { ...base, journeyPolicy: 'alternatives-v1', alternatives: 2 }, /owns alternatives/)
   const walk = run('route', { ...coordinate, mode: 'walk' })
   for (const timePreference of ['depart_at', 'arrive_by']) {
     const walkOnly = { ...coordinate, mode: 'walk', allowLongWalk: false,
