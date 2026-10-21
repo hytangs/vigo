@@ -77,7 +77,7 @@ with vigo.open("./boston") as city:
 | --- | --- |
 | `city.route(origin, destination, ...)` | A journey with timed legs; `arrive_by`, waypoints, and `alternatives` are options |
 | `city.matrix(origins, destinations, ...)` | One row per pair with its own `ready` or `blocked` status; journeys are optional |
-| `city.reach(origin, ...)` | A travel-time surface with GeoJSON contours |
+| `city.reach(origin, ...)` | A travel-time surface with GeoJSON contours; `destination=` with `arrive_by=` maps where a place is reached from by a deadline |
 | `city.scenario(name, services=...)` | Planned service for Reach, or supplied traffic for driving Route and Matrix |
 | `before.compare(after)` | Changes between two compatible Results, without routing again |
 | `city.iter_run(queries, workers=2)` | Complete Results in input order with bounded concurrency |

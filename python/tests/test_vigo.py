@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt
 import gc
 import json
 import sys
@@ -41,7 +42,8 @@ if args == ["capabilities"]:
         "resultSchemaVersion": 1,
         "publicCliCommands": ["build", "capabilities", "inspect", "route", "matrix", "reach", "stream", "compare"],
         "queries": [
-            {"id": "reach", "resident": True, "modes": {"available": ["transit", "walk"]}},
+            {"id": "reach", "resident": True, "modes": {"available": ["transit", "walk"]},
+             "time": {"available": ["depart_at", "arrive_by"]}},
             {"id": "route", "resident": True, "transitStreetCacheControl": True, "maxTransfers": {"min": 0, "max": 31, "default": None}},
             {"id": "matrix", "resident": True, "journeys": True,
              "transitStreetCacheControl": True,
@@ -166,6 +168,50 @@ class VigoPythonTest(unittest.TestCase):
                 self.assertFalse(city.supports(vigo.Reach("A", mode="walk")).supported)
             self.assertFalse(city.scenario("planned", without_routes=["R1"]).supports(
                 vigo.Reach("A", mode="walk")).supported)
+
+    def test_arrive_by_reach_takes_a_destination_and_deadline(self) -> None:
+        with vigo.open(self.city_path, runtime=self.command) as city:
+            result = city.reach(destination={"stop": {"id": "B"}}, arrive_by="08:30",
+                                service_date="2026-07-15", mode="walk", raster_size=48)
+            self.assertEqual(result.query["timePreference"], "arrive_by")
+            self.assertEqual(result.query["destination"], {"stop": {"id": "B"}})
+            self.assertEqual(result.query["time"], "08:30")
+            self.assertNotIn("origin", result.query)
+            dated = city.run(vigo.Reach(destination=[0, 0], arrive_by=dt.datetime(2026, 7, 18, 9, 5, tzinfo=dt.timezone.utc)))
+            self.assertEqual((dated.query["time"], dated.query["serviceDate"]), ("09:05", "2026-07-18"))
+            self.assertEqual(dated.query["destination"], {"coordinate": [0.0, 0.0]})
+            # Depart-at requests keep their established form and 08:00 default.
+            depart = city.reach("A", service_date="2026-07-15")
+            self.assertEqual((depart.query["origin"], depart.query["time"]), ("A", "08:00"))
+            self.assertNotIn("timePreference", depart.query)
+            self.assertNotIn("destination", depart.query)
+            planned = city.scenario("planned", without_routes=["R1"]).reach(
+                destination="B", arrive_by="08:30", service_date="2026-07-15")
+            self.assertEqual(planned.query["scenario"]["excludedRouteIds"], ["R1"])
+            self.assertEqual(planned.query["destination"], "B")
+            for query, message in (
+                (vigo.Reach("A", arrive_by="08:30"), "takes a destination, not an origin"),
+                (vigo.Reach("A", destination="B", arrive_by="08:30"), "takes a destination, not an origin"),
+                (vigo.Reach(destination="B"), "destination requires arrive_by"),
+                (vigo.Reach(destination="B", depart_at="08:00"), "destination requires arrive_by"),
+                (vigo.Reach("A", destination="B"), "destination requires arrive_by"),
+                (vigo.Reach(arrive_by="08:30"), "requires a destination"),
+                (vigo.Reach(), "requires an origin"),
+                (vigo.Reach(destination="B", depart_at="08:00", arrive_by="08:30"), "not both"),
+            ):
+                with self.subTest(query=query), self.assertRaisesRegex(vigo.InvalidQuery, message):
+                    city.supports(query)
+        with vigo.open(self.city_path, runtime=self.command) as city:
+            older = {"id": "reach", "resident": True, "modes": {"available": ["transit", "walk"]}}
+            with patch.dict(city.runtime.capabilities, {"queries": [older]}):
+                query = vigo.Reach(destination="B", arrive_by="08:30", service_date="2026-07-15")
+                support = city.supports(query)
+                self.assertEqual((support.supported, support.reason, support.available),
+                                 (False, "arrive_by_reach", ("depart_at",)))
+                with self.assertRaises(vigo.UnsupportedQuery):
+                    city.run(query)
+                self.assertFalse(city._streams)
+                self.assertTrue(city.supports(vigo.Reach("A", depart_at="08:00")).supported)
 
     def test_configured_runtime_fails_closed(self) -> None:
         with patch.dict("os.environ", {"VIGO_RUNTIME": str(self.root / "missing")}), self.assertRaises(vigo.VigoError):

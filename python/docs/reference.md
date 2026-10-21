@@ -218,10 +218,14 @@ the nested journey reports actual arrival.
 
 Reach answers where the modeled network can travel within stated time limits. It does not count people, jobs, schools, or other opportunities.
 
-Reach accepts `origin`, `service_date`, and `depart_at` (default `"08:00"`). It supports scheduled transit with walking and walking-only Reach. Driving Reach is unavailable.
+Reach asks one of two questions. Depart-at Reach takes an `origin` and `depart_at`: where can a traveler get to from here? Arrive-by Reach takes a `destination` and `arrive_by`: from where can a traveler get here by this deadline? Both take `service_date` unless the time is a datetime. With neither time, Reach departs at `"08:00"`. It supports scheduled transit with walking and walking-only Reach. Driving Reach is unavailable.
 
 | Argument | Default | Meaning |
 | --- | --- | --- |
+| `origin` | `None` | Where depart-at trips start: a stop ID, coordinate pair, or point mapping |
+| `depart_at` | `None` (`"08:00"`) | Departure time; used with `origin` |
+| `destination` | `None` | Where arrive-by trips end; used with `arrive_by` instead of an origin |
+| `arrive_by` | `None` | Arrival deadline; used with `destination` |
 | `mode` | `"transit"` | `"transit"` or `"walk"`; walking requires advertised runtime support |
 | `surface_sampling` | `"street"` | `"street"` for reachable network edges, or `"cell-center"` for coordinate cell centers |
 | `include_street_edges` | `False` | Include reached street edges in the surface; adds output size |
@@ -243,9 +247,24 @@ reach = city.reach(
 reach.export("reach.geojson")
 ```
 
+For arrive-by Reach, pass the destination and deadline by keyword:
+
+```python
+school = city.reach(
+    destination=[-71.058, 42.349],
+    arrive_by="08:30",
+    service_date="2026-09-04",
+    cutoffs_minutes=[15, 30, 45],
+)
+```
+
+Each arrive-by value is the number of minutes between the latest departure from that place and the deadline, including any wait after an early arrival. The 30-minute contour encloses the places from which leaving 30 minutes before the deadline still arrives in time. Walking follows each street's permitted direction toward the destination. Transit and walking support arrive-by; a planned-service Scenario applies to transit arrive-by Reach as it does to depart-at Reach. A deadline earlier than the longest cutoff also searches the preceding service day, as arrive-by Route does.
+
+Choose one direction. `arrive_by` with an `origin`, a `destination` without `arrive_by`, and both `depart_at` and `arrive_by` raise `InvalidQuery`. Arrive-by Reach requires a runtime whose Reach capabilities include `arrive_by`; otherwise `supports()` reports `arrive_by_reach` and running raises `UnsupportedQuery` before execution. Depart-at requests are unchanged.
+
 Use the word Accessibility only when a separate analysis combines travel impedance with opportunities.
 
-`extent_radius_km` bounds the computed area, not just the display. `raster_size` changes the grid resolution. Keep both fixed, together with the origin and other assumptions, when comparing a baseline and a Scenario.
+`extent_radius_km` bounds the computed area, not just the display. `raster_size` changes the grid resolution. Keep both fixed, together with the origin or destination, direction, and other assumptions, when comparing a baseline and a Scenario.
 
 ## Scenario
 
