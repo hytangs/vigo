@@ -713,7 +713,7 @@ Request scalar output when only times are needed. Journey queries also share boa
 
 ## Reach and isochrones
 
-Reach finds the streets and areas reachable from one origin within a time budget, by scheduled transit with walking or by walking alone. It does not measure access to jobs or people unless your analysis adds those opportunities. The [Reach request reference](guides/rust-standalone.md#9-reach-and-isochrones) lists every field.
+Reach finds the streets and areas reachable from one origin within a time budget, by scheduled transit with walking or by walking alone. Arrive-by Reach asks the reverse: from where a destination can be reached by a deadline. It does not measure access to jobs or people unless your analysis adds those opportunities. The [Reach request reference](guides/rust-standalone.md#9-reach-and-isochrones) lists every field.
 
 ### Send a Reach request
 
@@ -734,7 +734,9 @@ Reach finds the streets and areas reachable from one origin within a time budget
 vigo reach --city ./boston --request reach.json --output reach-result.json
 ```
 
-`mode: "walk"` requests walking-only Reach and needs no service date. Drive, arrive-by, and realtime Reach are unavailable. Planned transit changes use transit with street sampling.
+`mode: "walk"` requests walking-only Reach and needs no service date. Drive and realtime Reach are unavailable. Planned transit changes use transit with street sampling.
+
+For arrive-by Reach, send a `destination` instead of the origin, with `"timePreference": "arrive_by"` and the deadline as `time`. Each value is how long before the deadline a traveler must leave that place, including any wait after an early arrival. Walking keeps each street's permitted direction toward the destination. The Node and Rust CLIs and Python send this same request, and all run Reach in the `vigo` executable.
 
 ### Set the analysis resolution
 

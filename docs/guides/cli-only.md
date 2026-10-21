@@ -1,6 +1,6 @@
 # Install the Node CLI
 
-The CLI archive contains `vigo.mjs`, the matching native routing kernel, license notices, and a checksum manifest. It builds Cities from raw inputs and runs the public query commands. Provide Node.js 24.18 or newer on the matching OS and CPU.
+The CLI archive contains `vigo.mjs`, the matching native routing kernel, the `vigo` executable that answers Reach, license notices, and a checksum manifest. It builds Cities from raw inputs and runs the public query commands. Provide Node.js 24.18 or newer on the matching OS and CPU.
 
 ## Run the archive
 

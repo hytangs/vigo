@@ -25,11 +25,14 @@ const archive = path.join(output, `${name}.zip`)
 const temporaryZip = path.join(staging, 'archive.next')
 const payload = path.join(staging, 'payload')
 const hash = data => crypto.createHash('sha256').update(data).digest('hex')
+// Reach runs in the `vigo` executable, found beside vigo.mjs.
+const executable = process.platform === 'win32' ? 'vigo.exe' : 'vigo'
 try {
   await fs.mkdir(payload)
   for (const [source, destination] of [
     ['public/vigo.mjs', 'vigo.mjs'],
     ['native/vigo-routing-kernel/vigo-routing-kernel.node', 'vigo-routing-kernel.node'],
+    [`native/vigo-routing-kernel/target/release/${executable}`, executable],
     ['LICENSE', 'LICENSE'], ['NOTICE', 'NOTICE'],
     ['native/vigo-routing-kernel/vendor/cch/LICENSE', 'CCH-LICENSE'],
     ['native/vigo-routing-kernel/vendor/cch/NOTICE', 'CCH-NOTICE'],
@@ -45,6 +48,7 @@ try {
     return `](https://github.com/hytangs/vigo/blob/main/${reference})`
   }))
   await fs.chmod(path.join(payload, 'vigo.mjs'), 0o755)
+  await fs.chmod(path.join(payload, executable), 0o755)
   await fs.writeFile(path.join(payload, 'THIRD-PARTY-NOTICES'), await engineNotices(root, target.targetTriple))
   const env = { ...process.env, VIGO_NATIVE_ROUTING_KERNEL: path.join(payload, 'vigo-routing-kernel.node'), NODE_PATH: '' }
   const capabilities = JSON.parse((await run(process.execPath, [path.join(payload, 'vigo.mjs'), 'capabilities'], { cwd: payload, env })).stdout)
@@ -52,6 +56,9 @@ try {
     || !['route', 'matrix', 'reach'].every(id => capabilities.queries.some(query => query.id === id && query.resident))
     || !capabilities.publicCliCommands.includes('stream')) {
     throw new Error('The staged CLI is stale or lacks resident routing. Run npm run build:cli-runtime.')
+  }
+  if (JSON.parse((await run(path.join(payload, executable), ['capabilities'], { cwd: payload, env })).stdout).version !== metadata.version) {
+    throw new Error('The staged vigo executable is stale. Run npm run build:cli-runtime.')
   }
   // Actually load the copied binary; capabilities alone can run without it.
   await run(process.execPath, ['--input-type=module', '-e',
@@ -71,12 +78,12 @@ try {
     apiVersion: capabilities.apiVersion, platform: process.platform, architecture: process.arch,
     rustTarget: target.targetTriple, nodeMinimum: '24.18.0', builtAt: new Date().toISOString(),
     sourceCommit, sourceDirty, interfaces: ['cli', 'resident-ndjson'],
-    excluded: ['studio', 'python-wrapper', 'city-data', 'node-runtime', 'source', 'tests', 'http'], files,
+    excluded: ['studio', 'python-wrapper', 'city-data', 'node-runtime', 'source', 'tests'], files,
   }, null, 2)}\n`)
   const audit = await auditPackageFiles(payload, { forbiddenRoots: [root] })
   const zip = new JSZip()
   for (const file of (await fs.readdir(payload)).sort()) zip.file(`${name}/${file}`, await fs.readFile(path.join(payload, file)), {
-    date: new Date('1980-01-01T00:00:00Z'), unixPermissions: file.endsWith('.mjs') ? 0o100755 : 0o100644,
+    date: new Date('1980-01-01T00:00:00Z'), unixPermissions: file.endsWith('.mjs') || file === executable ? 0o100755 : 0o100644,
   })
   const data = await zip.generateAsync({ type: 'nodebuffer', platform: 'UNIX', compression: 'DEFLATE', compressionOptions: { level: 9 } })
   await fs.writeFile(temporaryZip, data)
@@ -87,5 +94,5 @@ try {
   if (process.env.GITHUB_OUTPUT) await fs.appendFile(process.env.GITHUB_OUTPUT, `archive-path=${archive}\n`)
   console.log(JSON.stringify({ status: 'packaged', archive, runtime, platform: process.platform,
     architecture: process.arch, zipBytes: data.length, payloadBytes: audit.bytes, files: audit.files,
-    nodeIncluded: false, studioIncluded: false, pythonIncluded: false, httpIncluded: false, sourceDirty }, null, 2))
+    nodeIncluded: false, studioIncluded: false, pythonIncluded: false, httpIncluded: true, sourceDirty }, null, 2))
 } finally { await fs.rm(staging, { recursive: true, force: true }) }

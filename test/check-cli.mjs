@@ -214,7 +214,8 @@ try {
     encoding: 'utf8', input: residentRequests.map(input => JSON.stringify(input)).join('\n') + '\n',
   }).trim().split('\n').map(line => parseResult(line))
   assert.deepEqual(resident.map(row => row.status), [...Array(9).fill('ready'), 'error', 'ready'])
-  for (const index of [1, 3, 5, 6, 7, 8, 10]) assert.equal(resident[index].timing.openMs, 0)
+  // The first Reach opens the resident vigo runtime; the next one reuses it.
+  for (const index of [1, 3, 5, 6, 8, 10]) assert.equal(resident[index].timing.openMs, 0)
   for (const index of [0, 2, 4]) assert.equal(resident[index].result.durationMinutes, resident[index + 1].result.durationMinutes)
   assert.equal(resident[6].result.arriveMinutes, 510)
   assert.deepEqual(resident[7].surface.values, resident[8].surface.values)
@@ -450,7 +451,7 @@ try {
   assert(Array.isArray(reach.surface.fullValues), 'The full-network raster must serialize as a JSON array.')
   assert.equal(reach.surface.fullValues.length, 48 * 48)
   assert.equal(reach.fullContours.type, 'FeatureCollection')
-  assert.equal(reach.diagnostics.surface.edgeSelection, 'all-reached-directed-edges')
+  assert.equal(reach.diagnostics.owner, 'rust_standalone_runtime', 'CLI Reach runs in the vigo executable')
   assert(Number.isFinite(reach.timing.openMs) && Number.isFinite(reach.timing.computeMs))
   assert(fs.existsSync(reachPath))
   const streetReach = parseResult(run([
@@ -465,7 +466,7 @@ try {
   assert(streetReach.surface.edges.count > 0)
   assert(streetReach.surface.edges.count >= streetReach.surface.diagnostics.reachedEdgeCount,
     'CLI must retain every reached directed street edge.')
-  assert.equal(streetReach.surface.diagnostics.edgeDetailTruncated, false)
+  assert.equal(streetReach.surface.diagnostics.edgeEvidenceTruncated, false)
   assert(streetReach.fullAreas.features.length > 0, 'Sparse reachable streets must still produce area polygons.')
   for (const collection of [streetReach.areas, streetReach.fullAreas]) {
     assert.equal(collection.type, 'FeatureCollection')
@@ -507,7 +508,8 @@ try {
   assert.deepEqual(streamed[3].surface.edges, streetReach.surface.edges)
   assert.deepEqual(streamed[3].fullContours, streetReach.fullContours)
   assert.deepEqual(streamed[3].fullAreas, streetReach.fullAreas)
-  for (const index of [1, 2, 3]) assert.equal(streamed[index].timing.openMs, 0, 'Mixed queries reuse the resident transit preparation.')
+  // Reach opens its own resident vigo runtime on first use.
+  for (const index of [1, 2]) assert.equal(streamed[index].timing.openMs, 0, 'Mixed queries reuse the resident transit preparation.')
   assert.equal(streamed[4].query.serviceDate, '2026-07-16')
   assert.match(streamed[5].error.message, /requires kind/u)
   assert.match(streamed[6].error.message, /must be a boolean/u)
