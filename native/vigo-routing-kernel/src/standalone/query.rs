@@ -154,8 +154,8 @@ impl City {
         if matches!(command, "route" | "matrix" | "reach" | "isochrone") {
             Options::parse_limited(&query, 4319.)?;
         }
-        let clock_date = if matches!(command, "route" | "matrix") {
-            self.shift_early_arrival(&mut query)?
+        let clock_date = if matches!(command, "route" | "matrix" | "reach" | "isochrone") {
+            self.shift_early_arrival(command, &mut query)?
         } else {
             None
         };
@@ -246,13 +246,24 @@ impl City {
         }
         Ok(result)
     }
-    fn shift_early_arrival(&self, query: &mut Value) -> Result<Option<String>> {
+    fn shift_early_arrival(&self, command: &str, query: &mut Value) -> Result<Option<String>> {
         use chrono::NaiveDate;
         let opt = Options::parse(query)?;
         if !opt.arrive {
             return Ok(None);
         }
-        let horizon = number(query, "horizonMinutes", 480., 1., 2880.)? * 60.;
+        // Reach looks back as far as its longest cutoff, on the timetable only.
+        let reach = matches!(command, "reach" | "isochrone");
+        if reach && query["mode"].as_str().unwrap_or("transit") != "transit" {
+            return Ok(None);
+        }
+        let horizon = if reach {
+            query["cutoffsMinutes"].as_array().map_or(60., |cutoffs| {
+                cutoffs.iter().filter_map(Value::as_f64).fold(0., f64::max)
+            }) * 60.
+        } else {
+            number(query, "horizonMinutes", 480., 1., 2880.)? * 60.
+        };
         let reserve = number(query, "arrivalBufferMinutes", 0., 0., 120.)? * 60.;
         let window = number(query, "windowMinutes", 0., 0., 240.)? * 60.;
         if opt.time >= horizon + reserve + window {
@@ -1268,29 +1279,38 @@ impl City {
         if !flag(q, "requireTransitRide", false)? {
             let limit = self.direct_walk_limit(q, &opt)?;
             // No street walk is shorter than the straight line, so only
-            // destinations within the limit of some origin need a street
-            // search; the margin covers edge-length rounding.
-            let near: Vec<usize> = (0..search_width)
-                .filter(|&j| {
-                    search_origins.iter().any(|origin| {
-                        haversine(origin.coordinate, search_destinations[j].coordinate)
-                            <= limit * 1.01 + 1.
+            // endpoints within the limit of one on the other side need a
+            // street search; the margin covers edge-length rounding.
+            let near = |points: &[Point], others: &[Point]| -> Vec<usize> {
+                (0..points.len())
+                    .filter(|&i| {
+                        others.iter().any(|other| {
+                            haversine(points[i].coordinate, other.coordinate) <= limit * 1.01 + 1.
+                        })
                     })
-                })
-                .collect();
+                    .collect()
+            };
+            let near_origins = near(&search_origins, &search_destinations);
+            let near_destinations = near(&search_destinations, &search_origins);
             let mut distances = vec![f64::INFINITY; search_origins.len() * search_width];
-            if !near.is_empty() {
+            if !near_origins.is_empty() && !near_destinations.is_empty() {
                 let walk = self.street.route_street_matrix(StreetMatrixInput {
-                    origin_coordinates: search_origins.iter().flat_map(|p| p.coordinate).collect(),
-                    destination_coordinates: near
+                    origin_coordinates: near_origins
+                        .iter()
+                        .flat_map(|&i| search_origins[i].coordinate)
+                        .collect(),
+                    destination_coordinates: near_destinations
                         .iter()
                         .flat_map(|&j| search_destinations[j].coordinate)
                         .collect(),
                     maximum_distance_m: limit,
                     disable_cache: Some(opt.disable_cache),
                 })?;
+                let width = near_destinations.len();
                 for (k, &distance) in walk.distances_m.iter().enumerate() {
-                    distances[k / near.len() * search_width + near[k % near.len()]] = distance;
+                    distances
+                        [near_origins[k / width] * search_width + near_destinations[k % width]] =
+                        distance;
                 }
             }
             for (i, &distance) in distances.iter().enumerate() {
@@ -1842,6 +1862,7 @@ fn validate_request(command: &str, q: &Value, polling: bool, live: bool) -> Resu
         "reach" | "isochrone" => &[
             "reachFormat",
             "origin",
+            "destination",
             "cutoffsMinutes",
             "rasterSize",
             "extentRadiusKm",

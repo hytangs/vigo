@@ -485,6 +485,7 @@ mod tests {
             include_edges: true,
             edge_evidence_limit: 0,
             expand_bounds_to_reached_edges: true,
+            reverse_direction: None,
         };
         let mut cache = SurfaceReuseCache::default();
         for count in [32, 120_000, 32] {

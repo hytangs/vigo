@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::mem::{align_of, size_of};
 use std::ops::Range;
+use std::sync::OnceLock;
 
 use crate::snapshot_validation::{
     all_values, checked_array_byte_range, csr_offsets_are_valid, validate_array_layouts,
@@ -44,6 +45,8 @@ pub(crate) struct Snapshot {
     reciprocal_edge_flags_range: Range<usize>,
     long_edges_by_cell: HashMap<(i32, i32), Vec<[u32; 2]>>,
     unindexed_long_edges: Vec<([u32; 2], [f64; 4])>,
+    /// Edge lengths in reverse adjacency order, built on first use.
+    reverse_edge_distances: OnceLock<Vec<f64>>,
 }
 
 impl Snapshot {
@@ -62,6 +65,10 @@ impl Snapshot {
                 .iter()
                 .map(|(k, v)| k.capacity() + v.type_name.capacity())
                 .sum::<usize>()
+            + self
+                .reverse_edge_distances
+                .get()
+                .map_or(0, |v| v.capacity() * size_of::<f64>())
     }
     pub(crate) fn open(snapshot_path: &str) -> napi::Result<Self> {
         let file = File::open(snapshot_path).map_err(|error| {
@@ -141,6 +148,7 @@ impl Snapshot {
             reciprocal_edge_flags_range,
             long_edges_by_cell: HashMap::new(),
             unindexed_long_edges: Vec::new(),
+            reverse_edge_distances: OnceLock::new(),
         };
         snapshot.validate()?;
         snapshot.index_long_edges()?;
@@ -356,5 +364,20 @@ impl Snapshot {
 
     pub(crate) fn reciprocal_edge_flags(&self) -> &[u8] {
         &self.mmap[self.reciprocal_edge_flags_range.clone()]
+    }
+
+    /// The length of each edge in `reverseSources` order, for searches that
+    /// walk streets backwards.
+    pub(crate) fn reverse_edge_distances(&self) -> napi::Result<&[f64]> {
+        if let Some(distances) = self.reverse_edge_distances.get() {
+            return Ok(distances);
+        }
+        let distances = self.f64_array("edgeDistances")?;
+        let reversed = self
+            .u32_array("reverseEdgeIndices")?
+            .iter()
+            .map(|&edge| distances[edge as usize])
+            .collect();
+        Ok(self.reverse_edge_distances.get_or_init(|| reversed))
     }
 }

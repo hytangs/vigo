@@ -352,6 +352,7 @@ pub(super) fn surface_endpoint(
     profile: Option<&AccessProfile>,
     point: [f64; 2],
     maximum: f64,
+    reverse: bool,
 ) -> napi::Result<([f64; 2], f64)> {
     let primary = snaps_for_coordinate(
         snapshot,
@@ -367,7 +368,7 @@ pub(super) fn surface_endpoint(
         point[0],
         point[1],
         maximum,
-        false,
+        reverse,
     )?;
     if attachment.is_some()
         || snaps.is_empty()

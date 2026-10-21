@@ -1,0 +1,28 @@
+{
+  "case": "standard/error-reach-arrive-by-origin",
+  "city": "standard",
+  "kind": "reach",
+  "exitCode": 2,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "08:30",
+    "timePreference": "arrive_by",
+    "destination": {
+      "coordinate": [-77.03,38.91]
+    },
+    "maxWalkKm": 1.2,
+    "rasterSize": 24,
+    "cutoffsMinutes": [15,30,45],
+    "origin": {
+      "coordinate": [-77.05,38.9]
+    }
+  },
+  "result": {
+    "error": {
+      "code": "invalid_request",
+      "message": "Arrive-by Reach takes a destination, not an origin"
+    },
+    "schema": "vigo.error.v1",
+    "status": "error"
+  }
+}

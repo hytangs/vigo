@@ -30,7 +30,7 @@ Status values below: **Fixed** means the published document was wrong or incompl
 
 ## Request schemas
 
-`RouteRequest`, `MatrixRequest` and `ReachRequest` carry the same properties, types, required fields, ranges, array lengths, defaults, `format: date` and `additionalProperties: false` (169 constraints). Enumerations that were inline now reference named schemas with the same values: `DiagnosticsLevel`, `Mode`, `ReachMode`, `DataMode`, `ServiceDay`, `TimePreferenceInput`, `ReachTimePreference`, `AlternativeRanking`, `JourneyFormat`, `ReachFormat`, `SurfaceSampling`.
+`RouteRequest`, `MatrixRequest` and `ReachRequest` carry the same properties, types, required fields, ranges, array lengths, defaults, `format: date` and `additionalProperties: false` (169 constraints). Enumerations that were inline now reference named schemas with the same values: `DiagnosticsLevel`, `Mode`, `ReachMode`, `DataMode`, `ServiceDay`, `TimePreferenceInput`, `AlternativeRanking`, `JourneyFormat`, `ReachFormat`, `SurfaceSampling`.
 
 | Schema | Difference | Status |
 | --- | --- | --- |

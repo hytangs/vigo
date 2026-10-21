@@ -1,0 +1,90 @@
+{
+  "case": "standard/reach-arrive-by-cell-center",
+  "city": "standard",
+  "kind": "reach",
+  "exitCode": 0,
+  "request": {
+    "serviceDate": "2026-07-15",
+    "time": "08:30",
+    "timePreference": "arrive_by",
+    "destination": {
+      "coordinate": [-77.03,38.91]
+    },
+    "maxWalkKm": 1.2,
+    "rasterSize": 16,
+    "cutoffsMinutes": [15,30,45],
+    "surfaceSampling": "cell-center"
+  },
+  "result": {
+    "areas": {
+      "features": [],
+      "type": "FeatureCollection"
+    },
+    "contours": {
+      "features": [],
+      "type": "FeatureCollection"
+    },
+    "cutoffsSeconds": [900,1800,2700],
+    "fullAreas": {
+      "features": [],
+      "type": "FeatureCollection"
+    },
+    "fullContours": {
+      "features": [],
+      "type": "FeatureCollection"
+    },
+    "fullSurface": {
+      "bounds": [-77.12235547709165,38.83813510600071,-76.93764452290836,38.98186489399928],
+      "height": 16,
+      "valuesSeconds": [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+      "width": 16
+    },
+    "meta": {
+      "cityRevision": "city-revision",
+      "computeScope": "query_dispatch_including_materialization",
+      "computeUs": 0,
+      "engineVersion": "0.5.2",
+      "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+      "requestId": "vigo-request"
+    },
+    "mode": "transit",
+    "query": {
+      "dataMode": "scheduled",
+      "destination": {
+        "coordinate": [-77.03,38.91]
+      },
+      "requestedTime": "08:30:00",
+      "serviceDate": "2026-07-15",
+      "timePreference": "arrive_by"
+    },
+    "schema": "vigo.reach.v1",
+    "status": "ok",
+    "stops": [
+      {
+        "coordinate": [-77.05,38.9],
+        "durationSeconds": 1800,
+        "name": "Alpha",
+        "stop": {
+          "feed": null,
+          "id": "A"
+        }
+      },
+      {
+        "coordinate": [-77.04,38.905],
+        "durationSeconds": 900,
+        "name": "Transfer",
+        "stop": {
+          "feed": null,
+          "id": "X"
+        }
+      }
+    ],
+    "surface": {
+      "bounds": [-77.12235547709165,38.83813510600071,-76.93764452290836,38.98186489399928],
+      "height": 16,
+      "nodes": [],
+      "valuesSeconds": [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+      "width": 16
+    }
+  }
+}

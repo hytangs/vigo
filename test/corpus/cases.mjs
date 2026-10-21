@@ -14,6 +14,7 @@ const free = { origin: { coordinate: [-77.05, 38.9] }, destination: { coordinate
 const coordinate = { ...base, ...free }
 const near = { origin: { coordinate: [-77.0499, 38.90005] }, destination: { coordinate: [-77.0301, 38.90995] } }
 const reachBase = { serviceDate, time: '07:55', origin: free.origin, maxWalkKm: 1.2, rasterSize: 24, cutoffsMinutes: [15, 30, 45] }
+const arriveBase = { serviceDate, time: '08:30', timePreference: 'arrive_by', destination: free.destination, maxWalkKm: 1.2, rasterSize: 24, cutoffsMinutes: [15, 30, 45] }
 const frequency = { services: [{ operation: 'add', timeModel: 'preserve-scheduled', stops: [{ stopId: 'A' }, { stopId: 'B' }],
   startMinutes: 475, endMinutes: 600, headwayMinutes: 5, segmentRuntimeMinutes: [5] }] }
 const preserved = { services: [{ operation: 'replace', scheduleMode: 'preserve-trips', stops: [{ stopId: 'X' }, { stopId: 'B' }],
@@ -175,6 +176,12 @@ export const cases = [
   reach('standard', 'reach-scenario-frequency', { ...reachBase, scenario: frequency }),
   reach('standard', 'reach-scenario-preserved', { ...reachBase, scenario: preserved }),
   reach('standard', 'reach-profile', { ...reachBase, diagnostics: 'profile' }),
+  reach('standard', 'reach-arrive-by', arriveBase),
+  reach('standard', 'reach-arrive-by-street-edges', { ...arriveBase, includeStreetEdges: true }),
+  reach('standard', 'reach-arrive-by-walk', { ...arriveBase, mode: 'walk' }),
+  reach('standard', 'reach-arrive-by-cell-center', { ...arriveBase, surfaceSampling: 'cell-center', rasterSize: 16 }),
+  reach('standard', 'reach-arrive-by-scenario-frequency', { ...arriveBase, scenario: frequency }),
+  reach('standard', 'error-reach-arrive-by-origin', { ...arriveBase, origin: free.origin }),
   { city: 'standard', name: 'isochrone', kind: 'isochrone', request: { ...reachBase, cutoffsMinutes: [20] } },
   { city: 'standard', name: 'compare-reach', kind: 'compare',
     request: results => ({ before: results['standard/reach-full'], after: results['standard/reach-scenario-frequency'] }) },

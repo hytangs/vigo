@@ -334,12 +334,12 @@ Use `vigo route --help` for the general command overview. `--name value` and `--
 | `--time HH:MM[:SS]` | Route, Matrix, Reach, Stream | Set clock; replaces JSON `timeMinutes` |
 | `--mode transit\|walk\|drive` | Route, Matrix, Reach, Stream | Reach supports all three modes |
 | `--from lon,lat` or `--from stop:ID` | Route, Reach | Origin |
-| `--to lon,lat` or `--to stop:ID` | Route | Destination |
+| `--to lon,lat` or `--to stop:ID` | Route, Reach | Destination; an arrive-by Reach takes a destination |
 | `--max-walk KM` | Route, Matrix, Reach, Stream | Walking endpoint budget |
 | `--max-transfers N` | Route, Matrix, Reach, Stream | Transit transfer cap |
 | `--max-street KM` | Route, Matrix | Independent street-route distance cap |
 | `--horizon MINUTES` | Route, Matrix | Search horizon |
-| `--arrive-by` | Route, Matrix | Arrive-by time direction; false restores depart-at |
+| `--arrive-by` | Route, Matrix, Reach | Arrive-by time direction; false restores depart-at |
 | `--alternatives N` | Route | Additional transit journeys, 0–9 |
 | `--alternative-ranking pareto\|ranked` | Route | How alternatives are chosen |
 | `--cutoffs 15,30,45` | Reach | Travel-time cutoffs |
@@ -716,9 +716,9 @@ Run `node scripts/benchmark-service-reuse.mjs --reference /path/to/baseline-vigo
 
 ## 9. Reach and isochrones
 
-Reach finds the streets and areas accessible from an origin within a set of travel-time limits. Transit queries combine timetable travel with walking over the prepared street network. Use `mode: "walk"` for walking only, or call `isochrone` as an alias of `reach`.
+Reach finds the streets and areas accessible from an origin within a set of travel-time limits or, arriving by a deadline, the streets and areas a destination can be reached from. Transit queries combine timetable travel with walking over the prepared street network. Use `mode: "walk"` for walking only, or call `isochrone` as an alias of `reach`.
 
-Reach supports depart-at queries, including realtime transit. Driving Reach uses `mode: "drive"` and routes to cell centers through the prepared directed driving network. It uses road-speed estimates without live traffic and does not apply transit scenarios. As in Drive Route, the origin and every cell center walk straight to their nearest drivable road; a cell center farther than `maxWalkKm` from any road is unreachable, and its walk counts toward the cutoff. The raster has a fixed extent (`extentRadiusKm`, default 8, maximum 40); points outside that extent are not evaluated. Driving uses a 750 km road-distance search cap and does not return pedestrian edge or node evidence. Studio offers Driving under Analyze → Reach and uses a 40 km extent.
+Reach supports depart-at and arrive-by queries, including realtime transit. Driving Reach uses `mode: "drive"` and routes to cell centers through the prepared directed driving network. It uses road-speed estimates without live traffic and does not apply transit scenarios. As in Drive Route, the origin and every cell center walk straight to their nearest drivable road; a cell center farther than `maxWalkKm` from any road is unreachable, and its walk counts toward the cutoff. The raster has a fixed extent (`extentRadiusKm`, default 8, maximum 40); points outside that extent are not evaluated. Driving uses a 750 km road-distance search cap and does not return pedestrian edge or node evidence. Studio offers Driving under Analyze → Reach and uses a 40 km extent.
 
 ### Request
 
@@ -736,15 +736,35 @@ Reach supports depart-at queries, including realtime transit. Driving Reach uses
 }
 ```
 
+### Arrive by
+
+An arrive-by Reach (`timePreference: "arrive_by"`) takes a `destination` instead of an origin and reads `time` as the arrival deadline. It outlines where a traveler can start and still arrive by then. Each value is how long before the deadline the traveler must leave that place; a stop's duration is how long before the deadline they must be at the stop to board.
+
+```json query=reach
+{
+  "destination": {"stopId": "B"},
+  "timePreference": "arrive_by",
+  "serviceDate": "2026-07-15",
+  "time": "08:30",
+  "cutoffsMinutes": [15, 30, 45],
+  "maxWalkKm": 0.5,
+  "extentRadiusKm": 2,
+  "rasterSize": 48
+}
+```
+
+Transit searches the timetable backwards once from the stops that reach the destination, giving every stop its latest boarding. Walking runs over the streets backwards, so one-way footpaths, escalators and station paths keep their direction; a destination behind authorized private access is entered from its public exits, and the surface covers public streets. Cell-center sampling and Driving route from every cell center to the destination. A deadline earlier than the longest cutoff after midnight searches the preceding service date's late trips, as arrive-by Route does. Exclusions and planned services apply, routed on the scenario's timetable view with scheduled data; a compiled `overlay` and `surfaceReuse` are depart-at only.
+
 ### Options
 
 | Reach field | Default | Contract |
 | --- | --- | --- |
-| `origin` | Required | Point |
+| `origin` | Required for depart-at | Point where trips start |
+| `destination` | Required for arrive-by | Point where trips end; arrive-by Reach takes no origin |
 | `cutoffsMinutes` | `[15,30,45,60]` | 1–16 numbers, each 1–240; sorted and deduplicated |
 | `rasterSize` | 96 | Integer 16–1024; output width and height |
 | `extentRadiusKm` | 8 | Number 1–40; reporting extent, not a trip-distance cap |
-| `bounds` | Derived from origin/radius | `[west,south,east,north]`, finite and ordered geographic limits |
+| `bounds` | Derived from the origin or destination and radius | `[west,south,east,north]`, finite and ordered geographic limits |
 | `includeStreetEdges` | false | Include indexed directed street evidence |
 | `includeNodes` | false | Include native node evidence |
 | `surfaceSampling` | `street` | `street` samples reached street intervals; `cell-center` routes to every grid center |
@@ -1355,7 +1375,7 @@ Reach returns transit stop arrivals, a raster, area/contour GeoJSON, and optiona
 
 | Field | Interpretation |
 | --- | --- |
-| `kind`, `mode`, `origin`, `serviceDate` | `reach`, transit/walk, the requested origin, and the requested date or null |
+| `kind`, `mode`, `origin`, `serviceDate` | `reach`, transit/walk, the requested origin, and the requested date or null. Arrive-by Reach has `destination` and `timePreference: "arrive_by"` instead of `origin` |
 | `cutoffsMinutes` | Sorted, deduplicated elapsed-time thresholds |
 | `stops` | Transit-reached stops within the largest cutoff, with `stopId`, `name`, `coordinate`, and `durationMinutes`. Walk-only Reach returns an empty stop array even when streets are reachable. |
 | `surface` | Grid dimensions, requested/full rasters, and optional street evidence |
@@ -1363,7 +1383,7 @@ Reach returns transit stop arrivals, a raster, area/contour GeoJSON, and optiona
 | `contours`, `fullContours` | GeoJSON MultiLineString features for the requested/full raster respectively |
 | `diagnostics` | Separate transit-search and street-surface evidence |
 
-Stop durations are elapsed minutes from the query clock. They are not clock minutes or final egress times. Stop order follows the active timetable/planned-stop order, not increasing duration. Sort explicitly for a ranked list. Transit stops and raster cells need not have one-to-one coverage because the raster also depends on the prepared street graph.
+Stop durations are elapsed minutes from the query clock. They are not clock minutes or final egress times. In arrive-by Reach they are minutes before the deadline, and raster values are the time a traveler must leave each place before it. Stop order follows the active timetable/planned-stop order, not increasing duration. Sort explicitly for a ranked list. Transit stops and raster cells need not have one-to-one coverage because the raster also depends on the prepared street graph.
 
 #### Decode the raster
 
@@ -1423,6 +1443,8 @@ With `includeStreetEdges: true`, `surface.edges` uses `schemaVersion: "vigo.stan
 | `transitArrivalMinutes` | Elapsed arrival at the transit seed, measured from the query clock. `-1` identifies the direct-origin seed; it is not a negative arrival time. |
 
 All measurement arrays have length `count`. Repeated edge IDs describe ordered, non-overlapping intervals; opposite directions are separate records. Interpolate coordinates between the referenced graph vertices using the interval fractions. For a smaller cutoff, clip an interval between its start and end times instead of dropping the whole interval.
+
+In arrive-by Reach, times are minutes before the deadline and each interval runs from its end nearer the destination, so they still grow from `from` to `to` while the traveler walks the other way. `edgeIds` name the prepared edge walked, `transitArrivalMinutes` is the time before the deadline at the boarding stop, and `-1` identifies the destination seed. The decoder below reads both directions unchanged.
 
 ```js decoder=edge
 function readEdge(bundle, i, cutoffMinutes = Infinity) {

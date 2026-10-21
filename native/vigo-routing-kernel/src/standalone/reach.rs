@@ -1,6 +1,9 @@
 use super::query::Options;
 use super::{City, Result, fail, flag, number};
-use crate::{StreetSurfaceInput, TimetableManyQueryInput, TimetableOverlayManyQueryInput};
+use crate::{
+    StreetSurfaceInput, TimetableArriveByManyQueryInput, TimetableManyQueryInput,
+    TimetableOverlayManyQueryInput,
+};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
@@ -18,7 +21,14 @@ impl City {
         if q["mode"] == "drive" && q.get("maxStreetKm").is_none() {
             query["maxStreetKm"] = json!(750.);
         }
-        query["origins"] = json!([q["origin"]]);
+        // Arrive-by Reach measures from every cell to its destination.
+        let arrive = super::query::Options::parse(q)?.arrive;
+        let (place, cells) = if arrive {
+            ("destinations", "origins")
+        } else {
+            ("origins", "destinations")
+        };
+        query[place] = json!([q[if arrive { "destination" } else { "origin" }]]);
         query["horizonMinutes"] = json!(maximum);
         query["allowLongWalk"] = json!(false);
         query["requireTransitRide"] = json!(false);
@@ -31,17 +41,31 @@ impl City {
             query["disableCache"] = json!(true);
         }
         query.as_object_mut().unwrap().remove("scenario");
+        query
+            .as_object_mut()
+            .unwrap()
+            .remove(if arrive { "destination" } else { "origin" });
         for first in (0..size * size).step_by(16_384) {
-            query["destinations"] = Value::Array((first..(first + 16_384).min(size * size)).map(|i| {
+            query[cells] = Value::Array((first..(first + 16_384).min(size * size)).map(|i| {
                 json!({"coordinate":[bounds[0]+(i%size) as f64/size as f64*(bounds[2]-bounds[0])
                     +0.5/size as f64*(bounds[2]-bounds[0]),
                     bounds[3]-((i/size) as f64+0.5)/size as f64*(bounds[3]-bounds[1])]})
             }).collect());
             let matrix = self.matrix_with(&query, false)?;
-            let row = matrix["durationsMinutes"][0]
+            let durations = matrix["durationsMinutes"]
                 .as_array()
-                .ok_or("Missing Reach destination-grid row")?;
-            values.extend(row.iter().map(|value| {
+                .ok_or("Missing Reach grid durations")?;
+            // One row from the origin, or one column to the destination.
+            let row: Vec<&Value> = if arrive {
+                durations.iter().map(|row| &row[0]).collect()
+            } else {
+                durations[0]
+                    .as_array()
+                    .ok_or("Missing Reach destination-grid row")?
+                    .iter()
+                    .collect()
+            };
+            values.extend(row.into_iter().map(|value| {
                 value
                     .as_f64()
                     .filter(|v| v.is_finite() && *v <= maximum)
@@ -93,10 +117,21 @@ impl City {
             }
         }
         let opt = Options::parse(q)?;
-        if opt.arrive {
-            return fail("Reach requires depart_at");
+        // Depart-at Reach spreads from an origin; arrive-by Reach gathers
+        // toward a destination, timed to arrive by the requested time.
+        let (field, other) = if opt.arrive {
+            ("destination", "origin")
+        } else {
+            ("origin", "destination")
+        };
+        if q.get(other).is_some() {
+            return fail(if opt.arrive {
+                "Arrive-by Reach takes a destination, not an origin"
+            } else {
+                "Reach with a destination requires timePreference arrive_by"
+            });
         }
-        let origin = self.point(&q["origin"])?;
+        let place = self.point(&q[field])?;
         let mode = q["mode"].as_str().unwrap_or("transit");
         if !["transit", "walk", "drive"].contains(&mode) {
             return fail("Reach supports transit, walk, or drive");
@@ -161,7 +196,7 @@ impl City {
         let size = size as usize;
         let radius = number(q, "extentRadiusKm", 8., 1., 40.)?;
         let lat_delta = radius / 111.32;
-        let lon_delta = radius / (111.32 * origin.coordinate[1].to_radians().cos()).max(12.);
+        let lon_delta = radius / (111.32 * place.coordinate[1].to_radians().cos()).max(12.);
         let bounds = if let Some(bounds) = q.get("bounds") {
             let a = bounds
                 .as_array()
@@ -172,10 +207,10 @@ impl City {
                 .collect::<Result<Vec<_>>>()?
         } else {
             vec![
-                (origin.coordinate[0] - lon_delta).max(-180.),
-                (origin.coordinate[1] - lat_delta).max(-90.),
-                (origin.coordinate[0] + lon_delta).min(180.),
-                (origin.coordinate[1] + lat_delta).min(90.),
+                (place.coordinate[0] - lon_delta).max(-180.),
+                (place.coordinate[1] - lat_delta).max(-90.),
+                (place.coordinate[0] + lon_delta).min(180.),
+                (place.coordinate[1] + lat_delta).min(90.),
             ]
         };
         if bounds.iter().any(|v| !v.is_finite())
@@ -191,7 +226,7 @@ impl City {
         if mode != "transit" && q.get("scenario").is_some() {
             return fail("Transit scenarios require transit Reach");
         }
-        let mut seeds = origin.coordinate.to_vec();
+        let mut seeds = place.coordinate.to_vec();
         let mut durations = vec![0.];
         let members: HashMap<String, i32> = self
             .members
@@ -202,9 +237,20 @@ impl City {
         let mut seed_members = vec![-1];
         let mut stops = vec![];
         let mut transit = Value::Null;
-        if mode == "transit" {
+        if mode == "transit" && opt.arrive {
+            transit = self.arrive_by_stops(
+                q,
+                &place,
+                &opt,
+                maximum,
+                &members,
+                [&mut seeds, &mut durations],
+                &mut seed_members,
+                &mut stops,
+            )?;
+        } else if mode == "transit" {
             self.activate(q)?;
-            let a = self.candidates(&origin, "origin", &opt)?;
+            let a = self.candidates(&place, "origin", &opt)?;
             let t = self.timetable.as_ref().unwrap();
             let n = t.stop_ids.len();
             let scenario = q.get("scenario");
@@ -261,7 +307,7 @@ impl City {
                 .and_then(Value::as_array)
                 .is_some_and(|a| !a.is_empty())
             {
-                let overlay = self.scenario(scenario.unwrap(), input, &origin, &opt)?;
+                let overlay = self.scenario(scenario.unwrap(), input, &place, &opt)?;
                 overlay_members = overlay
                     .input
                     .overlay_base_stops
@@ -320,7 +366,7 @@ impl City {
                 }
                 if !points.is_empty() {
                     let walks = self.street.route_street_matrix(crate::StreetMatrixInput {
-                        origin_coordinates: origin.coordinate.to_vec(),
+                        origin_coordinates: place.coordinate.to_vec(),
                         destination_coordinates: coordinates,
                         maximum_distance_m: opt.walk_m,
                         disable_cache: Some(opt.disable_cache),
@@ -466,7 +512,9 @@ impl City {
             };
             let reached = values.iter().filter(|v| v.is_finite()).count();
             return Ok(without_polygons(
-                json!({"kind":"reach","mode":mode,"serviceDate":q["serviceDate"],"origin":q["origin"],
+                anchored(
+                    q,
+                    json!({"kind":"reach","mode":mode,"serviceDate":q["serviceDate"],"origin":q["origin"],
                 "cutoffsMinutes":cutoffs,"stops":stops,"surface":{"sampling":sampling,"width":size,"height":size,
                     "bounds":bounds,"values":f64s(values),"fullBounds":bounds,"fullValues":f64s(values),"arrayEncoding":raster_encoding,"nodes":[],"edges":null},
                 "areas":areas,"fullAreas":areas,"contours":contours,"fullContours":contours,
@@ -474,6 +522,7 @@ impl City {
                     "sampledTargets":values.len(),"reachableTargets":reached,"blockedTargets":values.len()-reached,
                     "queryErrors":0,"fixedRequestedGrid":true,"walkingSpeedKph":opt.walk_speed.unwrap_or(self.speed),
                     "directWalkingLimitKm":if mode == "drive" { Value::Null } else { json!(opt.walk_m/1000.) },"travelMode":mode,"fixedExtent":true}},"warnings":self.metadata["routingLimitations"]}),
+                ),
                 polygons,
             ));
         }
@@ -503,6 +552,7 @@ impl City {
             include_edges,
             edge_evidence_limit: 0,
             expand_bounds_to_reached_edges: true,
+            reverse_direction: Some(opt.arrive),
         })?;
         if let Some(values) = grid {
             result.reached_pixels = values.iter().filter(|v| v.is_finite()).count() as u32;
@@ -534,7 +584,9 @@ impl City {
         let contour_features = polygon(contours, &result.values, &bounds);
         let full_contours = polygon(contours, full_values, full_bounds);
         Ok(without_polygons(
-            json!({"kind":"reach","mode":mode,"serviceDate":q["serviceDate"],"origin":q["origin"],"cutoffsMinutes":cutoffs,"stops":stops,
+            anchored(
+                q,
+                json!({"kind":"reach","mode":mode,"serviceDate":q["serviceDate"],"origin":q["origin"],"cutoffsMinutes":cutoffs,"stops":stops,
             "surface":{"sampling":sampling,"width":size,"height":size,"bounds":bounds,"values":f64s(&result.values),"fullBounds":full_bounds,"fullValues":f64s(full_values),"arrayEncoding":raster_encoding,"nodes":result.node_evidence,
                 "edges":if include_edges {
                     let f = |v: &Option<Vec<f64>>| v.as_deref().map_or(Value::Null, f64s);
@@ -543,10 +595,164 @@ impl City {
                 } else {Value::Null}},
             "areas":area_features,"fullAreas":full_areas,"contours":contour_features,"fullContours":full_contours,
             "diagnostics":{"transit":transit,"surface":{"queryNs":result.query_ns,"seedNs":result.seed_ns,"propagationNs":result.propagation_ns,"envelopeNs":result.envelope_ns,"rasterNs":result.raster_ns,"settledLabels":result.settled_labels,"reusedLabels":result.reused_labels,"retainedLabels":result.retained_labels,"relaxedEdges":result.relaxed_edges,"reachedPixels":result.reached_pixels,"reachedEdgeCount":result.reached_edge_count,"reachedEdgeLengthM":result.reached_edge_length_m,"edgeEvidenceTruncated":result.edge_evidence_truncated,"nodeEvidenceTruncated":result.node_evidence_truncated}},"warnings":self.metadata["routingLimitations"]}),
+            ),
             polygons,
         ))
     }
 }
+impl City {
+    /// Each stop's latest boarding that still reaches `destination` by the
+    /// requested time, as seeds: the minutes before that time a traveler
+    /// must be at the stop. A scenario's planned services run on its view.
+    #[allow(clippy::too_many_arguments)]
+    fn arrive_by_stops(
+        &mut self,
+        q: &Value,
+        destination: &super::query::Point,
+        opt: &Options,
+        maximum: f64,
+        members: &HashMap<String, i32>,
+        [seeds, durations]: [&mut Vec<f64>; 2],
+        seed_members: &mut Vec<i32>,
+        stops: &mut Vec<Value>,
+    ) -> Result<Value> {
+        let scenario = q.get("scenario").filter(|s| !s.is_null());
+        if scenario.is_some_and(|s| s.get("overlay").is_some()) {
+            return fail("A compiled overlay applies to depart-at Reach; send planned services");
+        }
+        let planned =
+            scenario.is_some_and(|s| s["services"].as_array().is_some_and(|a| !a.is_empty()));
+        if planned
+            && q.get("routingDataMode")
+                .or_else(|| q.get("dataMode"))
+                .is_some_and(|mode| mode == "realtime")
+        {
+            return fail("Arrive-by scenario Reach uses the scheduled timetable");
+        }
+        self.activate(q)?;
+        if planned {
+            self.install_scenario(scenario.unwrap())?;
+            self.pinned_timetable = true;
+        }
+        let searched = self.latest_boardings(scenario, destination, opt, maximum);
+        self.pinned_timetable = false;
+        let (latest, mut transit) = searched?;
+        let t = self.timetable.as_ref().unwrap();
+        let planned_stops = self.scenario_view.as_ref().filter(|_| planned);
+        for (i, &departure) in latest.iter().enumerate() {
+            let duration = (opt.time - departure) / 60.;
+            if !duration.is_finite() || duration > maximum {
+                continue;
+            }
+            let id = &t.stop_ids[i];
+            let stop = self.stop(id)?;
+            seeds.extend([stop.lon, stop.lat]);
+            durations.push(duration);
+            // A planned stop has no station paths: it is entered from the street.
+            seed_members.push(if planned_stops.is_some_and(|v| v.stops.contains_key(id)) {
+                -1
+            } else {
+                members
+                    .get(id)
+                    .copied()
+                    .ok_or("Missing Reach access member")?
+            });
+            stops.push(json!({"stopId":stop.id,"name":stop.name,"coordinate":[stop.lon,stop.lat],"durationMinutes":duration}));
+        }
+        transit["residentTrips"] = json!(t.trip_ids.len());
+        if planned {
+            transit["scenario"] =
+                json!({"id":scenario.unwrap()["id"],"name":scenario.unwrap()["name"]});
+        }
+        Ok(transit)
+    }
+
+    /// One reverse scan from the destination's stops gives every stop's
+    /// latest boarding, in seconds; unreached stops are -infinity.
+    fn latest_boardings(
+        &mut self,
+        scenario: Option<&Value>,
+        destination: &super::query::Point,
+        opt: &Options,
+        maximum: f64,
+    ) -> Result<(Vec<f64>, Value)> {
+        let b = self.candidates(destination, "destination", opt)?;
+        let t = self.timetable.as_ref().unwrap();
+        let n = t.stop_ids.len();
+        let mut excluded = HashSet::new();
+        if let Some(s) = scenario {
+            for (field, ids) in [
+                ("excludedTripIds", &t.trip_ids),
+                ("excludedRouteIds", &t.route_ids),
+            ] {
+                for id in s.get(field).and_then(Value::as_array).into_iter().flatten() {
+                    let id = id.as_str().ok_or("Scenario IDs must be strings")?;
+                    excluded.extend(
+                        ids.iter()
+                            .enumerate()
+                            .filter(|(_, other)| *other == id)
+                            .map(|(i, _)| i as u32),
+                    );
+                }
+            }
+        }
+        let excluded_count = excluded.len();
+        let excluded: Vec<u32> = excluded.into_iter().collect();
+        if b.stops.is_empty() {
+            return Ok((
+                vec![f64::NEG_INFINITY; n],
+                json!({"supported":true,"reason":"no_destination_access","latestDepartures":[],"excludedTrips":excluded_count}),
+            ));
+        }
+        let mut latest = Vec::with_capacity(n);
+        let mut transit = Value::Null;
+        // Every stop is an origin of its own; the kernel bounds one request.
+        for first in (0..n).step_by(crate::MAXIMUM_MATRIX_PAIRS) {
+            let count = (n - first).min(crate::MAXIMUM_MATRIX_PAIRS);
+            let result = self
+                .timetable
+                .as_mut()
+                .unwrap()
+                .kernel
+                .route_arrive_by_many_csa(TimetableArriveByManyQueryInput {
+                    origin_offsets: (0..=count as u32).collect(),
+                    origin_stops: (first as u32..(first + count) as u32).collect(),
+                    origin_walk_seconds: vec![0.; count],
+                    // The street surface walks between stops.
+                    allow_pre_ride_transfers: vec![false; count],
+                    destination_stops: b.stops.clone(),
+                    destination_walk_seconds: b.seconds.clone(),
+                    earliest: opt.time - maximum * 60.,
+                    deadline: opt.time,
+                    excluded_trips: excluded.clone(),
+                    allow_post_ride_transfers: Some(b.terminal_transfers),
+                    maximum_boardings: opt.max_boardings,
+                })?;
+            latest.extend_from_slice(&result.latest_departures);
+            if transit.is_null() {
+                transit = serde_json::to_value(&result)?;
+                transit["latestDepartures"] = Value::Null;
+            }
+        }
+        transit["supported"] = json!(true);
+        transit["excludedTrips"] = json!(excluded_count);
+        transit["latestDepartures"] = json!(latest);
+        Ok((latest, transit))
+    }
+}
+
+/// An arrive-by Reach names its destination: its values are the minutes
+/// before the requested time a traveler must leave each place.
+fn anchored(q: &Value, mut output: Value) -> Value {
+    if Options::parse(q).is_ok_and(|opt| opt.arrive) {
+        let object = output.as_object_mut().unwrap();
+        object.remove("origin");
+        object.insert("destination".into(), q["destination"].clone());
+        object.insert("timePreference".into(), json!("arrive_by"));
+    }
+    output
+}
+
 /// The Reach Result, or with `reachFormat: "surface"` its stops and rasters
 /// alone: area and contour fields are omitted rather than drawn.
 fn without_polygons(mut output: Value, polygons: bool) -> Value {

@@ -4926,6 +4926,7 @@ impl CoordinateKernel {
         &mut self,
         mut input: StreetSurfaceInput,
     ) -> napi::Result<StreetSurfaceResult> {
+        let reverse = input.reverse_direction == Some(true);
         let mut endpoint_seeds = None;
         if let Some(members) = input.seed_member_indices.take() {
             let count = input.seed_durations_minutes.len();
@@ -4970,6 +4971,7 @@ impl CoordinateKernel {
                             input.seed_coordinates[seed * 2 + 1],
                         ],
                         input.maximum_walk_m,
+                        reverse,
                     )?;
                     coordinates.extend_from_slice(&point);
                     durations.push(arrival + distance * 60.0 / (input.walk_speed_kph * 1000.0));
@@ -5001,9 +5003,10 @@ impl CoordinateKernel {
                 for &anchor in profile.member_anchor_indices(member) {
                     add(anchor as usize, 0.0, 0.0);
                 }
-                // Reuse the directed station paths used by coordinate egress.
-                // A platform with no valid exit never falls back to its map coordinate.
-                for link in profile.linked_from_stop(key, true) {
+                // Reuse the directed station paths used by coordinate egress
+                // (backwards, those used by coordinate access). A platform
+                // with no valid exit never falls back to its map coordinate.
+                for link in profile.linked_from_stop(key, !reverse) {
                     let Some(anchors) = anchors_by_stop.get(&link.to_stop_key) else {
                         continue;
                     };
@@ -5046,6 +5049,7 @@ impl CoordinateKernel {
                         input.seed_coordinates[seed * 2 + 1],
                     ],
                     input.maximum_walk_m,
+                    reverse,
                 )?;
                 input.seed_coordinates[seed * 2..seed * 2 + 2].copy_from_slice(&point);
                 input.seed_durations_minutes[seed] +=

@@ -291,7 +291,19 @@ pub(super) fn compute(
     endpoint_seeds: Option<&[bool]>,
     input: StreetSurfaceInput,
 ) -> napi::Result<StreetSurfaceResult> {
-    if terminal.is_some() {
+    // Backwards, private streets only lead the destination to its public
+    // exits; the surface itself covers public streets.
+    if input.reverse_direction == Some(true) {
+        compute_graph::<false>(
+            snapshot,
+            reciprocal_edge_flags,
+            snaps,
+            reuse,
+            terminal,
+            endpoint_seeds,
+            input,
+        )
+    } else if terminal.is_some() {
         compute_graph::<true>(
             snapshot,
             reciprocal_edge_flags,
@@ -366,8 +378,25 @@ fn compute_graph<const ENDPOINTS: bool>(
             "Street surface seed durations or walking distances are inconsistent.",
         ));
     }
-    let mut graph = StreetGraph::<ENDPOINTS>::open(snapshot)?;
-    graph.terminal = terminal;
+    let reverse = input.reverse_direction == Some(true);
+    if reverse && input.surface_reuse.is_some() {
+        return Err(Error::from_reason(
+            "Street surface reuse requires a forward surface.",
+        ));
+    }
+    let mut graph = if reverse {
+        StreetGraph::<ENDPOINTS>::reversed(snapshot)?
+    } else {
+        StreetGraph::<ENDPOINTS>::open(snapshot)?
+    };
+    if ENDPOINTS {
+        graph.terminal = terminal;
+    }
+    let reverse_edge_indices = if reverse {
+        snapshot.u32_array("reverseEdgeIndices")?
+    } else {
+        &[]
+    };
     let components = if ENDPOINTS {
         snapshot.i32_array("componentByNode")?
     } else {
@@ -416,6 +445,31 @@ fn compute_graph<const ENDPOINTS: bool>(
             input.seed_coordinates[seed * 2 + 1],
         )?;
         let mut snapped = false;
+        if reverse
+            && endpoint_seeds.is_none_or(|flags| flags[seed])
+            && let Some(terminal) = terminal
+            && let Some(attachment) = terminal.attach(
+                snapshot,
+                &sources,
+                input.seed_coordinates[seed * 2],
+                input.seed_coordinates[seed * 2 + 1],
+                (input.maximum_walk_m - initial).max(0.0),
+                true,
+            )?
+        {
+            // A destination behind private streets is entered from their
+            // public exits, at the private walk to it.
+            projection = None;
+            sources = attachment.original_snaps.clone();
+            sources.extend_from_slice(&attachment.boundary_snaps);
+            sources.retain(|snap| (snap.node as usize) < graph.node_lats.len());
+            sources.sort_by(|a, b| {
+                a.node
+                    .cmp(&b.node)
+                    .then_with(|| a.distance_m.total_cmp(&b.distance_m))
+            });
+            sources.dedup_by_key(|s| s.node);
+        }
         if ENDPOINTS
             && endpoint_seeds.is_none_or(|flags| flags[seed])
             && let Some(terminal) = terminal
@@ -472,13 +526,33 @@ fn compute_graph<const ENDPOINTS: bool>(
         if let Some(p) = projection {
             let start_minutes = arrival + p.projection_distance_m * minutes_per_meter;
             let start_walk = initial + p.projection_distance_m;
-            let reverse = (graph.edge_offsets[p.right.node as usize] as usize
-                ..graph.edge_offsets[p.right.node as usize + 1] as usize)
-                .filter(|&e| graph.target(e) == p.left.node)
-                .min_by(|&a, &b| graph.distance(a).total_cmp(&graph.distance(b)));
-            for (edge, node, fraction) in std::iter::once((p.edge_index, p.left.node, p.fraction))
-                .chain(reverse.map(|e| (e, p.right.node, 1.0 - p.fraction)))
-            {
+            let streets = &graph;
+            let edges_between = move |from: u32, to: u32| {
+                (streets.edge_offsets[from as usize] as usize
+                    ..streets.edge_offsets[from as usize + 1] as usize)
+                    .filter(move |&e| streets.target(e) == to)
+            };
+            let shortest = |from: u32, to: u32| {
+                edges_between(from, to)
+                    .min_by(|&a, &b| streets.distance(a).total_cmp(&streets.distance(b)))
+            };
+            // The seed lies on the projected edge and on its reciprocal.
+            // Backwards, the projected edge leaves its right node.
+            let (first, second) = if reverse {
+                (
+                    edges_between(p.right.node, p.left.node)
+                        .find(|&e| reverse_edge_indices[e] as usize == p.edge_index)
+                        .map(|e| (e, p.right.node, 1.0 - p.fraction)),
+                    shortest(p.left.node, p.right.node).map(|e| (e, p.left.node, p.fraction)),
+                )
+            } else {
+                (
+                    Some((p.edge_index, p.left.node, p.fraction)),
+                    shortest(p.right.node, p.left.node)
+                        .map(|e| (e, p.right.node, 1.0 - p.fraction)),
+                )
+            };
+            for (edge, node, fraction) in first.into_iter().chain(second) {
                 if let Some(segment) = reachable_segment(
                     &graph,
                     &input,
@@ -807,7 +881,13 @@ fn compute_graph<const ENDPOINTS: bool>(
                 });
                 endpoints.push(id);
             }
-            ids.push(s.edge as u32);
+            // Backwards, an interval runs from its end nearer the seeds, so
+            // times still grow along it; its ID names the street walked.
+            ids.push(if reverse {
+                reverse_edge_indices[s.edge]
+            } else {
+                s.edge as u32
+            });
             durations.push(s.end_minutes);
             starts.push(s.start_minutes);
             fractions.push(s.start);

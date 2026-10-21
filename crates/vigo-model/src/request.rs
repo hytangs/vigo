@@ -119,14 +119,6 @@ pub enum TimePreferenceInput {
     Arrive,
 }
 
-/// Reach searches forward in time only.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ReachTimePreference {
-    DepartAt,
-    Depart,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum AlternativeRanking {
@@ -352,16 +344,24 @@ query_request! {
 }
 
 query_request! {
-    /// `POST /v1/reach` (and `/v1/isochrone`): where an origin reaches within cutoffs.
+    /// `POST /v1/reach` (and `/v1/isochrone`): where an origin reaches
+    /// within cutoffs or, arriving by the requested time, where a
+    /// destination is reached from.
     ReachRequest {
         /// Include GeoJSON on legs.
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
         #[schemars(extend("default" = false))]
         pub include_geometry: Option<bool>,
-        pub origin: Point,
+        /// Where depart-at trips start. Required for depart-at Reach.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
+        pub origin: Option<Point>,
+        /// Where arrive-by trips end. Required for arrive-by Reach, which
+        /// takes no origin.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
+        pub destination: Option<Point>,
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
         #[schemars(extend("default" = "depart_at"))]
-        pub time_preference: Option<ReachTimePreference>,
+        pub time_preference: Option<TimePreferenceInput>,
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
         #[schemars(extend("default" = "transit"))]
         pub mode: Option<ReachMode>,

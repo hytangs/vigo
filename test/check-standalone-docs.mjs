@@ -73,7 +73,9 @@ try {
     examples.push({ command: match[1], request, result })
     checks++
   }
-  assert.equal(examples.length, 14, 'Update documented example coverage deliberately')
+  assert.equal(examples.length, 15, 'Update documented example coverage deliberately')
+  const arriving = examples.find(e => e.command === 'reach' && e.request.timePreference === 'arrive_by')
+  assert.equal(arriving?.result.stops.find(stop => stop.stopId === 'A')?.durationMinutes, 30, 'The documented arrive-by Reach boards the 08:00 at A')
   assert.equal(examples.find(e => e.request.alternatives)?.result.alternativeSearch?.status, 'complete')
   assert.equal(examples.find(e => e.request.sharedLegs)?.result.sharedLegAlternatives?.coverage, 'single_leg_substitutions')
   assert.equal(examples[0].result.arrivalMinutes, 510)

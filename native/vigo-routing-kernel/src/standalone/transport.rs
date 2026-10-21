@@ -195,14 +195,14 @@ fn run() -> Result<()> {
             }
             "service-date" => ["route", "matrix", "reach", "isochrone", "native", "stream"]
                 .contains(&command.as_str()),
-            "from" => ["route", "reach", "isochrone"].contains(&command.as_str()),
-            "to" => command == "route",
+            "from" | "to" | "arrive-by" => {
+                ["route", "reach", "isochrone"].contains(&command.as_str())
+                    || key == "arrive-by" && command == "matrix"
+            }
             "street-edges" | "raster-size" | "cutoffs" | "radius" => {
                 ["reach", "isochrone"].contains(&command.as_str())
             }
-            "arrive-by" | "max-street" | "horizon" => {
-                ["route", "matrix"].contains(&command.as_str())
-            }
+            "max-street" | "horizon" => ["route", "matrix"].contains(&command.as_str()),
             "alternatives" | "alternative-ranking" => command == "route",
             _ => ["route", "matrix", "reach", "isochrone", "stream"].contains(&command.as_str()),
         };

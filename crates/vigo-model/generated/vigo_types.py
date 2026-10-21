@@ -365,9 +365,6 @@ ReachFormat = Literal["full"] | Literal["map"]
 # Reach covers transit, walking, and driving travel times.
 ReachMode = Literal["transit", "walk", "drive"]
 
-# Reach searches forward in time only.
-ReachTimePreference = Literal["depart_at", "depart"]
-
 RealtimeCoverage = TypedDict(
     "RealtimeCoverage",
     {
@@ -1046,7 +1043,10 @@ ReachQuery = TypedDict(
     "ReachQuery",
     {
         "dataMode": DataMode,
-        "origin": QueryPlace,
+        # Arrive-by Reach.
+        "destination": NotRequired[QueryPlace],
+        # Depart-at Reach.
+        "origin": NotRequired[QueryPlace],
         "requestedTime": str | None,
         "serviceDate": str | None,
         "timePreference": TimePreference,
@@ -1426,7 +1426,9 @@ Journey = TypedDict(
     },
 )
 
-# `POST /v1/reach` (and `/v1/isochrone`): where an origin reaches within cutoffs.
+# `POST /v1/reach` (and `/v1/isochrone`): where an origin reaches
+# within cutoffs or, arriving by the requested time, where a
+# destination is reached from.
 ReachRequest = TypedDict(
     "ReachRequest",
     {
@@ -1437,6 +1439,9 @@ ReachRequest = TypedDict(
         "cutoffsMinutes": NotRequired[list[float]],
         # Alias of `routingDataMode`.
         "dataMode": NotRequired[DataMode],
+        # Where arrive-by trips end. Required for arrive-by Reach, which
+        # takes no origin.
+        "destination": NotRequired[Point],
         # Added detail: `summary` counters, `profile` timings, or the
         # unstable internal `trace`. Default `none`.
         "diagnostics": NotRequired[DiagnosticsLevel],
@@ -1459,7 +1464,8 @@ ReachRequest = TypedDict(
         # Default 0.
         "minimumTransferBufferMinutes": NotRequired[int],
         "mode": NotRequired[ReachMode],
-        "origin": Point,
+        # Where depart-at trips start. Required for depart-at Reach.
+        "origin": NotRequired[Point],
         # Cells per side. Default 96.
         "rasterSize": NotRequired[int],
         "reachFormat": NotRequired[ReachFormat],
@@ -1477,7 +1483,7 @@ ReachRequest = TypedDict(
         "surfaceSampling": NotRequired[SurfaceSampling],
         "time": NotRequired[Clock],
         "timeMinutes": NotRequired[float],
-        "timePreference": NotRequired[ReachTimePreference],
+        "timePreference": NotRequired[TimePreferenceInput],
         # Default from the City. Walking Route and Matrix, and Reach.
         "walkSpeedKph": NotRequired[float],
         # Require a City prepared with the wheelchair-strict-v1 profile.

@@ -189,7 +189,12 @@ pub struct ReachQuery {
     pub time_preference: TimePreference,
     pub requested_time: Option<String>,
     pub data_mode: DataMode,
-    pub origin: QueryPlace,
+    /// Depart-at Reach.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<QueryPlace>,
+    /// Arrive-by Reach.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination: Option<QueryPlace>,
 }
 
 /// A requested place, in public form.

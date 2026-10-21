@@ -745,14 +745,19 @@ export type ReachMode = "transit" | "walk" | "drive";
 
 export interface ReachQuery {
   dataMode: DataMode;
-  origin: QueryPlace;
+  /** Arrive-by Reach. */
+  destination?: QueryPlace;
+  /** Depart-at Reach. */
+  origin?: QueryPlace;
   requestedTime: string | null;
   serviceDate: string | null;
   timePreference: TimePreference;
 }
 
 /**
- * `POST /v1/reach` (and `/v1/isochrone`): where an origin reaches within cutoffs.
+ * `POST /v1/reach` (and `/v1/isochrone`): where an origin reaches
+ * within cutoffs or, arriving by the requested time, where a
+ * destination is reached from.
  */
 export interface ReachRequest {
   /** Default `true`. */
@@ -762,6 +767,9 @@ export interface ReachRequest {
   cutoffsMinutes?: number[];
   /** Alias of `routingDataMode`. */
   dataMode?: DataMode;
+  /** Where arrive-by trips end. Required for arrive-by Reach, which */
+  /** takes no origin. */
+  destination?: Point;
   /** Added detail: `summary` counters, `profile` timings, or the */
   /** unstable internal `trace`. Default `none`. */
   diagnostics?: DiagnosticsLevel;
@@ -784,7 +792,8 @@ export interface ReachRequest {
   /** Default 0. */
   minimumTransferBufferMinutes?: number;
   mode?: ReachMode;
-  origin: Point;
+  /** Where depart-at trips start. Required for depart-at Reach. */
+  origin?: Point;
   /** Cells per side. Default 96. */
   rasterSize?: number;
   reachFormat?: ReachFormat;
@@ -802,7 +811,7 @@ export interface ReachRequest {
   surfaceSampling?: SurfaceSampling;
   time?: Clock;
   timeMinutes?: number;
-  timePreference?: ReachTimePreference;
+  timePreference?: TimePreferenceInput;
   /** Default from the City. Walking Route and Matrix, and Reach. */
   walkSpeedKph?: number;
   /** Require a City prepared with the wheelchair-strict-v1 profile. */
@@ -865,11 +874,6 @@ export interface ReachSurface {
   valuesSeconds: Array<number | null>;
   width: number;
 }
-
-/**
- * Reach searches forward in time only.
- */
-export type ReachTimePreference = "depart_at" | "depart";
 
 export interface RealtimeCoverage {
   appliedUpdates: number;

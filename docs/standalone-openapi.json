@@ -4877,6 +4877,17 @@
           "expandBoundsToReachedEdges": {
             "type": "boolean",
             "description": "Also construct a raster with bounds derived from reached street evidence; these bounds need not contain the requested bounds."
+          },
+          "reverseDirection": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Durations to reach the seeds rather than from them: streets are walked backwards, so one-way paths keep their direction."
           }
         },
         "required": [
@@ -8175,7 +8186,9 @@
             "type": "string",
             "enum": [
               "depart_at",
-              "depart"
+              "arrive_by",
+              "depart",
+              "arrive"
             ],
             "default": "depart_at"
           },
@@ -8297,11 +8310,12 @@
           },
           "realtimeSnapshot": {
             "$ref": "#/components/schemas/RealtimeSnapshot"
+          },
+          "destination": {
+            "$ref": "#/components/schemas/Point"
           }
         },
-        "required": [
-          "origin"
-        ],
+        "required": [],
         "additionalProperties": false,
         "allOf": [
           {
@@ -8339,6 +8353,20 @@
                 "dataMode"
               ]
             }
+          },
+          {
+            "oneOf": [
+              {
+                "required": [
+                  "origin"
+                ]
+              },
+              {
+                "required": [
+                  "destination"
+                ]
+              }
+            ]
           }
         ]
       },

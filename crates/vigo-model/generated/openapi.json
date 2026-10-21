@@ -2347,8 +2347,13 @@
           "dataMode": {
             "$ref": "#/components/schemas/DataMode"
           },
+          "destination": {
+            "$ref": "#/components/schemas/QueryPlace",
+            "description": "Arrive-by Reach."
+          },
           "origin": {
-            "$ref": "#/components/schemas/QueryPlace"
+            "$ref": "#/components/schemas/QueryPlace",
+            "description": "Depart-at Reach."
           },
           "requestedTime": {
             "type": [
@@ -2370,14 +2375,13 @@
           "serviceDate",
           "timePreference",
           "requestedTime",
-          "dataMode",
-          "origin"
+          "dataMode"
         ],
         "type": "object"
       },
       "ReachRequest": {
         "additionalProperties": false,
-        "description": "`POST /v1/reach` (and `/v1/isochrone`): where an origin reaches within cutoffs.",
+        "description": "`POST /v1/reach` (and `/v1/isochrone`): where an origin reaches\nwithin cutoffs or, arriving by the requested time, where a\ndestination is reached from.",
         "properties": {
           "allowStreetTransfers": {
             "default": true,
@@ -2407,6 +2411,10 @@
           "dataMode": {
             "$ref": "#/components/schemas/DataMode",
             "description": "Alias of `routingDataMode`."
+          },
+          "destination": {
+            "$ref": "#/components/schemas/Point",
+            "description": "Where arrive-by trips end. Required for arrive-by Reach, which\ntakes no origin."
           },
           "diagnostics": {
             "$ref": "#/components/schemas/DiagnosticsLevel",
@@ -2475,7 +2483,8 @@
             "default": "transit"
           },
           "origin": {
-            "$ref": "#/components/schemas/Point"
+            "$ref": "#/components/schemas/Point",
+            "description": "Where depart-at trips start. Required for depart-at Reach."
           },
           "rasterSize": {
             "default": 96,
@@ -2528,7 +2537,7 @@
             "type": "number"
           },
           "timePreference": {
-            "$ref": "#/components/schemas/ReachTimePreference",
+            "$ref": "#/components/schemas/TimePreferenceInput",
             "default": "depart_at"
           },
           "walkSpeedKph": {
@@ -2542,9 +2551,6 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "origin"
-        ],
         "type": "object"
       },
       "ReachResult": {
@@ -2720,14 +2726,6 @@
           "valuesSeconds"
         ],
         "type": "object"
-      },
-      "ReachTimePreference": {
-        "description": "Reach searches forward in time only.",
-        "enum": [
-          "depart_at",
-          "depart"
-        ],
-        "type": "string"
       },
       "RealtimeCoverage": {
         "properties": {

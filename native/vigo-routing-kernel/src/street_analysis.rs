@@ -90,6 +90,9 @@ pub struct StreetSurfaceInput {
     pub include_edges: bool,
     pub edge_evidence_limit: u32,
     pub expand_bounds_to_reached_edges: bool,
+    /// Durations to reach the seeds rather than from them: streets are
+    /// walked backwards, so one-way paths keep their direction.
+    pub reverse_direction: Option<bool>,
 }
 
 #[cfg_attr(feature = "node", napi(object))]
@@ -211,6 +214,17 @@ impl<'a, const ENDPOINTS: bool> StreetGraph<'a, ENDPOINTS> {
             edge_targets: snapshot.u32_array("edgeTargets")?,
             edge_distances_m: snapshot.f64_array("edgeDistances")?,
             terminal: None,
+        })
+    }
+
+    /// The same streets walked backwards: a node's edges are those that
+    /// enter it, and each leads to its source.
+    fn reversed(snapshot: &'a Snapshot) -> napi::Result<Self> {
+        Ok(Self {
+            edge_offsets: snapshot.u32_array("reverseOffsets")?,
+            edge_targets: snapshot.u32_array("reverseSources")?,
+            edge_distances_m: snapshot.reverse_edge_distances()?,
+            ..Self::open(snapshot)?
         })
     }
 

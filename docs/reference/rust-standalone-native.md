@@ -386,6 +386,7 @@ Source: `native/vigo-routing-kernel/src/street_analysis.rs`.
 | `includeEdges` | `bool` | Yes | Return native directed-edge evidence. |
 | `edgeEvidenceLimit` | `u32` | Yes | Edge evidence cap; zero means no caller truncation limit. |
 | `expandBoundsToReachedEdges` | `bool` | Yes | Also construct a raster with bounds derived from reached street evidence; these bounds need not contain the requested bounds. |
+| `reverseDirection` | `Option<bool>` | No | Durations to reach the seeds rather than from them: streets are walked backwards, so one-way paths keep their direction. |
 
 ## StreetSurfaceNode
 

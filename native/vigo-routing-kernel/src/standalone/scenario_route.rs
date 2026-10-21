@@ -73,7 +73,7 @@ impl City {
     }
 
     /// Make the view of the active timetable under `scenario` active.
-    fn install_scenario(&mut self, scenario: &Value) -> Result<()> {
+    pub(super) fn install_scenario(&mut self, scenario: &Value) -> Result<()> {
         let t = self.timetable.as_ref().ok_or("Timetable is not active")?;
         let digest = format!("{:x}", Sha256::digest(serde_json::to_vec(scenario)?));
         // The view's planned stops, routes and trips belong to its own feed.
