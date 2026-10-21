@@ -17,6 +17,7 @@ const HELP: &str = "VIGO — standalone Rust routing and isochrones
   vigo reach --city ./city --request reach.json
   vigo compare --city ./city --request comparison.json
   vigo stream --city ./city < requests.ndjson
+  vigo stream --city ./project/.vigo --routing-store current.sqlite < requests.ndjson
   vigo serve --city ./scenario-set --port 8080
   vigo route --city ./scenario-set --scenario no-build --request route.json
   vigo info --city ./city
@@ -127,6 +128,7 @@ fn run() -> Result<()> {
         "measurements",
         "ttl-seconds",
         "city",
+        "routing-store",
         "scenario",
         "request",
         "output",
@@ -169,6 +171,9 @@ fn run() -> Result<()> {
             "ndw-poll" | "realtime-poll" => command == "serve",
             "configuration" | "measurements" | "ttl-seconds" => command == "traffic-import",
             "city" => !["capabilities", "health"].contains(&command.as_str()),
+            "routing-store" => {
+                !["capabilities", "health", "serve", "traffic-import"].contains(&command.as_str())
+            }
             "stream-output" => command == "stream",
             "scenario" => [
                 "info",
@@ -222,7 +227,8 @@ fn run() -> Result<()> {
     if command == "traffic-import" {
         return output(&super::traffic::import(&city_path, &options)?, &options);
     }
-    let mut city = Runtime::open(&city_path)?;
+    let mut city =
+        Runtime::open_store(&city_path, options.get("routing-store").map(String::as_str))?;
     if command == "_worker" {
         println!("{}", serde_json::json!({"ready":true,"info":city.info()}));
         io::stdout().flush()?;

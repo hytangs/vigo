@@ -288,7 +288,9 @@ try {
     includePreliminary: false, includeStreetEdges: false, scenario: { services: [replacement] } })
   assert.equal(unchangedReach.result.surface.raster.scenario, unchangedReach.result.surface.raster.baseline,
     'An unchanged branch replacement must preserve the actual Reach surface, including through the API hydration boundary.')
-  for (const [maxTransfers, stopCount] of [[0, 2], [1, 3], [2, 4], [0, 2]]) {
+  // Studio serves the prepared City, whose street-certified transfers include
+  // the 380 m A-B walk: one transfer already reaches X (and B by a second ride).
+  for (const [maxTransfers, stopCount] of [[0, 2], [1, 4], [2, 4], [0, 2]]) {
     const capped = await endpoint('reach', { ...boundaryRequest, maxTransfers, cutoffsMinutes: [40], rasterSize: 48,
       includePreliminary: false, includeStreetEdges: false, scenario: { services: [replacement] } })
     assert.equal(capped.result.request.maxTransfers, maxTransfers)
@@ -324,9 +326,6 @@ try {
   const apiRoute = await endpoint('national-route', { ...boundaryRequest, requireTransitRide: true })
   assert.equal(apiRoute.choices[0].status, 'ready', 'Route API must resolve both imported-stop endpoints.')
   assert(apiRoute.choices[0].legs.some(leg => leg.type === 'ride'))
-  const apiMatrix = await endpoint('national-matrix', { ...boundaryRequest, requireTransitRide: true, origins: [selectedOrigin], destinations: [selectedDestination], includeJourneys: true })
-  assert.equal(apiMatrix.matrix.rows[0].status, 'ready', 'Matrix API must resolve every imported-stop endpoint.')
-  assert(apiMatrix.matrix.rows[0].journey.legs.some(leg => leg.type === 'ride'))
   await apiRuntime.stop()
   apiRuntime = null
 

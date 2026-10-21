@@ -285,6 +285,8 @@ pub(crate) struct Drive {
 }
 pub struct City {
     pub(crate) path: PathBuf,
+    /// The routing store; a City's is `routing/project.sqlite`.
+    pub(crate) routing_db: PathBuf,
     pub(crate) db: Connection,
     pub(crate) manifest: Value,
     pub(crate) metadata: Value,
@@ -340,12 +342,24 @@ impl City {
         residents: &[(&Path, &CoordinateKernel)],
     ) -> Result<Self> {
         let path = fs::canonicalize(path)?;
+        Self::open_layout(super::project::Layout::city(&path)?, residents)
+    }
+    /// Opens one routing store of a Studio project; see `project`.
+    pub fn open_project(path: impl AsRef<Path>, store: Option<&Path>) -> Result<Self> {
+        let path = fs::canonicalize(path)?;
+        Self::open_layout(super::project::Layout::project(&path, store)?, &[])
+    }
+    fn open_layout(
+        layout: super::project::Layout,
+        residents: &[(&Path, &CoordinateKernel)],
+    ) -> Result<Self> {
+        let path = layout.root.clone();
         let street_directory = fs::canonicalize(path.join("osm"))?;
-        let manifest = read_json(&path.join("network.json"))?;
+        let mut manifest = layout.manifest.clone();
         if manifest["schemaVersion"] != "vigo.city.v1" {
             return fail("Expected a prepared vigo.city.v1 City");
         }
-        let db_path = path.join("routing/project.sqlite");
+        let db_path = layout.routing.clone();
         if db_path.with_extension("sqlite-wal").exists() {
             return fail("City must be immutable and checkpointed (unexpected SQLite WAL)");
         }
@@ -390,9 +404,8 @@ impl City {
         {
             return fail("City contains blocking routing features");
         }
-        let (context, mut access) = Image::open_with_metadata::<AccessContext>(
-            &path.join("routing/project.sqlite.access-context.bin"),
-        )?;
+        let (context, mut access) =
+            Image::open_with_metadata::<AccessContext>(&layout.sidecar(".access-context.bin"))?;
         if access.schema_version != "vigo.routing.access-context.v2"
             || !access.materialized.stop_access_index.ready
         {
@@ -411,6 +424,15 @@ impl City {
         let expected = format!("{}\n{}|", serde_json::to_string(&identity)?, generation);
         if access.source_artifact_identity != expected {
             return fail("Prepared access context does not match the routing database");
+        }
+        if layout.derived {
+            // A project store carries its own accessibility profile, and its
+            // revision is the store generation every sidecar was prepared for.
+            manifest["accessibility"] = metadata["accessibility"].clone();
+            manifest["revisionId"] = json!(format!(
+                "store-{}",
+                &format!("{:x}", Sha256::digest(expected.as_bytes()))[..16]
+            ));
         }
         let policy: Value = serde_json::from_str(&access.access_policy_identity)?;
         if policy["transferWalkingTimeFloor"] != "distance-at-configured-speed-v1"
@@ -498,12 +520,19 @@ impl City {
         {
             return fail("City accessibility profiles do not match; rebuild the complete City");
         }
-        let basemap: String = street_db.query_row(
-            "SELECT value FROM metadata WHERE key='localBasemap'",
-            [],
-            |r| r.get(0),
-        )?;
-        let street_bounds = serde_json::from_str::<Value>(&basemap)?["bounds"].clone();
+        // A street store built without a basemap has no coverage bounds; its
+        // endpoints are then judged by street attachment alone.
+        let basemap: Option<String> = street_db
+            .query_row(
+                "SELECT value FROM metadata WHERE key='localBasemap'",
+                [],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let street_bounds = match basemap {
+            Some(basemap) => serde_json::from_str::<Value>(&basemap)?["bounds"].clone(),
+            None => Value::Null,
+        };
         drop(street_db);
         let street_path = path.join("osm/street-index.sqlite.street-accelerator-v7.bin");
         let street_header = Image::open(&street_path, false)?;
@@ -537,6 +566,28 @@ impl City {
         {
             return fail("Missing terminal-access artifact for private endpoints City");
         }
+        // A City's street build always carries its source fingerprint. A
+        // Studio store's streets may not, and its profile then records none.
+        let fingerprint = match street_header.header["identity"]["sourceFingerprint"].as_str() {
+            Some(fingerprint) => fingerprint,
+            None if layout.derived => "",
+            None => return fail("Missing street source fingerprint"),
+        };
+        if layout.derived {
+            // The newest prepared profile for this store, street and policy.
+            let key = super::project::profile_key(&layout, |key| {
+                let parts: Vec<_> = key.split(':').collect();
+                Ok(parts.len() == 6
+                    && parts[0] == "coordinate-access-v11"
+                    && percent_decode(parts[1])? == expected
+                    && percent_decode(parts[5])? == access.access_policy_identity
+                    && parts[3].parse::<usize>().ok() == Some(members.len())
+                    && percent_decode(parts[2])?
+                        .split('|')
+                        .any(|v| v == fingerprint))
+            })?;
+            manifest["routingStore"]["nativeCoordinateAccess"]["profileKey"] = json!(key);
+        }
         let key = manifest["routingStore"]["nativeCoordinateAccess"]["profileKey"]
             .as_str()
             .ok_or("Missing prepared coordinate access profile")?;
@@ -553,9 +604,6 @@ impl City {
         {
             return fail("Street snapshot accessibility profile does not match the City");
         }
-        let fingerprint = street_header.header["identity"]["sourceFingerprint"]
-            .as_str()
-            .ok_or("Missing street source fingerprint")?;
         if !percent_decode(key_parts[2])?
             .split('|')
             .any(|v| v == fingerprint)
@@ -563,9 +611,7 @@ impl City {
             return fail("Coordinate profile belongs to another street source");
         }
         let suffix = crate::route_materialization::stable_key_suffix(key.encode_utf16().collect());
-        let snapshot = path.join(format!(
-            "routing/project.sqlite.native-access-profile.{suffix}.bin"
-        ));
+        let snapshot = layout.sidecar(&format!(".native-access-profile.{suffix}.bin"));
         street.load_access_profile_snapshot(str_path(&snapshot)?, key.to_owned())?;
         if street
             .profile
@@ -596,6 +642,7 @@ impl City {
             trip_details: HashMap::new(),
             fare_engines: HashMap::new(),
             path,
+            routing_db: db_path,
             db,
             manifest,
             metadata,
@@ -882,7 +929,7 @@ impl City {
             |r| r.get(0),
         )?;
         Ok(read_service_timetable(ServiceTimetableInput {
-            store_path: str_path(&self.path.join("routing/project.sqlite"))?,
+            store_path: str_path(&self.routing_db)?,
             stop_ids: self.stops.iter().map(|s| s.id.clone()).collect(),
             service_ids: services.into_iter().collect(),
             has_connection_permissions: has_permissions,
@@ -890,6 +937,33 @@ impl City {
             service_instances: instances,
             maximum_departure_seconds: coverage_end,
         })?)
+    }
+    /// The requested source feeds of a merged City, or None for all of them.
+    fn selected_scopes(&self, request: &Value) -> Result<Option<BTreeSet<String>>> {
+        let Some(value) = request.get("sourceScopes") else {
+            return Ok(None);
+        };
+        let available: BTreeSet<String> = self.metadata["sourceStores"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|store| store["scope"].as_str())
+            .filter(|scope| !scope.trim().is_empty())
+            .map(str::to_owned)
+            .collect();
+        let selected: BTreeSet<String> = value
+            .as_array()
+            .filter(|a| !a.is_empty())
+            .ok_or("sourceScopes must be a nonempty array of source feed scopes")?
+            .iter()
+            .map(|v| {
+                v.as_str()
+                    .filter(|scope| available.contains(*scope))
+                    .map(str::to_owned)
+                    .ok_or_else(|| format!("Unknown source scope: {v}"))
+            })
+            .collect::<std::result::Result<_, _>>()?;
+        Ok((selected.len() < available.len()).then_some(selected))
     }
     pub(crate) fn activate(&mut self, request: &Value) -> Result<()> {
         let started = std::time::Instant::now();
@@ -933,14 +1007,32 @@ impl City {
         // Resolve calendars only when it grows or the service date changes.
         // A realtime view derives from the retained source read of the same
         // service days. Its key excludes the snapshot, transfers and buffer.
+        // A City case routes on some source feeds of a merged City.
+        let scopes = self.selected_scopes(request)?;
+        let scoped = |id: &str| {
+            scopes.as_ref().is_none_or(|s| {
+                id.split_once('\u{1f}')
+                    .is_some_and(|(scope, _)| s.contains(scope))
+            })
+        };
+        let scope_key = scopes.as_ref().map_or(String::new(), |s| {
+            format!(
+                ":scopes={}",
+                s.iter().cloned().collect::<Vec<_>>().join("\u{1f}")
+            )
+        });
         let (key, instances, source_key) = if coverage_end.is_some() {
             (
-                format!("{date_text}:{allow}:{buffer}:scheduled"),
+                format!("{date_text}:{allow}:{buffer}:scheduled{scope_key}"),
                 None,
                 None,
             )
         } else {
-            let instances = self.service_instances(request, date, None)?;
+            let instances = self.service_instances(request, date, None)?.map(|all| {
+                all.into_iter()
+                    .filter(|v| scoped(&v.service_id))
+                    .collect::<Vec<_>>()
+            });
             let days_key = instances.as_ref().map(|a| {
                 a.iter()
                     .map(|v| (&v.service_date, v.offset_seconds))
@@ -962,9 +1054,9 @@ impl City {
             );
             let source_key = snapshot
                 .is_some()
-                .then(|| format!("{date_text}:{days_key:?}"));
+                .then(|| format!("{date_text}:{days_key:?}{scope_key}"));
             (
-                format!("{date_text}:{allow}:{buffer}:{realtime_key}:{days_key:?}"),
+                format!("{date_text}:{allow}:{buffer}:{realtime_key}:{days_key:?}{scope_key}"),
                 instances,
                 source_key,
             )
@@ -995,13 +1087,26 @@ impl City {
         }
         let instances = if coverage_end.is_some() {
             self.service_instances(request, date, coverage_end)?
+                .map(|all| all.into_iter().filter(|v| scoped(&v.service_id)).collect())
         } else {
             instances
         };
         self.retire_timetable();
         self.timetable_preparations += 1;
-        let services = self.services_on(date)?;
-        let complete_service_coverage = self.calendar()?.complete(&services);
+        let mut services = self.services_on(date)?;
+        services.retain(|id| scoped(id));
+        let complete_service_coverage = match &scopes {
+            // Every selected source must run on the date.
+            Some(selected) => {
+                selected.len() <= 1
+                    || selected.iter().all(|scope| {
+                        services
+                            .iter()
+                            .any(|id| id.split_once('\u{1f}').is_some_and(|(s, _)| s == scope))
+                    })
+            }
+            None => self.calendar()?.complete(&services),
+        };
         if complete_coverage && !complete_service_coverage {
             return fail("Incomplete service coverage across source feeds on the requested date");
         }

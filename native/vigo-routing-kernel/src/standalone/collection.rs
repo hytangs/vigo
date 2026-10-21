@@ -75,8 +75,19 @@ impl Runtime {
         Ok(())
     }
 
-    pub(crate) fn open(path: &str) -> Result<Self> {
+    /// `store` selects one routing store of a Studio project.
+    pub(crate) fn open_store(path: &str, store: Option<&str>) -> Result<Self> {
         let root = fs::canonicalize(path)?;
+        // A Studio project's `scenarios.json` is its scenario library, not a collection.
+        if super::project::is_project(&root) {
+            return Ok(Self::Single(Box::new(City::open_project(
+                root,
+                store.map(Path::new),
+            )?)));
+        }
+        if store.is_some() {
+            return fail("--routing-store applies to a Studio project");
+        }
         let manifest_path = root.join("scenarios.json");
         if !manifest_path.is_file() {
             return Ok(Self::Single(Box::new(City::open(root)?)));

@@ -73,7 +73,7 @@
     "check:engine": "npm run check:rust-routing-targets --silent && npm run check:rust-routing-kernel --silent && npm run typecheck --silent && npm run check:studio --silent && npm run check:security --silent && npm run check:ui --silent && npm run check:map --silent && npm run check:gtfs --silent && npm run check:routing --silent && npm run check:cli --silent && npm run check:agency --silent",
     "check:release": "npm run check:public --silent && npm run check:engine --silent && npm run check:national-runtime --silent && npm run check:atlas --silent",
     "test": "npm run check:public --silent && npm run check:engine --silent",
-    "build": "npm run build:rust-routing-kernel --silent && tsc --noEmit && vite build && npm run build:cli",
+    "build": "npm run build:rust-routing-kernel --silent && npm run build:standalone --silent && tsc --noEmit && vite build && npm run build:cli",
     "package:studio": "node scripts/package-desktop.mjs",
     "build:studio": "npm run build && npm run package:studio",
     "archive:studio": "node scripts/archive-desktop.mjs",

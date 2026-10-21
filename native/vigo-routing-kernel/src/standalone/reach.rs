@@ -223,6 +223,7 @@ impl City {
                     }
                 }
             }
+            let excluded_count = excluded.len();
             let input = TimetableManyQueryInput {
                 origin_stops: a.stops,
                 origin_walk_seconds: a.seconds,
@@ -238,7 +239,18 @@ impl City {
             };
             let mut overlay_stops = vec![];
             let mut overlay_members = vec![];
-            let result = if scenario
+            let planned = scenario.is_some_and(|s| {
+                s.get("overlay").is_some()
+                    || s["services"].as_array().is_some_and(|a| !a.is_empty())
+            });
+            // No stop within walking reach: the surface is the walk alone.
+            let walk_only = input.origin_stops.is_empty() && !planned;
+            if walk_only {
+                transit = json!({"supported":true,"reason":"no_origin_access","bestArrivals":[]});
+            }
+            let result = if walk_only {
+                None
+            } else if scenario
                 .and_then(|s| s.get("services"))
                 .and_then(Value::as_array)
                 .is_some_and(|a| !a.is_empty())
@@ -265,7 +277,7 @@ impl City {
                     .kernel
                     .route_overlay_many_csa(overlay.input)?;
                 transit = serde_json::to_value(&result)?;
-                result.timetable
+                Some(result.timetable)
             } else if let Some(overlay) = scenario.and_then(|s| s.get("overlay")) {
                 let mut input = input;
                 let points = overlay["stops"]
@@ -339,7 +351,7 @@ impl City {
                         TimetableOverlayManyQueryInput,
                     >(value)?)?;
                 transit = serde_json::to_value(&result)?;
-                result.timetable
+                Some(result.timetable)
             } else {
                 let result = self
                     .timetable
@@ -348,17 +360,24 @@ impl City {
                     .kernel
                     .route_many_csa(input)?;
                 transit = serde_json::to_value(&result)?;
-                result
+                Some(result)
             };
-            if !result.supported {
+            if let Some(result) = &result
+                && !result.supported
+            {
                 return fail(
                     result
                         .reason
+                        .clone()
                         .unwrap_or("Reach kernel rejected the query".into()),
                 );
             }
             let t = self.timetable.as_ref().unwrap();
-            for (i, &arrival) in result.best_arrivals.iter().enumerate() {
+            // The active view's size shows which sources a City case selected.
+            transit["residentTrips"] = json!(t.trip_ids.len());
+            transit["excludedTrips"] = json!(excluded_count);
+            let arrivals = result.as_ref().map_or(&[][..], |r| &r.best_arrivals[..]);
+            for (i, &arrival) in arrivals.iter().enumerate() {
                 let duration = (arrival - opt.time) / 60.;
                 if !duration.is_finite() || duration > maximum {
                     continue;
@@ -415,8 +434,16 @@ impl City {
                     "directWalkingLimitKm":if mode == "drive" { Value::Null } else { json!(opt.walk_m/1000.) },"travelMode":mode,"fixedExtent":true}},"warnings":self.metadata["routingLimitations"]}),
             );
         }
+        // A comparison keeps its reference surface ("baseline") for the
+        // scenario that follows it in this process ("scenario"); the street
+        // kernel reuses it only when every seed is unchanged or earlier.
+        let surface_reuse = match q.get("surfaceReuse").map(Value::as_str) {
+            None => None,
+            Some(Some(mode @ ("baseline" | "scenario"))) => Some(mode.to_owned()),
+            Some(_) => return fail("surfaceReuse must be baseline or scenario"),
+        };
         let mut result = self.street.street_surface(StreetSurfaceInput {
-            surface_reuse: None,
+            surface_reuse,
             bounds: bounds.clone(),
             width: size as u32,
             height: size as u32,
@@ -460,7 +487,7 @@ impl City {
             "surface":{"sampling":sampling,"width":size,"height":size,"bounds":bounds,"values":result.values,"fullBounds":full_bounds,"fullValues":full_values,"nodes":result.node_evidence,
                 "edges":if include_edges {json!({"schemaVersion":"vigo.standalone.street-edges.v2","encoding":"indexed-json","count":result.edge_evidence_ids.as_ref().map_or(0,Vec::len),"nodeCount":result.edge_evidence_nodes.as_ref().map_or(0,|v|v.len()/2),"nodes":result.edge_evidence_nodes,"endpoints":result.edge_evidence_endpoints,"edgeIds":result.edge_evidence_ids,"durationMinutes":result.edge_evidence_durations,"fromDurationMinutes":result.edge_evidence_start_durations,"startFractions":result.edge_evidence_start_fractions,"endFractions":result.edge_evidence_end_fractions,"walkDistanceM":result.edge_evidence_walk_distances,"transitArrivalMinutes":result.edge_evidence_transit_arrivals})}else{Value::Null}},
             "areas":area_features,"fullAreas":full_areas,"contours":contour_features,"fullContours":full_contours,
-            "diagnostics":{"transit":transit,"surface":{"queryNs":result.query_ns,"seedNs":result.seed_ns,"propagationNs":result.propagation_ns,"envelopeNs":result.envelope_ns,"rasterNs":result.raster_ns,"settledLabels":result.settled_labels,"retainedLabels":result.retained_labels,"relaxedEdges":result.relaxed_edges,"reachedPixels":result.reached_pixels,"reachedEdgeCount":result.reached_edge_count,"reachedEdgeLengthM":result.reached_edge_length_m,"edgeEvidenceTruncated":result.edge_evidence_truncated,"nodeEvidenceTruncated":result.node_evidence_truncated}},"warnings":self.metadata["routingLimitations"]}),
+            "diagnostics":{"transit":transit,"surface":{"queryNs":result.query_ns,"seedNs":result.seed_ns,"propagationNs":result.propagation_ns,"envelopeNs":result.envelope_ns,"rasterNs":result.raster_ns,"settledLabels":result.settled_labels,"reusedLabels":result.reused_labels,"retainedLabels":result.retained_labels,"relaxedEdges":result.relaxed_edges,"reachedPixels":result.reached_pixels,"reachedEdgeCount":result.reached_edge_count,"reachedEdgeLengthM":result.reached_edge_length_m,"edgeEvidenceTruncated":result.edge_evidence_truncated,"nodeEvidenceTruncated":result.node_evidence_truncated}},"warnings":self.metadata["routingLimitations"]}),
         )
     }
 }

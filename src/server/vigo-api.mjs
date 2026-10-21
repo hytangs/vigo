@@ -5,9 +5,13 @@ import { routingResultStatus } from './gtfs/route-results.mjs'
 import { cityCaseFeedIds, assertCaseRouteSources } from './gtfs/source-selection.mjs'
 import packageJson from '../../package.json' with { type: 'json' }
 import { NationalRouteWorkerPool, makeAbortError, maxNationalRouteWorkerStores } from './runtime/route-worker-pool.mjs'
+import { NativeCityUnavailableError, NativeQueryError, NativeRuntime, nativeLayout } from './runtime/native-runtime.mjs'
+import { nativeRouteRequest, onServiceDate, studioBlockedResponse, studioRouteResponse } from './studio-route-plans.mjs'
+import { nativePreliminaryRequest, nativeReachRangeRequest, nativeSurface, studioReachRange } from './studio-reach-ranges.mjs'
+import { currentStreetStoreStorageIdentity, routingSemanticsFromMetadata } from './gtfs/store-metadata.mjs'
 
 import crypto from 'node:crypto'
-import { constants, createReadStream, existsSync } from 'node:fs'
+import { constants, createReadStream, existsSync, statSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import http from 'node:http'
 import os from 'node:os'
@@ -175,6 +179,15 @@ const nationalRouteWorkerPool = new NationalRouteWorkerPool(
   maxNationalRouteWorkerStores,
   new URL('./national-route-worker.mjs', import.meta.url),
 )
+// Studio's queries run in the native runtime; the worker pool prepares City artifacts.
+const nativeRuntime = new NativeRuntime()
+
+/** Release every runtime reading `file` before it is replaced or removed. */
+function retireRouting(file) {
+  nativeRuntime.retire(file)
+  return nationalRouteWorkerPool.retire(file)
+}
+
 const streetPreparationManager = createStreetPreparationManager({
   pool: nationalRouteWorkerPool,
   onJob: (job) => nationalImportJobs.set(job.id, job),
@@ -376,6 +389,7 @@ async function updateRuntimeConfig(body = {}) {
   }
   const openingLibrary = storageAccessRequired || requestedStorageRoot !== storageRoot
   if (requestedStorageRoot !== storageRoot) {
+    nativeRuntime.closeAll()
     await nationalRouteWorkerPool.closeAll()
     nationalRoutingServiceCoverageCache.clear()
     nationalPreviewRefreshes.clear()
@@ -1432,10 +1446,10 @@ async function deleteProject(projectId) {
   try {
     const project = await readProjectMetadata(projectId)
     streetPreparationManager.invalidate(streetStoreFile(projectId))
-    await nationalRouteWorkerPool.retire(streetStoreFile(projectId))
+    await retireRouting(streetStoreFile(projectId))
     invalidateProjectRuntimeCaches(projectId)
     await Promise.all(projectNationalRoutingStorePaths(projectId, project).map((storePath) => (
-      nationalRouteWorkerPool.retire(storePath)
+      retireRouting(storePath)
     )))
     await fs.rm(projectDir(project.id), { recursive: true, force: true })
     await markStorageInitialized('delete-project')
@@ -1587,9 +1601,9 @@ async function resetCityData(projectId, body = {}) {
 
     const before = await inspectCityData(projectId)
     streetPreparationManager.invalidate(streetStoreFile(projectId))
-    await nationalRouteWorkerPool.retire(streetStoreFile(projectId))
+    await retireRouting(streetStoreFile(projectId))
     const storePaths = projectNationalRoutingStorePaths(projectId, project)
-    await Promise.all(storePaths.map((storePath) => nationalRouteWorkerPool.retire(storePath)))
+    await Promise.all(storePaths.map((storePath) => retireRouting(storePath)))
     invalidateProjectRuntimeCaches(projectId)
     for (const [jobId, job] of nationalImportJobs) {
       if (job?.projectId === projectId) nationalImportJobs.delete(jobId)
@@ -1696,7 +1710,7 @@ async function removeCitySource(projectId, body = {}) {
     agency.invalidate(projectId)
     streetPreparationManager.invalidate(streetStoreFile(projectId))
     const storePaths = new Set([projectRoutingStoreFile(projectId, project), ...project.feeds.map((entry) => feedRoutingStoreFile(projectId, entry))])
-    await Promise.all([streetStoreFile(projectId), ...storePaths].map((storePath) => nationalRouteWorkerPool.retire(storePath)))
+    await Promise.all([streetStoreFile(projectId), ...storePaths].map((storePath) => retireRouting(storePath)))
     for (const storePath of storePaths) disposeNationalGtfsStore(storePath)
     invalidateProjectRuntimeCaches(projectId)
 
@@ -1978,7 +1992,7 @@ async function buildProjectRoutingStore(projectId, { job, requestedServiceDate, 
     }
     const outputPath = projectRoutingStorePath(projectId)
     if (path.resolve(outputPath) !== path.resolve(input.storePath)) {
-      await nationalRouteWorkerPool.retire(outputPath)
+      await retireRouting(outputPath)
       await removeRoutingStoreFamily(outputPath)
     }
     await enqueueProjectWrite(projectId, async () => {
@@ -1999,7 +2013,7 @@ async function buildProjectRoutingStore(projectId, { job, requestedServiceDate, 
     const current = await readJson(projectFile)
     return writeProject({ ...current, routingStore: buildingRoutingStore })
   })
-  await nationalRouteWorkerPool.retire(outputPath)
+  await retireRouting(outputPath)
 
   try {
     Object.assign(job, {
@@ -2068,7 +2082,7 @@ async function buildProjectRoutingStore(projectId, { job, requestedServiceDate, 
     invalidateProjectRuntimeCaches(projectId)
     return { reused: false, routingStore, sourceStores: inputs, mergeResult, osmStopTransfers, preload }
   } catch (error) {
-    await nationalRouteWorkerPool.retire(outputPath).catch(() => {})
+    await retireRouting(outputPath).catch(() => {})
     await removeRoutingStoreFamily(outputPath).catch(() => {})
     await enqueueProjectWrite(projectId, async () => {
       const current = await readJson(projectFile).catch(() => project)
@@ -2165,7 +2179,7 @@ async function commitIndexedFeed(projectId, body, options = {}) {
     const obsoleteStorePaths = previousStorePaths.filter(
       (candidate) => path.resolve(candidate) !== path.resolve(currentStorePath),
     )
-    await Promise.all(obsoleteStorePaths.map((candidate) => nationalRouteWorkerPool.retire(candidate)))
+    await Promise.all(obsoleteStorePaths.map((candidate) => retireRouting(candidate)))
     await Promise.all(obsoleteStorePaths.map(removeRoutingStoreFamily))
     await removeFeedArtifactRecords(projectId, replacedFeedIds)
     await fs.rm(path.join(projectMetaDir(projectId), 'rebuild-manifest.json'), { force: true })
@@ -2329,7 +2343,7 @@ async function launchNationalImportWorker(projectId, kind, job, workerUrl, worke
       const project = await readProjectMetadata(projectId)
       await Promise.all([
         streetStoreFile(projectId), ...projectNationalRoutingStorePaths(projectId, project),
-      ].map(storePath => nationalRouteWorkerPool.retire(storePath)))
+      ].map(storePath => retireRouting(storePath)))
     }
     await persistNationalJob(projectId, job)
     return new PreparationProcess(workerUrl, { workerData })
@@ -2823,7 +2837,7 @@ async function startNationalOsmImport(projectId, body) {
         })
         if (job.cancelRequested) return
         await Promise.all(projectNationalRoutingStorePaths(projectId, project).map((storePath) => (
-          nationalRouteWorkerPool.retire(storePath)
+          retireRouting(storePath)
         )))
         await removeUploadedSource()
         Object.assign(job, { status: 'complete', phase: 'Street index ready', progress: 1, detail: `${message.result.edgeCount.toLocaleString()} walk + ${message.result.driveEdgeCount.toLocaleString()} drive edges`, result: { ...message.result, sourceFile: sourceName }, finishedAt: now(), updatedAt: now() })
@@ -2975,6 +2989,158 @@ async function retryNationalImportJob(projectId, jobId) {
   return retried
 }
 
+// What Studio's plans report about a routing store: its zone and data semantics.
+const nativeStoreContextCache = new Map()
+
+function nativeStoreContext(storePath, streetPath) {
+  const stats = statSync(storePath)
+  const key = `${storePath}\u0000${stats.size}\u0000${stats.mtimeMs}\u0000${streetPath ?? ''}`
+  const cached = nativeStoreContextCache.get(key)
+  if (cached) return cached
+  const db = new DatabaseSync(storePath, { readOnly: true })
+  let context
+  try {
+    const metadata = Object.fromEntries(db.prepare('SELECT key, value FROM metadata').all().map(({ key: name, value }) => {
+      try { return [name, JSON.parse(value)] } catch { return [name, value] }
+    }))
+    const permissions = db.prepare("SELECT 1 AS ready FROM sqlite_master WHERE type = 'table' AND name = 'connection_permissions'").get()
+    const { routingDataSemantics } = routingSemanticsFromMetadata(metadata, permissions?.ready === 1)
+    context = {
+      timeZone: metadata.agencyTimezones?.[0] || 'UTC',
+      staticTimetableIdentity: String(routingDataSemantics.sourceFingerprint ?? ''),
+      streetIdentity: streetPath ? currentStreetStoreStorageIdentity(streetPath) : null,
+      dataSemantics: Object.fromEntries(['blockingFeatures', 'limitations', 'sourceFingerprint', 'transferSemanticsVersion']
+        .filter(name => routingDataSemantics[name] !== undefined).map(name => [name, routingDataSemantics[name]])),
+    }
+  } finally {
+    db.close()
+  }
+  for (const retained of nativeStoreContextCache.keys()) {
+    if (retained.startsWith(`${storePath}\u0000`)) nativeStoreContextCache.delete(retained)
+  }
+  nativeStoreContextCache.set(key, context)
+  return context
+}
+
+async function requireCaseRoutingStore(projectId, project, body) {
+  const feedIds = cityCaseFeedIds(project, body)
+  // Reach comparisons need both timetable groups in the combined store.
+  const independentFeed = feedIds?.length === 1 && body?.baselineFeedIds === undefined
+  const feedId = feedIds ? (independentFeed ? feedIds[0] : '') : String(body?.feedId ?? project.defaultRoutingFeedId ?? '')
+  if (independentFeed) return { ...await requireRoutingStore(projectId, project, feedId), feedId, feedIds }
+  if (feedIds && project.feeds.length > 1 && project.routingStore?.status !== 'ready') {
+    const error = new Error('Wait for the combined City timetable to finish preparing.')
+    error.statusCode = 409
+    throw error
+  }
+  const selection = await requireRoutingStore(projectId, project, feedId)
+  const availableScopes = feedIds ? await routingStoreSourceScopes(selection.storePath) : []
+  if (feedIds && project.feeds.length > 1 && feedIds.some(id => !availableScopes.includes(id))) {
+    const error = new Error('The City timetable is out of date. Finish preparing its GTFS sources before running this case.')
+    error.statusCode = 409
+    throw error
+  }
+  return { ...selection, feedId, feedIds, sourceScopes: feedIds && availableScopes.length ? feedIds : undefined }
+}
+
+/**
+ * The native City that answers a Studio Route: the wheelchair City, the City
+ * case's store of a merged City, or a feed's own store.
+ */
+async function nativeRouteSelection(projectId, project, body) {
+  const mode = ['walk', 'drive'].includes(body?.mode) ? body.mode : 'transit'
+  const wheelchair = studioWheelchairSelection(projectMetaDir(projectId), project, body)
+  if (wheelchair) {
+    return {
+      layout: nativeLayout(path.dirname(path.dirname(wheelchair.storePath))),
+      storePath: wheelchair.storePath,
+      streetPath: wheelchair.streetPath,
+      feed: wheelchair.feed,
+      wheelchair: true,
+    }
+  }
+  const streetPath = project.osmStreetIndex?.status === 'ready' && await exists(streetStoreFile(projectId))
+    ? streetStoreFile(projectId)
+    : undefined
+  if (!streetPath) {
+    // Studio routes on a City, and a City includes its streets.
+    const error = new Error(project.osmStreetIndex
+      ? 'Routing needs a ready OpenStreetMap street index. Rebuild the OpenStreetMap street index.'
+      : 'Routing needs this City\'s OpenStreetMap streets. Add an OSM extract in City data.')
+    error.statusCode = 409
+    error.code = 'street_index_required'
+    throw error
+  }
+  if (project.osmStreetIndex?.cch?.ready !== true) {
+    const error = new Error(
+      'The saved OSM street index is from an older or incomplete build. Rebuild the OpenStreetMap street index before routing between map points.',
+    )
+    error.statusCode = 409
+    error.code = 'street_index_stale'
+    error.routingStatus = 'stale'
+    throw error
+  }
+  const selection = mode === 'transit'
+    ? await requireCaseRoutingStore(projectId, project, body)
+    : await requireRoutingStore(projectId, project, String(body?.feedId ?? ''))
+  return {
+    layout: nativeLayout(projectMetaDir(projectId), selection.storePath),
+    storePath: selection.storePath,
+    streetPath,
+    feed: selection.feed,
+    sourceScopes: selection.sourceScopes,
+  }
+}
+
+/**
+ * Ask the native City, preparing a Studio project's derived artifacts first
+ * when its stores changed since they were last prepared (the JavaScript City
+ * preparation step writes them; queries never do).
+ */
+async function queryNativeCity(selection, request, signal) {
+  try {
+    return await nativeRuntime.query(selection.layout, request, signal)
+  } catch (error) {
+    if (!(error instanceof NativeCityUnavailableError) || !error.preparation || selection.wheelchair) throw error
+    await nationalRouteWorkerPool.prepareRoutingAccess(selection.storePath, {
+      reason: 'native-runtime-preparation',
+      signal,
+      context: {
+        ...currentNationalRoutingServiceContext(),
+        ...(typeof request.serviceDate === 'string' ? { serviceDate: request.serviceDate, serviceDay: serviceDayForDate(request.serviceDate) } : {}),
+        streetStorePath: selection.streetPath,
+      },
+    })
+    // The prepared files are on disk; the JavaScript worker need not stay resident.
+    await nationalRouteWorkerPool.retire(selection.storePath)
+    return nativeRuntime.query(selection.layout, request, signal)
+  }
+}
+
+function nationalRequestServiceContext(body, defaultContext = currentNationalRoutingServiceContext()) {
+  const serviceDate = String(body?.serviceDate ?? '').trim() || defaultContext.serviceDate
+  try {
+    return {
+      serviceDate,
+      serviceDay: resolveServiceDay(serviceDate, body?.serviceDay),
+    }
+  } catch (error) {
+    if (error && typeof error === 'object' && !('statusCode' in error)) {
+      error.statusCode = 400
+    }
+    throw error
+  }
+}
+
+function resolveStoreDepartNow(storePath, body) {
+  if (body?.departNow === undefined || body.departNow === false) return body
+  return resolveDepartNowRequest(body, readNationalGtfsStoreMetadata(storePath).agencyTimezones)
+}
+
+// Scenario routes: a saved scenario's planned services, cancelled trips and new
+// stops need a derived timetable that the native runtime does not build yet.
+// Until it does, these requests (and only these) keep the JavaScript route
+// orchestration below; every other Route runs natively.
 async function dispatchLazyNationalTransitRoute(
   storePath,
   streetStorePath,
@@ -3138,54 +3304,27 @@ async function earliestTransitEvidence(
   }
 }
 
-async function requireCaseRoutingStore(projectId, project, body) {
-  const feedIds = cityCaseFeedIds(project, body)
-  // Reach comparisons need both timetable groups in the combined store.
-  const independentFeed = feedIds?.length === 1 && body?.baselineFeedIds === undefined
-  const feedId = feedIds ? (independentFeed ? feedIds[0] : '') : String(body?.feedId ?? project.defaultRoutingFeedId ?? '')
-  if (independentFeed) return { ...await requireRoutingStore(projectId, project, feedId), feedId, feedIds }
-  if (feedIds && project.feeds.length > 1 && project.routingStore?.status !== 'ready') {
-    const error = new Error('Wait for the combined City timetable to finish preparing.')
-    error.statusCode = 409
-    throw error
-  }
-  const selection = await requireRoutingStore(projectId, project, feedId)
-  const availableScopes = feedIds ? await routingStoreSourceScopes(selection.storePath) : []
-  if (feedIds && project.feeds.length > 1 && feedIds.some(id => !availableScopes.includes(id))) {
-    const error = new Error('The City timetable is out of date. Finish preparing its GTFS sources before running this case.')
-    error.statusCode = 409
-    throw error
-  }
-  return { ...selection, feedId, feedIds, sourceScopes: feedIds && availableScopes.length ? feedIds : undefined }
-}
-
+// One transit segment of a scenario route (walk and drive routes are native).
 async function runSingleNationalRoute(projectId, body, signal, options = {}) {
   body = normalizeRoutingDataRequest(body)
   const project = await readProjectMetadata(projectId)
-  const mode = ['walk', 'drive'].includes(body?.mode) ? body.mode : 'transit'
-  const feedId = String(body?.feedId ?? '')
+  const mode = 'transit'
   const wheelchair = studioWheelchairSelection(projectMetaDir(projectId), project, body)
-  const selection = wheelchair ? wheelchair : mode === 'transit' ? await requireCaseRoutingStore(projectId, project, body) : null
-  const storePath = selection?.storePath ?? await streetWorkerStore(projectId, project, feedId)
-  if (selection?.feedIds) body = { ...body, sourceScopes: selection.sourceScopes }
+  const selection = wheelchair || await requireCaseRoutingStore(projectId, project, body)
+  const storePath = selection.storePath
+  if (selection.feedIds) body = { ...body, sourceScopes: selection.sourceScopes }
   body = resolveStoreDepartNow(storePath, body)
   const serviceContext = nationalRequestServiceContext(body)
-  if (selection) body = normalizeRoutingPointIdentities(storePath, body,
+  body = normalizeRoutingPointIdentities(storePath, body,
     selection.feed?.id ?? (project.feeds.length === 1 ? project.feeds[0].id : ''))
   const streetPath = wheelchair?.streetPath ?? (project.osmStreetIndex?.status === 'ready' && await exists(streetStoreFile(projectId))
     ? streetStoreFile(projectId)
     : undefined)
-  if (mode !== 'transit' && !streetPath) {
-    const error = new Error('Walking and driving require a ready OpenStreetMap street index.')
-    error.statusCode = 409
-    throw error
-  }
   const exactStopEndpoints = Boolean(
     String(body?.origin?.stopId ?? '').trim()
     && String(body?.destination?.stopId ?? '').trim(),
   )
-  const pedestrianAccessRequested = mode === 'walk' || mode === 'transit'
-  if (!wheelchair && pedestrianAccessRequested && streetPath && project.osmStreetIndex?.cch?.ready !== true) {
+  if (!wheelchair && streetPath && project.osmStreetIndex?.cch?.ready !== true) {
     const error = new Error(
       'The saved OSM street index is from an older or incomplete build. Rebuild the OpenStreetMap street index before routing between map points.',
     )
@@ -3194,7 +3333,7 @@ async function runSingleNationalRoute(projectId, body, signal, options = {}) {
     error.routingStatus = 'stale'
     throw error
   }
-  if (mode === 'transit' && !exactStopEndpoints && !streetPath) {
+  if (!exactStopEndpoints && !streetPath) {
     const error = new Error(
       'Map-point transit routing requires a ready pedestrian accelerator. Rebuild the OpenStreetMap street index.',
     )
@@ -3202,7 +3341,7 @@ async function runSingleNationalRoute(projectId, body, signal, options = {}) {
     throw error
   }
   const transitStreetPath = streetPath
-  const windowMinutes = mode !== 'transit' || body?.timePreference === 'arrive'
+  const windowMinutes = body?.timePreference === 'arrive'
     ? 0
     : integralRoutingMinute(body?.departureWindowMinutes, 'departureWindowMinutes', 0)
   if (windowMinutes > 30) {
@@ -3228,12 +3367,12 @@ async function runSingleNationalRoute(projectId, body, signal, options = {}) {
     throw error
   }
   const routingPreference = 'fastest'
-  const requireTransitRide = mode === 'transit' && options.requireTransitRide === true
+  const requireTransitRide = options.requireTransitRide === true
   // A scenario route runs on the scheduled timetable with the scenario's
   // removed trips canceled and its planned services added.
   let scenarioPlan = null
-  if (mode === 'transit' && body?.scenario) {
-    assertCaseRouteSources(body.scenario, selection?.feedIds, Boolean(selection?.sourceScopes))
+  if (body?.scenario) {
+    assertCaseRouteSources(body.scenario, selection.feedIds, Boolean(selection.sourceScopes))
     const storeIdentity = await nationalRouteArtifactIdentity(storePath)
     const hydrated = hydrateScenarioRouteServices(storePath, storeIdentity, { ...body, ...serviceContext })
     scenarioPlan = compileRouteScenario(hydrated.scenario)
@@ -3268,17 +3407,6 @@ async function runSingleNationalRoute(projectId, body, signal, options = {}) {
         ...(options.allowSubMinuteTimes ? { __allowSubMinuteTimes: true } : {}),
       }
   if (options.orderedSegment) routeRequest.__orderedSegment = true
-  if (mode !== 'transit') {
-    // The City's resident worker already owns its pedestrian snapshot. A
-    // separate street-keyed worker can wait forever when all slots are leased.
-    const plan = await nationalRouteWorkerPool.dispatch(
-      storePath,
-      'street-route',
-      routeRequest,
-      signal,
-    )
-    return { plan, choices: [plan] }
-  }
 
   // Exact complete-coverage failure is decidable from the routing store alone.
   // Let the route core construct that blocked response without first building
@@ -3320,43 +3448,9 @@ async function runSingleNationalRoute(projectId, body, signal, options = {}) {
   return responseResult
 }
 
-function nationalRequestServiceContext(body, defaultContext = currentNationalRoutingServiceContext()) {
-  const serviceDate = String(body?.serviceDate ?? '').trim() || defaultContext.serviceDate
-  try {
-    return {
-      serviceDate,
-      serviceDay: resolveServiceDay(serviceDate, body?.serviceDay),
-    }
-  } catch (error) {
-    if (error && typeof error === 'object' && !('statusCode' in error)) {
-      error.statusCode = 400
-    }
-    throw error
-  }
-}
-
-function resolveStoreDepartNow(storePath, body) {
-  if (body?.departNow === undefined || body.departNow === false) return body
-  return resolveDepartNowRequest(body, readNationalGtfsStoreMetadata(storePath).agencyTimezones)
-}
-
-async function runNationalRoute(projectId, body, signal) {
-  body = normalizeRoutingDataRequest(body)
+// runNationalRoute has validated the request.
+async function runScenarioNationalRoute(projectId, body, signal) {
   if (body?.wheelchair) studioWheelchairSelection(projectMetaDir(projectId), await readProjectMetadata(projectId), body)
-  if (body?.sharedLegs !== undefined && typeof body.sharedLegs !== 'boolean') {
-    throw Object.assign(new Error('sharedLegs must be a boolean.'), { statusCode: 400 })
-  }
-  if (body?.sharedLegs && ((body.mode ?? 'transit') !== 'transit' || body.waypoints?.length)) {
-    throw Object.assign(new Error('sharedLegs requires transit mode without via points.'), { statusCode: 400 })
-  }
-  if (
-    Object.prototype.hasOwnProperty.call(body ?? {}, 'waypoints')
-    && !Array.isArray(body.waypoints)
-  ) {
-    const error = new Error('Routing waypoints must be an ordered array.')
-    error.statusCode = 400
-    throw error
-  }
   const waypoints = Array.isArray(body?.waypoints) ? body.waypoints : []
   if (!waypoints.length) return withStudioWalkingAlternatives(body, request => runSingleNationalRoute(projectId, request, signal), signal)
 
@@ -3368,8 +3462,7 @@ async function runNationalRoute(projectId, body, signal) {
 
   const points = validateOrderedRoutingPoints(body?.origin, waypoints, body?.destination)
   const { waypoints: _waypoints, ...baseRequest } = body
-  const orderedMode = ['walk', 'drive'].includes(baseRequest?.mode) ? baseRequest.mode : 'transit'
-  const orderedRequest = { ...baseRequest, mode: orderedMode }
+  const orderedRequest = { ...baseRequest, mode: 'transit' }
   const routed = await routeOrderedRoutingSegments(
     points,
     orderedRequest,
@@ -3379,7 +3472,7 @@ async function runNationalRoute(projectId, body, signal) {
         segmentRequest,
         signal,
         {
-          orderedSegment: orderedMode === 'transit',
+          orderedSegment: true,
           allowSubMinuteTimes: orderedRequest.timePreference === 'arrive'
             ? segmentIndex < points.length - 2
             : segmentIndex > 0,
@@ -3400,6 +3493,62 @@ async function runNationalRoute(projectId, body, signal) {
   }
 
   return { plan: routed.choices[0], choices: routed.choices }
+}
+
+async function runNationalRoute(projectId, body, signal) {
+  body = normalizeRoutingDataRequest(body)
+  if (body?.sharedLegs !== undefined && typeof body.sharedLegs !== 'boolean') {
+    throw Object.assign(new Error('sharedLegs must be a boolean.'), { statusCode: 400 })
+  }
+  if (body?.sharedLegs && ((body.mode ?? 'transit') !== 'transit' || body.waypoints?.length)) {
+    throw Object.assign(new Error('sharedLegs requires transit mode without via points.'), { statusCode: 400 })
+  }
+  if (Object.prototype.hasOwnProperty.call(body ?? {}, 'waypoints') && !Array.isArray(body.waypoints)) {
+    throw Object.assign(new Error('Routing waypoints must be an ordered array.'), { statusCode: 400 })
+  }
+  if (Object.hasOwn(body ?? {}, 'routingPreference')) {
+    throw Object.assign(new Error('routingPreference is not a public option; use objective'), { statusCode: 400, code: 'invalid_objective' })
+  }
+  if (String(body?.objective ?? 'earliest_arrival') !== 'earliest_arrival') {
+    throw Object.assign(new Error('objective must be earliest_arrival'), { statusCode: 400, code: 'invalid_objective' })
+  }
+  const windowMinutes = body?.timePreference === 'arrive' || ['walk', 'drive'].includes(body?.mode)
+    ? 0
+    : integralRoutingMinute(body?.departureWindowMinutes, 'departureWindowMinutes', 0)
+  if (windowMinutes > 30) {
+    throw Object.assign(new Error('departureWindowMinutes must be an integral minute in [0, 30].'), { statusCode: 400, code: 'invalid_departure_window' })
+  }
+  // Studio asks at whole minutes; only waypoint segments use exact clocks.
+  if (body.departNow !== true) {
+    const arrive = body.timePreference === 'arrive'
+    integralRoutingMinute(arrive ? body.arriveMinutes ?? body.departMinutes : body.departMinutes, arrive ? 'arriveMinutes' : 'departMinutes')
+  }
+  if (body?.scenario && !['walk', 'drive'].includes(body?.mode)) {
+    return compactStudioRoutingResponse(await runScenarioNationalRoute(projectId, body, signal))
+  }
+  const project = await readProjectMetadata(projectId)
+  const selection = await nativeRouteSelection(projectId, project, body)
+  const serviceContext = body.departNow === true ? {} : nationalRequestServiceContext(body)
+  const studioBody = { ...body, ...serviceContext, departureWindowMinutes: windowMinutes }
+  const pointed = normalizeRoutingPointIdentities(selection.storePath, studioBody,
+    selection.feed?.id ?? (project.feeds.length === 1 ? project.feeds[0].id : ''))
+  const context = nativeStoreContext(selection.storePath, selection.streetPath)
+  const request = nativeRouteRequest(pointed, { sourceScopes: selection.sourceScopes, wheelchair: selection.wheelchair })
+  let trace
+  try {
+    trace = await queryNativeCity(selection, request, signal)
+  } catch (error) {
+    if (error instanceof NativeQueryError && /incomplete service coverage/i.test(error.message)) {
+      return studioBlockedResponse(pointed, context, ['coverage_incomplete', 'Incomplete timetable coverage',
+        'At least one selected GTFS source has no service on this date. Choose a date every source covers.'])
+    }
+    throw error
+  }
+  // Depart now resolves its own service date; otherwise the requested day stays.
+  if (body.departNow === true) {
+    return studioRouteResponse(trace, trace.serviceDate ? { ...pointed, serviceDate: trace.serviceDate } : pointed, context)
+  }
+  return studioRouteResponse(onServiceDate(trace, pointed.serviceDate), pointed, context)
 }
 
 async function runScenarioRoadGeometry(projectId, body, signal) {
@@ -3812,68 +3961,9 @@ async function prepareNationalRouting(projectId, body, signal) {
   }
 }
 
-async function runNationalMatrix(projectId, body, signal) {
-  if (body?.wheelchair !== undefined || body?.wheelchairAccessible !== undefined) throw Object.assign(new Error('Studio wheelchair requests currently support Route. Use a prepared wheelchair City with the public CLI for Matrix or Reach.'), { statusCode: 400 })
-  const project = await readProjectMetadata(projectId)
-  const feedId = String(body?.feedId ?? '')
-  const { storePath, feed } = await requireRoutingStore(projectId, project, feedId)
-  body = normalizeRoutingPointIdentities(storePath, body,
-    feed?.id ?? (project.feeds.length === 1 ? project.feeds[0].id : ''))
-  const streetStorePath = project.osmStreetIndex?.status === 'ready' && await exists(streetStoreFile(projectId))
-    ? streetStoreFile(projectId)
-    : undefined
-  const defaultContext = currentNationalRoutingServiceContext()
-  const serviceContext = nationalRequestServiceContext(body, defaultContext)
-  const matrixRequest = {
-    ...body,
-    ...serviceContext,
-    streetStorePath,
-    requireCompleteServiceCoverage: true,
-  }
-  return nationalRouteWorkerPool.dispatchRoutingAccessPrepared(storePath, 'matrix', matrixRequest, {
-    signal,
-    context: {
-      ...serviceContext,
-      allowServiceDateFallback: body?.allowServiceDateFallback === true,
-      requireCompleteServiceCoverage: true,
-      streetStorePath,
-    },
-  })
-}
-
 async function streetWorkerStore(projectId, project, feedId = '') {
   const hasTimetable = project.routingStore?.status === 'ready' || project.feeds?.some(feed => feed.routingStore?.status === 'ready')
   return hasTimetable ? (await requireRoutingStore(projectId, project, feedId)).storePath : streetStoreFile(projectId)
-}
-
-async function runNationalStreetMatrix(projectId, body, signal) {
-  if (body?.wheelchair !== undefined || body?.wheelchairAccessible !== undefined) throw Object.assign(new Error('Studio wheelchair requests currently support Route. Use a prepared wheelchair City with the public CLI for Matrix or Reach.'), { statusCode: 400 })
-  const project = await readProjectMetadata(projectId)
-  const storePath = await streetWorkerStore(projectId, project, String(body?.feedId ?? ''))
-  const mode = String(body?.mode ?? '').trim()
-  if (!['walk', 'drive'].includes(mode)) {
-    const error = new Error('Street matrices require mode "walk" or "drive".')
-    error.statusCode = 400
-    throw error
-  }
-  const streetPath = project.osmStreetIndex?.status === 'ready' && await exists(streetStoreFile(projectId))
-    ? streetStoreFile(projectId)
-    : undefined
-  if (!streetPath) {
-    const error = new Error('Walking and driving matrices require a ready OpenStreetMap street index.')
-    error.statusCode = 409
-    throw error
-  }
-  return nationalRouteWorkerPool.dispatch(
-    storePath,
-    'street-matrix',
-    {
-      ...body,
-      mode,
-      streetStorePath: streetPath,
-    },
-    signal,
-  )
 }
 
 // Water around a Reach origin, read once per street build and grid.
@@ -3973,22 +4063,17 @@ async function runReach(projectId, body, signal, onProgress, onPreliminary) {
     const ratio = Math.max(0, Math.min(1, Number(progress ?? 0)))
     return start + ratio * (end - start)
   }
-  const dispatchRange = (rangeRequest, scopes) => nationalRouteWorkerPool.dispatch(
-    storePath,
-    'reach',
-    {
-      ...rangeRequest,
-      surface: rangeRequest.surface ? { ...rangeRequest.surface, surfaceReuse: rangeRequest.stage === 'baseline-range' ? 'baseline' : 'scenario' } : undefined,
-      sourceScopes: scopes,
-      streetStorePath: streetPath || undefined,
-    },
-    signal,
-    (progress) => onProgress?.({
-      ...progress,
-      phase: progress.phase === 'complete' ? 'search' : progress.phase,
-      progress: mapReachProgress(rangeRequest.stage, progress.progress),
-    }),
-  )
+  const reachSelection = { layout: nativeLayout(projectMetaDir(projectId), storePath), storePath, streetPath }
+  // Each range runs in the native runtime; Studio's Reach composition only
+  // compares, encodes and draws the surfaces it returns.
+  const dispatchRange = async (rangeRequest, scopes) => {
+    const [start] = progressWindow(rangeRequest.stage)
+    onProgress?.({ phase: 'search', progress: start, detail: rangeRequest.stage === 'scenario-range'
+      ? 'Searching the scenario timetable' : 'Searching the reference timetable' })
+    const result = await queryNativeCity(reachSelection,
+      nativeReachRangeRequest(rangeRequest, { sourceScopes: scopes }), signal)
+    return studioReachRange(result, rangeRequest)
+  }
   return computeReachResult({
     ...hydratedBody,
     feedId,
@@ -4027,19 +4112,9 @@ async function runReach(projectId, body, signal, onProgress, onPreliminary) {
         if (reachRangesInFlight.get(key) === computation) reachRangesInFlight.delete(key)
       }
     },
-    buildPreliminaryStreetRaster: (surfaceRequest) => nationalRouteWorkerPool.dispatch(
-      storePath,
-      'street-surface',
-      {
-        ...surfaceRequest,
-        streetStorePath: streetPath,
-      },
-      signal,
-      (progress) => onProgress?.({
-        ...progress,
-        progress: mapReachProgress(surfaceRequest.stage, progress.progress),
-      }),
-    ),
+    buildPreliminaryStreetRaster: async (surfaceRequest) => nativeSurface(await queryNativeCity(reachSelection,
+      nativePreliminaryRequest(surfaceRequest, hydratedBody.origin, serviceContext.serviceDate, hydratedBody.departMinutes),
+      signal)),
     onProgress,
     onPreliminary,
   })
@@ -4134,6 +4209,9 @@ async function setRoutingResidency(projectId, body) {
     body?.resident === true,
     body?.leaseId,
   )
+  // Queries run in the native City: the same lease keeps it open.
+  const layout = nativeLayout(projectMetaDir(projectId), storePath)
+  nativeRuntime.setResidency(layout, body?.resident === true, body?.leaseId)
   let reachPreparation = null
   if (body?.resident === true && String(body?.serviceDate ?? '').trim()) {
     const streetPath = project.osmStreetIndex?.status === 'ready'
@@ -4154,6 +4232,8 @@ async function setRoutingResidency(projectId, body) {
             },
           },
         )
+        // The prepared files are current: open the City before the first query.
+        nativeRuntime.open(layout)
       } catch (error) {
         reachPreparation = {
           ready: false,
@@ -4405,7 +4485,7 @@ async function route(request, response) {
   // Mutations wait so cleanup cannot delete a newly uploaded source or race
   // a storage-root change, import retry, or City deletion.
   const routingRequest = request.method === 'POST'
-    && /^\/api\/projects\/[^/]+\/(national-route|national-ready|national-matrix|national-street-matrix|reach|scenario-road-geometry|routing-residency|street-residency)$/.test(pathname)
+    && /^\/api\/projects\/[^/]+\/(national-route|national-ready|reach|scenario-road-geometry|routing-residency|street-residency)$/.test(pathname)
   if (!routingRequest && !['GET', 'HEAD', 'OPTIONS'].includes(request.method)) await storageMaintenance
 
   if (request.method === 'GET' && pathname === '/api/health') {
@@ -4421,6 +4501,7 @@ async function route(request, response) {
       projectSchemaVersion,
       artifactSchemaVersion,
       routingRuntime: nationalRouteWorkerPool.snapshot(),
+      nativeRuntime: nativeRuntime.snapshot(),
     })
     return true
   }
@@ -4714,8 +4795,7 @@ async function route(request, response) {
         if (signal.aborted) throw makeAbortError()
         const decorate = plan => decorateRoutingPlan(body.wheelchair
           ? { ...plan, diagnostics: { ...plan.diagnostics, accessibility: wheelchairDescription } } : plan)
-        const decorated = { ...result, ...(result.plan ? { plan: decorate(result.plan) } : {}), choices: result.choices.map(decorate) }
-        sendJson(response, 200, compactStudioRoutingResponse(decorated))
+        sendJson(response, 200, { ...result, choices: result.choices.map(decorate) })
       })
       return true
     }
@@ -4743,26 +4823,6 @@ async function route(request, response) {
         const routing = await prepareNationalRouting(projectId, body, signal)
         if (signal.aborted) throw makeAbortError()
         sendJson(response, 200, { routing })
-      })
-      return true
-    }
-
-    if (request.method === 'POST' && action === 'national-matrix') {
-      await withRequestAbort(request, response, async (signal) => {
-        const body = await readBody(request)
-        const matrix = await runNationalMatrix(projectId, body, signal)
-        if (signal.aborted) throw makeAbortError()
-        sendJson(response, 200, { matrix })
-      })
-      return true
-    }
-
-    if (request.method === 'POST' && action === 'national-street-matrix') {
-      await withRequestAbort(request, response, async (signal) => {
-        const body = await readBody(request)
-        const matrix = await runNationalStreetMatrix(projectId, body, signal)
-        if (signal.aborted) throw makeAbortError()
-        sendJson(response, 200, { matrix })
       })
       return true
     }

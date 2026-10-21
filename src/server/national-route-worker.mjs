@@ -285,7 +285,7 @@ async function prepareStreetStore(request, onProgress) {
 }
 
 parentPort.on('message', async (message) => {
-  const { id, operation, storePath, request = {}, cancelBuffer } = message ?? {}
+  const { id, operation, storePath, request = {} } = message ?? {}
   const operationStartedAt = performance.now()
   operationCounts[operation] = Number(operationCounts[operation] ?? 0) + 1
   try {
@@ -429,40 +429,6 @@ parentPort.on('message', async (message) => {
         profile,
         ...(earliestTransit ? { earliestTransit } : {}),
       }
-    } else if (operation === 'matrix') {
-      const { routeNationalGtfsMatrix } = await loadGtfsModule()
-      result = routeNationalGtfsMatrix(storePath, request)
-    } else if (operation === 'reach') {
-      const { routeNationalGtfsReach } = await loadGtfsModule()
-      const cancellation = cancelBuffer instanceof SharedArrayBuffer
-        ? new Int32Array(cancelBuffer)
-        : null
-      result = routeNationalGtfsReach(storePath, request, {
-        streetStorePath: request.streetStorePath,
-        isCancelled: () => Boolean(cancellation && Atomics.load(cancellation, 0)),
-        onProgress: (progress) => parentPort.postMessage({
-          type: 'progress',
-          id,
-          progress,
-          workerInstance,
-        }),
-      })
-    } else if (operation === 'street-surface') {
-      const { streetNetworkTravelTimeRaster } = await loadOsmModule()
-      const cancellation = cancelBuffer instanceof SharedArrayBuffer
-        ? new Int32Array(cancelBuffer)
-        : null
-      const streetStorePath = String(request.streetStorePath ?? '').trim()
-      if (!streetStorePath) throw new Error('Street surface analysis requires a persisted OSM street store.')
-      result = streetNetworkTravelTimeRaster(streetStorePath, request, {
-        isCancelled: () => Boolean(cancellation && Atomics.load(cancellation, 0)),
-        onProgress: (progress) => parentPort.postMessage({
-          type: 'progress',
-          id,
-          progress,
-          workerInstance,
-        }),
-      })
     } else if (operation === 'route') {
       const { routeNationalGtfsStore, addNationalGtfsFares } = await loadGtfsModule()
       result = addNationalGtfsFares(storePath, routeNationalGtfsStore(storePath, request))
@@ -485,22 +451,6 @@ parentPort.on('message', async (message) => {
         }
       }
       result = routeNationalStreetStore(streetStorePath, request)
-    } else if (operation === 'street-matrix') {
-      const { routeNationalStreetMatrix } = await loadOsmModule()
-      const cancellation = cancelBuffer instanceof SharedArrayBuffer
-        ? new Int32Array(cancelBuffer)
-        : null
-      const streetStorePath = String(request.streetStorePath ?? '').trim()
-      if (!streetStorePath) throw new Error('Walk and drive matrices require a persisted OSM street store.')
-      result = routeNationalStreetMatrix(streetStorePath, request, {
-        isCancelled: () => Boolean(cancellation && Atomics.load(cancellation, 0)),
-      })
-      if (cancellation && Atomics.load(cancellation, 0)) {
-        const error = new Error('Street matrix routing was cancelled.')
-        error.name = 'AbortError'
-        error.code = 'ABORT_ERR'
-        throw error
-      }
     } else if (operation === 'street-route-batch') {
       const {
         prepareNationalOsmDriveStore,
@@ -686,11 +636,7 @@ parentPort.on('message', async (message) => {
     parentPort.postMessage({
       type: 'failed',
       id,
-      error: error instanceof Error
-        ? ['reach', 'street-surface', 'street-matrix'].includes(operation)
-          ? error.message
-          : error.stack || error.message
-        : String(error),
+      error: error instanceof Error ? error.stack || error.message : String(error),
       errorCode: error?.code,
       errorStatusCode: error?.statusCode,
       errorContext: error?.activeServiceKernel

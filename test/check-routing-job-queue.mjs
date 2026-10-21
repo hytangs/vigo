@@ -8,12 +8,12 @@ function order(operations) {
   while (queue.length) result.push(takeRoutingJob(queue, fairness).id)
   return result
 }
-assert.deepEqual(order(['reach', 'route', 'street-route', 'matrix']), [1, 2, 0, 3])
-assert.deepEqual(order(['matrix', 'window', 'street-surface', 'route']), [1, 3, 0, 2])
-assert.deepEqual(order(['reach', 'prepare', 'route']), [0, 1, 2])
-assert.deepEqual(order(['reach', 'unknown', 'route']), [0, 1, 2])
-assert.deepEqual(order(['prepare', 'reach', 'route']), [0, 2, 1])
-assert.deepEqual(order(['reach', ...Array(6).fill('route'), 'matrix']), [1, 2, 3, 4, 0, 5, 6, 7])
+assert.deepEqual(order(['street-route-batch', 'route', 'street-route', 'street-route-batch']), [1, 2, 0, 3])
+assert.deepEqual(order(['street-route-batch', 'window', 'street-route-batch', 'route']), [1, 3, 0, 2])
+assert.deepEqual(order(['street-route-batch', 'prepare', 'route']), [0, 1, 2])
+assert.deepEqual(order(['street-route-batch', 'unknown', 'route']), [0, 1, 2])
+assert.deepEqual(order(['prepare', 'street-route-batch', 'route']), [0, 2, 1])
+assert.deepEqual(order(['street-route-batch', ...Array(6).fill('route'), 'street-route-batch']), [1, 2, 3, 4, 0, 5, 6, 7])
 assert.equal(maximumPointBypasses, 4)
 
 // Hold the first worker job until every later request is actually enqueued,
@@ -38,8 +38,8 @@ const submit = (operation, name, request = {}, signal) => {
 }
 const timeout = setTimeout(() => { console.error('Routing queue test timed out'); process.exit(1) }, 30_000)
 try {
-  submit('reach', 'active', { gate: gate.buffer })
-  submit('matrix', 'batch')
+  submit('street-route-batch', 'active', { gate: gate.buffer })
+  submit('street-route-batch', 'batch')
   for (let i = 1; i <= 6; i += 1) submit(i % 2 ? 'route' : 'window', `point${i}`)
   const cancel = new AbortController()
   const cancelled = assert.rejects(submit('route', 'cancelled', {}, cancel.signal), { name: 'AbortError' })

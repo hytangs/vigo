@@ -155,7 +155,7 @@ try {
   rejects('route', { ...base, allowStreetTransfers: 'false' }, /boolean/)
   rejects('route', { ...base, maxTransfers: 0, via: [{ stopId: 'X' }] }, /via points/)
   rejects('reach', { ...reachQuery, timePreference: 'arrive_by' }, /depart_at/)
-  rejects('reach', { ...reachQuery, mode: 'drive' }, /transit or walk/)
+  rejects('reach', { ...reachQuery, mode: 'bicycle' }, /transit, walk, or drive/)
   rejects('reach', { ...reachQuery, scenario: { excludedPatternIds: ['unsupported-editor-id'] } }, /Unsupported scenario field/)
   rejects('reach', { ...reachQuery, scenario: { services: true } }, /services must be an array/)
   rejects('reach', { ...reachQuery, bounds: [1, 2, 0, 3] }, /bounds/)

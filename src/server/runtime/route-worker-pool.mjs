@@ -14,7 +14,6 @@ const nationalRouteWorkerIdleMs = boundedInteger(process.env.VIGO_ROUTE_WORKER_I
 const nationalRoutePrewarmIdleMs = boundedInteger(process.env.VIGO_ROUTE_PREWARM_IDLE_MS, nationalRouteWorkerIdleMs, 100, 3_600_000)
 const nationalRoutePressureIdleMs = boundedInteger(process.env.VIGO_ROUTE_PRESSURE_IDLE_MS, 15_000, 100, 3_600_000)
 const nationalRouteCancellationGraceMs = boundedInteger(process.env.VIGO_ROUTE_CANCEL_GRACE_MS, 150, 25, 1000)
-const reachCancellationGraceMs = boundedInteger(process.env.VIGO_REACH_CANCEL_GRACE_MS, 30_000, 1000, 60_000)
 const nationalRoutePrewarmWaitTimeoutMs = boundedInteger(process.env.VIGO_ROUTE_PREWARM_WAIT_TIMEOUT_MS, 180_000, 1000, 3_600_000)
 const nationalRoutePrewarmHardTimeoutMs = boundedInteger(process.env.VIGO_ROUTE_PREWARM_HARD_TIMEOUT_MS, 300_000, 60_000, 3_600_000)
 export const maxNationalRouteWorkerStores = boundedInteger(process.env.VIGO_ROUTE_WORKER_MAX_STORES, 2, 1, 2)
@@ -233,9 +232,6 @@ class NationalRouteWorkerClient {
         cancelTimer: null,
         deadlineTimer: null,
         cancelled: false,
-        cancellation: ['reach', 'street-surface', 'street-matrix', 'street-route-batch'].includes(operation)
-          ? new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT))
-          : null,
       }
       if (signal) {
         job.abort = () => this.#cancel(job)
@@ -304,7 +300,6 @@ class NationalRouteWorkerClient {
       heapLimitMb: workerHeapMb,
       jobTimeoutMs,
       cancellationGraceMs: nationalRouteCancellationGraceMs,
-      reachCancellationGraceMs,
       lastOperation: this.lastOperation || undefined,
       lastOperationMs: this.lastOperation ? this.lastOperationMs : undefined,
       leaseKind: this.hasInteractiveUse ? 'interactive' : 'prewarm',
@@ -435,7 +430,6 @@ class NationalRouteWorkerClient {
         operation: job.operation,
         storePath: this.storePath,
         request: job.request,
-        ...(job.cancellation ? { cancelBuffer: job.cancellation.buffer } : {}),
       })
     } catch (error) {
       // A structured-clone failure never reaches the worker. Release the slot
@@ -596,17 +590,13 @@ class NationalRouteWorkerClient {
     if (this.active !== job) return
     this.#cleanupJob(job)
     job.cancelled = true
-    if (job.cancellation) Atomics.store(job.cancellation, 0, 1)
     this.abandonedJobs += 1
     job.reject(makeAbortError())
     if (!['prepare', 'prepare-derived', 'prepare-routing-access'].includes(job.operation)) {
-      const cancellationGraceMs = ['reach', 'street-surface', 'street-matrix'].includes(job.operation)
-        ? reachCancellationGraceMs
-        : nationalRouteCancellationGraceMs
       job.cancelTimer = setTimeout(() => {
         job.cancelTimer = null
         if (this.active === job && job.cancelled) this.#forceCancellationRestart(job)
-      }, cancellationGraceMs)
+      }, nationalRouteCancellationGraceMs)
       job.cancelTimer.unref?.()
       return
     }

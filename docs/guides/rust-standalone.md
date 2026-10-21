@@ -325,6 +325,7 @@ Use `vigo route --help` for the general command overview. `--name value` and `--
 | Flag | Applies to | Meaning |
 | --- | --- | --- |
 | `--city DIR` | Data commands | Prepared City; overrides `VIGO_CITY` |
+| `--routing-store FILE` | Data commands | With `--city` naming a Studio project's `.vigo` folder, the timetable store in its `routing/` folder to open (such as `current.sqlite`) |
 | `--request FILE` | Route, Matrix, Reach, Compare, Native | JSON file; `-` reads stdin |
 | `--output FILE` | One-shot JSON commands | Save result; `-` means stdout |
 | `--pretty` | One-shot JSON commands | Indent JSON |
@@ -398,6 +399,8 @@ Exact identifiers are case-sensitive. Multi-feed IDs may contain a feed scope an
 | `walkSpeedKph` | City's walking policy, normally 4.8 | Number 1–8; walking legs, including a drive's walk to and from its road |
 | `disableCache` | false | Disable street endpoint caches; not a complete cold-run switch |
 | `requireCompleteServiceCoverage` | false | Reject missing active source scopes in a multi-feed service slice |
+| `sourceScopes` | All sources | Array of source scope names; route only on the services of those sources in a multi-feed City |
+| `departNow` | false | Transit Route only: leave at the current minute in the agency's timezone (rounded up), on its service date; replaces `serviceDate` and `time` |
 | `routingDataMode` | Inferred from supplied observation input | `scheduled` or `realtime`; `dataMode` is an alias; do not supply both |
 | `id` | Optional | Caller correlation value; echoed by Stream and HTTP |
 
@@ -520,7 +523,7 @@ Ask for several journeys at one time, plan through intermediate points, or compa
 - `pareto` (default) keeps only trade-offs: an alternative must beat every other returned journey on arrival, boardings, or walking. It uses no more boardings than the primary journey. When more trade-offs exist than requested, the fewest boardings and the least walking are kept first.
 - `ranked` keeps the earliest arrivals even when another journey is better in every respect, then prefers fewer boardings and less walking. It admits one more boarding than the primary journey, within `maxTransfers`. Journeys on the same sequence of vehicles count once, whatever stops they use to change or leave.
 
-`alternativeSlackMinutes` (0–120, default 15) bounds how much later than the primary journey an alternative may arrive. `alternativeSearch` records `coverage: "requested_time"`, `ranking`, `maximumJourneys` (including the primary), `arrivalSlackMinutes`, and `status`. A search that exceeds the kernel's label budget reports `status: "unavailable"` with a `reason` and returns the primary journey alone. Alternatives are transit journeys; a faster direct walk remains the primary journey. Requests that combine alternatives with arrive-by, via points, or a journey window are rejected.
+`alternativeSlackMinutes` (0–120, default 15) bounds how much later than the primary journey an alternative may arrive. `alternativeSearch` records `coverage: "requested_time"`, `ranking`, `maximumJourneys` (including the primary), `arrivalSlackMinutes`, and `status`. A search that exceeds the kernel's label budget reports `status: "unavailable"` with a `reason` and returns the primary journey alone. Alternatives are transit journeys; a faster direct walk remains the primary journey. Requests that combine alternatives with arrive-by, via points, or a journey window are rejected, except a window with `windowChoices: "supported"` (see [Supported window choices](#supported-window-choices)).
 
 ```json query=route
 {
@@ -648,6 +651,17 @@ Transit via requests require a boarding on every segment. They reject an explici
 
 `alternativeSearch` records `minutes`, `stepMinutes`, `searches`, and `direction` (`later_departures` or `earlier_arrival_deadlines`). Transit alternatives at each sample use a 15-minute slack; the direct-walking comparison can lie outside that envelope. This is a sampled search, not a continuous all-departures guarantee. A nonempty via list takes precedence and removes window sampling from its segments; do not combine the two when you need window alternatives.
 
+### Supported window choices
+
+`windowChoices: "supported"` asks a depart-at Route for the choices a person compares rather than the sampled frontier. The window searches each minute from the requested time through `windowMinutes`, certifies every sample's best journey, and keeps the journeys that are best for some balance of elapsed time, ride time, boardings and walking: the earliest arrival, the fewest transfers, the least walking and a balanced choice, each labelled with its role. With `alternatives` (and optionally `alternativeRanking: "ranked"`), alternatives at the requested time join the choices. Optional additions:
+
+| Field | Meaning |
+| --- | --- |
+| `expandedWalkKm` | Above `maxWalkKm` (default 2.4): also search with this walking budget and add choices that walk farther but arrive earlier |
+| `includeEarliestTransit` | Add `earliestTransit`, the first boarding and arrival of the earliest transit choice, even when walking wins |
+
+With `via` points, supported choices compose each segment at the exact clock the previous segment reaches its point. Arrive-by requests accept `windowChoices` only without a window.
+
 These fields are supported by the standalone Rust CLI and its HTTP service. The Node CLI instead supports `--departure-window` or JSON `departureWindowMinutes` for a centered depart-at profile of ±0–30 minutes. It rejects the standalone window fields, and rejects positive centered profiles with arrive-by, rather than silently running a point query.
 
 ```json query=route
@@ -735,6 +749,7 @@ Reach supports depart-at queries, including realtime transit. Driving Reach uses
 | `includeNodes` | false | Include native node evidence |
 | `surfaceSampling` | `street` | `street` samples reached street intervals; `cell-center` routes to every grid center |
 | `scenario` | None | Exclusions, planned services, or compiled overlay |
+| `surfaceReuse` | None | Street sampling: `baseline` keeps this surface in the running process; a following `scenario` request grows from it when every seed is unchanged or earlier, otherwise it searches afresh |
 
 Do not supply `horizonMinutes`, `maxStreetKm`, `requireTransitRide`, or `allowLongWalk` to Reach. The largest cutoff bounds the analysis. Walk-only Reach accepts a clock without a service date and cannot apply a transit scenario.
 

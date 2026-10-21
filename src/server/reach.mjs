@@ -1126,6 +1126,7 @@ export async function computeReachResult(
       cutoffMinutes: request.cutoffsMinutes.at(-1),
       excludedRouteIds: request.scenario.excludedRouteIds,
       excludedTripIds: request.scenario.excludedTripIds,
+      scenarioServices: request.scenario.services,
       scenarioOverlay: compiledScenario.overlay,
       surface: reachSurface,
     })

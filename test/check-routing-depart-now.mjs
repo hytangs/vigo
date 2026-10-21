@@ -6,6 +6,9 @@ import path from 'node:path'
 import JSZip from 'jszip'
 import { resolveDepartNowRequest } from '../src/server/routing-depart-now.mjs'
 import { buildNationalGtfsStore, disposeNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
+import { buildNationalOsmStore, compactNationalOsmRuntimeStore, disposeNationalOsmStore } from '../src/server/national-osm-store.mjs'
+import { buildNativeStreetCchIndex } from '../src/server/native-routing-kernel.mjs'
+import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
 
 const live = { routingDataMode: 'realtime', mode: 'transit', departNow: true,
@@ -47,6 +50,7 @@ const projectsRoot = path.join(folder, 'projects')
 const projectId = 'clock-fixture'
 const meta = path.join(projectsRoot, projectId, '.vigo')
 const storePath = path.join(meta, 'routing', 'feed.sqlite')
+const streetPath = path.join(meta, 'osm', 'street-index.sqlite')
 const zipPath = path.join(folder, 'fixture.zip')
 let runtime
 try {
@@ -59,11 +63,18 @@ try {
   archive.file('stop_times.txt', 'trip_id,arrival_time,departure_time,stop_id,stop_sequence\nfirst,23:59:00,23:59:00,A,1\nfirst,24:05:00,24:05:00,B,2\nsecond,24:06:00,24:06:00,B,1\nsecond,24:10:00,24:10:00,C,2\nalready-left,08:00:30,08:00:30,A,1\nalready-left,08:10:00,08:10:00,B,2\nnext-departure,08:01:00,08:01:00,A,1\nnext-departure,08:15:00,08:15:00,B,2\n')
   await fs.writeFile(zipPath, await archive.generateAsync({ type: 'nodebuffer' }))
   await buildNationalGtfsStore({ zipPath, outputPath: storePath })
+  // Studio routes on a City's streets; these stops are endpoints, far apart.
+  const { osmPath } = await writeCliFixtureInputs(folder)
+  await buildNationalOsmStore({ pbfPath: osmPath, outputPath: streetPath })
+  compactNationalOsmRuntimeStore(streetPath, { requireDrive: true })
+  buildNativeStreetCchIndex(streetPath)
+  disposeNationalOsmStore(streetPath)
   await fs.writeFile(path.join(meta, 'project.json'), JSON.stringify({
     schemaVersion: 'vigo.project.v1', id: projectId, name: 'Clock fixture',
     storagePath: path.join(projectsRoot, projectId), createdAt: '2026-09-19T00:00:00Z', updatedAt: '2026-09-19T00:00:00Z',
     summary: { feeds: 1, routes: 1, stops: 3 }, jobs: [], artifacts: [],
     feeds: [{ id: 'feed', name: 'Fixture', routeCount: 1, stopCount: 3, routingStore: { status: 'ready', fileName: 'feed.sqlite' } }],
+    osmStreetIndex: { status: 'ready', cch: { ready: true } },
   }))
   let observationMs
   async function start(instant) {
@@ -82,8 +93,9 @@ try {
     assert.equal(response.status, 200, `${action}: ${JSON.stringify(response.body)}`)
     return response.body
   }
-  const point = (stopId, lon) => ({ source: 'stop', stopId, coordinate: [lon, 0] })
-  const request = { ...live, feedId: 'feed', origin: point('A', 0), destination: point('B', .3), maxWalkKm: .2 }
+  const coordinates = { A: [0, 0], B: [0.3, 0], C: [0.6, 0] }
+  const point = stopId => ({ source: 'stop', stopId, coordinate: coordinates[stopId] })
+  const request = { ...live, feedId: 'feed', origin: point('A'), destination: point('B'), maxWalkKm: .2 }
   runtime = await start('2026-09-19T15:00:50Z')
   const { choices: [currentMinute] } = await post('national-route', request)
   assert.equal(currentMinute.status, 'ready')
@@ -101,7 +113,7 @@ try {
   assert.equal(plan.departMinutes, 1439)
   assert.equal(plan.diagnostics.routingDataProvenance.serviceDate, '2026-09-19')
   assert.equal(plan.legs.find(leg => leg.type === 'ride').tripId, 'first')
-  const { choices: [ordered] } = await post('national-route', { ...request, destination: point('C', .6), waypoints: [point('B', .3)] })
+  const { choices: [ordered] } = await post('national-route', { ...request, destination: point('C'), waypoints: [point('B')] })
   assert.equal(ordered.status, 'ready')
   assert.equal(ordered.departMinutes, 1439)
   assert.deepEqual(ordered.legs.filter(leg => leg.type === 'ride').map(leg => leg.tripId), ['first', 'second'])
@@ -132,6 +144,7 @@ try {
 } finally {
   await runtime?.stop()
   disposeNationalGtfsStore(storePath)
+  disposeNationalOsmStore(streetPath)
   await fs.rm(folder, { recursive: true, force: true })
 }
 console.log('Depart now: agency-local midnight/DST, forced departure, current-clock readiness, explicit native route and ordered legs, replay compatibility passed.')

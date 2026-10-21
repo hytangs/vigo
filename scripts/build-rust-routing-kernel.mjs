@@ -7,6 +7,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { rustRoutingTarget } from './lib/rust-routing-targets.mjs'
+import { remappedBuildEnvironment } from './lib/remapped-build.mjs'
 
 const execFileAsync = promisify(execFile)
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -19,29 +20,9 @@ if (!platformBuild) {
   throw new Error(`The production Rust routing kernel is not configured for ${process.platform}/${process.arch}.`)
 }
 
-const inheritedRustFlags = String(process.env.RUSTFLAGS ?? '').trim()
-const inheritedFlags = process.env.CARGO_ENCODED_RUSTFLAGS?.split('\u001f') ?? inheritedRustFlags.split(/\s+/u).filter(Boolean)
-const rustFlags = [...inheritedFlags, ...platformBuild.rustFlags,
-  '--remap-path-prefix', `${os.homedir()}=/vigo-home`,
-  '--remap-path-prefix', `${repositoryRoot}=/vigo-source`,
-]
-// Rust remapping does not cover C/C++ dependencies (including bundled SQLite).
-// Use neutral prefixes that cannot include the container's /build source root.
-const cPathFlags = process.platform === 'win32' ? [] : [
-  `-ffile-prefix-map=${os.homedir()}=/vigo-home`,
-  `-ffile-prefix-map=${repositoryRoot}=/vigo-source`,
-]
-const remappedCFlags = Object.fromEntries(['CFLAGS', 'CXXFLAGS'].map(key => [key,
-  [process.env[key] || '', ...cPathFlags.map(flag => JSON.stringify(flag))].filter(Boolean).join(' '),
-]))
 await execFileAsync(cargo, ['build', '--locked', '--release', '--target', platformBuild.targetTriple], {
   cwd: crateRoot,
-  env: {
-    ...process.env,
-    ...remappedCFlags,
-    ...(cPathFlags.length ? { CC_SHELL_ESCAPED_FLAGS: '1' } : {}),
-    CARGO_ENCODED_RUSTFLAGS: rustFlags.join('\u001f'),
-  },
+  env: remappedBuildEnvironment(repositoryRoot, platformBuild.rustFlags),
   maxBuffer: 16 * 1024 * 1024,
 })
 

@@ -27,6 +27,10 @@ await assertFile(
   path.join(repositoryRoot, 'native', 'vigo-routing-kernel', 'vigo-routing-kernel.node'),
   'Missing VIGO routing kernel. Run npm run build first.',
 )
+// Studio's queries run in the `vigo` executable, beside the bundled server.
+const queryRuntime = path.join(repositoryRoot, 'native', 'vigo-routing-kernel', 'target', 'release',
+  process.platform === 'win32' ? 'vigo.exe' : 'vigo')
+await assertFile(queryRuntime, 'Missing VIGO executable. Run npm run build first.')
 await assertFile(path.join(repositoryRoot, 'public', 'main.mjs'), 'Missing Electron main process.')
 await assertFile(path.join(repositoryRoot, 'public', 'preload.cjs'), 'Missing Electron preload.')
 
@@ -139,6 +143,7 @@ async function bundleEngine() {
     path.join(serverRoot, 'vigo-routing-kernel.node'),
     constants.COPYFILE_FICLONE,
   )
+  await copyFile(queryRuntime, path.join(serverRoot, path.basename(queryRuntime)), constants.COPYFILE_FICLONE)
 }
 
 async function assertFile(filePath, message) {

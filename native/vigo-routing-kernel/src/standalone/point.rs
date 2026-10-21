@@ -116,6 +116,95 @@ pub(super) fn alternatives(
     Ok((journeys, None))
 }
 
+/// One departure-window sample, searched as fixed-departure Route certifies
+/// a journey: a scalar connection scan proves the earliest arrival, then the
+/// exact bounded Pareto rounds certify boarding and walking ties. The rounds
+/// also keep their frontier: every journey arriving within the window slack
+/// with at most the scalar witness's boardings that trades arrival, boardings
+/// and walking, including the certified journey itself.
+pub(super) fn window_sample(
+    kernel: &mut TimetableKernel,
+    input: &TimetableMatrixQueryInput,
+) -> Result<Option<(TimetableMatrixJourney, Vec<TimetableMatrixJourney>)>> {
+    let scalar = kernel.route_scalar_csa(TimetableQueryInput {
+        origin_stops: input.origin_stops.clone(),
+        origin_walk_seconds: input.origin_walk_seconds.clone(),
+        origin_candidate_indices: (0..input.origin_stops.len() as u32).collect(),
+        destination_stops: input.destination_stops.clone(),
+        destination_walk_seconds: input.destination_walk_seconds.clone(),
+        destination_candidate_indices: (0..input.destination_stops.len() as u32).collect(),
+        departure: input.departure,
+        horizon: input.horizon,
+        allow_pre_ride_transfers: input.allow_pre_ride_transfers[0],
+        allow_post_ride_transfers: input.allow_post_ride_transfers.as_ref().map(|a| a[0]),
+        maximum_boardings: input.maximum_boardings,
+    })?;
+    if !scalar.supported {
+        return Err(format!(
+            "Window sample search failed: {}",
+            scalar.reason.unwrap_or_default()
+        )
+        .into());
+    }
+    if scalar.status == "blocked" || scalar.chain_kinds.is_empty() {
+        return Ok(None);
+    }
+    let destination = scalar.best_destination_index.unwrap_or_default();
+    let witness = reconstruct(kernel, input, input.departure, scalar.into())?;
+    let query = TimetableParetoQueryInput {
+        origin_stops: input.origin_stops.clone(),
+        origin_walk_seconds: input.origin_walk_seconds.clone(),
+        origin_candidate_indices: (0..input.origin_stops.len() as u32).collect(),
+        destination_stops: input.destination_stops.clone(),
+        destination_walk_seconds: input.destination_walk_seconds.clone(),
+        destination_candidate_indices: (0..input.destination_stops.len() as u32).collect(),
+        departure: input.departure,
+        horizon: input.horizon,
+        allow_pre_ride_transfers: input.allow_pre_ride_transfers[0],
+        allow_post_ride_transfers: input.allow_post_ride_transfers.as_ref().map(|a| a[0]),
+        earliest_arrival: witness.arrival,
+        boarding_upper_bound: witness.boardings,
+        candidate_destination_index: destination,
+        candidate_walking_seconds: witness.walking_seconds,
+        arrival_slack_seconds: WINDOW_ARRIVAL_SLACK_SECONDS,
+        transfer_penalty_seconds: 0.,
+        walk_reluctance: 0.,
+        collect_alternatives: Some(true),
+        alternative_ranking: None,
+        alternative_limit: None,
+        restriction_mode: None,
+        deadline_objective: None,
+    };
+    let mut r = kernel.route_pareto_round_csa(query.clone())?;
+    // The corridor only accelerates; repeat the exact proof without it.
+    if !r.supported && r.reason.as_deref() == Some("origin_outside_kernel") {
+        r = kernel.route_pareto_round_csa(TimetableParetoQueryInput {
+            restriction_mode: Some("anchor-only".into()),
+            ..query
+        })?;
+    }
+    if !r.supported || r.status != "ready" {
+        return Err(format!(
+            "Window sample certification failed: {}",
+            r.reason.unwrap_or_else(|| r.status.clone())
+        )
+        .into());
+    }
+    let frontier = r
+        .alternatives
+        .take()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|alternative| reconstruct(kernel, input, input.departure, alternative.into()))
+        .collect::<Result<_>>()?;
+    let best = if r.improved_candidate {
+        reconstruct(kernel, input, input.departure, r.into())?
+    } else {
+        witness
+    };
+    Ok(Some((best, frontier)))
+}
+
 /// Window samples admit alternatives arriving up to 15 minutes later.
 pub(super) const WINDOW_ARRIVAL_SLACK_SECONDS: f64 = 15. * 60.;
 

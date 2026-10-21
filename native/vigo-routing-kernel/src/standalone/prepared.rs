@@ -63,9 +63,9 @@ impl City {
         })?;
         let suffix =
             crate::route_materialization::stable_key_suffix(identity.encode_utf16().collect());
-        let path = self.path.join(format!(
-            "routing/project.sqlite.active-service-kernel.{suffix}.bin"
-        ));
+        let mut path = self.routing_db.as_os_str().to_owned();
+        path.push(format!(".active-service-kernel.{suffix}.bin"));
+        let path = std::path::PathBuf::from(path);
         let (image, metadata) = Image::open_with_metadata::<Metadata>(&path)?;
         let saved = metadata.kernel;
         if metadata.schema_version != SCHEMA

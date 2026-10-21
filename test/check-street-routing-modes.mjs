@@ -624,33 +624,6 @@ if (worker) {
     `The resident street-route fixture exceeded its 250 ms responsiveness guard (${workerResult.metrics.operationMs} ms).`,
   )
 
-  const matrixWorker = new Worker(new URL('../src/server/national-route-worker.mjs', import.meta.url))
-  const matrixWorkerResult = await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('Street matrix worker timed out.')), 5_000)
-    matrixWorker.once('error', reject)
-    matrixWorker.on('message', (message) => {
-      if (message?.id !== 'street-matrix-fixture') return
-      clearTimeout(timeout)
-      if (message.type === 'failed') reject(new Error(message.error))
-      else if (message.type === 'complete') resolve(message)
-    })
-    matrixWorker.postMessage({
-      id: 'street-matrix-fixture',
-      operation: 'street-matrix',
-      storePath: currentStore,
-      request: {
-        streetStorePath: currentStore,
-        mode: 'drive',
-        origins: [driveRequest.origin, driveRequest.destination],
-        destinations: [driveRequest.destination, driveRequest.origin],
-        maxStreetKm: 20,
-      },
-    })
-  }).finally(() => matrixWorker.terminate())
-  assert.equal(matrixWorkerResult.result.schemaVersion, 'vigo.routing.street-matrix.v1')
-  assert.equal(matrixWorkerResult.result.rows.length, 4)
-  assert.equal(matrixWorkerResult.metrics.operation, 'street-matrix')
-
   const batchWorker = new Worker(new URL('../src/server/national-route-worker.mjs', import.meta.url))
   const batchResult = await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('Street-route batch worker timed out.')), 5_000)
@@ -858,7 +831,6 @@ if (worker) {
       recoveredOriginSnapDistanceM: recoveredDrive.diagnostics.originSnapDistanceM,
       workerOperationMs: workerResult.metrics.operationMs,
       streetMatrixQueryMs: driveMatrix.diagnostics.queryMs,
-      streetMatrixWorkerOperationMs: matrixWorkerResult.metrics.operationMs,
       batchWorkerOperationMs: batchResult.metrics.operationMs,
     },
   }, null, 2))

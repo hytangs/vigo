@@ -76,9 +76,11 @@ pub(crate) fn parse(q: &Value) -> Result<Option<RouteAlternativeRequest>, String
     {
         return Err("alternatives cannot be combined with via points".into());
     }
-    if ["windowMinutes", "departureWindowMinutes"]
-        .iter()
-        .any(|key| q[key].as_f64().is_some_and(|n| n > 0.))
+    // Supported window choices merge alternatives at the requested time.
+    if q["windowChoices"] != "supported"
+        && ["windowMinutes", "departureWindowMinutes"]
+            .iter()
+            .any(|key| q[key].as_f64().is_some_and(|n| n > 0.))
     {
         return Err("alternatives cannot be combined with journey windows".into());
     }

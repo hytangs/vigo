@@ -1374,6 +1374,19 @@ fn overlay_identity_transfer(
     source.is_some() && source == physical_stop(input.supplemental_transfer_to[edge] as usize)
 }
 
+/// Stops joined to `stop` by a supplemental identity edge: a planned stop
+/// and the resident stop it replaces are one physical stop.
+fn identity_twins<'a>(
+    offsets: &'a [u32],
+    edges: &'a [TransferEdge],
+    identity: &'a [bool],
+    stop: usize,
+) -> impl Iterator<Item = usize> + 'a {
+    (offsets[stop] as usize..offsets[stop + 1] as usize)
+        .filter(move |&edge| identity[edge])
+        .map(move |edge| edges[edge].stop())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn expand_many_combined_transfer_edges_chain(
     workspace: &mut ManyWorkspace,
@@ -1394,23 +1407,30 @@ fn expand_many_combined_transfer_edges_chain(
     let combined_stop_count = supplemental_transfer_offset.len() - 1;
     let base_stop = stop % combined_stop_count;
     let layer_offset = stop - base_stop;
-    if base_stop < base_stop_count {
-        let start = base_transfer_offset[base_stop] as usize;
-        let end = base_transfer_offset[base_stop + 1] as usize;
-        stats.explicit_transfer_checks = stats
-            .explicit_transfer_checks
-            .saturating_add((end - start) as u32);
-        for edge in &base_transfer_edges[start..end] {
-            let duration = edge.duration();
+    let twins = |stop: usize| {
+        identity_twins(
+            supplemental_transfer_offset,
+            supplemental_transfer_edges,
+            supplemental_identity_edges,
+            stop,
+        )
+    };
+    // A walk reaches its target and the target's identity twins together.
+    let relax = |workspace: &mut ManyWorkspace,
+                 stats: &mut SearchStats,
+                 target: usize,
+                 duration: u32,
+                 needs_board_slack: bool| {
+        for target in std::iter::once(target).chain(twins(target)) {
             relax_many_record(
                 workspace,
                 epoch,
                 stats,
-                layer_offset + edge.stop(),
+                layer_offset + target,
                 arrival + f64::from(duration),
                 has_ride,
                 has_ride,
-                !has_ride,
+                needs_board_slack,
                 horizon,
                 has_ride,
                 source_state,
@@ -1421,6 +1441,21 @@ fn expand_many_combined_transfer_edges_chain(
                 duration,
             );
         }
+    };
+    // A planned stop walks on through its resident twin's transfers.
+    let resident: Vec<usize> = std::iter::once(base_stop)
+        .chain(twins(base_stop))
+        .filter(|&stop| stop < base_stop_count)
+        .collect();
+    for from in resident {
+        let start = base_transfer_offset[from] as usize;
+        let end = base_transfer_offset[from + 1] as usize;
+        stats.explicit_transfer_checks = stats
+            .explicit_transfer_checks
+            .saturating_add((end - start) as u32);
+        for edge in &base_transfer_edges[start..end] {
+            relax(workspace, stats, edge.stop(), edge.duration(), !has_ride);
+        }
     }
     let start = supplemental_transfer_offset[base_stop] as usize;
     let end = supplemental_transfer_offset[base_stop + 1] as usize;
@@ -1428,27 +1463,15 @@ fn expand_many_combined_transfer_edges_chain(
         .explicit_transfer_checks
         .saturating_add((end - start) as u32);
     for (offset, edge) in supplemental_transfer_edges[start..end].iter().enumerate() {
-        let duration = edge.duration();
         // Physical edges carry their interchange duration, even when zero.
         // Only identity bridges retain generic post-ride boarding slack.
         let needs_board_slack = has_ride && supplemental_identity_edges[start + offset];
-        relax_many_record(
+        relax(
             workspace,
-            epoch,
             stats,
-            layer_offset + edge.stop(),
-            arrival + f64::from(duration),
-            has_ride,
-            has_ride,
+            edge.stop(),
+            edge.duration(),
             needs_board_slack,
-            horizon,
-            has_ride,
-            source_state,
-            1,
-            NO_STATE,
-            0.0,
-            0.0,
-            duration,
         );
     }
 }

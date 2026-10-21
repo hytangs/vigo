@@ -126,6 +126,8 @@ impl City {
         self.execute_output(command, request, true)
     }
     fn execute_output(&mut self, command: &str, request: &Value, detailed: bool) -> Result<Value> {
+        let now = super::clock::depart_now(self, request)?;
+        let request = now.as_ref().unwrap_or(request);
         crate::presentation::validate(request)?;
         let mut query = request.clone();
         crate::presentation::normalize_points(&mut query)?;
@@ -518,7 +520,7 @@ impl City {
         }
         self.street_candidates(point, role, opt, self.padding, self.overhead)
     }
-    fn access_status(
+    pub(super) fn access_status(
         &mut self,
         point: &Point,
         role: &str,
@@ -547,7 +549,17 @@ impl City {
         if code == "outside_coverage" {
             status["coverageBounds"] = b.clone();
         }
+        let probe_m = (opt.walk_m * 2.).max(opt.walk_m + 500.).min(5000.);
         if code != "none_within_walk_budget" {
+            // No usable street attachment: a stop may still be near in a straight line.
+            if probe
+                && code != "outside_coverage"
+                && let Some((stop, meters)) = self.nearest_service_stop(point, role, probe_m)
+            {
+                status["code"] = json!("street_access_unverified");
+                status["probeWalkMeters"] = json!(probe_m);
+                status["nearestStop"] = nearest_stop_evidence(stop, meters);
+            }
             return Ok(status);
         }
         if probe && opt.walk_m < 5000. {
@@ -571,9 +583,45 @@ impl City {
                         .copied()
                         .fold(f64::INFINITY, f64::min)
                 );
+            } else if let Some((stop, meters)) =
+                self.nearest_service_stop(point, role, wider.walk_m)
+            {
+                // A stop is near in a straight line, but no walking path reaches it.
+                status["code"] = json!("street_access_unverified");
+                status["nearestStop"] = nearest_stop_evidence(stop, meters);
             }
         }
         Ok(status)
+    }
+    /// The nearest stop serving `role` within `radius` meters, straight-line.
+    fn nearest_service_stop(
+        &self,
+        point: &Point,
+        role: &str,
+        radius: f64,
+    ) -> Option<(&super::city::Stop, f64)> {
+        let index = &self.access.materialized.stop_access_index;
+        let served: std::collections::HashSet<&str> = if role == "destination" {
+            index
+                .arrival_service_stop_ids
+                .iter()
+                .map(String::as_str)
+                .collect()
+        } else {
+            index
+                .direct_service_stop_ids
+                .iter()
+                .map(String::as_str)
+                .collect()
+        };
+        self.stops
+            .iter()
+            .filter(|stop| {
+                served.contains(stop.id.as_str()) && stop.lon.is_finite() && stop.lat.is_finite()
+            })
+            .map(|stop| (stop, haversine(point.coordinate, [stop.lon, stop.lat])))
+            .filter(|(_, meters)| *meters <= radius)
+            .min_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.id.cmp(&b.0.id)))
     }
     pub(crate) fn street_candidates(
         &mut self,
@@ -650,7 +698,7 @@ impl City {
             evidence: Some(result),
         })
     }
-    fn point_candidates(
+    pub(super) fn point_candidates(
         &mut self,
         origin: &Point,
         destination: &Point,
@@ -781,7 +829,11 @@ impl City {
         (unique, indices)
     }
     pub fn route(&mut self, q: &Value) -> Result<Value> {
-        let mut result = self.route_options(q, false)?;
+        let mut result = if super::window::requested(q) {
+            self.route_journeys(q)?
+        } else {
+            self.route_options(q, false)?
+        };
         // Every published journey prices its boardings: plain, window and ordered.
         let date = q["serviceDate"].as_str().unwrap_or_default().to_owned();
         self.annotate_fares(&mut result, &date);
@@ -792,7 +844,7 @@ impl City {
         }
         Ok(result)
     }
-    fn route_options(&mut self, q: &Value, collect: bool) -> Result<Value> {
+    pub(super) fn route_options(&mut self, q: &Value, collect: bool) -> Result<Value> {
         let opt = Options::parse(q)?;
         let shared_legs = flag(q, "sharedLegs", false)?;
         let requested = crate::route_alternatives::parse(q)?;
@@ -1314,7 +1366,7 @@ impl City {
         });
         Ok(output)
     }
-    fn street_route(
+    pub(super) fn street_route(
         &mut self,
         q: &Value,
         origin: &Point,
@@ -1684,6 +1736,15 @@ fn uses_live_snapshot(command: &str, q: &Value) -> bool {
             .or_else(|| q.get("dataMode"))
             .is_some_and(|v| v == "realtime")
 }
+/// A stop no walking path reached, with its straight-line distance to the point.
+fn nearest_stop_evidence(stop: &super::city::Stop, meters: f64) -> Value {
+    let name = if stop.name.is_empty() {
+        &stop.id
+    } else {
+        &stop.name
+    };
+    json!({"id":stop.id,"name":name,"distanceKm":meters.round() / 1000.,"distanceKind":"straight_line"})
+}
 fn validate_request(command: &str, q: &Value, polling: bool, live: bool) -> Result<()> {
     let common = [
         "kind",
@@ -1711,6 +1772,7 @@ fn validate_request(command: &str, q: &Value, polling: bool, live: bool) -> Resu
         "realtimeSnapshot",
         "traffic",
         "requireCompleteServiceCoverage",
+        "sourceScopes",
     ];
     let specific: &[&str] = match command {
         "route" => &[
@@ -1724,6 +1786,9 @@ fn validate_request(command: &str, q: &Value, polling: bool, live: bool) -> Resu
             "alternativeRanking",
             "alternativeSlackMinutes",
             "sharedLegs",
+            "windowChoices",
+            "expandedWalkKm",
+            "includeEarliestTransit",
         ],
         "matrix" => &[
             "origins",
@@ -1744,6 +1809,7 @@ fn validate_request(command: &str, q: &Value, polling: bool, live: bool) -> Resu
             "surfaceSampling",
             "includeNodes",
             "scenario",
+            "surfaceReuse",
         ],
         "native" => &["operation", "input"],
         "compare" => &["before", "after"],

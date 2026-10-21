@@ -61,14 +61,10 @@ function canonicalPlan(plan) {
     legs: Array.isArray(plan?.legs) ? plan.legs
       .filter((leg) => !(leg.type === 'walk' && leg.walkSource === 'station-selection' && leg.durationMinutes === 0))
       .map(canonicalLeg) : [],
+    // How a runtime searched (algorithm names, optimality wording, scan
+    // counters) is provenance; every surface must agree on the answer.
     diagnostics: {
-      algorithm: String(diagnostics.algorithm ?? ''),
-      methodRequested: String(diagnostics.methodRequested ?? ''),
-      methodUsed: Array.isArray(diagnostics.methodUsed)
-        ? diagnostics.methodUsed.map(String)
-        : String(diagnostics.methodUsed ?? ''),
       methodState: String(diagnostics.methodState ?? ''),
-      optimality: String(diagnostics.optimality ?? ''),
       scheduleMode: String(diagnostics.scheduleMode ?? ''),
       timingPrecision: String(diagnostics.timingPrecision ?? ''),
       serviceDate: String(diagnostics.serviceDate ?? diagnostics.resolvedServiceDate ?? ''),
@@ -77,10 +73,28 @@ function canonicalPlan(plan) {
       searchStrategy: String(diagnostics.searchStrategy ?? ''),
       walkingNetwork: String(diagnostics.walkingNetwork ?? ''),
       walkingPolicyId: String(diagnostics.walkingPolicyId ?? ''),
-      scannedDepartures: finiteOrNull(diagnostics.scannedDepartures),
-      relaxedStops: finiteOrNull(diagnostics.relaxedStops),
     },
   }
+}
+
+// The Node CLI and Studio's native runtime are separate runtimes: they must
+// agree on the journey (vehicles, stops and clocks within 0.2 s), not on
+// presentation.
+function assertSameJourney(actual, expected, message) {
+  const shape = plan => ({
+    status: String(plan?.status ?? ''),
+    travelMode: String(plan?.travelMode ?? ''),
+    transfers: finiteOrNull(plan?.transfers),
+    legs: (plan?.legs ?? []).filter((leg) => !(leg.type === 'walk' && leg.durationMinutes === 0))
+      .map(leg => [leg.type, leg.tripId ?? null, leg.fromStopId ?? null, leg.toStopId ?? null]),
+  })
+  const clocks = plan => [plan?.departMinutes, plan?.arriveMinutes,
+    ...(plan?.legs ?? []).filter((leg) => !(leg.type === 'walk' && leg.durationMinutes === 0))
+      .flatMap(leg => [leg.startMinutes, leg.endMinutes])].map(finiteOrNull)
+  assert.deepEqual(shape(actual), shape(expected), message)
+  const [a, b] = [clocks(actual), clocks(expected)]
+  assert(a.every((value, index) => value === b[index] || Math.abs(value - b[index]) <= 0.004),
+    `${message ?? 'journey clocks'}: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`)
 }
 
 function fixtureProject(storeMetadata) {
@@ -324,7 +338,7 @@ try {
         `--service-date=${serviceDate}`, `--time=${timePreference === 'arrive' ? '08:30' : '07:55'}`,
         '--max-walk=0.2'])
       assert.equal(cli.status, 0, `${mode} ${timePreference} CLI waypoints: ${cli.stderr}`)
-      assert.deepEqual(canonicalPlan(JSON.parse(cli.stdout).trace.result), canonicalPlan(body.choices[0]),
+      assertSameJourney(JSON.parse(cli.stdout).trace.result, body.choices[0],
         `${mode} ${timePreference} ordered HTTP/CLI parity`)
     }
   }
@@ -343,7 +357,7 @@ try {
     const cli = runCli(['route', `--city=${projectMetaPath}`, `--request=${requestPath}`,
       '--service-date=2026-07-19', '--time=08:30', '--max-walk=0.2'])
     assert.equal(cli.status, 0, cli.stderr)
-    assert.deepEqual(canonicalPlan(JSON.parse(cli.stdout).trace.result), canonicalPlan(body.choices[0]),
+    assertSameJourney(JSON.parse(cli.stdout).trace.result, body.choices[0],
       `${timePreference} blocked waypoint HTTP/CLI parity`)
   }
   for (const total of [8, 9]) {
@@ -367,50 +381,6 @@ try {
   })
   assert.equal(fractionalInput.status, 400, 'Private flags must not bypass initial public time validation.')
 
-  const matrixResponse = await apiRuntime.fetch(
-    new URL(`api/projects/${projectId}/national-matrix`, apiUrl), {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ origins: [plans.http.origin],
-        destinations: Array.from({ length: 1024 }, () => plans.http.destination),
-        departMinutes: 475, serviceDate, serviceDay: 'weekday', maxWalkKm: 0.2 }),
-    },
-  )
-  const matrixBody = await matrixResponse.json()
-  assert.equal(matrixResponse.status, 200, JSON.stringify(matrixBody))
-  assert.equal(matrixBody.matrix.rows.length, 1024)
-  assert.equal(matrixBody.matrix.diagnostics.forwardSearches, 1)
-  assert(matrixBody.matrix.rows.every((row) => row.status === 'ready' && row.arriveMinutes === 490))
-
-  const arriveResponse = await apiRuntime.fetch(new URL(`api/projects/${projectId}/national-route`, apiUrl), {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ origin: plans.http.origin, destination: plans.http.destination,
-      timePreference: 'arrive', arriveMinutes: 510, serviceDate, serviceDay: 'weekday', maxWalkKm: 0.2 }),
-  })
-  const arriveReference = (await arriveResponse.json()).choices[0]
-  assert.equal(arriveResponse.status, 200)
-  assert.equal(arriveReference.status, 'ready')
-  for (const timePreference of ['depart', 'arrive']) {
-    for (const manyOrigins of [false, true]) {
-      const response = await apiRuntime.fetch(new URL(`api/projects/${projectId}/national-matrix`, apiUrl), {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          origins: Array(manyOrigins ? 1024 : 1).fill(plans.http.origin),
-          destinations: Array(manyOrigins ? 1 : 1024).fill(plans.http.destination),
-          timePreference, arriveMinutes: 510, departMinutes: 475,
-          serviceDate, serviceDay: 'weekday', maxWalkKm: 0.2,
-        }),
-      })
-      const body = await response.json()
-      assert.equal(response.status, 200, JSON.stringify(body))
-      assert.equal(body.matrix.rows.length, 1024)
-      assert.equal(body.matrix.diagnostics[timePreference === 'arrive' ? 'reverseSearches' : 'forwardSearches'], 1)
-      assert(body.matrix.rows.every(row => row.status === 'ready'))
-      if (timePreference === 'arrive') {
-        assert(body.matrix.rows.every(row => Math.abs(row.departMinutes - arriveReference.departMinutes) < 1e-9 && row.arriveMinutes === 510))
-      }
-    }
-  }
-
   for (const timePreference of ['depart', 'arrive']) {
     for (const maxTransfers of [0, 1]) {
       const query = { origin: plans.http.origin, destination: plans.http.destination,
@@ -429,23 +399,15 @@ try {
         '--max-walk=0.2'], { input: JSON.stringify({ kind: 'route', id: 'capped', origin: 'A', destination: 'B',
           timePreference, time: timePreference === 'arrive' ? '08:15' : '07:55', maxTransfers }) + '\n' })
       assert.equal(stream.status, 0, stream.stderr)
-      assert.deepEqual(canonicalPlan(JSON.parse(stream.stdout).trace.result), canonicalPlan(body.choices[0]))
+      assertSameJourney(JSON.parse(stream.stdout).trace.result, body.choices[0])
       const explicitStream = runCli(['stream', `--city=${projectMetaPath}`, `--service-date=${serviceDate}`,
         '--max-walk=0.2'], {
         input: JSON.stringify({ id: 'capped-route', kind: 'route', origin: 'A', destination: 'B',
           timePreference, time: timePreference === 'arrive' ? '08:15' : '07:55', maxTransfers }) + '\n',
       })
       assert.equal(explicitStream.status, 0, explicitStream.stderr)
-      assert.deepEqual(canonicalPlan(JSON.parse(explicitStream.stdout).trace.result), canonicalPlan(body.choices[0]),
+      assertSameJourney(JSON.parse(explicitStream.stdout).trace.result, body.choices[0],
         'Each stream route must use its requested transfer cap instead of the process default.')
-      const matrixResponse = await apiRuntime.fetch(new URL(`api/projects/${projectId}/national-matrix`, apiUrl), {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...query, origins: [query.origin], destinations: [query.destination] }),
-      })
-      const matrix = (await matrixResponse.json()).matrix
-      assert.equal(matrixResponse.status, 200)
-      const field = timePreference === 'arrive' ? 'departMinutes' : 'arriveMinutes'
-      assert.equal(matrix.rows[0][field], body.choices[0][field])
     }
   }
 
@@ -468,12 +430,6 @@ try {
     const single = runCli(['matrix', `--city=${projectMetaPath}`, '--request=-'], { input: JSON.stringify(request) })
     assert.equal(single.status, 0, single.stderr)
     assert.equal(JSON.parse(single.stdout).trace.rows[0].status, expected)
-    const response = await apiRuntime.fetch(new URL(`api/projects/${projectId}/national-matrix`, apiUrl), {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ...request, departMinutes: 1200, serviceDay: 'weekday' }),
-    })
-    assert.equal(response.status, 200)
-    assert.equal((await response.json()).matrix.rows[0].status, expected)
     const route = { ...request, origin: request.origins[0], destination: request.destinations[0] }
     route.kind = 'route'; delete route.origins; delete route.destinations
     const pointStream = runCli(['stream', `--city=${projectMetaPath}`, `--service-date=${serviceDate}`], {
@@ -517,20 +473,13 @@ try {
     const stream = runCli(['stream', `--city=${projectMetaPath}`, '--time=07:55',
       `--service-date=${serviceDate}`, '--max-walk=0.2'], { input: JSON.stringify(input) + '\n' })
     assert.equal(stream.status, 0, stream.stderr)
-    assert.deepEqual(canonicalPlan(JSON.parse(stream.stdout).trace.result), canonicalPlan(body.choices[0]))
+    assertSameJourney(JSON.parse(stream.stdout).trace.result, body.choices[0])
     const selectionPath = path.join(temporaryRoot, 'selection-request.json')
     await fsp.writeFile(selectionPath, JSON.stringify(input))
     const jsonRoute = runCli(['route', `--city=${projectMetaPath}`, `--request=${selectionPath}`,
       '--time=07:55', `--service-date=${serviceDate}`, '--max-walk=0.2'])
     assert.equal(jsonRoute.status, 0, jsonRoute.stderr)
-    assert.deepEqual(canonicalPlan(JSON.parse(jsonRoute.stdout).trace.result), canonicalPlan(body.choices[0]))
-    const matrixResponse = await apiRuntime.fetch(new URL(`api/projects/${projectId}/national-matrix`, apiUrl), {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ...query, origins: [query.origin], destinations: [query.destination] }),
-    })
-    const matrix = (await matrixResponse.json()).matrix
-    assert.equal(matrixResponse.status, 200)
-    assert.equal(matrix.rows[0].arriveMinutes, body.choices[0].arriveMinutes)
+    assertSameJourney(JSON.parse(jsonRoute.stdout).trace.result, body.choices[0])
     await fsp.writeFile(selectionPath, JSON.stringify({ origins: ['A'], destinations: ['B'], ...selection }))
     const jsonMatrix = runCli(['matrix', `--city=${projectMetaPath}`, `--request=${selectionPath}`,
       '--time=07:55', `--service-date=${serviceDate}`, '--max-walk=0.2'])

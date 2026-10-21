@@ -521,7 +521,7 @@ try {
   }
   assert.equal(invoke([
     'reach', `--city=${cityPath}`, `--request=${reachRequest}`,
-    '--time=07:55', '--service-date=2026-07-15', '--mode=drive',
+    '--time=07:55', '--service-date=2026-07-15', '--mode=bicycle',
   ]).status, 2, 'Unsupported Reach modes must not silently run transit.')
   const removedReachOption = invoke([
     'reach', `--city=${cityPath}`, `--request=${reachRequest}`,
