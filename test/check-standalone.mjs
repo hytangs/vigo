@@ -96,6 +96,23 @@ try {
       serviceDate: '2026-07-19' }).status, 'blocked', 'Transit must retain the direct-walk limit')
   }
   const drive = run('route', { ...coordinate, mode: 'drive' })
+  const driveAccess = { ...coordinate, mode: 'drive', maxWalkKm: 1.2,
+    origin: { coordinate: [-77.0502, 38.9001] }, destination: { coordinate: [-77.0298, 38.9101] } }
+  for (const timePreference of ['depart_at', 'arrive_by']) {
+    const slow = run('route', { ...driveAccess, timePreference, walkSpeedKph: 2 })
+    const fast = run('route', { ...driveAccess, timePreference, walkSpeedKph: 4 })
+    assert.equal(slow.status, 'ready')
+    assert.deepEqual(slow.legs.map(l => l.kind), ['walk', 'drive', 'walk'])
+    assert(slow.durationMinutes > fast.durationMinutes)
+    assert.equal(slow.legs[1].durationMinutes, fast.legs[1].durationMinutes)
+    for (const index of [0, 2]) assert(Math.abs(slow.legs[index].durationMinutes - 2 * fast.legs[index].durationMinutes) < 1e-6)
+    const matrix = run('matrix', { ...driveAccess, timePreference, walkSpeedKph: 2,
+      origin: undefined, destination: undefined, origins: [driveAccess.origin], destinations: [driveAccess.destination] })
+    // Drive matrices quantize the two road-access walks to centiseconds.
+    assert(Math.abs(matrix.durationsMinutes[0][0] - slow.durationMinutes) <= 0.02 / 60, JSON.stringify({ timePreference, matrix: matrix.durationsMinutes, route: slow.durationMinutes, legs: slow.legs.map(l => ({ kind: l.kind, duration: l.durationMinutes, distance: l.distanceMeters })) }))
+    assert.equal(run('route', { ...driveAccess, timePreference, maxWalkKm: 0 }).status, 'blocked')
+    assert.equal(run('route', { ...driveAccess, timePreference, maxStreetKm: 0.05 }).status, 'blocked')
+  }
   assert.equal(walk.status, 'ready')
   assert.equal(drive.status, 'ready')
   assert(drive.durationMinutes < walk.durationMinutes)

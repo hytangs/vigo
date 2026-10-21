@@ -252,7 +252,7 @@ def specification(native):
         'mode':text('transit','walk','drive',default='transit'), 'maxWalkKm':number(0,100,1.2), 'maxStreetKm':number(.05,1000,50),
         'maxTransfers':number(0,31,integer=True), 'horizonMinutes':number(1,2880,480), 'allowStreetTransfers':boolean(True),
         'minimumTransferBufferMinutes':number(0,60,0,integer=True), 'disableCache':boolean(), 'requireTransitRide':boolean(False),
-        'allowLongWalk':boolean(True), 'walkSpeedKph':number(1,8,description='Default comes from the City. Walk Route/Matrix and Reach only.'),
+        'allowLongWalk':boolean(True), 'walkSpeedKph':number(1,8,description='Default comes from the City. Walk/Drive Route/Matrix and Reach; in Drive mode this controls the walks to and from the road.'),
         'requireCompleteServiceCoverage':boolean(), 'routingDataMode':text('scheduled','realtime'), 'dataMode':text('scheduled','realtime'),
     }
     clock_rule = {'oneOf':[{'required':['time']},{'required':['timeMinutes']}]}

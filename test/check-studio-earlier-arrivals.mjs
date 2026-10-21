@@ -53,6 +53,25 @@ try {
     maxWalkKm: 1.2, allowLongWalk: true, allowStreetTransfers: true, minimumTransferBufferMinutes: 0,
     sharedLegs: true, includeEarliestTransit: true, objective: 'earliest_arrival' }
 
+  // Drive keeps its Rust walk-to-road connectors and the complete road path.
+  for (const timePreference of ['depart', 'arrive']) {
+    const driveBody = { ...route, mode: 'drive', timePreference, departureWindowMinutes: 0, sharedLegs: false, includeEarliestTransit: false,
+      origin: { coordinate: [-77.0502, 38.9001], label: 'Off-road origin' },
+      destination: { coordinate: [-77.0298, 38.9101], label: 'Off-road destination' },
+      departMinutes: 480, arriveMinutes: 510, maxStreetKm: 50, routingDataMode: 'realtime', walkSpeedKph: 3 }
+    const drive = (await post('national-route', driveBody)).choices[0]
+    assert.equal(drive.status, 'ready')
+    assert.equal(drive.diagnostics.runtime, 'rust')
+    assert.deepEqual(drive.legs.map(leg => leg.type), ['walk', 'drive', 'walk'])
+    assert.deepEqual(drive.legs.map(leg => leg.streetPathVerified), [false, true, false])
+    assert(drive.legs[1].coordinates.length >= 2)
+    assert(drive.walkMinutes > 0)
+    assert(Math.abs(drive.durationMinutes - drive.legs.reduce((sum, leg) => sum + leg.durationMinutes, 0)) < 0.002)
+    assert.equal(drive.diagnostics.traffic, undefined)
+    assert.equal(drive.diagnostics.roadMetricMode, 'free-flow')
+    assert.equal((await post('national-route', { ...driveBody, maxWalkKm: 0 })).choices[0].status, 'blocked')
+  }
+
   // Choosing Arrive by opens the preceding service day's timetable too.
   await post('national-ready', { feedId: 'feed', mode: 'transit', routingDataMode: 'scheduled', serviceDate: '2026-07-15',
     serviceDay: 'weekday', allowStreetTransfers: true, minimumTransferBufferMinutes: 0, timePreference: 'arrive' })

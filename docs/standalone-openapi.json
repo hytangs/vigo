@@ -7348,7 +7348,7 @@
             "type": "number",
             "minimum": 1,
             "maximum": 8,
-            "description": "Default comes from the City. Walk Route/Matrix and Reach only."
+            "description": "Default comes from the City. Walk/Drive Route/Matrix and Reach; in Drive mode this controls the walks to and from the road."
           },
           "requireCompleteServiceCoverage": {
             "type": "boolean",
@@ -7618,7 +7618,7 @@
             "type": "number",
             "minimum": 1,
             "maximum": 8,
-            "description": "Default comes from the City. Walk Route/Matrix and Reach only."
+            "description": "Default comes from the City. Walk/Drive Route/Matrix and Reach; in Drive mode this controls the walks to and from the road."
           },
           "requireCompleteServiceCoverage": {
             "type": "boolean",
@@ -8230,7 +8230,7 @@
             "type": "number",
             "minimum": 1,
             "maximum": 8,
-            "description": "Default comes from the City. Walk Route/Matrix and Reach only."
+            "description": "Default comes from the City. Walk/Drive Route/Matrix and Reach; in Drive mode this controls the walks to and from the road."
           },
           "requireCompleteServiceCoverage": {
             "type": "boolean",

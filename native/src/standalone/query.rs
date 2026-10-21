@@ -1972,11 +1972,11 @@ fn validate_request(command: &str, q: &Value, polling: bool, live: bool) -> Resu
             }
         }
     }
-    if mode != "walk"
+    if !["walk", "drive"].contains(&mode)
         && !["reach", "isochrone"].contains(&command)
         && q.get("walkSpeedKph").is_some()
     {
-        return fail("walkSpeedKph applies to Walk Route/Matrix and Reach");
+        return fail("walkSpeedKph applies to Walk/Drive Route/Matrix and Reach");
     }
     if ["reach", "isochrone"].contains(&command) {
         for key in [
