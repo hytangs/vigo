@@ -13,6 +13,7 @@ try {
   const { AnalyzePanelView, ReachMetricCards, ReachTransitStatusNotice } = await server.ssrLoadModule('/src/components/AnalyzePanel.tsx')
   const area = { bounds: [-72, 41, -70, 43], width: 1, height: 1, pixelAreaKm2: 1, byCutoff: [{ cutoffMinutes: 45, reachablePixels: 1, areaKm2: 1234.56 }, { cutoffMinutes: 46, reachablePixels: 1, areaKm2: 1250 }, { cutoffMinutes: 90, reachablePixels: 1, areaKm2: 2345.67 }] }
   const result = {
+    request: { mode: 'transit' },
     summary: {
       maximumCutoffMinutes: 90,
       transitStopSeeds: 6928,
@@ -27,18 +28,17 @@ try {
     },
     diagnostics: { raster: { baselineNetwork: { reachedEdgeLengthKm: 34323.2 }, scenarioNetwork: { reachedEdgeLengthKm: 45678.9 } } },
   }
-  const cards = (analysis = result, cutoffMinutes = 45, surface = 'baseline') => renderToStaticMarkup(createElement(ReachMetricCards, { analysis, cutoffMinutes, surface, walkBudgetKm: 1.2 }))
+  const cards = (analysis = result, cutoffMinutes = 45, surface = 'baseline') => renderToStaticMarkup(createElement(ReachMetricCards, { analysis, cutoffMinutes, surface }))
   const notice = (analysis = result, cutoffMinutes = 45, surface = 'baseline') => renderToStaticMarkup(createElement(ReachTransitStatusNotice, { analysis, cutoffMinutes, surface }))
   const metricHtml = cards()
   assert.match(metricHtml, /3,602/)
   assert.match(metricHtml, /stops reached by 45 min/)
-  assert.match(metricHtml, /34,323\.2 km/)
-  assert.match(metricHtml, /OSM streets · full 90 min window/, 'Street length remains explicitly scoped to its full computation horizon')
+  assert.doesNotMatch(metricHtml, /Network details|OSM streets/, 'Reach metrics stay to area and stops')
   assert.match(metricHtml, /1,234\.56 km²/)
-  assert.match(notice(), /3,602 transit stops are reachable within the selected 45-minute cutoff/)
-  assert.doesNotMatch(notice(), /6928|6,928|selected window/, 'Backend full-window detail must not masquerade as a selected-cutoff count')
-  assert.match(notice(result, 90), /6,928 transit stops are reachable within the selected 90-minute cutoff/)
-  assert.match(notice(result, 45, 'scenario'), /4,200 transit stops/, 'Scenario presentation uses its own cutoff table')
+  assert.equal(notice(), '', 'A reached cutoff needs no notice: its stop count is a metric')
+  assert.doesNotMatch(metricHtml, /6928|6,928|selected window/, 'Backend full-window detail must not masquerade as a selected-cutoff count')
+  assert.match(cards(result, 90), /6,928/)
+  assert.match(cards(result, 45, 'scenario'), /4,200/, 'Scenario presentation uses its own cutoff table')
 
   const zeroAtCutoff = { ...result, summary: { ...result.summary, transitStopsByCutoff: [{ cutoffMinutes: 45, stops: 0 }, { cutoffMinutes: 90, stops: 6928 }] } }
   const zeroNotice = notice(zeroAtCutoff)
@@ -53,7 +53,6 @@ try {
   assert.match(notice(legacy), /unavailable/)
   assert.doesNotMatch(notice(legacy), /6,928/)
   const missingNetwork = { ...result, diagnostics: { raster: {} } }
-  assert.match(cards(missingNetwork), /Unavailable/)
   assert.doesNotMatch(cards(missingNetwork), /0\.0 km/, 'Missing street diagnostics must not fabricate zero reached network length')
   const preliminary = { ...zeroAtCutoff, diagnostics: { ...result.diagnostics, preliminary: true }, summary: { ...zeroAtCutoff.summary, transitStatus: { status: 'preliminary', detail: 'Walking preview; transit has not been computed.' } } }
   assert.match(cards(preliminary), /Unavailable/)
@@ -77,5 +76,5 @@ try {
   for (const text of ['Time between services', 'Service begins', 'Service ends', 'Add reverse service']) assert(frequencyPanel.includes(text))
   assert.match(panel({ ...change, kind: 'add-line' }), /<span>Time between services</, 'New lines still expose their departure schedule.')
   console.log('Scenario controls default to the original timetable, including saved drafts; explicit frequency mode exposes schedule settings.')
-  console.log('Reach cutoff presentation: 45/90-minute scopes, formatted full-window street length, scenario counts, later transit reach, exact custom cutoff and missing/preliminary evidence passed.')
+  console.log('Reach cutoff presentation: 45/90-minute scopes, scenario counts, later transit reach, exact custom cutoff and missing/preliminary evidence passed.')
 } finally { await server.close(); await rm(directory, { recursive: true, force: true }) }

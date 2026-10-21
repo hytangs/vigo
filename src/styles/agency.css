@@ -48,4 +48,3 @@
  * and mode. Status color is reserved for service states (watch, alert).
  */
 @keyframes agency-live-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--good) 0%, transparent); } }
-/* While the City is read, the overview holds its shape: status, three counts, the status bar and rows. */

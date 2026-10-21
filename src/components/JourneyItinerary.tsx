@@ -6,16 +6,12 @@ import {
   isSameStationTransfer,
   routingDataModeLabel,
   routingLegColor,
-  routingLegDetail,
   routingLegPrimaryLabel,
   routingLegTextColor,
-  routingRealtimeDetail,
-  shapedRideGeometry,
 } from '../app/presentation'
-import { routingPlanRuntime, routingPlanStartWaitMinutes, routingPlanTotalElapsedMinutes } from '../app/routingPlan'
+import { routingPlanStartWaitMinutes, routingPlanTotalElapsedMinutes } from '../app/routingPlan'
 import { classNames } from '../domain'
 import type { RoutingPlan } from '../routingModel'
-import { routingPointRoleLabel } from '../routingPointSequence'
 import { formatScheduleClock } from '../scheduledVehicles'
 import { JourneyLegStrip, RouteTypeIcon } from './JourneyLegStrip'
 import { RoutingFare } from './RoutingFare'
@@ -23,42 +19,18 @@ import { ResultExportActions } from './ResultExportActions'
 import { exportJourney, journeyGeometryAvailable } from '../app/resultExports'
 import { selectRoutingPlan } from '../state/route'
 
-function routingChoiceExplanation(plan: RoutingPlan) {
-  if (plan.choiceLabel === 'Earliest arrival') {
-    return 'Earliest arrival among the displayed journeys. Equal arrivals prefer fewer vehicles, then less walking.'
+/** The leg that starts each via segment, keyed by leg index: the segment begins at the via point. */
+function viaSegmentStarts(plan: RoutingPlan) {
+  const starts = new Map<number, number>()
+  let from = 1
+  for (const [order, point] of (plan.waypoints ?? []).entries()) {
+    const index = plan.legs.findIndex((leg, legIndex) => legIndex >= from && (leg.fromName === point.label || (leg.coordinates.length > 0
+      && Math.hypot(leg.coordinates[0][0] - point.coordinate[0], leg.coordinates[0][1] - point.coordinate[1]) < 1e-5)))
+    if (index < 0) break
+    starts.set(index, order)
+    from = index + 1
   }
-  if (plan.choiceLabel === 'Fewest transfers') {
-    return 'Uses the fewest transfers among the displayed journeys.'
-  }
-  if (plan.choiceLabel === 'Least walking') {
-    return 'Requires the least walking among the displayed journeys.'
-  }
-  if (plan.choiceLabel === 'Shortest journey') {
-    return 'Has the shortest leave-to-arrival journey time among the displayed options; waiting after the requested time is shown separately.'
-  }
-  if (plan.choiceLabel === 'Best balance') return 'Selected from the exact journeys retained for this departure window.'
-  if (plan.travelMode === 'walk') return 'Walking directions on the local street network.'
-  if (plan.travelMode === 'drive') {
-    return plan.diagnostics.roadMetricMode === 'traffic-adjusted'
-      ? 'The fastest driving route using the supplied traffic estimates.'
-      : 'The fastest driving route using road speeds without live traffic.'
-  }
-  return 'Another journey within your search options.'
-}
-
-function RoutingPointSequence({ plan }: { plan: RoutingPlan }) {
-  const points = [plan.origin, ...(plan.waypoints ?? []), plan.destination]
-  if (points.length <= 2) return null
-  return (
-    <div className="pathfinder-point-sequence" aria-label="Ordered route points">
-      {points.map((point, index) => (
-        <span key={`${point.label}-${index}`}>
-          <b>{routingPointRoleLabel(index, points.length)}</b>
-          <small>{point.label}</small>
-        </span>
-      ))}
-    </div>
-  )
+  return starts
 }
 
 const coordinateLabel = /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/u
@@ -81,13 +53,13 @@ export function JourneyDuration({ minutes, suffix = '' }: { minutes: number; suf
   return <>{hours ? <>{hours}<small>h</small>{rest ? ' ' : ''}</> : null}{rest || !hours ? <>{rest}<small>min{suffix}</small></> : null}</>
 }
 
-export function RoutingItinerary({ plan }: { plan: RoutingPlan }) {
+export function RoutingItinerary({ plan, destinationLabel }: { plan: RoutingPlan; destinationLabel?: string }) {
   const initialWait = routingPlanStartWaitMinutes(plan)
   const arrival = plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes
   let previousEnd = plan.departMinutes
+  const viaStarts = viaSegmentStarts(plan)
   return <section className="journey-itinerary" aria-label="Detailed itinerary">
     {initialWait > 0 ? <p className="journey-start-wait"><Clock3 size={12} aria-hidden="true" />Leave {formatRoutingMinutes(initialWait)} after your requested time.</p> : null}
-    <RoutingPointSequence plan={plan} />
     {plan.diagnostics.expandedWalkingLimitKm ? <p className="journey-start-wait">More walking allowed · up to {plan.diagnostics.expandedWalkingLimitKm} km at each end</p> : null}
     <ol className="journey-timeline">
       {plan.legs.map((leg, index) => {
@@ -109,10 +81,13 @@ export function RoutingItinerary({ plan }: { plan: RoutingPlan }) {
           ...nodeColor ? { '--journey-node': nodeColor } : {},
         } as CSSProperties
         const MoveIcon = leg.type === 'drive' ? Car : Footprints
-        return <li key={index} className={classNames('journey-leg', `is-${kind}`, nodeColor && 'has-station')} style={style}>
+        const via = viaStarts.get(index)
+        const viaLabel = via === undefined ? '' : journeyPlace(plan.waypoints![via].label, `Via stop ${via + 1}`)
+        return <li key={index} className={classNames('journey-leg', `is-${kind}`, nodeColor && 'has-station', via !== undefined && 'is-via')} style={style}>
           <time className="journey-clock">{formatScheduleClock(leg.startMinutes)}</time>
           <span className="journey-node-mark" aria-hidden="true" />
-          <strong className="journey-place">{index === 0 ? journeyPlace(leg.fromName, plan.origin.label && !coordinateLabel.test(plan.origin.label) ? plan.origin.label : 'Start') : leg.fromName}</strong>
+          <strong className="journey-place">{index === 0 ? journeyPlace(leg.fromName, plan.origin.label && !coordinateLabel.test(plan.origin.label) ? plan.origin.label : 'Start')
+            : via !== undefined ? <>{viaLabel}{/^Via stop \d+$/.test(viaLabel) ? null : <span className="journey-via-tag">Via {via + 1}</span>}</> : leg.fromName}</strong>
           <div className="journey-leg-body">
             {wait > 0 ? <p className="journey-wait"><Clock3 size={12} aria-hidden="true" />{formatRoutingMinutes(wait)} wait at {leg.fromName}</p> : null}
             {immediateVehicleChange ? <p className="journey-caution">No time between vehicles</p> : null}
@@ -126,7 +101,6 @@ export function RoutingItinerary({ plan }: { plan: RoutingPlan }) {
               <span className="journey-leg-meta">{formatRoutingLegDuration(leg)}{leg.distanceKm > 0 ? ` · ${formatDistance(leg.distanceKm)}` : ''}</span>
             </p>}
             {leg.stationAccessStatus !== 'unverified' && leg.transferSource === 'parent_station_fallback' ? <p className="journey-caution">Assumed station connection time</p> : null}
-            {(ride && (leg.sourceEqualTime || !shapedRideGeometry(leg.geometrySource))) || leg.type === 'drive' ? <details className="kit-inline-details journey-leg-evidence"><summary>Path &amp; timing</summary><p>{routingLegDetail(leg)}</p></details> : null}
             {ride && plan.sharedLegAlternatives && (frequency || sharedOptions.length > 0) ?
               <details className="kit-inline-details journey-leg-evidence journey-shared-services">
                 <summary>Services on this leg</summary>
@@ -135,7 +109,6 @@ export function RoutingItinerary({ plan }: { plan: RoutingPlan }) {
                   {frequency.departureCount} departures at {frequency.uniqueDepartureCount} distinct times · {formatScheduleClock(frequency.windowStartSeconds / 60)}–{formatScheduleClock(frequency.windowEndSeconds / 60)}
                   {frequency.meanHeadwaySeconds !== null ? <> · Mean gap {(frequency.meanHeadwaySeconds / 60).toFixed(1)} min{frequency.minHeadwaySeconds !== frequency.maxHeadwaySeconds ? ` (range ${((frequency.minHeadwaySeconds ?? 0) / 60).toFixed(1)}–${((frequency.maxHeadwaySeconds ?? 0) / 60).toFixed(1)} min)` : ''}</> : null}
                 </p> : null}
-                <p>{frequency ? 'Counts cover this leg.' : 'Same stops and path.'}{sharedOptions.length > 0 ? ' The choices below also meet your connection times and arrival deadline.' : ''}</p>
                 {sharedOptions.map(option => {
                   const alternate = option.plan.legs[index]
                   return <button type="button" key={option.plan.id} onClick={() => selectRoutingPlan(option.plan.id)}>
@@ -144,7 +117,6 @@ export function RoutingItinerary({ plan }: { plan: RoutingPlan }) {
                     <small>{alternate.routeId} · Arrive {formatScheduleClock(option.plan.arriveMinutes ?? option.plan.departMinutes + option.plan.durationMinutes)}</small>
                   </button>
                 })}
-                {plan.sharedLegAlternatives.truncated ? <p>More services may be available beyond the displayed options.</p> : null}
               </details> : null}
           </div>
         </li>
@@ -152,7 +124,7 @@ export function RoutingItinerary({ plan }: { plan: RoutingPlan }) {
       <li className="journey-finish">
         <time className="journey-clock">{formatScheduleClock(arrival)}</time>
         <span className="journey-node-mark" aria-hidden="true" />
-        <strong className="journey-place">Arrive at {journeyPlace(plan.legs.at(-1)?.toName || plan.destination.label, 'Destination')}</strong>
+        <strong className="journey-place">Arrive at {journeyPlace(destinationLabel || plan.legs.at(-1)?.toName || plan.destination.label, 'Destination')}</strong>
       </li>
     </ol>
     <RoutingFare plan={plan} />
@@ -187,19 +159,6 @@ export function RoutingDetailPanel({
 
   if (plan.status !== 'ready') return null
 
-  const runtime = routingPlanRuntime(plan)
-  const limitations = plan.diagnostics.dataSemantics?.limitations ?? []
-  const serviceDate = plan.diagnostics.serviceDate
-  const trafficRouting = plan.diagnostics.traffic
-  const trafficApplied = plan.diagnostics.roadMetricMode === 'traffic-adjusted'
-    && trafficRouting?.status === 'applied'
-  const timingDetail = plan.travelMode === 'drive'
-    ? trafficApplied
-      ? `Traffic snapshot applied · ${trafficRouting.matchedEdges ?? 0} directed edges`
-      : trafficRouting?.status === 'stale_fallback'
-        ? 'OSM free-flow · traffic snapshot stale'
-        : 'OSM free-flow · live traffic not supplied'
-    : routingRealtimeDetail(plan)
 
   return (
     <aside className="routing-detail-panel" aria-label="Routing details" data-map-occluder="">
@@ -222,20 +181,6 @@ export function RoutingDetailPanel({
       </header>
       <div className="routing-detail-scroll">
         <RoutingItinerary plan={plan} />
-        <details className="studio-disclosure routing-details">
-          <summary>
-            <span>Journey information</span>
-          </summary>
-          <p>{routingChoiceExplanation(plan)}</p>
-          <dl>
-            {serviceDate ? <div><dt>Service date</dt><dd>{serviceDate}</dd></div> : null}
-            {plan.diagnostics.routingDataProvenance?.timeZone ? <div><dt>Time zone</dt><dd>{plan.diagnostics.routingDataProvenance.timeZone}</dd></div> : null}
-            <div><dt>Access limit</dt><dd>{plan.maxWalkKm.toFixed(1)} km</dd></div>
-            <div><dt>{plan.travelMode === 'drive' ? 'Road metric' : 'Schedule'}</dt><dd>{timingDetail}</dd></div>
-            {limitations.length ? <div><dt>Declared limits</dt><dd>{limitations.length} attached to this result</dd></div> : null}
-            {runtime ? <div><dt>Query timing</dt><dd title={`${runtime.title} This describes only the current request.`}>{runtime.label}</dd></div> : null}
-          </dl>
-        </details>
       </div>
     </aside>
   )

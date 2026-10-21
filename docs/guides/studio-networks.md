@@ -43,8 +43,13 @@ Studio's later-departure search supplements its timetable window with the Rust
 ranked search at the requested clock: up to 64 candidate vehicle chains within
 fifteen minutes of the earliest arrival. Rust selects at most ten results,
 prioritizing distinct line and boarding/alighting combinations before repeated
-departures. Dominated station-return detours and unnecessary changes onto the
-same vehicle are removed only when a feasible simpler witness exists. Existing walking, transfer, accessibility,
+departures. A result is removed when another journey leaves no earlier, arrives
+no later, walks no more and boards no more vehicles, and is better on at least
+one of these in the whole minutes Studio shows. The leave time is the one Studio
+displays: an initial walk is deferred to reach the first vehicle just in time.
+A later departure that arrives later is kept as a real choice. Dominated
+station-return detours and unnecessary changes onto the same vehicle are
+removed only when a feasible simpler witness exists. Existing walking, transfer, accessibility,
 service-date and selected-network constraints still apply. This is a bounded
 candidate search, not a claim to enumerate every possible itinerary.
 

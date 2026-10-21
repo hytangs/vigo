@@ -20,14 +20,14 @@ export function ReachPointInspector({ inspection }: { inspection: ReturnType<typ
   const elapsed = plan?.status === 'ready' ? (plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes) - request.departMinutes : null
   const sampleLabel = (sample: typeof baseline) => sample.status === 'sampled' ? `≈ ${minutes(sample.minutes)}${sample.estimatedBlock ? ' · block estimate' : ''}`
     : sample.status === 'outside' ? 'Outside map extent' : 'No sampled street here'
-  const dropped = coordinateLabel.test(point.label.trim())
+  const unnamed = coordinateLabel.test(point.label.trim())
   const budget = Number(cutoff.toFixed(2))
   return <aside className="reach-point-inspector" aria-label="Travel time to selected point">
     <header>
       <div>
         <span>Destination</span>
-        <h2>{dropped ? 'Dropped pin' : point.label}</h2>
-        {dropped ? <small>{point.coordinate[1].toFixed(5)}, {point.coordinate[0].toFixed(5)}</small> : null}
+        <h2>{unnamed ? 'Dropped pin' : point.label}</h2>
+        {unnamed || point.named ? <small>{point.coordinate[1].toFixed(5)}, {point.coordinate[0].toFixed(5)}</small> : null}
       </div>
       <button type="button" className="icon-button" aria-label="Close destination" onClick={inspection.close}><X size={16} /></button>
     </header>
@@ -56,7 +56,7 @@ export function ReachPointInspector({ inspection }: { inspection: ReturnType<typ
       {error ? <button type="button" className="button button-secondary" onClick={inspection.retry}>Try again</button> : null}
       {plan?.status === 'ready' ? <details className="reach-point-journey" key={`${source.id}:${point.coordinate.join(',')}`} open>
         <summary><span>Journey</span><ChevronRight size={15} aria-hidden="true" /></summary>
-        <RoutingItinerary plan={plan} />
+        <RoutingItinerary plan={plan} destinationLabel={point.named ? point.label : undefined} />
       </details> : null}
     </div>
   </aside>

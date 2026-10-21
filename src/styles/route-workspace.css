@@ -55,12 +55,12 @@
 }
 
 /* Query: the form flows into the scroll area so the head stays pinned over results. */
-.pathfinder-query { display: flex; flex-direction: column; }
+.pathfinder-query { display: flex; flex-direction: column; padding-bottom: 16px; }
 .pathfinder-composer { display: contents; }
 .pathfinder-mode-switch { flex: 1 1 auto; }
 .pathfinder-mode-switch > button { padding: 0 8px; }
 .pathfinder-body { display: grid; gap: 10px; padding: 12px var(--panel-pad) 0; }
-.pathfinder-outcome { display: grid; gap: 10px; padding: 10px var(--panel-pad) 16px; }
+.pathfinder-outcome { display: grid; gap: 10px; padding: 10px var(--panel-pad) 0; }
 .pathfinder-outcome:empty { display: none; }
 
 /* Points: one grouped stack, marks joined by a dotted spine. */
@@ -258,9 +258,6 @@
 .routing-setup-toggle > span { display: grid; gap: 1px; min-width: 0; }
 .routing-setup-toggle strong { color: var(--text-1); font-weight: 500; }
 .routing-setup-toggle small { color: var(--text-3); font-size: var(--type-xs); }
-.routing-accessibility-details { color: var(--text-3); font-size: var(--type-sm); }
-.routing-accessibility-details > summary { padding: 2px 0; cursor: pointer; }
-.routing-accessibility-details p { margin: 4px 0 2px; max-width: 46ch; line-height: 1.45; }
 
 
 .routing-setup-label,
@@ -283,7 +280,6 @@
 .routing-setup-range-label > strong { color: var(--text-1); font-weight: 600; font-variant-numeric: tabular-nums; }
 .routing-setup-range-label small { color: var(--text-3); font-weight: 400; }
 .routing-setup-range-scale { display: flex; justify-content: space-between; margin-top: -4px; color: var(--text-4); font-size: var(--type-xs); }
-.routing-setup-help > p { margin: 0 0 8px 20px; color: var(--text-3); font-size: var(--type-sm); line-height: 1.45; }
 
 .routing-setup-summary {
   display: grid;
@@ -342,12 +338,12 @@
 .pathfinder-route-open { position: absolute; top: 50%; right: 10px; color: var(--text-4); transform: translateY(-50%); }
 .pathfinder-route-card:hover .pathfinder-route-open { color: var(--text-2); }
 
-/* Boarded services stay on one line; long names give way before short ones. */
+/* Boarded services are never cut; a long journey wraps rather than hiding a line. */
 .pathfinder-leg-strip { display: grid; gap: 7px; min-width: 0; }
-.pathfinder-leg-steps { display: flex; flex-wrap: nowrap; align-items: center; gap: 2px; min-width: 0; overflow: hidden; }
-.pathfinder-leg-step { display: inline-flex; flex: 0 1 auto; align-items: center; gap: 2px; min-width: 0; }
-.pathfinder-leg-step:has(> .pathfinder-leg-walk) { flex: none; }
+.pathfinder-leg-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 2px; min-width: 0; }
+.pathfinder-leg-step { display: inline-flex; flex: none; align-items: center; gap: 2px; max-width: 100%; }
 .pathfinder-leg-sep { flex: none; color: var(--text-4); }
+.pathfinder-leg-more { padding: 0 4px; color: var(--text-2); font-weight: 600; letter-spacing: 0.04em; }
 
 .pathfinder-leg-badge {
   display: inline-flex;
@@ -412,7 +408,6 @@
 .pathfinder-group-departures summary { color: var(--text-3); list-style: none; }
 
 .pathfinder-alternatives { display: flex; align-items: center; gap: 8px; color: var(--text-3); font-size: var(--type-sm); }
-.pathfinder-result-context > p { margin: 0 0 8px 20px; color: var(--text-3); font-size: var(--type-sm); }
 
 /* Journey detail floats on the right of the map as one timeline. */
 .routing-detail-panel {
@@ -475,10 +470,6 @@
 .journey-itinerary { display: grid; gap: 10px; min-width: 0; }
 .journey-start-wait { display: inline-flex; justify-self: start; align-items: center; gap: 5px; margin: 0 0 0 52px; padding: 3px 9px; border-radius: 999px; color: var(--text-2); background: var(--fill-2); font-size: var(--type-xs); }
 
-.pathfinder-point-sequence { display: grid; gap: 4px; margin-left: 52px; padding: 8px 10px; border-radius: var(--group-radius); background: var(--ink-3); }
-.pathfinder-point-sequence > span { display: flex; gap: 8px; min-width: 0; font-size: var(--type-sm); }
-.pathfinder-point-sequence b { flex: none; width: 44px; color: var(--text-3); font-weight: 500; }
-.pathfinder-point-sequence small { min-width: 0; overflow: hidden; color: var(--text-1); font-size: var(--type-sm); text-overflow: ellipsis; white-space: nowrap; }
 
 .journey-timeline { margin: 0; padding: 0; list-style: none; }
 
@@ -525,6 +516,13 @@
 .journey-leg:first-child .journey-node-mark { border-color: var(--signal); }
 .journey-finish .journey-node-mark { width: 14px; height: 14px; margin-top: 2px; border: 3.5px solid var(--ink-2); background: #5ec8ff; box-shadow: 0 0 0 1.5px #5ec8ff; }
 
+/* A via point starts a new segment: a hairline break and a ringed stop. */
+.journey-leg.is-via { margin-top: 12px; }
+.journey-leg.is-via::after { position: absolute; top: -7px; left: 82px; right: 0; border-top: 1px solid var(--line-1); content: ""; }
+.journey-leg:has(+ .journey-leg.is-via)::before { bottom: -23px; }
+.journey-leg.is-via .journey-node-mark { width: 14px; height: 14px; margin-top: 2px; border: 3.5px solid var(--text-1); background: var(--ink-2); }
+.journey-via-tag { margin-left: 8px; padding: 1px 7px; border-radius: 999px; color: var(--text-2); background: var(--fill-2); font-size: var(--type-xs); font-weight: 500; vertical-align: 1px; white-space: nowrap; }
+
 .journey-place { grid-row: 1; grid-column: 3; min-width: 0; color: var(--text-1); font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
 .journey-leg-body { grid-row: 2; grid-column: 3; display: grid; justify-items: start; gap: 6px; min-width: 0; padding: 7px 0 16px; }
 .journey-leg:is(.is-walk, .is-transfer) .journey-leg-body { padding-bottom: 14px; }
@@ -562,13 +560,6 @@
 .journey-shared-services button:hover { background: var(--fill-2); }
 .journey-shared-services button > small { flex-basis: 100%; color: var(--text-3); }
 
-.routing-details { border-top: 1px solid var(--line-1); color: var(--text-3); font-size: var(--type-sm); }
-.routing-details > summary { display: flex; align-items: center; min-height: var(--row-h); color: var(--text-2); font-weight: 500; cursor: pointer; }
-.routing-details > p { margin: 0 0 8px; line-height: 1.45; }
-.routing-details dl { display: grid; margin: 0 0 8px; }
-.routing-details dl > div { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; padding: 6px 0; border-top: 1px solid var(--line-1); }
-.routing-details dt { color: var(--text-3); }
-.routing-details dd { margin: 0; color: var(--text-1); overflow-wrap: anywhere; }
 
 @media (max-width: 760px) {
   .routing-detail-panel { top: 8px; right: 8px; bottom: 8px; width: min(360px, calc(100% - 72px)); }

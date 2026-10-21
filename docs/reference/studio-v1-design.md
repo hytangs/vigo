@@ -176,15 +176,27 @@ reduced Studio CSS from 10,068 to about 7,800 lines.
   panel. Invalid dates reopen the time controls. Scenarios retain scheduled
   service; via points retain the existing transfer-limit and buffer restrictions.
 - **Journeys** read time first: the total and the departure and arrival, then
-  the boarded services on one line, then the reason the journey is shown and its
-  transfers, walking and riding. Every journey found is listed.
+  the boarded services on one line, then what it gains over the earliest arrival
+  and what that costs ("1 fewer transfer · arrive 2m later"), then its transfers,
+  walking and riding. Every journey found is listed; one that is no better than
+  another anywhere is not offered. Route signs are never cut: with three or more
+  vehicles walks show only their icon, and a card with four or more shows its
+  first and last vehicle around "…". Grouped departures show only their times.
 - **Journey detail** is a station timeline. Each stop is a node with its time;
   rides run between nodes as a line in the route's colour with the route's sign,
-  and walks, changes and waits sit between them. The Reach destination panel
-  uses the same timeline under its travel time and budget.
+  and walks, changes and waits sit between them. A via point starts a new segment
+  with a ringed stop. Every walk is drawn on the map as the same round dots. The
+  Reach destination panel uses the same timeline under its travel time and budget.
+- **No folded explanations.** Panels hold data and controls. Method notes,
+  coverage prose and disclaimers are not repeated in folded sections; precise
+  facts that matter, such as a snapshot's agency-local time, sit in a tooltip.
+- **Wheelchair routing** appears only when the City has a prepared wheelchair
+  network for the selected timetable, and not with Now: live service carries no
+  accessibility data.
 - **Analyze** colors travel time with a ramp whose luminance falls
   monotonically, from the signal chartreuse through teal and blue to violet,
-  and shows an on-map key with the displayed band edges. Its query mirrors
+  and shows an on-map key with the displayed band edges. The panel legend draws
+  from the same colour stops as the map. Its query mirrors
   Route: an origin card with the service date and departure, the travel mode as
   the same segmented control (Transit & walk | Drive), then the budget with
   presets. Run stays pinned while the query scrolls.

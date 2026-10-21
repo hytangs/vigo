@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { inflateSync } from 'node:zlib'
 
 const root = path.resolve(import.meta.dirname, '..')
 
@@ -35,9 +36,39 @@ for (const [relativePath, expectedSize] of pngAssets) {
 const studioIcon = fs.readFileSync(path.join(root, 'public/icons/VIGOIcon.png'))
 assert.equal(
   createHash('sha256').update(studioIcon).digest('hex'),
-  '040d2d891ba9140424b8913090adedc3338a5e0fa4095f995848e930560b64b2',
+  'f9c9ecf5cf0eabb7cf6d2aca445b6ad365631a4cdce141ab893dc51463c995e7',
   'public/icons/VIGOIcon.png must retain the macOS safe-area inset.',
 )
+
+// Decode an 8-bit, non-interlaced RGBA PNG and return pixel alpha.
+function pngAlpha(data) {
+  const width = data.readUInt32BE(16), height = data.readUInt32BE(20)
+  assert.deepEqual([data[24], data[25], data[28]], [8, 6, 0], 'Icon checks expect 8-bit, non-interlaced RGBA.')
+  const chunks = []
+  for (let offset = 8; offset < data.length;) {
+    const length = data.readUInt32BE(offset), type = data.toString('ascii', offset + 4, offset + 8)
+    if (type === 'IDAT') chunks.push(data.subarray(offset + 8, offset + 8 + length))
+    offset += length + 12
+  }
+  const raw = inflateSync(Buffer.concat(chunks)), stride = width * 4
+  const pixels = Buffer.alloc(stride * height)
+  for (let y = 0; y < height; y += 1) {
+    const filter = raw[y * (stride + 1)], line = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1))
+    for (let x = 0; x < stride; x += 1) {
+      const left = x >= 4 ? pixels[y * stride + x - 4] : 0, up = y ? pixels[(y - 1) * stride + x] : 0
+      const corner = x >= 4 && y ? pixels[(y - 1) * stride + x - 4] : 0
+      const estimate = left + up - corner
+      const paeth = [left, up, corner].reduce((best, value) => Math.abs(estimate - value) < Math.abs(estimate - best) ? value : best)
+      pixels[y * stride + x] = line[x] + [0, left, up, (left + up) >> 1, paeth][filter]
+    }
+  }
+  return (x, y) => pixels[y * stride + x * 4 + 3]
+}
+// The tile's rounded corners stay clear: no shadow clipped to its square bounds.
+const iconAlpha = pngAlpha(studioIcon)
+for (const [x, y] of [[140, 140], [883, 140], [140, 883], [883, 883]]) {
+  assert.ok(iconAlpha(x, y) <= 8, `public/icons/VIGOIcon.png must keep its corner at ${x},${y} clear.`)
+}
 
 const icnsPath = path.join(root, 'public/icons/VIGO.icns')
 const icns = fs.readFileSync(icnsPath)

@@ -1,18 +1,12 @@
-/* Analyze surface */
-
-/* Reach query and result hierarchy. */
-
-/* Saved scenarios: the library, then the one being edited and what it runs on. */
-
+/* Reach map hint: centred over the visible map, like the Route status pill. */
 .reach-map-hint {
   position: absolute;
   z-index: 4;
-  top: 12px;
-  left: 64px;
-  right: 12px;
+  top: 16px;
+  left: 50%;
   width: fit-content;
-  max-width: calc(100% - 76px);
-  padding: 7px 12px;
+  max-width: min(400px, calc(100% - 48px));
+  padding: 7px 14px;
   border: 0;
   border-radius: 999px;
   color: var(--text-1);
@@ -20,10 +14,10 @@
   box-shadow: var(--elev-2);
   font-size: var(--type-sm);
   line-height: 1.4;
+  transform: translateX(-50%);
   pointer-events: none;
 }
 
-/* Data surface */
 /* Dedicated map-free data and preference surface. */
 
 .app-shell.page-project.view-data:not(.project-empty) .shell-body {
@@ -398,7 +392,6 @@
   }
 }
 
-/* Desktop shell */
 /* macOS owns window chrome in the packaged app. Keep the web header focused on
    City context and let desktop menu commands control the left sidebar. */
 [data-vigo-desktop="macos"] .topbar-mark-button {
@@ -552,4 +545,3 @@
   }
 }
 
-/* Compare: one reference, variants ranked by reach gained against it. */

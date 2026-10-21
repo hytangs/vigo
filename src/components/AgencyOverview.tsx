@@ -33,7 +33,7 @@ export function AgencyOverview({ state, refreshFailed, onBrowse, onRoute, onFeed
   return <section className="agency-overview" aria-label="Network overview">
     <header className="agency-pulse">
       <span className={classNames('agency-pulse-state', live ? 'is-live' : refreshFailed ? 'is-stale' : 'is-timetable')}><i aria-hidden="true" />{live ? 'Live' : refreshFailed ? 'Stale' : 'Timetable'}</span>
-      <span className="agency-pulse-time">{refreshFailed ? 'Last updated' : 'Updated'} {shortTime}</span>
+      <span className="agency-pulse-time" title={`${refreshFailed ? 'Last successful snapshot' : 'Snapshot'} ${time} · ${state.coverage.timezone || 'UTC · agency timezone unknown'} · Service date ${state.coverage.serviceDate || 'unknown'}`}>{refreshFailed ? 'Last updated' : 'Updated'} {shortTime}</span>
     </header>
     <div className="agency-overview-metrics kit-stats" aria-label="Network snapshot measures">
       <button onClick={() => onBrowse('all')}><strong>{count(state.routes.length)}</strong><span>Routes</span></button>
@@ -62,6 +62,5 @@ export function AgencyOverview({ state, refreshFailed, onBrowse, onRoute, onFeed
           freshness.predictions && route.headway === 'changed' ? 'Changed departure spacing' : '',
         ].filter(Boolean).slice(0, 2).join(' · ') || (routeHasAttention(route, freshness) ? 'Service change reported' : 'Open route evidence')}</AgencyRouteRow>)}</div>
     </section> : null}
-    <details className="studio-disclosure agency-overview-details"><summary><span>Data &amp; coverage</span></summary><p>{refreshFailed ? 'Last successful snapshot' : 'Snapshot'} {time} · {state.coverage.timezone || 'UTC · agency timezone unknown'}</p><p>Service date {state.coverage.serviceDate || 'unknown'} · {state.cityName}</p><p>{freshness.detail}</p><p>Reporting counts routes with current trip reports. Review includes alerts and predicted service changes, ordered by alerts, service changes, then delay.</p></details>
   </section>
 }

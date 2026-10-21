@@ -110,7 +110,6 @@ import {
   type ScenarioRenderMode,
   type ScenarioStopDraft,
   type ScenarioStopPlacement,
-  type ScenarioTimeModel,
   type ScenarioView,
   type ServiceEdgeDecomposition,
 } from '../reach'
@@ -256,18 +255,6 @@ function keepsScheduledTrips(intervention: ScenarioChangeDraft) {
   return intervention.kind === 'change-line' && intervention.scheduleMode !== 'frequency'
 }
 
-function routeScopeLabel(scope: ScenarioRouteScope | undefined) {
-  if (scope === 'edge') return 'same ordered A → B edge'
-  if (scope === 'route') return 'all branches'
-  if (scope === 'pattern') return 'selected branch'
-  return 'new modeled line'
-}
-
-function timeModelLabel(model: ScenarioTimeModel | undefined) {
-  if (model === 'infer-road') return 'OSM road extrapolation'
-  return model === 'estimate-distance' ? 'straight-line estimate' : 'published segment times'
-}
-
 function geometryModeLabel(mode: ScenarioGeometryMode | undefined, kind: ScenarioChangeKind) {
   if (mode === 'auto-road') return kind === 'add-line' ? 'OSM road path' : 'GTFS shape + OSM road path'
   if (mode === 'straight-line') return 'Straight-line path + speed'
@@ -380,26 +367,17 @@ export function ReachMetricCards({
   analysis,
   surface,
   cutoffMinutes,
-  walkBudgetKm,
 }: {
   analysis: ReachResult
   surface: 'baseline' | 'scenario'
   cutoffMinutes: number
-  walkBudgetKm: number
 }) {
   const areaKm2 = scenarioReachedAreaKm2(analysis, surface, cutoffMinutes)
   const stops = transitStopsForSelectedCutoff(analysis, surface, cutoffMinutes)
-  const network = surface === 'scenario'
-    ? analysis.diagnostics.raster.scenarioNetwork
-    : analysis.diagnostics.raster.baselineNetwork
   return (
     <div className="reach-metric-grid" aria-label={`${surface === 'baseline' ? 'Baseline' : 'Scenario'} network reach metrics`}>
       <ResultMetric value={`${reachDecimal(areaKm2, 2)} km²`} label={`sampled area reached by ${cutoffMinutes} min`} />
       {analysis.request.mode !== 'drive' ? <ResultMetric value={stops === null ? 'Unavailable' : formatNumber(stops)} label={`stops reached by ${cutoffMinutes} min`} detail={stops === null ? 'Update Reach to compute this cutoff.' : undefined} /> : null}
-      <details className="kit-inline-details reach-supporting-metrics"><summary>Network details</summary>
-        <ResultMetric value={typeof network?.reachedEdgeLengthKm === 'number' && Number.isFinite(network.reachedEdgeLengthKm) ? `${reachDecimal(network.reachedEdgeLengthKm, 1)} km` : 'Unavailable'} label={`OSM streets · full ${analysis.summary.maximumCutoffMinutes} min window`} />
-        <ResultMetric value={analysis.request.mode === 'drive' ? 'Road speeds' : `${walkBudgetKm} km`} label={analysis.request.mode === 'drive' ? 'driving estimate · no live traffic' : 'final-walk budget'} />
-      </details>
     </div>
   )
 }
@@ -431,7 +409,7 @@ export function ReachTransitStatusNotice({
     const laterReach = stops === 0 && fullWindow > cutoffMinutes && fullStops !== null && fullStops > 0
       ? ` Transit reaches ${formatNumber(fullStops)} ${fullStops === 1 ? 'stop' : 'stops'} within the full ${fullWindow}-minute computed window.`
       : ''
-    if (stops !== null && stops > 0) return <details className="kit-inline-details reach-status-details"><summary>Transit timing</summary><p>{selected}{timing}</p></details>
+    if (stops !== null && stops > 0) return null
     return (
       <p className="reach-inline-note" role="status" aria-live="polite">
         {selected}{laterReach}{timing}
@@ -641,35 +619,6 @@ function EditableStopSequence({
       ) : null}
     </div>
   )
-}
-
-function interventionDetails(
-  intervention: ScenarioChangeDraft,
-  routes: RouteMetric[],
-) {
-  const route = routes.find((entry) => (
-    entry.id === intervention.routeId || entry.patternId === intervention.routeId
-  ))
-  if (intervention.kind === 'remove-line') {
-    return route ? `Removes ${routeOptionLabel(route)}` : 'Route removal not configured'
-  }
-  const editedStops = intervention.stops.filter((stop) => (
-    stop.editStatus === 'inserted' || stop.editStatus === 'replaced'
-  )).length
-  const source = intervention.kind === 'add-line'
-    ? 'New modeled line'
-    : route
-      ? routeOptionLabel(route)
-      : 'Route not configured'
-  return [
-    source,
-    `${intervention.stops.length} stops${editedStops ? ` · ${editedStops} edited` : ''}`,
-    `${routeScopeLabel(intervention.routeScope)} · ${timeModelLabel(intervention.timeModel)}`,
-    keepsScheduledTrips(intervention) ? 'Original scheduled departures' : `${intervention.headwayMinutes} min headway`,
-    `${intervention.averageSpeedKph} km/h average speed`,
-    keepsScheduledTrips(intervention) ? 'Original service dates and hours' : `${serviceTimeLabel(intervention.startMinutes)}–${serviceTimeLabel(intervention.endMinutes)}`,
-    !keepsScheduledTrips(intervention) && intervention.bidirectional && intervention.routeScope !== 'edge' ? 'both directions' : 'one direction',
-  ].join(' · ')
 }
 
 function scenarioSaveLabel(state: ScenarioSaveState) {
@@ -903,6 +852,9 @@ export function AnalyzePanelView({
             <GitCompareArrows size={13} aria-hidden="true" /><span>Compare</span>
           </button>
         </div>
+        <button type="button" className="kit-icon-button reach-new" onClick={onClearOrigin} disabled={!origin} aria-label="New Reach" title="Clear the origin and start a new Reach">
+          <RotateCcw size={15} aria-hidden="true" />
+        </button>
       </header>
       <form className="reach-form" onSubmit={submit}>
 
@@ -1553,16 +1505,6 @@ export function AnalyzePanelView({
               {serviceDecompositionError ? <p className="reach-inline-note is-error" role="alert">{serviceDecompositionError}</p> : null}
             </div>
           ) : null}
-          <details className="studio-disclosure reach-method-record">
-            <summary>Comparison method and limits</summary>
-            <dl>
-              <div><dt>Snapshot</dt><dd>{comparisonRun.serviceDate} · {serviceTimeLabel(comparisonRun.departMinutes)} · one origin</dd></div>
-              <div><dt>Measure</dt><dd>Reachable raster cells within {comparisonRun.cutoffMinutes} total elapsed minutes on one shared grid; final walking is capped at {maxWalkKm} km; not people or opportunities</dd></div>
-              <div><dt>Reference</dt><dd>{comparisonRun.reference.label} is computed once and reused for every variant</dd></div>
-              <div><dt>Minutes saved</dt><dd>Mean change over cells every compared network reaches within the budget; newly reached and lost cells are counted separately</dd></div>
-            </dl>
-            {analysis ? <ul>{analysis.limitations.map((limitation) => <li key={limitation.code}>{limitation.detail}</li>)}</ul> : null}
-          </details>
         </section>
       ) : null}
 
@@ -1599,9 +1541,6 @@ export function AnalyzePanelView({
             analysis={analysis}
             surface={view === 'scenario' ? 'scenario' : 'baseline'}
             cutoffMinutes={cutoffMinutes}
-            walkBudgetKm={view === 'scenario'
-              ? analysis.surface.reachability?.scenarioTerminalWalkKm ?? analysis.request.maxWalkKm
-              : analysis.surface.reachability?.baselineTerminalWalkKm ?? analysis.request.maxWalkKm}
           />
           <ReachTransitStatusNotice
             analysis={analysis}
@@ -1619,34 +1558,6 @@ export function AnalyzePanelView({
             {reachDelta(scenarioDifference.areaKm2, 2)} km² · {scenarioDifference.transitStops === null
               ? 'stop difference unavailable at this cutoff' : `${reachDelta(scenarioDifference.transitStops)} reached stops`} from baseline
           </p> : null}
-          <details className="studio-disclosure reach-method-record">
-            <summary>Method and limits</summary>
-            <dl>
-              <div><dt>Snapshot</dt><dd>{analysis.request.serviceDate} · {serviceTimeLabel(analysis.request.departMinutes)} · one origin</dd></div>
-              <div><dt>Measure</dt><dd>{analysis.request.mode === 'drive' ? `Grid points reachable within ${cutoffMinutes} driving minutes.` : `Reachable raster cells within ${cutoffMinutes} total elapsed minutes; final walking is capped at ${analysis.request.maxWalkKm} km.`}</dd></div>
-              <div><dt>Method</dt><dd>{analysis.request.mode === 'drive' ? 'Directed OSM driving routes using road-speed estimates; no live traffic.' : 'Total elapsed OSM access walk + transit + terminal walk.'}</dd></div>
-              {analysis.request.mode !== 'drive' ? <div><dt>Access</dt><dd>{analysis.request.maxWalkKm} km at {analysis.request.walkSpeedKph ?? walkSpeedKph} km/h · OSM pedestrian network</dd></div> : null}
-              <div><dt>Surface</dt><dd>{analysis.request.surfaceSampling === 'cell-center' ? `Fixed grid within ${analysis.request.radiusKm} km of the origin. Outside this extent is not evaluated.` : 'Complete reached-street vector extent'}</dd></div>
-            </dl>
-            {analysis.request.mode !== 'drive' && activeCase?.interventions.length ? (
-              <ol className="reach-method-interventions" aria-label="Modeled scenario assumptions">
-                {activeCase.interventions.map((intervention) => (
-                  <li key={intervention.id}>
-                    <strong>{intervention.name || interventionLabels[intervention.kind]}</strong>
-                    <small>{interventionDetails(intervention, routes)}</small>
-                  </li>
-                ))}
-              </ol>
-            ) : null}
-            {activeCase?.interventions.some((intervention) => hasLineSettings(intervention.kind)) ? (
-              <p className="reach-method-caveat">
-                Edited lines keep their scheduled departures, service dates, and per-trip timing unless frequency and hours are explicitly changed. Road edits distribute each trip’s running time and add 0.35 minutes at inserted stops. New services and frequency changes use the chosen headway and hours. Travel-time changes are modeled estimates, not observed operations.
-              </p>
-            ) : null}
-            <ul>
-              {analysis.limitations.map((limitation) => <li key={limitation.code}>{limitation.detail}</li>)}
-            </ul>
-          </details>
         </section>
       ) : null}
     </section>

@@ -29,10 +29,24 @@ export function JourneyLegStrip({ plan, showBar = true }: { plan: RoutingPlan; s
   })
   const steps = plan.legs.filter((leg) => leg.type === 'ride'
     || (leg.durationMinutes >= 1 && !isSameStationTransfer(leg)))
+  const rides = steps.filter((leg) => leg.type === 'ride')
+  // With three or more vehicles, walks keep only their icon so every line fits.
+  const compactWalks = rides.length > 2
+  // A card shows a long journey as its first and last vehicle; the detail shows every leg.
+  const collapsed = !showBar && rides.length > 3
+  const firstRide = steps.indexOf(rides[0]), lastRide = steps.lastIndexOf(rides.at(-1)!)
+  const hidden = collapsed ? steps.slice(firstRide + 1, lastRide).filter((leg) => leg.type === 'ride') : []
+  const shown = collapsed ? [...steps.slice(0, firstRide + 1), null, ...steps.slice(lastRide)] : steps
   return (
     <span className="pathfinder-leg-strip" aria-hidden="true">
       <span className="pathfinder-leg-steps">
-        {steps.map((leg, index) => {
+        {shown.map((leg, index) => {
+          if (!leg) return (
+            <span key="more" className="pathfinder-leg-step">
+              <ChevronRight size={11} className="pathfinder-leg-sep" />
+              <span className="pathfinder-leg-more" title={hidden.map((ride) => ride.routeShortName || ride.routeId).join(' → ')}>…</span>
+            </span>
+          )
           const color = routingLegColor(leg)
           return (
             <span key={index} className="pathfinder-leg-step">
@@ -46,9 +60,9 @@ export function JourneyLegStrip({ plan, showBar = true }: { plan: RoutingPlan; s
                   {leg.routeShortName || leg.routeId || 'Ride'}
                 </span>
               ) : (
-                <span className="pathfinder-leg-walk">
+                <span className="pathfinder-leg-walk" title={formatRoutingMinutes(leg.durationMinutes)}>
                   {leg.type === 'drive' ? <Car size={12} /> : <Footprints size={12} />}
-                  {formatRoutingMinutes(leg.durationMinutes)}
+                  {compactWalks ? null : formatRoutingMinutes(leg.durationMinutes)}
                 </span>
               )}
             </span>

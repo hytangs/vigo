@@ -318,8 +318,6 @@ export type ScenarioGeometryMode = 'published-shape' | 'auto-road' | 'straight-l
 type Rgb = readonly [number, number, number]
 
 export const reachDifferenceCapMinutes = 15
-export const reachTimeGradient = 'linear-gradient(90deg, #3550ff 0%, #00c2ff 20%, #35d0a1 40%, #ffd166 60%, #ff9645 80%, #ff6757 100%)'
-export const reachDifferenceGradient = 'linear-gradient(90deg, #ff6757 0%, #94a3b8 50%, #35d0a1 100%)'
 
 // Luminance falls monotonically with travel time, so "nearer" always reads
 // brighter on the dark canvas and the ramp survives greyscale and colour-vision
@@ -335,6 +333,11 @@ const reachTimeRamp: ReadonlyArray<readonly [number, Rgb]> = [
 const reachDifferenceSlow: Rgb = [255, 111, 111]
 const reachDifferenceSame: Rgb = [139, 149, 164]
 const reachDifferenceFast: Rgb = [74, 222, 154]
+
+// Legends draw from the same stops the map paints with.
+const rgb = ([red, green, blue]: Rgb) => `rgb(${red}, ${green}, ${blue})`
+export const reachTimeGradient = `linear-gradient(90deg, ${reachTimeRamp.map(([stop, color]) => `${rgb(color)} ${stop * 100}%`).join(', ')})`
+export const reachDifferenceGradient = `linear-gradient(90deg, ${rgb(reachDifferenceSlow)} 0%, ${rgb(reachDifferenceSame)} 50%, ${rgb(reachDifferenceFast)} 100%)`
 
 function blendRgb(left: Rgb, right: Rgb, progress: number): [number, number, number] {
   const bounded = Math.max(0, Math.min(1, progress))
@@ -380,8 +383,7 @@ export function reachBandColor(bands: readonly number[], index: number): string 
   const lower = index > 0 ? bands[index - 1] : 0
   const upper = bands[index]
   const top = bands.at(-1) ?? upper
-  const [red, green, blue] = reachTimeColor(top > 0 ? (lower + upper) / 2 / top : 1)
-  return `rgb(${red}, ${green}, ${blue})`
+  return rgb(reachTimeColor(top > 0 ? (lower + upper) / 2 / top : 1))
 }
 
 export function reachDifferenceColor(deltaMinutes: number): [number, number, number] {

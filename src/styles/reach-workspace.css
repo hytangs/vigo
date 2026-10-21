@@ -240,20 +240,12 @@
 
 .reach-metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; min-width: 0; overflow: hidden; border-radius: var(--group-radius); background: var(--line-1); box-shadow: inset 0 0 0 1px var(--line-1); }
 .reach-metric-grid > .result-metric { padding: 9px 10px 8px; background: var(--ink-3); }
-.reach-metric-grid > .reach-supporting-metrics { grid-column: 1 / -1; padding: 0 10px; background: var(--ink-3); }
-.reach-supporting-metrics > summary { display: flex; align-items: center; min-height: 32px; color: var(--text-2); font-size: var(--type-sm); cursor: pointer; }
-.reach-supporting-metrics[open] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-bottom: 10px; }
-.reach-supporting-metrics[open] > summary { grid-column: 1 / -1; }
 
 .result-metric { display: grid; gap: 1px; min-width: 0; }
 .result-metric > :is(strong, span, small) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .result-metric > strong { color: var(--text-1); font: 600 var(--type-xl)/1.15 var(--font-display); letter-spacing: -0.02em; white-space: nowrap; }
 .result-metric > span { color: var(--text-3); font-size: var(--type-xs); }
 .result-metric > small { color: var(--text-4); font-size: var(--type-xs); }
-
-.reach-status-details,
-.reach-method-record { color: var(--text-3); font-size: var(--type-sm); line-height: 1.45; }
-.reach-status-details > p { margin: 4px 0 0; }
 .reach-result-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px; border-radius: var(--group-radius); background: var(--fill-1); }
 .reach-result-flow > span { display: grid; gap: 1px; }
 .reach-result-flow b { color: var(--text-1); font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -261,14 +253,6 @@
 .reach-result-flow > .is-gain b { color: var(--good); }
 .reach-result-flow > svg { color: var(--text-4); }
 .reach-scenario-difference { margin: 0; color: var(--text-2); font-size: var(--type-sm); }
-.reach-method-record dl { display: grid; margin: 0 0 8px; }
-.reach-method-record dl > div { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 8px; padding: 6px 0; border-top: 1px solid var(--line-1); }
-.reach-method-record dt { color: var(--text-3); }
-.reach-method-record dd { margin: 0; color: var(--text-1); overflow-wrap: anywhere; }
-.reach-method-record :is(ol, ul) { margin: 4px 0 8px; padding-left: 18px; }
-.reach-method-record li + li { margin-top: 4px; }
-.reach-method-interventions small { display: block; color: var(--text-3); }
-.reach-method-caveat { margin: 0 0 8px; }
 
 /* Compare results */
 .compare-reference { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 8px; padding: 9px 10px; border-radius: var(--group-radius); background: var(--fill-1); }

@@ -79,7 +79,6 @@ export function AgencyTripTimetable({ projectId, routeId, initialTripId = '', in
         const current = call === currentCall
         return <tr key={call.index} className={current ? 'is-current-stop' : call.progress === 'Passed' ? 'is-passed-stop' : undefined} aria-current={current ? 'step' : undefined}><th scope="row"><span className="agency-trip-stop">{call.stop.name}</span>{call.status ? <small>{call.status}</small> : current ? <small>{call.progress}</small> : null}</th><td>{clock(event.scheduled)}</td><td>{clock(value)}{last ? <small>Last prediction{last.observedAt ? ` · updated ${clock(last.observedAt)}` : ''}</small> : null}{value !== null && event.scheduled !== null ? <small>{vehicleDelayLabel(value - event.scheduled)}</small> : null}</td></tr>
       })}</tbody></table></div>
-      <details className="agency-trip-source"><summary>Timing &amp; source</summary><p className="agency-caption">{data.trip.predictionAt ? `Trip update ${clock(data.trip.predictionAt)}. ` : ''}Trip progress uses a fresh vehicle-position report. Passed stops are collapsed; their scheduled times are not recorded arrival or departure times. Last predictions are retained while viewing this trip; they are not actual times. — means unavailable. Predictions do not confirm arrival or departure. Frequency-based trips require a trip-instance timetable.</p></details>
     </>}
   </section>
 }

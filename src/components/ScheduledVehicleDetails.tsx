@@ -23,10 +23,5 @@ export function ScheduledVehicleDetails({ card, active }: { card: ServiceVehicle
         <div><span>{Math.round(schedule.elapsedMinutes)} min elapsed</span><span>{Math.round(schedule.runtimeMinutes)} min total</span></div>
       </div>
     </> : <p className="scheduled-vehicle-inactive" role="status">This trip is not active at the selected time. Choose another vehicle or move the clock back.</p>}
-    <details className="scheduled-vehicle-provenance">
-      <summary>Timetable details</summary>
-      <dl><dt>Service date</dt><dd>{schedule.serviceDate}</dd><dt>{active ? 'Selected time' : 'Selected at'}</dt><dd>{schedule.clock}</dd><dt>Trip</dt><dd>{schedule.tripId}</dd></dl>
-      <p>Position is estimated from the published timetable, not a live vehicle report.</p>
-    </details>
   </section>
 }

@@ -105,7 +105,7 @@ try {
     assert.equal(await read('window.selectionRequests.at(-1).wheelchair'),false);
     await read('document.querySelector("[role=switch]").click()');
     await until(()=>read('window.selectionRequests.at(-1).wheelchair===true'));
-    assert.match(await read('document.querySelector(".routing-setup").textContent'),/Unknown accessibility is excluded/);
+    assert.equal(await read('document.querySelector("[role=switch]").checked'),true);
     await read('document.querySelector("[role=switch]").click()');
     await until(()=>read('window.selectionRequests.at(-1).wheelchair===false'));
     for(const width of [320,390]){

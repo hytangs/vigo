@@ -43,9 +43,10 @@ export function RoutingSetup(props: RoutingSetupProps) {
   const transit = routingMode === 'transit'
   const activeTab = transit ? tab : 'when'
   const departNow = transit && routingDataMode === 'realtime'
-  const realtimeAvailable = !routingWheelchair && !routingNetwork?.selectedId
-  const realtimeUnavailableReason = routingWheelchair ? 'Wheelchair routing uses the published timetable.'
-    : routingNetwork?.selectedId ? 'Scenarios run on the published timetable.' : undefined
+  const realtimeAvailable = !routingNetwork?.selectedId
+  const realtimeUnavailableReason = routingNetwork?.selectedId ? 'Scenarios run on the published timetable.' : undefined
+  // Accessibility is prepared from the published timetable; live service has no accessibility data.
+  const wheelchairShown = Boolean(onRoutingWheelchairChange) && !departNow
   const transferLimitUnavailable = routingWaypoints.length > 0
   const maxTransfers = transferLimitUnavailable ? undefined : routingMaxTransfers
   const buffer = transferLimitUnavailable ? 0 : routingMinimumTransferBufferMinutes
@@ -91,13 +92,12 @@ export function RoutingSetup(props: RoutingSetupProps) {
     </header>
 
     <div id={`${id}-content`} hidden={collapsed}>
-    {onRoutingWheelchairChange ? <div className="routing-accessibility">
+    {wheelchairShown ? <div className="routing-accessibility">
       <label className="routing-setup-toggle">
-        <span><strong>Wheelchair routing</strong><small>Use vehicles and paths marked accessible</small></span>
+        <span><strong>Wheelchair routing</strong><small>Only vehicles and paths marked accessible</small></span>
         <input type="checkbox" role="switch" aria-label="Wheelchair routing" checked={routingWheelchair}
-          onChange={event => onRoutingWheelchairChange(event.currentTarget.checked)} />
+          onChange={event => onRoutingWheelchairChange?.(event.currentTarget.checked)} />
       </label>
-      {routingWheelchair ? <details className="kit-inline-details routing-accessibility-details"><summary>Accessibility coverage</summary><p>Uses the prepared wheelchair network. Unknown accessibility is excluded. Elevator outages and access from a building to the street are not verified.</p></details> : null}
     </div> : null}
     {transit ? <div className="routing-setup-tabs" role="tablist" aria-label="Journey settings">
       {(['when', 'preferences'] as const).map(value => <button key={value} type="button" role="tab"
@@ -121,7 +121,7 @@ export function RoutingSetup(props: RoutingSetupProps) {
       }}>
       {transit ? <div className="studio-tabs routing-setup-time" role="group" aria-label="Departure time" aria-describedby="pathfinder-data-mode-help">
         <button type="button" aria-pressed={departNow} disabled={!realtimeAvailable} title={realtimeUnavailableReason}
-          onClick={() => { onRoutingTimePreferenceChange('depart'); onRoutingDataModeChange('realtime') }}>Now</button>
+          onClick={() => { if (routingWheelchair) onRoutingWheelchairChange?.(false); onRoutingTimePreferenceChange('depart'); onRoutingDataModeChange('realtime') }}>Now</button>
         {routingTimeOptions.map(option => <button key={option.value} type="button" aria-pressed={!departNow && routingTimePreference === option.value}
           onClick={() => { onRoutingTimePreferenceChange(option.value); if (departNow) onRoutingDataModeChange('scheduled') }}>{option.value === 'arrive' ? 'Arrive by' : 'Depart at'}</button>)}
       </div> : <span className="routing-setup-label">Depart at</span>}
@@ -150,14 +150,14 @@ export function RoutingSetup(props: RoutingSetupProps) {
             </select>
           </label>
           <label className="routing-setup-select" htmlFor="pathfinder-transfer-buffer"><span>Transfer buffer</span>
-            <select id="pathfinder-transfer-buffer" value={buffer} disabled={transferLimitUnavailable} aria-label="Minimum transfer buffer" aria-describedby="pathfinder-transfer-buffer-help" onChange={event => onRoutingMinimumTransferBufferChange(Number(event.currentTarget.value))}>
+            <select id="pathfinder-transfer-buffer" value={buffer} disabled={transferLimitUnavailable} aria-label="Minimum transfer buffer" onChange={event => onRoutingMinimumTransferBufferChange(Number(event.currentTarget.value))}>
               {[0, 1, 2, 3, 5, 10, 15, 20, 30, 60].map(minutes => <option key={minutes} value={minutes}>{minutes === 0 ? 'None' : `${minutes} min`}</option>)}
             </select>
           </label>
         </div>
         {transferLimitUnavailable ? <p className="routing-setup-note" id="pathfinder-transfer-limit-note">Transfer limits are available for routes without via points.</p> : null}
         <label className="routing-setup-toggle"><span><strong>Walk between stops</strong><small>Connect nearby stations and stops</small></span>
-          <input id="pathfinder-street-transfers" type="checkbox" role="switch" aria-label="Allow walks between stations or stops" checked={routingAllowStreetTransfers} aria-describedby="pathfinder-street-transfers-help" onChange={event => onRoutingAllowStreetTransfersChange(event.currentTarget.checked)} />
+          <input id="pathfinder-street-transfers" type="checkbox" role="switch" aria-label="Allow walks between stations or stops" checked={routingAllowStreetTransfers} onChange={event => onRoutingAllowStreetTransfersChange(event.currentTarget.checked)} />
         </label>
       </div>
       <div className="routing-preference-section">
@@ -170,11 +170,6 @@ export function RoutingSetup(props: RoutingSetupProps) {
           <input id="pathfinder-long-walk" type="checkbox" role="switch" aria-label="Allow longer end-to-end walks" checked={routingAllowLongWalk} onChange={event => onRoutingAllowLongWalkChange(event.currentTarget.checked)} />
         </label>
       </div>
-      <details className="studio-disclosure routing-setup-help"><summary><span>How these settings work</span></summary>
-        <p id="pathfinder-transfer-buffer-help">{transferLimitUnavailable ? 'Transfer buffers are available for routes without via points.' : 'The transfer buffer adds time before boarding your next service, after any transfer walk. Your first boarding is unaffected.'}</p>
-        <p id="pathfinder-street-transfers-help">{routingAllowStreetTransfers ? 'Walking transfers include connections between separate stations or stops. Station paths and fare eligibility may remain unverified.' : 'Change services at the same stop or within one station. Walking to your first stop and from your last stop is still allowed; station paths may remain unverified.'}</p>
-        <p>The access limit applies to walking to your first stop and from your last stop. {routingAllowLongWalk ? 'Transit may also be compared with a graph-verified walk beyond this limit.' : 'Walk-only results stay within this limit; transit is not replaced by a long walk.'}</p>
-      </details>
     </div> : null}
     </div>
     {transit || collapsed ? <footer className="routing-setup-summary">{collapsed ? <strong>{whenSummary}</strong> : null}{transit ? <span>{summary}</span> : null}</footer> : null}

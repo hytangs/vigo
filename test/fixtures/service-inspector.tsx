@@ -54,7 +54,6 @@ window.prepareInspector=async()=>{
 }
 window.checkInspectorLayout=async(appearance,expanded=false)=>{
   flushSync(()=>setAppearance(appearance))
-  document.querySelector('.scheduled-vehicle-provenance').open=expanded
   await pause(180)
   const card=document.querySelector('.map-live-card'),toolbar=document.querySelector('.service-state-panel')
   const c=card.getBoundingClientRect(),t=toolbar.getBoundingClientRect(),surface=document.querySelector('.route-surface').getBoundingClientRect()

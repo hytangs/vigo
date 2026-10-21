@@ -98,9 +98,6 @@
 .agency-trip-timetable tbody th { border-left: 3px solid var(--line-color); color: var(--text-strong); }
 .agency-trip-timetable small { display: block; white-space: normal; color: var(--text-muted); font-weight: 400; }
 
-.agency-trip-source { margin-top: 16px; color: var(--text-muted); font-size: 12px; }
-.agency-trip-source summary { min-height: 36px; padding: 8px 0; cursor: pointer; }
-
 .agency-vehicle-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 
 .agency-line-vehicle.has-alert { border-color: var(--warn); }
@@ -143,10 +140,4 @@
 .scheduled-vehicle-progress progress::-webkit-progress-bar { background: var(--line-2); }
 .scheduled-vehicle-progress progress::-webkit-progress-value { background: var(--signal); }
 .scheduled-vehicle-progress progress::-moz-progress-bar { background: var(--signal); }
-.scheduled-vehicle-provenance { padding-top: 12px; border-top: 1px solid var(--line-2); color: var(--text-3); font-size: var(--type-xs); }
-.scheduled-vehicle-provenance summary { cursor: pointer; width: fit-content; }
-.scheduled-vehicle-provenance summary:hover { color: var(--text-1); }
-.scheduled-vehicle-provenance dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; margin: 12px 0; }
-.scheduled-vehicle-provenance dd { margin: 0; color: var(--text-2); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
-.scheduled-vehicle-provenance p { margin: 0; }
 .scheduled-vehicle-inactive { margin: 20px 0; color: var(--text-2); }
