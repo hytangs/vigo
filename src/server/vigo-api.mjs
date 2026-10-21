@@ -46,7 +46,7 @@ import { normalizeRoutingPointIdentities } from './routing-point-identity.mjs'
 import { hydrateScenarioRouteServices } from './scenario-services.mjs'
 import { resolveServiceDay, serviceDayForDate } from './service-day.mjs'
 import { buildServiceEdgeDecomposition } from './service-decomposition.mjs'
-import { createStreetPreparationManager } from './street-preparation.mjs'
+import { createStreetPreparationManager, prepareStreetsInWorker } from './street-preparation.mjs'
 import { allocateProjectTransportAtlasBudgets, compactTransportPreview, projectTransportAtlasBudgets } from './transport-atlas.mjs'
 import { bundleNetworkScope, createTransitNetworkTiles, transitNetworkCatalog } from './transit-network-tiles.mjs'
 
@@ -182,7 +182,8 @@ function retireRouting(file) {
 }
 
 const streetPreparationManager = createStreetPreparationManager({
-  pool: nationalRouteWorkerPool,
+  walking: (preparation) => prepareStudioStreets(preparation, false),
+  driving: (preparation) => prepareStudioStreets(preparation, true),
   onJob: (job) => nationalImportJobs.set(job.id, job),
 })
 
@@ -3091,11 +3092,16 @@ async function nativeRouteSelection(projectId, project, body) {
  * when its stores changed since they were last prepared (the JavaScript City
  * preparation step writes them; queries never do).
  */
-async function queryNativeCity(selection, request, signal) {
+async function queryNativeCity(selection, request, signal, { afterPreparation = true } = {}) {
+  // A route sent while its City opens waits for that preparation rather than
+  // opening another process and activating the date twice.
+  const preparing = afterPreparation && preparingLayouts.get(selection.layout.key)
+  if (preparing) await preparing.catch(() => {})
   try {
     return await nativeRuntime.query(selection.layout, request, signal)
   } catch (error) {
     if (!(error instanceof NativeCityUnavailableError) || !error.preparation || selection.wheelchair) throw error
+    nativePreparationStats.repaired += 1
     await nationalRouteWorkerPool.prepareRoutingAccess(selection.storePath, {
       reason: 'native-runtime-preparation',
       signal,
@@ -3109,6 +3115,71 @@ async function queryNativeCity(selection, request, signal) {
     await nationalRouteWorkerPool.retire(selection.storePath)
     return nativeRuntime.query(selection.layout, request, signal)
   }
+}
+
+// Opening a City and activating a service date happen in the native runtime.
+// Studio keeps no JavaScript copy of the streets, access profile or
+// timetable: the worker only writes a project's derived files when the runtime
+// reports them missing or stale, and is retired once they are on disk.
+const nativePreparationStats = { started: 0, completed: 0, failed: 0, repaired: 0 }
+const nativePreparations = new Map()
+const preparingLayouts = new Map()
+const warmStops = new Map()
+
+/** A served stop of the store; a route from it to itself activates a date. */
+function warmStopId(storePath) {
+  if (!warmStops.has(storePath)) {
+    const db = new DatabaseSync(storePath, { readOnly: true })
+    try {
+      warmStops.set(storePath, db.prepare('SELECT from_stop_id AS stop FROM connections LIMIT 1').get()?.stop ?? null)
+    } finally {
+      db.close()
+    }
+  }
+  return warmStops.get(storePath)
+}
+
+/**
+ * Open `selection`'s City and activate `context`'s service date with its
+ * transfer settings, through 36:00 so later departures reuse it. Concurrent
+ * callers with the same context share one preparation.
+ */
+function prepareNativeCity(selection, context) {
+  const settings = {
+    allowStreetTransfers: context.allowStreetTransfers !== false,
+    minimumTransferBufferMinutes: Number(context.minimumTransferBufferMinutes ?? 0),
+  }
+  const key = JSON.stringify([selection.layout.key, context.serviceDate ?? null, settings])
+  let preparation = nativePreparations.get(key)
+  if (!preparation) {
+    nativePreparationStats.started += 1
+    preparation = (async () => {
+      const started = performance.now()
+      const stopId = context.serviceDate ? warmStopId(selection.storePath) : null
+      const request = stopId
+        ? { kind: 'route', mode: 'transit', origin: { stopId }, destination: { stopId }, serviceDate: context.serviceDate,
+            timeMinutes: 1439, maxWalkKm: 0, ...settings, ...(selection.wheelchair ? { wheelchair: true } : {}) }
+        : { kind: 'info' }
+      const trace = await queryNativeCity(selection, request, undefined, { afterPreparation: false })
+      nativePreparationStats.completed += 1
+      return {
+        ready: true,
+        runtime: 'rust',
+        serviceDate: context.serviceDate ?? null,
+        timetableActivated: Boolean(stopId),
+        preparationMs: Number((performance.now() - started).toFixed(1)),
+        cityRevision: trace?.cityRevision ?? trace?.revisionId ?? null,
+      }
+    })()
+    nativePreparations.set(key, preparation)
+    preparingLayouts.set(selection.layout.key, preparation)
+    const settle = () => {
+      nativePreparations.delete(key)
+      if (preparingLayouts.get(selection.layout.key) === preparation) preparingLayouts.delete(selection.layout.key)
+    }
+    preparation.then(settle, () => { nativePreparationStats.failed += 1; settle() })
+  }
+  return preparation
 }
 
 function nationalRequestServiceContext(body, defaultContext = currentNationalRoutingServiceContext()) {
@@ -3501,6 +3572,9 @@ async function preloadNationalBuiltStore({
         error.activeServiceKernel = activeServiceKernel
         throw error
       }
+      // The import's derived files are on disk and the native City routes
+      // from them; the JavaScript worker that wrote them need not stay.
+      await nationalRouteWorkerPool.retire(storePath)
       return {
         serviceDate: context.serviceDate,
         serviceDay: context.serviceDay,
@@ -3575,44 +3649,34 @@ async function prepareNationalRouting(projectId, body, signal) {
       requestedRoutingContext: routingContext,
     }
   }
-  const routing = await nationalRouteWorkerPool.prepare(storePath, {
-    reason: 'routing-readiness',
-    signal,
-    context: {
-      ...routingContext,
-      readinessOnly: true,
-    },
-  })
-  // Pathfinder readiness only admits the immutable local store. Load the exact
-  // active-date kernel, transfers, and coordinate access in the same resident
-  // worker while the person chooses A/B; an immediate route coalesces here.
-  const routingAccessContext = {
-    ...routingContext,
-    streetStorePath: projectStreetStorePath,
-  }
-  const accessAlreadyPrepared = nationalRouteWorkerPool.isRoutingAccessPrepared(
-    storePath,
-    routingAccessContext,
-  )
-  void nationalRouteWorkerPool.prepareRoutingAccess(storePath, {
-    reason: 'routing-readiness-background-access',
-    context: routingAccessContext,
-  }).catch((error) => {
+  // The native City opens and activates the date while the person picks A
+  // and B; a route sent meanwhile waits for the same preparation.
+  const selection = projectStreetStorePath
+    ? await nativeRouteSelection(projectId, project, { ...body, mode: 'transit' }).catch(() => null)
+    : null
+  const preparation = selection
+    ? prepareNativeCity(selection, { ...routingContext, ...transferSettings(body) })
+    : null
+  preparation?.catch((error) => {
     if (!isAbortError(error)) {
-      console.warn(
-        `Unable to prepare background routing access for ${projectId}:`,
-        error instanceof Error ? error.message : error,
-      )
+      console.warn(`Unable to prepare the native City for ${projectId}:`, error instanceof Error ? error.message : error)
     }
   })
+  if (signal?.aborted) throw makeAbortError()
   return {
-    ...routing,
+    ready: true,
+    serviceModel: 'native',
+    serviceDateOptions: [],
     serviceCoverage,
     requestedRoutingContext: routingContext,
-    accessPreparation: {
-      state: accessAlreadyPrepared ? 'ready' : 'warming',
-      background: !accessAlreadyPrepared,
-    },
+    accessPreparation: { state: preparation ? 'warming' : 'ready', background: Boolean(preparation) },
+  }
+}
+
+function transferSettings(body) {
+  return {
+    ...(body?.allowStreetTransfers !== undefined ? { allowStreetTransfers: body.allowStreetTransfers } : {}),
+    ...(body?.minimumTransferBufferMinutes !== undefined ? { minimumTransferBufferMinutes: body.minimumTransferBufferMinutes } : {}),
   }
 }
 
@@ -3831,6 +3895,44 @@ async function runServiceEdgeDecomposition(projectId, body, signal) {
   }
 }
 
+/**
+ * Open a project's walking or driving network in its native City. The
+ * JavaScript worker writes derived street files the runtime lacks, then is
+ * retired. A street-only project, with no City to open, prepares in the worker.
+ */
+async function prepareStudioStreets(preparation, drive) {
+  const { projectId, storePath, workerStorePath, signal } = preparation
+  const prepareInWorker = () => prepareStreetsInWorker(nationalRouteWorkerPool, drive)(preparation)
+  if (workerStorePath === storePath) return prepareInWorker()
+  const project = await readProjectMetadata(projectId)
+  const selection = await nativeRouteSelection(projectId, project, { mode: drive ? 'drive' : 'walk' })
+  if (!drive) {
+    // The City opens with its walking network, repairing derived files first.
+    await queryNativeCity(selection, { kind: 'info' }, signal)
+    return
+  }
+  const db = new DatabaseSync(selection.storePath, { readOnly: true })
+  let place
+  try {
+    place = db.prepare('SELECT lon, lat FROM stops WHERE stop_id = ?').get(warmStopId(selection.storePath))
+  } finally {
+    db.close()
+  }
+  const coordinate = place ? { coordinate: [Number(place.lon), Number(place.lat)] } : null
+  const warm = () => coordinate
+    ? nativeRuntime.query(selection.layout, { kind: 'route', mode: 'drive', origin: coordinate, destination: coordinate, timeMinutes: 720 }, signal)
+    : Promise.reject(new Error('The City has no stop to open its driving network from.'))
+  try {
+    await warm()
+  } catch (error) {
+    if (signal?.aborted) throw error
+    // Driving writes its derived network on first use.
+    await prepareInWorker()
+    await nationalRouteWorkerPool.retire(workerStorePath)
+    await warm()
+  }
+}
+
 async function prepareProjectStreets(projectId, project, retry = false, prepareDrive = false) {
   const storePath = streetStoreFile(projectId)
   const stats = await fs.stat(storePath)
@@ -3844,13 +3946,14 @@ async function prepareProjectStreets(projectId, project, retry = false, prepareD
 async function setStreetResidency(projectId, body) {
   const project = await readProjectMetadata(projectId)
   const storePath = await streetWorkerStore(projectId, project)
-  if (body?.resident !== true) return { residency: nationalRouteWorkerPool.setResidency(storePath, false, body?.leaseId), job: null }
+  const layout = nativeLayout(projectMetaDir(projectId), storePath)
+  if (body?.resident !== true) return { residency: nativeRuntime.setResidency(layout, false, body?.leaseId), job: null }
   if (project.osmStreetIndex?.status !== 'ready' || nationalImportProjects.get(projectId)?.has('osm')) {
     const error = new Error('The OSM street import must finish before walking and driving can be prepared.')
     error.statusCode = 409
     throw error
   }
-  const residency = nationalRouteWorkerPool.setResidency(storePath, true, body?.leaseId)
+  const residency = nativeRuntime.setResidency(layout, true, body?.leaseId)
   return { residency, job: await prepareProjectStreets(projectId, project, body?.retry === true, body?.prepareDrive === true) }
 }
 
@@ -3859,36 +3962,15 @@ async function setRoutingResidency(projectId, body) {
   const feedId = String(body?.feedId ?? '')
   const { storePath } = await requireRoutingStore(projectId, project, feedId)
   if (body?.resident === true) body = resolveStoreDepartNow(storePath, body)
-  const residency = nationalRouteWorkerPool.setResidency(
-    storePath,
-    body?.resident === true,
-    body?.leaseId,
-  )
-  // Queries run in the native City: the same lease keeps it open.
+  // Queries run in the native City: the lease keeps it open.
   const layout = nativeLayout(projectMetaDir(projectId), storePath)
-  nativeRuntime.setResidency(layout, body?.resident === true, body?.leaseId)
+  const residency = nativeRuntime.setResidency(layout, body?.resident === true, body?.leaseId)
   let reachPreparation = null
   if (body?.resident === true && String(body?.serviceDate ?? '').trim()) {
-    const streetPath = project.osmStreetIndex?.status === 'ready'
-      && await exists(streetStoreFile(projectId))
-      ? streetStoreFile(projectId)
-      : null
-    if (streetPath) {
+    const selection = await nativeRouteSelection(projectId, project, { ...body, mode: 'transit' }).catch(() => null)
+    if (selection) {
       try {
-        reachPreparation = await nationalRouteWorkerPool.prepareRoutingAccess(
-          storePath,
-          {
-            reason: 'reach-residency',
-            context: {
-              ...nationalRequestServiceContext(body),
-              streetStorePath: streetPath,
-              allowServiceDateFallback: false,
-              requireCompleteServiceCoverage: true,
-            },
-          },
-        )
-        // The prepared files are current: open the City before the first query.
-        nativeRuntime.open(layout)
+        reachPreparation = await prepareNativeCity(selection, { ...nationalRequestServiceContext(body), ...transferSettings(body) })
       } catch (error) {
         reachPreparation = {
           ready: false,
@@ -4157,6 +4239,7 @@ async function route(request, response) {
       artifactSchemaVersion,
       routingRuntime: nationalRouteWorkerPool.snapshot(),
       nativeRuntime: nativeRuntime.snapshot(),
+      nativePreparation: { ...nativePreparationStats, pending: nativePreparations.size },
     })
     return true
   }

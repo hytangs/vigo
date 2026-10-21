@@ -192,19 +192,6 @@ class NationalRouteWorkerClient {
     return { ...this.prepareResult, alreadyWarm: true }
   }
 
-  admissionPrepared(operation, streetStorePath) {
-    const normalizedStreetStorePath = String(streetStorePath ?? '').trim()
-    if (!normalizedStreetStorePath) return false
-    const storePath = path.resolve(normalizedStreetStorePath)
-    if (operation === 'prepare-transfers') {
-      return Boolean(this.transferPrepareResult?.ready && this.transferPrepareStorePath === storePath)
-    }
-    if (operation === 'prepare-street') {
-      return Boolean(this.streetPrepareResult?.ready && this.streetPrepareStorePath === storePath)
-    }
-    return false
-  }
-
   routingAccessResultFor(contextKey) {
     if (
       !this.worker
@@ -775,54 +762,11 @@ export class NationalRouteWorkerPool {
     return waitForPromiseWithSignal(entry.promise, signal)
   }
 
-  isPrepared(storePath, context) {
-    const normalizedContext = nationalRoutingPrewarmContext(context)
-    return Boolean(this.clients.get(storePath)?.preparedResultFor(normalizedContext.key))
-  }
-
-  isRoutingAccessPrepared(storePath, context) {
-    const normalizedContext = nationalRoutingPrewarmContext(context)
-    return Boolean(this.clients.get(storePath)?.routingAccessResultFor(normalizedContext.key))
-  }
-
-  isAdmissionPrepared(storePath, operation, streetStorePath) {
-    return Boolean(this.clients.get(storePath)?.admissionPrepared(operation, streetStorePath))
-  }
-
   isStreetPrepared(storePath, requireDrive = false) {
     const client = this.clients.get(storePath)
     const street = client?.streetPrepareResult?.streetStore
     return Boolean(client?.hasWorker && street?.ready && street.accelerated
       && (!requireDrive || (street.drive?.ready && street.drive.accelerated && !street.drive.deferred)))
-  }
-
-  dispatchRoutingAccessPrepared(storePath, operation, request, { signal, context, onProgress } = {}) {
-    const timetableContext = nationalRoutingPrewarmContext({
-      ...context,
-      readinessOnly: true,
-      streetStorePath: undefined,
-    })
-    return this.#withRouteLifecycle(storePath, signal, async () => {
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        await this.#prepareNormalized(storePath, timetableContext, signal, 'route-dispatch')
-        await this.prepareRoutingAccess(storePath, {
-          reason: 'route-dispatch',
-          signal,
-          context,
-        })
-        try {
-          return await this.dispatch(storePath, operation, request, signal, onProgress)
-        } catch (error) {
-          if (
-            attempt === 0
-            && error?.code === 'VIGO_ROUTE_WORKER_RESTARTED'
-            && !signal?.aborted
-          ) continue
-          throw error
-        }
-      }
-      throw new Error('Unable to restore the prepared route worker.')
-    })
   }
 
   #prepareNormalized(storePath, normalizedContext, signal, reason) {
