@@ -20,7 +20,7 @@ const raw = { status: 'ready', departureMinutes: 480, arrivalMinutes: 500, legs:
 const plan = studioRouteResponse(raw, body).choices[0]
 assert.deepEqual(plan.legs[0].intermediateStops, stops, 'Keep every stop call in order, including revisits')
 plan.sharedLegAlternatives = { options: [], frequencies: [{ legIndex: 0, departureCount: 4, uniqueDepartureCount: 3,
-  status: 'complete', windowStartSeconds: 28800, windowEndSeconds: 30600, meanHeadwaySeconds: 600 }] }
+  departureSeconds: [28800, 29400, 30000], status: 'complete', windowStartSeconds: 28800, windowEndSeconds: 30600, meanHeadwaySeconds: 600 }] }
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-journey-stops-'))
 let previewHtml = '', farePreviewHtml = '', linkedPreviewHtml = ''
 const server = await createViteTestServer({ configFile: false, cacheDir: path.join(directory, 'cache'),
@@ -61,6 +61,7 @@ try {
     assert.match(html, /Stops along the way · 3/)
     assert.match(html, /Market Street<\/li><li[^>]*>Library<\/li><li[^>]*>Market Street/)
     assert.match(html, /<summary>4 departures<\/summary>/)
+    assert.match(html, /aria-label="Departure times"><time[^>]*>08:00<\/time><time[^>]*>08:10<\/time><time[^>]*>08:20<\/time>/)
     assert.doesNotMatch(html, /distinct times|Mean gap/)
   }
   const { RoutingFare } = await server.ssrLoadModule('/src/components/RoutingFare.tsx')

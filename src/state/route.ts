@@ -462,7 +462,7 @@ export function wheelchairSelectionKey() {
   const project = selectedProject()
   const state = route.get()
   return JSON.stringify([project.id, project.osmStreetIndex, routingScope().nationalRoutingStoreKey,
-    state.routeScenarioId, state.routingMode, state.routingWaypoints.length])
+    state.routeScenarioId, routeScenario().request?.key, state.routingMode, state.routingWaypoints.length])
 }
 export function wheelchairAvailable() {
   return route.get().wheelchairAvailableKey === wheelchairSelectionKey()

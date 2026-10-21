@@ -554,14 +554,13 @@
     pointer-events: auto;
   }
 
-  /* All three workspaces keep one full-height panel frame. Short content
-     stays at the top; the remaining panel is intentionally empty. */
+  /* Floating panels keep the same gutter and rounding on all four sides. */
   .app-shell.has-stage :is(.agency-panel, .sidebar-panel) {
     width: var(--panel-width);
-    height: calc(100% - var(--stage-gutter));
-    max-height: calc(100% - var(--stage-gutter));
+    height: calc(100% - 2 * var(--stage-gutter));
+    max-height: calc(100% - 2 * var(--stage-gutter));
     border: 0;
-    border-radius: var(--panel-radius) var(--panel-radius) 0 0;
+    border-radius: var(--panel-radius);
     box-shadow: var(--elev-2);
   }
 

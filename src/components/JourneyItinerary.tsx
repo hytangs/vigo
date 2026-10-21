@@ -108,20 +108,27 @@ export function RoutingItinerary({ plan, destinationLabel }: { plan: RoutingPlan
             </details> : null}
             {leg.stationAccessStatus !== 'unverified' && leg.transferSource === 'parent_station_fallback' ? <p className="journey-caution">Assumed station connection time</p> : null}
             {ride && plan.sharedLegAlternatives && (frequency || sharedOptions.length > 0) ?
-              <details className="kit-inline-details journey-leg-evidence journey-shared-services">
-                <summary>{frequency ? <>{frequency.status === 'incomplete' ? 'At least ' : ''}{frequency.departureCount} departure{frequency.departureCount === 1 ? '' : 's'}</> : 'Services on this leg'}</summary>
-                {frequency ? <p className="journey-combined-frequency">
-                  {formatScheduleClock(frequency.windowStartSeconds / 60)}–{formatScheduleClock(frequency.windowEndSeconds / 60)}
-                </p> : null}
-                {sharedOptions.map(option => {
-                  const alternate = option.plan.legs[index]
-                  return <button type="button" key={option.plan.id} onClick={() => selectRoutingPlan(option.plan.id)}>
-                    <strong>{alternate.routeShortName || alternate.routeId}</strong>
-                    <span>{formatScheduleClock(alternate.startMinutes)} → {formatScheduleClock(alternate.endMinutes)}</span>
-                    <small>{alternate.routeId} · Arrive {formatScheduleClock(option.plan.arriveMinutes ?? option.plan.departMinutes + option.plan.durationMinutes)}</small>
-                  </button>
-                })}
-              </details> : null}
+              <div className="journey-leg-evidence journey-shared-services">
+                <p className="journey-departure-times" aria-label="Departure times">{(frequency?.departureSeconds ?? [leg.startMinutes * 60, ...sharedOptions.map(option => option.plan.legs[index].startMinutes * 60)])
+                  .filter((time, i, times) => times.indexOf(time) === i).sort((a, b) => a - b)
+                  .map(time => <time key={time}>{formatScheduleClock(time / 60)}</time>)}</p>
+                <details className="kit-inline-details">
+                  <summary>{frequency ? <>{frequency.status === 'incomplete' ? 'At least ' : ''}{frequency.departureCount} departure{frequency.departureCount === 1 ? '' : 's'}</> : 'Services on this leg'}</summary>
+                  {frequency ? <p className="journey-combined-frequency">
+                    {formatScheduleClock(frequency.windowStartSeconds / 60)}–{formatScheduleClock(frequency.windowEndSeconds / 60)}
+                  </p> : null}
+                  {frequency && frequency.departureCount > frequency.uniqueDepartureCount ? <p className="journey-leg-meta">Some services depart at the same time.</p> : null}
+                  {frequency?.status === 'incomplete' ? <p className="journey-leg-meta">More departures may be available in this window.</p> : null}
+                  {sharedOptions.map(option => {
+                    const alternate = option.plan.legs[index]
+                    return <button type="button" key={option.plan.id} onClick={() => selectRoutingPlan(option.plan.id)}>
+                      <strong>{alternate.routeShortName || alternate.routeId}</strong>
+                      <span>{formatScheduleClock(alternate.startMinutes)} → {formatScheduleClock(alternate.endMinutes)}</span>
+                      <small>{alternate.routeId} · Arrive {formatScheduleClock(option.plan.arriveMinutes ?? option.plan.departMinutes + option.plan.durationMinutes)}</small>
+                    </button>
+                  })}
+                </details>
+              </div> : null}
           </div>
         </li>
       })}

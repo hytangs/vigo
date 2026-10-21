@@ -567,3 +567,10 @@
   .routing-setup-fold > svg,
   .pathfinder-location-actions { transition: none; }
 }
+
+.journey-departure-times { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 8px 0 4px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+.scenario-network-settings { display: grid; gap: 8px; margin: 8px 0; padding: 12px; border: 1px solid var(--line-1); border-radius: var(--radius-md); min-width: 0; }
+.scenario-network-settings legend { color: var(--text-2); font-size: 0.8rem; }
+.scenario-network-settings p { margin: 0; color: var(--text-3); font-size: 0.75rem; line-height: 1.5; }
+.scenario-network-settings label { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; }

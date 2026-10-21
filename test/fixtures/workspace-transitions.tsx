@@ -80,7 +80,8 @@ window.checkTransitions = async () => {
       const geometry = JSON.stringify([rect.x, rect.y, rect.width, rect.height])
       panelFrame ??= geometry
       if (geometry !== panelFrame) failures.add('Panel dimensions differ on ' + name)
-      if (Math.abs(rect.bottom - frame.getBoundingClientRect().bottom) > 1) failures.add('Panel does not reach the bottom on ' + name)
+      if (Math.abs(frame.getBoundingClientRect().bottom - rect.bottom - parseFloat(getComputedStyle(document.querySelector('.app-shell')).getPropertyValue('--stage-gutter'))) > 1) failures.add('Panel bottom gutter differs on ' + name)
+      if (parseFloat(getComputedStyle(panel).borderBottomLeftRadius) === 0) failures.add('Panel bottom corner is square on ' + name)
       if (getComputedStyle(panel).transform !== 'none') failures.add('Panel frame animates on ' + name)
     }
   }

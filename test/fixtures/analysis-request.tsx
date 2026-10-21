@@ -59,24 +59,25 @@ window.checkAnalysisRequest = async () => {
   flushSync(() => document.querySelector('.analysis-origin-confirm').click())
   await until(() => !document.querySelector('.reach-run').disabled)
   document.querySelector('.reach-advanced').open = true
+  const timeInput = document.querySelector('.reach-query-fields input[type=time]')
+  const initialTime = timeInput.value
+  fill(timeInput, '')
+  assert(timeInput.value === initialTime, 'Clearing the clock must not replace Reach time with NaN')
   fill(field('Time budget'), 37.25); fill(field('Maximum transit rides'), 1)
   fill(field('Final walk limit'), 0.35); fill(field('Walking speed'), 4.65)
   flushSync(() => document.querySelector('.reach-run').click())
   await until(() => requests.length === 1 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
-  flushSync(() => [...document.querySelectorAll('.reach-mode-tabs button')].find(button => button.textContent === 'Compare').click())
-  for (const box of document.querySelectorAll('.reach-comparison-feed-option input')) {
-    if (!box.checked) flushSync(() => box.click())
-  }
+  assert(!document.querySelector('.reach-mode-tabs'), 'Retired Compare switch is still visible')
+  document.querySelector('.reach-scenario-builder').open = true
+  const feedBox = () => [...document.querySelectorAll('.scenario-network-settings label')].find(label => label.textContent === 'first').querySelector('input')
+  flushSync(() => feedBox().click())
   await until(() => !document.querySelector('.reach-run').disabled)
   flushSync(() => document.querySelector('.reach-run').click())
-  // Compare measures the reference (the Baseline group) once, then each selected timetable against it.
-  await until(() => requests.length === 4 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
-  assert(requests[1].feedIds.join() === 'first,second' && !requests[1].baselineFeedIds, 'Compare did not measure its reference first')
-  assert(requests.slice(2).every(request => request.baselineFeedIds?.join() === 'first,second' && request.feedIds.length === 1), 'Compare variants lost their reference')
-  // A single run adds round-minute display bands below the exact budget; comparisons compute the budget only.
-  assert(JSON.stringify(requests[0].cutoffsMinutes) === '[10,20,30,37.25]', 'Single Reach must band below the exact budget')
-  for (const request of requests.slice(1)) {
-    assert(JSON.stringify(request.cutoffsMinutes) === '[37.25]', 'App computed an unrequested time window')
+  await until(() => requests.length === 2 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
+  assert(requests[1].feedIds.join() === 'second' && requests[1].baselineFeedIds.join() === 'first,second', 'Network remix lost its baseline or selected feeds')
+  flushSync(() => feedBox().click())
+  for (const request of requests) {
+    assert(JSON.stringify(request.cutoffsMinutes) === '[10,20,30,37.25]', 'Reach must band below the exact budget')
   }
   for (const request of requests) {
     assert(request.maxTransfers === 0 && request.maxWalkKm === 0.35 && request.walkSpeedKph === 4.65, 'App lost precise travel limits')
@@ -84,8 +85,8 @@ window.checkAnalysisRequest = async () => {
   }
   fill(field('Maximum transit rides'), '')
   flushSync(() => document.querySelector('.reach-run').click())
-  await until(() => requests.length === 7 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
-  assert(requests.slice(4).every(request => !('maxTransfers' in request)), 'Automatic ride limit was serialized as a number')
+  await until(() => requests.length === 3 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
+  assert(requests.slice(2).every(request => !('maxTransfers' in request)), 'Automatic ride limit was serialized as a number')
   // Arrive by: the chosen point becomes the destination and the clock its deadline.
   const timeChoice = label => flushSync(() => [...document.querySelectorAll('.reach-time-preference button')].find(button => button.textContent === label).click())
   const kicker = () => document.querySelector('.reach-origin-row .reach-section-kicker').textContent
@@ -94,17 +95,16 @@ window.checkAnalysisRequest = async () => {
   assert([...document.querySelectorAll('.reach-query-fields .reach-field > span')].some(span => span.textContent === 'Deadline'), 'Arrive by must label the clock a deadline')
   await until(() => !document.querySelector('.reach-run').disabled)
   flushSync(() => document.querySelector('.reach-run').click())
-  await until(() => requests.length === 10 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
-  flushSync(() => [...document.querySelectorAll('.reach-mode-tabs button')].find(button => button.textContent === 'Reach').click())
+  await until(() => requests.length === 4 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
   assert(field('First walk limit').value === '0.35', 'Arrive by walks first, within the same limit')
   flushSync(() => document.querySelector('.reach-run').click())
-  await until(() => requests.length === 11 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
-  for (const request of requests.slice(7)) {
+  await until(() => requests.length === 5 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
+  for (const request of requests.slice(3)) {
     assert(request.timePreference === 'arrive' && !('origin' in request), 'Arrive by must send a destination, not an origin')
     assert(request.destination.coordinate[0] === -71.058987654 && request.destination.coordinate[1] === 42.360123456, 'Destination precision was lost')
     assert(request.departMinutes === requests[0].departMinutes, 'The deadline is the chosen clock')
   }
   timeChoice('Leave at')
   assert(kicker().startsWith('Origin'), 'Leave at restores the origin')
-  return { singleAndComparison: true, exactLimits: true, noHiddenWindow: true, automaticLimit: true, arriveBy: true, requests: requests.length }
+  return { networkRemix: true, exactLimits: true, noHiddenWindow: true, automaticLimit: true, arriveBy: true, requests: requests.length }
 }

@@ -18,7 +18,6 @@ function openData() {
 window.checkCaseRequest = async () => {
   await window.checkAnalysisRequest()
   assert(requests[0].feedIds.join() === 'first,second' && !requests[0].feedId, 'Initial case did not request its group feeds')
-  click('.reach-mode-tabs button:first-child')
   openData()
   await until(()=>document.querySelector('.city-data-library'))
   click('.city-data-groups > button'); type('.city-group-name input','Second timetable')

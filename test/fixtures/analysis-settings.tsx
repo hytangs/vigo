@@ -24,12 +24,12 @@ function Fixture() {
         <nav className="sidebar-rail" aria-label="Navigation"><button className="sidebar-rail-button" aria-current="page">◎</button></nav>
         <section className="sidebar-panel is-analyze">
           <div className="sidebar-panel-head"><h1 className="studio-page-title">Analyze</h1></div>
-          <AnalyzePanelView mode="single" origin={{ coordinate: [-71.1, 42.36], label: 'Starting point', source: 'map' }}
+          <AnalyzePanelView origin={{ coordinate: [-71.1, 42.36], label: 'Starting point', source: 'map' }}
             serviceDate="2026-10-07" departMinutes={535} maxWalkKm={walk} walkSpeedKph={speed} maxTransfers={transfers}
-            cutoffMinutes={limit} surfaceSampling={surface} renderMode="area" onRenderModeChange={() => {}} cases={[]} feeds={[]} comparisonFeedIds={[]} routes={[]} stops={[]}
+            cutoffMinutes={limit} surfaceSampling={surface} renderMode="area" onRenderModeChange={() => {}} cases={[]} routes={[]} stops={[]}
             analysis={null} preparationTasks={[]} routingStoreAvailable streetGraphAvailable
             onMaxWalkKmChange={setWalk} onWalkSpeedChange={setSpeed} onMaxTransfersChange={setTransfers}
-            onCutoffChange={setLimit} onSurfaceSamplingChange={setSurface} onModeChange={() => {}}
+            onCutoffChange={setLimit} onSurfaceSamplingChange={setSurface}
             onRun={() => { state.submitted = { ...state.current, speed: surface === 'cell-center' ? 4.8 : state.current.speed } }} onServiceDateChange={() => {}} onDepartMinutesChange={() => {}} />
         </section>
       </aside>

@@ -3,6 +3,7 @@ import type { VigoProject } from '../domain'
 import type { ScenarioDraft } from '../reach'
 import {
   initialScenarioLibrary,
+  updateScenarioNetwork,
   libraryFromSaved,
   loadScenarioLibrary,
   maximumScenarios,
@@ -244,6 +245,10 @@ export function useScenarioLibrary(project: VigoProject) {
 
   return {
     scenarioDrafts: scenarios,
+    setScenarioNetworkFeed: useCallback((scenarioId: string, feedId: string, selected: boolean) => update(library => {
+      if (!projectRef.current.feeds.some(feed => feed.id === feedId)) return library
+      return updateScenarioNetwork(library, scenarioId, feedId, selected)
+    }), [update]),
     setScenarioDrafts: useCallback((action: SetStateAction<ScenarioDraft[]>) => update(library => {
       const next = resolve(action, library.scenarios)
       return next === library.scenarios ? library : { ...library, scenarios: next.slice(0, maximumScenarios) }

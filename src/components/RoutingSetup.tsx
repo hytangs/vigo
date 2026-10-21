@@ -1,3 +1,4 @@
+import { ScenarioNetworkSettings } from './ScenarioNetworkSettings'
 import { Accessibility, ChevronDown, Clock3, SlidersHorizontal } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { classNames } from '../domain'
@@ -55,7 +56,7 @@ export function RoutingSetup(props: RoutingSetupProps) {
   const searchSummary = departNow || routingTimePreference === 'depart'
     ? routingDepartureWindowMinutes ? 'Later departures' : 'Exact time'
     : routingDepartureWindowMinutes ? 'Earlier arrivals' : 'Arrive by'
-  const summary = [routingWheelchair ? 'Wheelchair' : '', searchSummary, `${routingMaxWalkKm.toFixed(1)} km access`,
+  const summary = [scenario?.name ?? '', routingWheelchair ? 'Wheelchair' : '', searchSummary, `${routingMaxWalkKm.toFixed(1)} km access`,
     maxTransfers === undefined ? '' : `≤${maxTransfers} transfers`,
     routingAllowStreetTransfers === false ? 'No street transfers' : '', buffer > 0 ? `${buffer} min buffer` : ''].filter(Boolean).join(' · ')
   const whenSummary = departNow ? 'Depart now'
@@ -76,16 +77,7 @@ export function RoutingSetup(props: RoutingSetupProps) {
 
   return <section className="routing-setup" aria-label="Journey settings">
     <header className="routing-setup-header">
-    {transit && routingNetwork?.scenarios.length ? <div className="routing-setup-network">
-      <div>
-        <label htmlFor={`${id}-network`}>Network</label>
-        <select id={`${id}-network`} value={routingNetwork.selectedId} onChange={event => routingNetwork.onChange(event.currentTarget.value)} aria-label="Route network" title={scenario ? `${scenario.name} · ${scenario.detail}` : 'City timetable'}>
-          <option value="">{routingNetwork.baselineLabel ?? 'City timetable'}</option>
-          {routingNetwork.scenarios.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-        </select>
-      </div>
-      {routingNetwork.error ? <p role="alert">{routingNetwork.error}</p> : null}
-    </div> : <span className="routing-setup-title"><SlidersHorizontal size={14} aria-hidden="true" />Journey settings</span>}
+    <span className="routing-setup-title"><SlidersHorizontal size={14} aria-hidden="true" />Journey settings</span>
       {onRoutingWheelchairChange ? <button type="button" className="kit-icon-button routing-wheelchair" aria-pressed={routingWheelchair}
         disabled={Boolean(wheelchairReason)} aria-label="Wheelchair routing" title={wheelchairReason || 'Wheelchair routing'}
         onClick={() => onRoutingWheelchairChange(!routingWheelchair)}><Accessibility size={15} aria-hidden="true" /></button> : null}
@@ -133,6 +125,16 @@ export function RoutingSetup(props: RoutingSetupProps) {
     </div>
 
     {transit ? <div className="routing-setup-panel" id={`${id}-preferences-panel`} role="tabpanel" aria-labelledby={`${id}-preferences-tab`} hidden={activeTab !== 'preferences'}>
+    {transit && routingNetwork?.scenarios.length ? <div className="routing-setup-network">
+      <div>
+        <label htmlFor={`${id}-network`}>Network / scenario</label>
+        <select id={`${id}-network`} value={routingNetwork.selectedId} onChange={event => routingNetwork.onChange(event.currentTarget.value)} aria-label="Route network" title={scenario ? `${scenario.name} · ${scenario.detail}` : 'City timetable'}>
+          <option value="">{routingNetwork.baselineLabel ?? 'City timetable'}</option>
+          {routingNetwork.scenarios.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select>
+      </div>
+    </div> : null}
+      {routingNetwork?.selectedId ? <ScenarioNetworkSettings scenarioId={routingNetwork.selectedId} /> : null}
       {departNow || routingTimePreference === 'depart' ? <div className="routing-preference-section">
         <span className="routing-setup-label">Departure search</span>
         <div className="studio-tabs routing-setup-source" role="group" aria-label="Departure search window">
@@ -176,6 +178,7 @@ export function RoutingSetup(props: RoutingSetupProps) {
       </div>
     </div> : null}
     </div>
+    {transit && routingNetwork?.error ? <p className="routing-setup-note" role="alert">{routingNetwork.error}</p> : null}
     {transit || collapsed ? <footer className="routing-setup-summary">{collapsed ? <strong>{whenSummary}</strong> : null}{transit ? <span>{summary}</span> : null}</footer> : null}
   </section>
 }
