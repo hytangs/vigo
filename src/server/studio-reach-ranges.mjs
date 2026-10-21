@@ -29,8 +29,13 @@ export function plannedService(service) {
   }
 }
 
-/** The public Reach request for one Studio range (`baseline-range`, `scenario-range`). */
+/**
+ * The public Reach request for one Studio range (`baseline-range`,
+ * `scenario-range`). An arrive-by range names a destination and reads its
+ * clock as the arrival deadline.
+ */
 export function nativeReachRangeRequest(range, { sourceScopes } = {}) {
+  const arriveBy = range.timePreference === 'arrive'
   const surface = range.surface ?? {}
   const width = Number(surface.width)
   if (!Number.isInteger(width) || width !== Number(surface.height)) {
@@ -45,7 +50,7 @@ export function nativeReachRangeRequest(range, { sourceScopes } = {}) {
     arrayEncoding: 'base64',
     mode: range.mode ?? 'transit',
     surfaceSampling: range.surfaceSampling ?? 'street',
-    origin: routePoint(range.origin),
+    ...(arriveBy ? { timePreference: 'arrive_by', destination: routePoint(range.destination) } : { origin: routePoint(range.origin) }),
     serviceDate: range.serviceDate,
     timeMinutes: Number(range.departMinutes),
     maxWalkKm: range.maxWalkKm,
@@ -57,7 +62,8 @@ export function nativeReachRangeRequest(range, { sourceScopes } = {}) {
     includeStreetEdges: surface.includeEdges === true,
     includeNodes: false,
     // The scenario surface grows from the reference surface just computed.
-    ...(range.stage === 'baseline-range' ? { surfaceReuse: 'baseline' }
+    // Arrive-by surfaces search afresh: reuse grows depart-at surfaces only.
+    ...(arriveBy ? {} : range.stage === 'baseline-range' ? { surfaceReuse: 'baseline' }
       : range.stage === 'scenario-range' ? { surfaceReuse: 'scenario' } : {}),
     ...((range.mode ?? 'transit') === 'transit' ? {
       routingDataMode: 'scheduled',
@@ -72,15 +78,17 @@ export function nativeReachRangeRequest(range, { sourceScopes } = {}) {
   }
 }
 
-/** The preliminary walking preview: the origin's own street surface. */
-export function nativePreliminaryRequest(surface, origin, serviceDate, departMinutes) {
+/** The preliminary walking preview: the street surface around the Reach place. */
+export function nativePreliminaryRequest(surface, place, serviceDate, departMinutes) {
+  const point = { coordinate: surface.seeds?.[0]?.coordinate ?? place.coordinate }
   return {
     kind: 'reach',
     reachFormat: 'surface',
     arrayEncoding: 'base64',
     mode: 'walk',
     surfaceSampling: 'street',
-    origin: { coordinate: surface.seeds?.[0]?.coordinate ?? origin.coordinate },
+    // Walking to a destination follows one-way paths in their direction.
+    ...(surface.timePreference === 'arrive' ? { timePreference: 'arrive_by', destination: point } : { origin: point }),
     serviceDate,
     timeMinutes: Number(departMinutes),
     maxWalkKm: surface.maxWalkKm,
@@ -155,10 +163,15 @@ export function nativeSurface(result) {
 
 function transitStatus(result, range) {
   const stops = Array.isArray(result.stops) ? result.stops.length : 0
-  const departure = Number(range.departMinutes)
-  const base = {
-    requestedDepartureMinutes: departure,
-    windowEndMinutes: departure + Number(range.cutoffMinutes),
+  const clock = Number(range.departMinutes)
+  const arriveBy = range.timePreference === 'arrive'
+  const base = arriveBy ? {
+    requestedArrivalMinutes: clock,
+    windowStartMinutes: clock - Number(range.cutoffMinutes),
+    reachedStops: stops,
+  } : {
+    requestedDepartureMinutes: clock,
+    windowEndMinutes: clock + Number(range.cutoffMinutes),
     reachedStops: stops,
   }
   if ((range.mode ?? 'transit') !== 'transit') {
@@ -166,17 +179,32 @@ function transitStatus(result, range) {
       ? { ...base, status: 'drive_only', detail: 'Driving only; road-speed estimates.', reachedStops: 0 }
       : { ...base, status: 'walk_only', detail: 'Walking only.', reachedStops: 0 }
   }
-  if (stops > 0) return { ...base, status: 'reached', detail: `${stops} transit stops are reachable within the selected window.` }
+  if (stops > 0) {
+    return { ...base, status: 'reached', detail: arriveBy
+      ? `${stops} transit stops reach the destination within the selected window.`
+      : `${stops} transit stops are reachable within the selected window.` }
+  }
   return {
     ...base,
     status: 'no_reachable_stops',
-    detail: 'Scheduled transit is present, but no transit stop is reachable within the selected window and access budget.',
+    detail: arriveBy
+      ? 'Scheduled transit is present, but no transit stop reaches the destination within the selected window and access budget.'
+      : 'Scheduled transit is present, but no transit stop is reachable within the selected window and access budget.',
   }
 }
 
 /** A native Reach Result as the range Studio's Reach composition expects. */
 export function studioReachRange(result, range) {
-  const overlayIds = new Set((range.scenarioOverlay?.stops ?? []).map((stop, index) => String(stop?.id ?? `scenario:${index}`)))
+  const overlayStops = range.scenarioOverlay?.stops ?? []
+  const overlayIds = new Set(overlayStops.map((stop, index) => String(stop?.id ?? `scenario:${index}`)))
+  // Arrive-by runs planned services on the scenario's timetable view: a planned
+  // stop on a GTFS stop is that stop, and a placed stop keeps its place and
+  // label under an identifier of the view's own.
+  const placed = stop => JSON.stringify([stop.coordinate, stop.label ?? stop.name])
+  const placedStops = new Set(range.timePreference === 'arrive'
+    ? overlayStops.filter(stop => !stop.stopId).map(placed)
+    : [])
+  const planned = stop => overlayIds.has(String(stop.stopId)) || placedStops.has(placed(stop))
   const allStops = (result.stops ?? []).map(stop => ({
     stopId: stop.stopId,
     name: stop.name,
@@ -186,12 +214,14 @@ export function studioReachRange(result, range) {
   const transit = result.diagnostics?.transit
   return {
     schemaVersion: 'vigo.result.reach.v1',
-    stops: allStops.filter(stop => !overlayIds.has(String(stop.stopId))),
-    scenarioStops: allStops.filter(stop => overlayIds.has(String(stop.stopId))),
+    stops: allStops.filter(stop => !planned(stop)),
+    scenarioStops: allStops.filter(planned),
     surface: nativeSurface(result),
     diagnostics: {
       owner: 'rust_standalone_runtime',
-      algorithm: range.scenarioOverlay
+      algorithm: range.timePreference === 'arrive'
+        ? 'rust_resident_reverse_connection_scan_many_to_one'
+        : range.scenarioOverlay
         ? 'rust_resident_query_overlay_connection_scan_one_to_many'
         : 'rust_resident_connection_scan_one_to_many',
       transit: transitStatus(result, range),

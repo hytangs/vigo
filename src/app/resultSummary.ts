@@ -1,4 +1,4 @@
-import { scenarioReachedAreaKm2, scenarioReachablePixels, type ReachResult, type ScenarioSurface } from '../reach'
+import { reachPlace, scenarioReachedAreaKm2, scenarioReachablePixels, type ReachResult, type ScenarioSurface } from '../reach'
 
 /** A missing exact cutoff is unknown, even if a longer window reached stops. */
 export function reachTransitStops(result: ReachResult, surface: ScenarioSurface, cutoffMinutes: number): number | null {
@@ -22,7 +22,7 @@ export function reachResultMetrics(result: ReachResult, surface: ScenarioSurface
 }
 
 export function reachResultsComparable(reference: ReachResult, result: ReachResult, cutoffMinutes: number) {
-  const settings = ({ request }: ReachResult) => [request.origin.coordinate, request.serviceDate, request.departMinutes,
+  const settings = ({ request }: ReachResult) => [request.timePreference ?? 'depart', reachPlace(request).coordinate, request.serviceDate, request.departMinutes,
     request.mode ?? 'transit', request.surfaceSampling ?? 'street', request.maxWalkKm,
     request.walkSpeedKph ?? 4.8, request.maxTransfers ?? null]
   return !reference.diagnostics.preliminary && !result.diagnostics.preliminary

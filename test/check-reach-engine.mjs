@@ -22,6 +22,7 @@ import { finalizeCurrentStreetFixture } from './helpers/street-fixture.mjs'
 import { normalizeRoutingPointIdentities } from '../src/server/routing-point-identity.mjs'
 import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
 import { readGtfsRouteAnalysis } from '../src/server/gtfs-analysis-store.mjs'
+import { nativePreliminaryRequest, nativeReachRangeRequest, studioReachRange } from '../src/server/studio-reach-ranges.mjs'
 
 const repositoryRoot = path.resolve(import.meta.dirname, '..')
 const folder = await fsp.mkdtemp(path.join(os.tmpdir(), 'vigo-reach-'))
@@ -261,6 +262,33 @@ try {
   assert.equal(normalizeRoutingPointIdentities(opaqueStorePath, { origin: { ...selectedOrigin, stopId: 'feed-local::station::platform' } }, 'feed-local').origin.stopId,
     'feed-local\u001fstation::platform')
 
+  // Arrive-by ranges name the destination and search afresh: surface reuse
+  // grows depart-at surfaces only.
+  const rangeSurface = { width: 48, height: 48, bounds: [7.99, 46.99, 8.02, 47.01] }
+  const departRange = { stage: 'baseline-range', origin: selectedOrigin, departMinutes: 480, cutoffMinutes: 20, surface: rangeSurface }
+  const arriveRange = { stage: 'baseline-range', timePreference: 'arrive', destination: selectedDestination, departMinutes: 490, cutoffMinutes: 20, surface: rangeSurface }
+  assert.equal(nativeReachRangeRequest(departRange).surfaceReuse, 'baseline')
+  assert.equal(nativeReachRangeRequest({ ...departRange, stage: 'scenario-range' }).surfaceReuse, 'scenario')
+  for (const stage of ['baseline-range', 'scenario-range']) {
+    const native = nativeReachRangeRequest({ ...arriveRange, stage })
+    assert.equal(native.timePreference, 'arrive_by')
+    assert.deepEqual(native.destination, { stopId: 'feed-local::D', coordinate: [8, 47.005], label: 'Imported destination', source: 'stop' })
+    assert.equal(native.origin, undefined)
+    assert.equal(native.surfaceReuse, undefined)
+    assert.equal(native.timeMinutes, 490)
+  }
+  const preliminary = nativePreliminaryRequest({ timePreference: 'arrive', seeds: [{ coordinate: [8, 47.005] }], width: 48, bounds: rangeSurface.bounds }, selectedDestination, '2026-07-20', 490)
+  assert.deepEqual([preliminary.timePreference, preliminary.destination, preliminary.origin], ['arrive_by', { coordinate: [8, 47.005] }, undefined])
+  // A placed planned stop returns under the view's identifier; a GTFS stop at
+  // the same place keeps its own name.
+  const placedOverlay = { stops: [{ id: 'p', label: 'Planned P', coordinate: [8.0075, 47] }] }
+  const ranged = studioReachRange({ stops: [
+    { stopId: 'scenario-0123456789ab\u001fstop:0', name: 'Planned P', coordinate: [8.0075, 47], durationMinutes: 5 },
+    { stopId: 'G', name: 'GTFS stop', coordinate: [8.0075, 47], durationMinutes: 7 },
+  ] }, { ...arriveRange, stage: 'scenario-range', scenarioOverlay: placedOverlay })
+  assert.deepEqual([ranged.stops.map(stop => stop.stopId), ranged.scenarioStops.map(stop => stop.name)], [['G'], ['Planned P']])
+  assert.equal(ranged.diagnostics.transit.requestedArrivalMinutes, 490)
+
   await fsp.writeFile(path.join(metaRoot, 'project.json'), JSON.stringify({
     schemaVersion: 'vigo.project.v1', id: projectId, name: 'Endpoint identity fixture',
     storagePath: path.join(projectsRoot, projectId), createdAt: '2026-07-20T00:00:00Z', updatedAt: '2026-07-20T00:00:00Z',
@@ -323,6 +351,45 @@ try {
   const missedReach = await endpoint('reach', { ...boundaryRequest, departMinutes: 483, cutoffsMinutes: [20], rasterSize: 48,
     includePreliminary: false, includeStreetEdges: false, scenario: { services: [editedReplacement] } })
   assert.equal(missedReach.result.summary.improvedPixels, 0, 'A stop edit after the sole bus departed cannot manufacture an accessibility gain.')
+
+  // Arrive-by Reach: where D is reached from by an 08:10 deadline. O boards
+  // the 08:02 direct trip, 8 minutes before; the walk to D exceeds the limit.
+  const rasterMinutes = ({ bounds: [west, south, east, north], width, height, scale, nodata, baseline }, [lon, lat]) => {
+    const x = Math.floor((lon - west) / (east - west) * width), y = Math.floor((north - lat) / (north - south) * height)
+    const value = Buffer.from(baseline, 'base64').readUInt16LE(2 * (y * width + x))
+    return value === nodata ? null : value / scale
+  }
+  const { origin: _origin, ...destinationRequest } = boundaryRequest
+  const arriving = { ...destinationRequest, timePreference: 'arrive', departMinutes: 490, cutoffsMinutes: [20], rasterSize: 48,
+    includePreliminary: false, includeStreetEdges: false }
+  const arriveReach = (await endpoint('reach', arriving)).result
+  assert.equal(arriveReach.request.timePreference, 'arrive')
+  assert.equal(arriveReach.request.origin, undefined)
+  assert.equal(arriveReach.request.destination.stopId, 'D', 'Arrive-by Reach resolves the destination stop identity')
+  assert.equal(arriveReach.summary.transitStatus.requestedArrivalMinutes, 490)
+  assert.equal(arriveReach.summary.transitStatus.windowStartMinutes, 470)
+  assert.match(arriveReach.summary.transitStatus.detail, /reach the destination/)
+  assert(arriveReach.summary.transitStopsByCutoff[0].stops > 0)
+  assert(arriveReach.diagnostics.destinationAccess && !arriveReach.diagnostics.originAccess)
+  assert(arriveReach.limitations.some(limitation => limitation.code === 'single_destination_arrival_snapshot'))
+  const leaveO = rasterMinutes(arriveReach.surface.raster, selectedOrigin.coordinate)
+  assert(leaveO >= 8 && leaveO < 9, `Leaving O takes its 08:02 boarding, 8 minutes before the deadline, not ${leaveO}`)
+  const arriveRoute = (await endpoint('national-route', { ...boundaryRequest, timePreference: 'arrive', departMinutes: 490, arriveMinutes: 490,
+    maxWalkKm: 0.2, requireTransitRide: true })).choices[0]
+  assert.equal(arriveRoute.departMinutes, 482, 'Arrive-by Route agrees: leave O at 08:02')
+  assert.notEqual(arriveReach.surface.raster.baseline, apiReach.result.surface.raster.baseline, 'Arrive-by must not reuse the depart-at surface')
+
+  // A planned line from a placed stop to D, on the scenario's timetable view.
+  const plannedLine = { id: 'line', name: 'Planned line', operation: 'add', scheduleMode: 'frequency', bidirectional: false,
+    timeModel: 'preserve-scheduled', startMinutes: 420, endMinutes: 540, headwayMinutes: 5, segmentRuntimeMinutes: [3],
+    stops: [{ id: 'planned-p', label: 'Planned P', coordinate: [8.0075, 47] }, { id: 'D', stopId: 'D', label: 'Direct D', coordinate: [8, 47.005], source: 'stop' }] }
+  const arriveScenario = (await endpoint('reach', { ...arriving, scenario: { id: 'line', name: 'Line', services: [plannedLine] } })).result
+  assert.equal(arriveScenario.diagnostics.scenarioPropagation.settledStops, 1, 'The placed stop is a planned stop, not a GTFS stop')
+  assert(arriveScenario.summary.improvedPixels > 0, 'The planned line reaches D by the deadline from new places')
+  assert.deepEqual(arriveScenario.summary.transitStopsByCutoff, arriveReach.summary.transitStopsByCutoff, 'The reference search is unchanged')
+  const fromP = rasterMinutes({ ...arriveScenario.surface.raster, baseline: arriveScenario.surface.raster.scenario }, [8.0075, 47])
+  assert(fromP >= 5 && fromP < 6, `Leaving P catches the 08:05 planned trip, arriving 08:08, not ${fromP}`)
+
   const apiRoute = await endpoint('national-route', { ...boundaryRequest, requireTransitRide: true })
   assert.equal(apiRoute.choices[0].status, 'ready', 'Route API must resolve both imported-stop endpoints.')
   assert(apiRoute.choices[0].legs.some(leg => leg.type === 'ride'))

@@ -130,9 +130,10 @@ function ReachLegend({ result, cutoffMinutes, view }: { result: ReachResult; cut
       </div>
     )
   }
+  const arriveBy = result.request.timePreference === 'arrive'
   return (
-    <div className="reach-legend" role="img" aria-label={`Travel time bands up to ${cutoffMinutes} minutes`}>
-      <span className="reach-legend-title">Travel time</span>
+    <div className="reach-legend" role="img" aria-label={arriveBy ? `Minutes before the arrival deadline, up to ${cutoffMinutes}` : `Travel time bands up to ${cutoffMinutes} minutes`}>
+      <span className="reach-legend-title">{arriveBy ? 'Leave before' : 'Travel time'}</span>
       <span className="reach-legend-scale">
         {bands.map((band, index) => (
           <span key={band} className="reach-legend-band" style={{ '--reach-band': reachBandColor(bands, index) } as CSSProperties}>
@@ -140,7 +141,7 @@ function ReachLegend({ result, cutoffMinutes, view }: { result: ReachResult; cut
           </span>
         ))}
       </span>
-      <span className="reach-legend-unit">min</span>
+      <span className="reach-legend-unit">{arriveBy ? 'min before' : 'min'}</span>
     </div>
   )
 }
@@ -568,6 +569,7 @@ export const RouteSurface = memo(function RouteSurface() {
   const activity = useStudio(routingActivity)
   const reach = useStore(analyze, (state) => ({
     analysisOrigin: state.analysisOrigin,
+    reachTimePreference: state.reachTimePreference,
     reachResult: state.reachResult,
     serviceDecomposition: state.serviceDecomposition,
     scenarioView: state.scenarioView,
@@ -577,6 +579,8 @@ export const RouteSurface = memo(function RouteSurface() {
   const inspectionPoint = useStore(analyze, (state) => state.inspection?.point ?? null)
   const inspectionPlan = useStore(analyze, (state) => state.inspection?.plan ?? null)
   const inspectReachPoint = useStore(analyze, (state) => state.inspection?.sources.length ? state.inspection.inspect : undefined)
+  // An arrive-by Reach ends at its place; a clicked point is where a journey starts.
+  const reachArrives = reach.reachTimePreference === 'arrive'
   const sketchStops = useStudio(scenarioSketchStops)
   const sketchGeometry = useStudio(scenarioSketchGeometry)
   const pointPicking = useStudio(scenarioPointPicking)
@@ -614,9 +618,9 @@ export const RouteSurface = memo(function RouteSurface() {
       scheduleServiceDate={serviceDate}
       routingEnabled={routingFocus && journey.routingEnabled}
       routingFocusRequest={journey.routingFocusRequest}
-      routingOrigin={agencyFocus ? null : analysisFocus ? reach.analysisOrigin : journey.routingOrigin}
+      routingOrigin={agencyFocus ? null : analysisFocus ? reachArrives ? inspectionPoint : reach.analysisOrigin : journey.routingOrigin}
       routingWaypoints={agencyFocus || analysisFocus ? noRoutingPoints : journey.routingWaypoints}
-      routingDestination={agencyFocus ? null : analysisFocus ? inspectionPoint : journey.routingDestination}
+      routingDestination={agencyFocus ? null : analysisFocus ? reachArrives ? reach.analysisOrigin : inspectionPoint : journey.routingDestination}
       routingPlan={agencyFocus ? null : analysisFocus ? inspectionPlan : plan}
       routingFocus={routingFocus}
       analysisFocus={analysisFocus}

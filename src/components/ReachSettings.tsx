@@ -1,5 +1,6 @@
 import { Car, TrainFront } from 'lucide-react'
 import { useId, useState, type CSSProperties } from 'react'
+import type { RoutingTimePreference } from '../routingModel'
 
 /** Keep incomplete edits local; only valid values enter a routing request. */
 export function AnalysisNumberField({ label, value, min, max, unit, integer = false, optional = false, disabled = false, help, onChange }: {
@@ -39,15 +40,18 @@ export function AnalysisNumberField({ label, value, min, max, unit, integer = fa
 
 const reachBudgetPresets = [15, 30, 45, 60, 90, 120]
 
-export function ReachSettings({ travelMode = 'transit', onTravelModeChange, cutoffMinutes, maxWalkKm, walkSpeedKph, maxTransfers, surfaceSampling, hasScenarioChanges,
+export function ReachSettings({ travelMode = 'transit', onTravelModeChange, timePreference = 'depart', cutoffMinutes, maxWalkKm, walkSpeedKph, maxTransfers, surfaceSampling, hasScenarioChanges,
   onCutoffChange, onMaxWalkKmChange, onWalkSpeedChange, onMaxTransfersChange, onSurfaceSamplingChange }: {
   travelMode?: 'transit' | 'drive'; onTravelModeChange?: (value: 'transit' | 'drive') => void
+  timePreference?: RoutingTimePreference
   cutoffMinutes: number; maxWalkKm: number; walkSpeedKph: number; maxTransfers?: number
   surfaceSampling: 'street' | 'cell-center'; hasScenarioChanges: boolean
   onCutoffChange: (value: number) => void; onMaxWalkKmChange: (value: number) => void
   onWalkSpeedChange: (value: number) => void; onMaxTransfersChange?: (value: number | undefined) => void
   onSurfaceSamplingChange?: (value: 'street' | 'cell-center') => void
 }) {
+  // Arrive-by walks first to transit; depart-at walks last from it.
+  const arriveBy = timePreference === 'arrive'
   return <section className="reach-settings-list" aria-label="Travel limits">
     {onTravelModeChange ? <div className="studio-tabs reach-travel-mode" role="group" aria-label="Travel mode">
       {([['transit', 'Transit & walk', TrainFront], ['drive', 'Drive', Car]] as const).map(([value, label, Icon]) => (
@@ -56,7 +60,7 @@ export function ReachSettings({ travelMode = 'transit', onTravelModeChange, cuto
         </button>
       ))}
     </div> : null}
-    {travelMode === 'drive' ? <small>Road-speed estimates, without live traffic. Routes to grid points within 40 km of the origin; areas beyond the map are not evaluated.</small> : null}
+    {travelMode === 'drive' ? <small>Road-speed estimates, without live traffic. Routes {arriveBy ? 'from' : 'to'} grid points within 40 km of the {arriveBy ? 'destination' : 'origin'}; areas beyond the map are not evaluated.</small> : null}
     <div className="reach-time-budget">
       <AnalysisNumberField label="Time budget" value={cutoffMinutes} min={1} max={240} unit="min"
         onChange={value => { if (value !== undefined) onCutoffChange(value) }} />
@@ -78,7 +82,7 @@ export function ReachSettings({ travelMode = 'transit', onTravelModeChange, cuto
         {onMaxTransfersChange ? <AnalysisNumberField label="Maximum transit rides" value={maxTransfers === undefined ? undefined : maxTransfers + 1}
           min={1} max={32} integer optional help="1 ride means no transfers. Leave empty for automatic."
           onChange={value => onMaxTransfersChange(value === undefined ? undefined : value - 1)} /> : null}
-        <AnalysisNumberField label="Final walk limit" value={maxWalkKm} min={0.2} max={5} unit="km"
+        <AnalysisNumberField label={arriveBy ? 'First walk limit' : 'Final walk limit'} value={maxWalkKm} min={0.2} max={5} unit="km"
           onChange={value => { if (value !== undefined) onMaxWalkKmChange(value) }} />
         <AnalysisNumberField label="Walking speed" value={surfaceSampling === 'cell-center' ? 4.8 : walkSpeedKph} min={1} max={8} unit="km/h" disabled={surfaceSampling === 'cell-center'}
           onChange={value => { if (value !== undefined) onWalkSpeedChange(value) }} />
@@ -86,9 +90,9 @@ export function ReachSettings({ travelMode = 'transit', onTravelModeChange, cuto
           <span>Area calculation</span>
           <select value={surfaceSampling} onChange={event => onSurfaceSamplingChange(event.currentTarget.value as 'street' | 'cell-center')}>
             <option value="street">Reachable streets</option>
-            <option value="cell-center" disabled={hasScenarioChanges}>Routes to grid points</option>
+            <option value="cell-center" disabled={hasScenarioChanges}>{arriveBy ? 'Routes from grid points' : 'Routes to grid points'}</option>
           </select>
-          <small>{surfaceSampling === 'cell-center' ? 'Routes to each cell centre, walking at 4.8 km/h.' : 'Counts a cell when part of a street is reachable. Includes service changes.'}</small>
+          <small>{surfaceSampling === 'cell-center' ? `Routes ${arriveBy ? 'from' : 'to'} each cell centre, walking at 4.8 km/h.` : 'Counts a cell when part of a street is reachable. Includes service changes.'}</small>
         </label> : null}
       </div>
     </details> : null}

@@ -771,6 +771,8 @@ After running Reach in **Analyze**, click a destination to see its map estimate 
 
 Destination journeys use scheduled service and the City's routing walking speed. Planned service changes affect the scenario map estimate but are not reconstructed in the destination journey; the panel labels the difference.
 
+After an **Arrive by** Reach, the clicked place is where the journey starts: the panel requests an arrive-by journey from it to the destination by the same deadline and counts its time from leaving to the deadline, as the map does.
+
 ### Compare service changes
 
 Run a baseline, then a planned Scenario with the same origin, clock, date, walking assumptions, sampling, and grid, and retain both Results. [Scenarios](#scenario-semantics) explains exclusions and added service; [Compare saved results](reference/results.md#compare-saved-results) explains the counts. A polygon describes modeled network reach. It does not certify entrance access, wheelchair connectivity, pedestrian permissions, or observed reliability; keep the [walking evidence](reference/walking-evidence.md) and [known limits](#known-limits) with the analysis.
@@ -1136,6 +1138,8 @@ Reopen recent Route Results for the current City revision. Each keeps its normal
 #### Reach
 
 Choose an origin on the map, or use **Choose origin** to search imported stops by name or ID or enter coordinates. Run Reach, then switch between **Reachable area**, **Reached streets**, and cutoffs; changing the displayed cutoff reuses the retained result. See [Reach](#reach-and-isochrones) for limits and bounds.
+
+Choose **Arrive by** to map where a destination can be reached from by a deadline. The chosen point becomes the destination and the clock its **Deadline**; each place shows how many minutes before the deadline a traveler must leave it, and the walking limit applies to the first walk. Compare runs the same arrive-by question for every variant.
 
 #### Compare
 

@@ -43,7 +43,7 @@ import {
   type ServiceEdgeDecomposition,
 } from '../reach'
 import { scopedRouteServiceKey } from '../routeServices'
-import type { RoutingPoint } from '../routingModel'
+import type { RoutingPoint, RoutingTimePreference } from '../routingModel'
 import { buildRoutingPointFromMap } from '../routingUi'
 import { city, setActiveFeedId } from './city'
 import { changeServiceDate, clock, serviceDay } from './clock'
@@ -60,7 +60,10 @@ export type ReachInspection = ReturnType<typeof useReachInspection>
 
 /** Analyze workspace: the Reach origin, run settings, cases and their results. */
 export type AnalyzeState = {
+  /** The Reach place: the origin, or the destination of an arrive-by Reach. */
   analysisOrigin: RoutingPoint | null
+  /** Leave at the clock time, or arrive at the place by it. */
+  reachTimePreference: RoutingTimePreference
   analyzeMode: AnalyzeMode
   reachResult: ReachResult | null
   comparisonRun: ComparisonRun | null
@@ -88,6 +91,7 @@ export type AnalyzeState = {
 
 const initialAnalyzeState = (): AnalyzeState => ({
   analysisOrigin: null,
+  reachTimePreference: 'depart',
   analyzeMode: 'single',
   reachResult: null,
   comparisonRun: null,
@@ -877,15 +881,22 @@ export function scenarioRequestFor(scenario: ScenarioDraft | undefined) {
   }
 }
 
+/** The Reach place as request fields; an arrive-by Reach reads the clock as its deadline. */
+function reachPlaceFields({ analysisOrigin, reachTimePreference }: AnalyzeState) {
+  return reachTimePreference === 'arrive'
+    ? { timePreference: reachTimePreference, destination: analysisOrigin }
+    : { origin: analysisOrigin }
+}
+
 export function comparisonRequestBody(variant: CompareVariant, reference: CompareVariant, includeStreetEdges: boolean) {
-  const { analysisOrigin, reachMaxWalkKm, reachMaxTransfers, reachSurfaceSampling, scenarioWalkSpeedKph, scenarioCutoffMinutes } = analyze.get()
+  const { reachMaxWalkKm, reachMaxTransfers, reachSurfaceSampling, scenarioWalkSpeedKph, scenarioCutoffMinutes } = analyze.get()
   const { scheduleTimeMinutes } = clock.get()
   const routingServiceDate = clock.get().serviceDate
   const routingServiceDay = serviceDay()
   return {
     feedIds: variant.feedIds,
     ...(reference.feedIds.join() !== variant.feedIds.join() ? { baselineFeedIds: reference.feedIds } : {}),
-    origin: analysisOrigin,
+    ...reachPlaceFields(analyze.get()),
     departMinutes: scheduleTimeMinutes,
     serviceDate: routingServiceDate,
     serviceDay: routingServiceDay,
@@ -903,7 +914,7 @@ export function comparisonRequestBody(variant: CompareVariant, reference: Compar
 }
 
 export async function runComparison(includeStreetEdges = analyze.get().scenarioRenderMode === 'streets') {
-  const { analysisOrigin, scenarioCutoffMinutes, compareReferenceId } = analyze.get()
+  const { analysisOrigin, scenarioCutoffMinutes, compareReferenceId, reachTimePreference } = analyze.get()
   const { scheduleTimeMinutes } = clock.get()
   const routingServiceDate = clock.get().serviceDate
   const selectedProjectValue = selectedProject()
@@ -966,6 +977,7 @@ export async function runComparison(includeStreetEdges = analyze.get().scenarioR
       cutoffMinutes: scenarioCutoffMinutes,
       serviceDate: routingServiceDate,
       departMinutes: scheduleTimeMinutes,
+      timePreference: reachTimePreference,
       entries: [
         ...entries,
         ...selection.errors.map((error, index) => ({ variant: { id: `invalid-${index}`, label: error.split(':')[0], kind: 'scenario' as const, detail: '', feedIds: [] }, stats: null, error })),
@@ -1139,7 +1151,7 @@ export async function runSurfaceAnalysis(includeStreetEdges = analyze.get().scen
         body: JSON.stringify({
           feedIds: selection.feedIds,
           ...(settings.reachTravelMode !== 'drive' && baselineFeeds && baselineFeeds.join() !== [...selection.feedIds].sort().join() ? { baselineFeedIds: baselineFeeds } : {}),
-          origin: analysisOrigin,
+          ...reachPlaceFields(settings),
           departMinutes: scheduleTimeMinutes,
           serviceDate,
           serviceDay: serviceDay(),
@@ -1185,6 +1197,11 @@ export function cancelSurfaceAnalysis() {
 // Analyze panel settings. A changed question clears the shown result.
 export function changeReachTravelMode(reachTravelMode: AnalyzeState['reachTravelMode']) {
   analyze.set({ reachTravelMode, scenarioRenderMode: 'area' })
+  invalidateAnalyzeResult()
+}
+
+export function changeReachTimePreference(reachTimePreference: AnalyzeState['reachTimePreference']) {
+  analyze.set({ reachTimePreference })
   invalidateAnalyzeResult()
 }
 

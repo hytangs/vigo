@@ -563,13 +563,26 @@ function displayBoundarySurfaces(baseline, scenario, request, readWater, baselin
   }
 }
 
+/** Where a Reach is anchored: its origin, or an arrive-by Reach's destination. */
+export function reachPlace(request) {
+  return request.timePreference === 'arrive' ? request.destination : request.origin
+}
+
+// The anchor as request fields. An arrive-by Reach reads `departMinutes` as
+// its arrival deadline, as arrive-by Route does.
+function reachEndpoint(request) {
+  return request.timePreference === 'arrive'
+    ? { timePreference: 'arrive', destination: request.destination }
+    : { origin: request.origin }
+}
+
 function scenarioRequestRecord(request) {
   return {
     baselineIdentity: request.baselineIdentity,
     ...(request.feedIds ? { feedIds: request.feedIds } : {}),
     mode: request.mode,
     surfaceSampling: request.surfaceSampling,
-    origin: request.origin,
+    ...reachEndpoint(request),
     departMinutes: request.departMinutes,
     serviceDate: request.serviceDate,
     serviceDay: request.serviceDay,
@@ -606,12 +619,14 @@ async function preliminaryWalkSurface(
   startedAt,
   buildStreetRaster,
 ) {
-  const bounds = rasterBounds(request.origin, request.radiusKm)
+  const place = reachPlace(request)
+  const bounds = rasterBounds(place, request.radiusKm)
   const terminalWalkMinutes = request.maxWalkKm / request.walkSpeedKph * 60
   const maximumCutoff = request.cutoffsMinutes.at(-1)
   const networkRaster = await buildStreetRaster({
     stage: 'preliminary-surface',
-    seeds: [{ coordinate: request.origin.coordinate, durationMinutes: 0 }],
+    timePreference: request.timePreference,
+    seeds: [{ coordinate: place.coordinate, durationMinutes: 0 }],
     bounds,
     width: request.rasterSize,
     height: request.rasterSize,
@@ -718,7 +733,7 @@ async function preliminaryWalkSurface(
       engine: 'walk_preliminary',
       reach: null,
       scenarioReach: null,
-      originAccess: {
+      [request.timePreference === 'arrive' ? 'destinationAccess' : 'originAccess']: {
         strategy: 'osm-network-walk-preliminary',
         stopIds: [],
         candidates: null,
@@ -765,11 +780,17 @@ function scenarioLimitations(request, hasScenarioChanges) {
       code: request.surfaceSampling === 'cell-center' ? 'coordinate_cell_centers' : 'street_network_cell_sampling',
       detail: request.surfaceSampling === 'cell-center' ? 'Each raster value routes to the coordinate at that cell center on the requested fixed grid.' : 'Surface cells use arrival times interpolated along reachable directed OSM edges; cells outside those edges remain no-data, so no straight-line travel is invented across network gaps.',
     },
-    {
+    request.timePreference === 'arrive' ? {
+      code: 'total_elapsed_time_cutoff',
+      detail: `First walking, waiting, transit, transfers, and the walk to the destination share one elapsed-time cutoff before the arrival deadline. The first walk uses only the remaining time and is capped at ${request.maxWalkKm} km on the directed OSM network; no geographic envelope is applied.`,
+    } : {
       code: 'total_elapsed_time_cutoff',
       detail: `Access walking, waiting, transit, transfers, and terminal walking share one elapsed-time cutoff. Terminal walking uses only the remaining time and is capped at ${request.maxWalkKm} km on the directed OSM network; no geographic envelope is applied.`,
     },
-    {
+    request.timePreference === 'arrive' ? {
+      code: 'single_destination_arrival_snapshot',
+      detail: 'This run represents one destination and one arrival deadline. Test nearby deadlines, service dates, and additional destinations before treating the contrast as temporally or spatially robust.',
+    } : {
       code: 'single_origin_departure_snapshot',
       detail: 'This run represents one origin and one scheduled departure. Test nearby departure times, service dates, and additional origins before treating the contrast as temporally or spatially robust.',
     },
@@ -816,7 +837,14 @@ export function validateReachRequest(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw badRequest('Reach requires a JSON object.')
   }
-  const origin = normalizedPoint(value.origin, 'origin', 'origin')
+  if (!['depart', 'arrive', undefined].includes(value.timePreference)) {
+    throw badRequest('timePreference must be depart or arrive.')
+  }
+  const timePreference = value.timePreference ?? 'depart'
+  // An arrive-by Reach gathers toward its destination by the deadline.
+  const endpoint = timePreference === 'arrive'
+    ? { timePreference, destination: normalizedPoint(value.destination, 'destination', 'destination') }
+    : { origin: normalizedPoint(value.origin, 'origin', 'origin') }
   const rasterSize = Math.round(finiteNumber(value.rasterSize ?? 96, 'rasterSize'))
   if (!supportedRasterSizes.has(rasterSize)) {
     throw badRequest(`rasterSize must be one of ${supportedReachRasterSizes.join(', ')}.`)
@@ -851,7 +879,7 @@ export function validateReachRequest(value) {
     baselineIdentity: compactText(value.baselineIdentity, 'unversioned-baseline', 240),
     feedId: compactText(value.feedId, '__city__', 160),
     ...(Array.isArray(value.feedIds) ? { feedIds: [...new Set(value.feedIds.map(id => compactText(id, '', 160)))].sort() } : {}),
-    origin,
+    ...endpoint,
     mode,
     surfaceSampling,
     departMinutes: boundedIntegralNumber(value.departMinutes, 'departMinutes', 0, 2_880, 8 * 60),
@@ -1040,7 +1068,8 @@ export async function computeReachResult(
     scenarioStops,
     serviceStopIndexes,
   })
-  const bounds = rasterBounds(request.origin, request.radiusKm)
+  const place = reachPlace(request)
+  const bounds = rasterBounds(place, request.radiusKm)
   const reachSurface = {
     bounds,
     width: request.rasterSize,
@@ -1080,7 +1109,7 @@ export async function computeReachResult(
     surfaceSampling: request.surfaceSampling,
     stage: 'baseline-range',
     feedId: request.feedId,
-    origin: request.origin,
+    ...reachEndpoint(request),
     departMinutes: request.departMinutes,
     serviceDate: request.serviceDate,
     serviceDay: request.serviceDay,
@@ -1117,7 +1146,7 @@ export async function computeReachResult(
     scenarioReachRange = await runReach({
       stage: 'scenario-range',
       feedId: request.feedId,
-      origin: request.origin,
+      ...reachEndpoint(request),
       departMinutes: request.departMinutes,
       serviceDate: request.serviceDate,
       serviceDay: request.serviceDay,
@@ -1322,14 +1351,14 @@ export async function computeReachResult(
       scenarioReach: scenarioReachRange?.diagnostics ?? null,
       scenarioConnectors: overlayDiagnostics,
       preliminary: request.includePreliminary,
-      originAccess: {
-        strategy: request.origin.stopId
+      [request.timePreference === 'arrive' ? 'destinationAccess' : 'originAccess']: {
+        strategy: place.stopId
           ? 'exact-transit-stop'
           : 'rust-cch-coordinate-one-to-many-access',
-        stopIds: request.origin.stopId ? [request.origin.stopId] : [],
-        candidates: request.origin.stopId ? 1 : null,
-        maximumDistanceKm: request.origin.stopId ? 0 : request.maxWalkKm,
-        durationMinutes: request.origin.stopId ? 0 : null,
+        stopIds: place.stopId ? [place.stopId] : [],
+        candidates: place.stopId ? 1 : null,
+        maximumDistanceKm: place.stopId ? 0 : request.maxWalkKm,
+        durationMinutes: place.stopId ? 0 : null,
       },
       stopSelection: stopSelection?.diagnostics ?? {
         candidates: transitStops.length,

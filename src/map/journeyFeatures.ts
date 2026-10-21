@@ -120,15 +120,19 @@ export function routingPinFeatures(
   waypoints: RoutingPoint[],
   destination: RoutingPoint | null | undefined,
   plan?: RoutingPlan | null,
-  reachMode = false,
+  /** Reach draws its place, the zero of its travel times, as the zero-minute pin. */
+  reachPlace: 'origin' | 'destination' | null = null,
 ): FeatureCollection {
-  const points = [origin, ...waypoints, destination].filter((point): point is RoutingPoint => Boolean(point))
+  // Each point keeps its role when another is unset: an arrive-by Reach
+  // destination is a destination before any journey starts from a clicked point.
+  const slots = [origin, ...waypoints, destination]
   const firstLeg = plan?.status === 'ready' ? plan.legs[0] : undefined
   const lastLeg = plan?.status === 'ready' ? plan.legs.at(-1) : undefined
-  const features: FeatureCollection['features'] = points.map((point, index) => {
+  const features: FeatureCollection['features'] = slots.flatMap((point, index) => {
+    if (!point) return []
     const pointKind = index === 0
       ? 'origin'
-      : index === points.length - 1
+      : index === slots.length - 1
         ? 'destination'
         : 'waypoint'
     const plannedCoordinate = pointKind === 'origin'
@@ -140,16 +144,16 @@ export function routingPinFeatures(
         && lastLeg.walkSource === 'osm'
         ? lastLeg.coordinates.at(-1)
         : undefined
-    return {
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: plannedCoordinate ?? point.coordinate },
+    return [{
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: plannedCoordinate ?? point.coordinate },
       properties: {
-        pinType: routingPinLabel(index, points.length),
+        pinType: routingPinLabel(index, slots.length),
         label: point.label,
         pointKind,
-        zeroMinuteOrigin: reachMode && pointKind === 'origin',
+        zeroMinutePlace: pointKind === reachPlace,
       },
-    }
+    }]
   })
   return { type: 'FeatureCollection', features }
 }

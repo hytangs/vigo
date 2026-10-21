@@ -86,5 +86,25 @@ window.checkAnalysisRequest = async () => {
   flushSync(() => document.querySelector('.reach-run').click())
   await until(() => requests.length === 7 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
   assert(requests.slice(4).every(request => !('maxTransfers' in request)), 'Automatic ride limit was serialized as a number')
-  return { singleAndComparison: true, exactLimits: true, noHiddenWindow: true, automaticLimit: true, requests: requests.length }
+  // Arrive by: the chosen point becomes the destination and the clock its deadline.
+  const timeChoice = label => flushSync(() => [...document.querySelectorAll('.reach-time-preference button')].find(button => button.textContent === label).click())
+  const kicker = () => document.querySelector('.reach-origin-row .reach-section-kicker').textContent
+  timeChoice('Arrive by')
+  assert(kicker().startsWith('Destination'), 'Arrive by must name the point a destination')
+  assert([...document.querySelectorAll('.reach-query-fields .reach-field > span')].some(span => span.textContent === 'Deadline'), 'Arrive by must label the clock a deadline')
+  await until(() => !document.querySelector('.reach-run').disabled)
+  flushSync(() => document.querySelector('.reach-run').click())
+  await until(() => requests.length === 10 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
+  flushSync(() => [...document.querySelectorAll('.reach-mode-tabs button')].find(button => button.textContent === 'Reach').click())
+  assert(field('First walk limit').value === '0.35', 'Arrive by walks first, within the same limit')
+  flushSync(() => document.querySelector('.reach-run').click())
+  await until(() => requests.length === 11 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
+  for (const request of requests.slice(7)) {
+    assert(request.timePreference === 'arrive' && !('origin' in request), 'Arrive by must send a destination, not an origin')
+    assert(request.destination.coordinate[0] === -71.058987654 && request.destination.coordinate[1] === 42.360123456, 'Destination precision was lost')
+    assert(request.departMinutes === requests[0].departMinutes, 'The deadline is the chosen clock')
+  }
+  timeChoice('Leave at')
+  assert(kicker().startsWith('Origin'), 'Leave at restores the origin')
+  return { singleAndComparison: true, exactLimits: true, noHiddenWindow: true, automaticLimit: true, arriveBy: true, requests: requests.length }
 }

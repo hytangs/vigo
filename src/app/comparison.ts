@@ -31,7 +31,9 @@ export type ComparisonRun = {
   reference: CompareVariant & { areaKm2: number; stops: number | null }
   cutoffMinutes: number
   serviceDate: string
+  /** The departure, or for arrive-by the arrival deadline. */
   departMinutes: number
+  timePreference?: 'depart' | 'arrive'
   entries: CompareEntry[]
   /** The variant shown on the map; only its full surface stays in memory. */
   selectedId: string

@@ -43,8 +43,10 @@ export function analysisCoordinateOrigin(latitude: string, longitude: string): C
   return { point: { coordinate: [lon, lat], label: `Coordinates · ${lat.toFixed(5)}, ${lon.toFixed(5)}`, source: 'map' } }
 }
 
-export function AnalysisOriginPicker({ origin, stops, onSetOrigin, disabled = false }: {
+export function AnalysisOriginPicker({ origin, place = 'origin', stops, onSetOrigin, disabled = false }: {
   origin: RoutingPoint | null
+  /** What the chosen point is: an arrive-by Reach chooses its destination. */
+  place?: 'origin' | 'destination'
   stops: StopMetric[]
   onSetOrigin: (point: RoutingPoint) => void
   disabled?: boolean
@@ -91,14 +93,14 @@ export function AnalysisOriginPicker({ origin, stops, onSetOrigin, disabled = fa
         setError(null)
         setOpen(true)
       }
-    }}><MapPin size={14} aria-hidden="true" />{origin ? 'Change origin' : 'Choose origin'}<ChevronDown size={14} aria-hidden="true" /></button>
+    }}><MapPin size={14} aria-hidden="true" />{origin ? `Change ${place}` : `Choose ${place}`}<ChevronDown size={14} aria-hidden="true" /></button>
     {open ? <div id={`${id}-panel`} className="analysis-origin-panel">
       <label htmlFor={`${id}-search`}>Search imported stops</label>
       <div className="analysis-origin-search"><Search size={18} aria-hidden="true" /><input id={`${id}-search`} ref={searchRef} type="search" placeholder="Stop name or ID" value={search} disabled={disabled} aria-describedby={`${id}-count`} onChange={event => { setSearch(event.target.value); setLimit(pageSize) }} onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) event.preventDefault() }} /></div>
       <p id={`${id}-count`} className="analysis-origin-count" role="status">{results.length ? `${Math.min(limit, results.length)} of ${results.length.toLocaleString()} ${results.length === 1 ? 'stop' : 'stops'}${search.trim() ? ' match' : ''}` : search.trim() ? 'No imported stops match this search.' : 'No imported stops have usable coordinates.'}</p>
-      {results.length ? <ul className="analysis-origin-results" aria-label="Origin stop choices">{results.slice(0, limit).map(stop => <li key={stop.id}><button type="button" disabled={disabled} title={`${stop.lat!.toFixed(5)}, ${stop.lon!.toFixed(5)}`} onClick={() => { const point = analysisStopOrigin(stop); if (point) select(point) }}><strong>{stop.name}</strong><span title={stop.id}>Stop {analysisStopDisplayId(stop.id)}</span></button></li>)}</ul> : null}
+      {results.length ? <ul className="analysis-origin-results" aria-label={`${place === 'destination' ? 'Destination' : 'Origin'} stop choices`}>{results.slice(0, limit).map(stop => <li key={stop.id}><button type="button" disabled={disabled} title={`${stop.lat!.toFixed(5)}, ${stop.lon!.toFixed(5)}`} onClick={() => { const point = analysisStopOrigin(stop); if (point) select(point) }}><strong>{stop.name}</strong><span title={stop.id}>Stop {analysisStopDisplayId(stop.id)}</span></button></li>)}</ul> : null}
       {results.length > limit ? <button type="button" className="reach-mini-action" disabled={disabled} onClick={() => setLimit(value => value + pageSize)}>Show more stops ({results.length - limit} remaining)</button> : null}
-      <details className="analysis-origin-coordinate-disclosure"><summary>Enter coordinates</summary><fieldset className="analysis-origin-coordinates" aria-label="Origin coordinates" disabled={disabled}>
+      <details className="analysis-origin-coordinate-disclosure"><summary>Enter coordinates</summary><fieldset className="analysis-origin-coordinates" aria-label={`${place === 'destination' ? 'Destination' : 'Origin'} coordinates`} disabled={disabled}>
         <div className="analysis-origin-coordinate-fields">
           <label htmlFor={`${id}-latitude`}>Latitude<input id={`${id}-latitude`} ref={latitudeRef} type="number" inputMode="decimal" min={-90} max={90} step="any" placeholder="42.3601" value={latitude} onKeyDown={coordinateKeyDown} aria-invalid={error?.field === 'latitude' || undefined} aria-describedby={error?.field === 'latitude' ? `${id}-error` : `${id}-coordinate-hint`} onChange={event => { setLatitude(event.target.value); setError(null) }} /></label>
           <label htmlFor={`${id}-longitude`}>Longitude<input id={`${id}-longitude`} ref={longitudeRef} type="number" inputMode="decimal" min={-180} max={180} step="any" placeholder="−71.0589" value={longitude} onKeyDown={coordinateKeyDown} aria-invalid={error?.field === 'longitude' || undefined} aria-describedby={error?.field === 'longitude' ? `${id}-error` : `${id}-coordinate-hint`} onChange={event => { setLongitude(event.target.value); setError(null) }} /></label>
