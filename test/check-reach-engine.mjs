@@ -267,7 +267,7 @@ try {
   const rangeSurface = { width: 48, height: 48, bounds: [7.99, 46.99, 8.02, 47.01] }
   const departRange = { stage: 'baseline-range', origin: selectedOrigin, departMinutes: 480, cutoffMinutes: 20, surface: rangeSurface }
   const arriveRange = { stage: 'baseline-range', timePreference: 'arrive', destination: selectedDestination, departMinutes: 490, cutoffMinutes: 20, surface: rangeSurface }
-  assert.equal(nativeReachRangeRequest(departRange).surfaceReuse, 'baseline')
+  assert.deepEqual([nativeReachRangeRequest(departRange).timePreference, nativeReachRangeRequest(departRange).surfaceReuse], ['depart_at', 'baseline'])
   assert.equal(nativeReachRangeRequest({ ...departRange, stage: 'scenario-range' }).surfaceReuse, 'scenario')
   for (const stage of ['baseline-range', 'scenario-range']) {
     const native = nativeReachRangeRequest({ ...arriveRange, stage })

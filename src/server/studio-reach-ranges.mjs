@@ -50,7 +50,9 @@ export function nativeReachRangeRequest(range, { sourceScopes } = {}) {
     arrayEncoding: 'base64',
     mode: range.mode ?? 'transit',
     surfaceSampling: range.surfaceSampling ?? 'street',
-    ...(arriveBy ? { timePreference: 'arrive_by', destination: routePoint(range.destination) } : { origin: routePoint(range.origin) }),
+    // One request form for both directions, as the CLI and Python send it.
+    timePreference: arriveBy ? 'arrive_by' : 'depart_at',
+    ...(arriveBy ? { destination: routePoint(range.destination) } : { origin: routePoint(range.origin) }),
     serviceDate: range.serviceDate,
     timeMinutes: Number(range.departMinutes),
     maxWalkKm: range.maxWalkKm,
@@ -88,7 +90,7 @@ export function nativePreliminaryRequest(surface, place, serviceDate, departMinu
     mode: 'walk',
     surfaceSampling: 'street',
     // Walking to a destination follows one-way paths in their direction.
-    ...(surface.timePreference === 'arrive' ? { timePreference: 'arrive_by', destination: point } : { origin: point }),
+    ...(surface.timePreference === 'arrive' ? { timePreference: 'arrive_by', destination: point } : { timePreference: 'depart_at', origin: point }),
     serviceDate,
     timeMinutes: Number(departMinutes),
     maxWalkKm: surface.maxWalkKm,
