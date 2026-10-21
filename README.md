@@ -41,7 +41,7 @@ The engine and the compiler accept the same request JSON and return the same pub
 
 ## Quickstart
 
-Build from source with Node.js 24.18+, npm 11.6+, and the repository's pinned Rust toolchain with a native linker. Prebuilt archives are on the [releases page](https://github.com/hytangs/vigo/releases).
+Build from source with Node.js 24.18+, npm 11.6+, and the repository's pinned Rust toolchain with a native linker. Prebuilt archives are on the [releases page](https://github.com/hytangs/vigo/releases). See [automatic build memory selection](docs/build-memory.md) for constrained build hosts.
 
 ```bash
 git clone https://github.com/hytangs/vigo.git
