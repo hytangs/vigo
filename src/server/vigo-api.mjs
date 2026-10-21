@@ -1,5 +1,5 @@
 import { wheelchairDescription } from './wheelchair-policy.mjs'
-import { studioWheelchairSelection } from './studio-wheelchair.mjs'
+import { studioWheelchairAvailability, studioWheelchairSelection } from './studio-wheelchair.mjs'
 import { routingResultStatus } from './gtfs/route-results.mjs'
 import { cityCaseFeedIds, assertCaseRouteSources } from './gtfs/source-selection.mjs'
 import packageJson from '../../package.json' with { type: 'json' }
@@ -4726,6 +4726,13 @@ async function route(request, response) {
         if (signal.aborted) throw makeAbortError()
         sendJson(response, 200, { geometry })
       })
+      return true
+    }
+
+    if (request.method === 'POST' && action === 'wheelchair-availability') {
+      const body = await readBody(request)
+      const project = await readProjectMetadata(projectId)
+      sendJson(response, 200, studioWheelchairAvailability(projectMetaDir(projectId), project, body))
       return true
     }
 

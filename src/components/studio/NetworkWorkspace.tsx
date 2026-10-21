@@ -1,8 +1,10 @@
+import { routeModeLabel } from '../../app/routePresentation'
+import { NetworkLayers } from '../NetworkLayers'
 import { memo, useMemo } from 'react'
 import { networkRouteId } from '../../app/networkSelection'
 import { countRender } from '../../app/renderCounts'
 import { shallowEqual, useStore } from '../../app/store'
-import { city } from '../../state/city'
+import { city, setActiveFeedId } from '../../state/city'
 import { changeServiceDate, clock } from '../../state/clock'
 import { useStudio } from '../../state/hooks'
 import { openDataView } from '../../state/navigation'
@@ -66,6 +68,11 @@ const NetworkTimetablePanel = memo(function NetworkTimetablePanel() {
 /** The Network workspace panel: agency briefing, live feeds and timetables. */
 export const NetworkWorkspace = memo(function NetworkWorkspace() {
   countRender('NetworkWorkspace')
+  const layers = useStore(network, state => state.layers)
+  const mode = useStore(network, state => state.displayMode)
+  const mapPreview = useStudio(visiblePreview)
+  const modes = useMemo(() => [...new Set(mapPreview.routes.map(route => route.routeType).filter((type): type is number => type !== undefined))].sort((a, b) => a - b).map(id => ({ id, name: routeModeLabel(id) })), [mapPreview])
+  const selectedFeed = useStore(city, state => state.activeFeedId)
   const projectId = useStore(city, (state) => state.selectedProjectId)
   const staticFeeds = useStudio(() => selectedProject().feeds)
   const selection = useStudio(() => {
@@ -85,6 +92,7 @@ export const NetworkWorkspace = memo(function NetworkWorkspace() {
   const timetable = useMemo(() => <NetworkTimetablePanel />, [])
   return (
     <AgencyPanel
+      mapLayers={<NetworkLayers modes={modes} mode={mode} onModeChange={displayMode => { clearAgencySelection(); network.set({ displayMode }) }} layers={layers} feeds={staticFeeds} selectedFeed={selectedFeed} onSelectFeed={id => { clearAgencySelection(); network.set({ displayMode: null }); setActiveFeedId(id) }} onChange={(key, enabled) => network.set(state => ({ layers: { ...state.layers, vehicles: state.layers.vehicles ?? state.layers.routes, [key]: enabled } }))} />}
       staticFeeds={staticFeeds}
       onOperationalEvents={setOperationalEvents}
       key={projectId}

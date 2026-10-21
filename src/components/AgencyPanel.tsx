@@ -26,7 +26,8 @@ function exportObservation(state: AgencyState) {
   downloadText('agency-observation.json', JSON.stringify(state, null, 2), 'application/json')
 }
 
-export function AgencyPanel({ staticFeeds, onOperationalEvents, projectId, snapshot, realtimeRequest, realtimeMessage, realtimeLoading, onConnect, onDisconnect, onLocate, onOpenData, mapOpen, onToggleMap, selection = {}, timetable, onClearSelection, onBrowseRoute, browseRequest = 0, tripTarget, onOpenTrip }: {
+export function AgencyPanel({ mapLayers, staticFeeds, onOperationalEvents, projectId, snapshot, realtimeRequest, realtimeMessage, realtimeLoading, onConnect, onDisconnect, onLocate, onOpenData, mapOpen, onToggleMap, selection = {}, timetable, onClearSelection, onBrowseRoute, browseRequest = 0, tripTarget, onOpenTrip }: {
+  mapLayers?: ReactNode
   staticFeeds: Array<{ id: string; name: string }>
   onOpenTrip?: TripNavigation
   tripTarget?: { routeId: string; tripId: string; serviceDate: string }
@@ -196,7 +197,8 @@ export function AgencyPanel({ staticFeeds, onOperationalEvents, projectId, snaps
       requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: 0 }))
     }} health={<AgencyFeedHealth feeds={state?.feeds ?? []} refreshFailed={Boolean(observationError)} />} mapOpen={mapOpen} onToggleMap={onToggleMap} onRefresh={() => void observationPolling.current?.refresh()} onFeeds={openFeeds} onExport={state && eventsReady ? () => exportObservation(state) : undefined} onExportReport={state && eventsReady ? () => downloadText('agency-observation.md', observationReportMarkdown(state, { eventFilter, refreshFailed: Boolean(observationError) })) : undefined} />
     <div className="agency-scroll" ref={scrollRef}>
-      {observationError ? <div className="agency-error" role="alert"><strong>Could not refresh observations</strong><p>{observationError}</p>{observationError ? <button className="agency-text-button" onClick={() => void observationPolling.current?.refresh()}>Retry refresh <ArrowRight size={13} /></button> : null}{!state || !state.coverage.valid ? <button className="agency-text-button" onClick={onOpenData}>Open City data <ArrowRight size={13} /></button> : null}</div> : null}
+      {mapLayers}
+      {observationError ? <div className="agency-error" role="alert"><strong>Could not refresh observations</strong><p>{observationError}</p>{hasSelection ? <button className="agency-text-button" onClick={onClearSelection}>Return to all routes <ArrowRight size={13} /></button> : null}{observationError ? <button className="agency-text-button" onClick={() => void observationPolling.current?.refresh()}>Retry refresh <ArrowRight size={13} /></button> : null}{!state || !state.coverage.valid ? <button className="agency-text-button" onClick={onOpenData}>Open City data <ArrowRight size={13} /></button> : null}</div> : null}
       {loading && !state ? <div className="agency-loading" role="status" aria-live="polite">
         <p><span className="signal-loader" aria-hidden="true" /><span>Reading the timetable and service calendar</span></p>
         <div className="agency-loading-metrics" aria-hidden="true">{[0, 1, 2].map(index => <span className="skeleton" key={index} />)}</div>

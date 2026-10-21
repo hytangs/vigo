@@ -998,26 +998,6 @@
   gap: 12px;
 }
 
-.reach-expand {
-  width: 32px;
-  height: 32px;
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text-muted);
-  background: var(--control-surface);
-  cursor: pointer;
-}
-
-.reach-expand:hover,
-.reach-expand[aria-expanded="true"] {
-  color: var(--text-strong);
-  border-color: var(--accent);
-}
-
 .reach-results-heading > div {
   min-width: 0;
   display: grid;
@@ -2082,12 +2062,6 @@
   overflow: hidden;
 }
 
-@media (min-width: 761px) {
-  .app-shell:has(.reach-surface.is-expanded) {
-    --panel-width: clamp(380px, 43vw, 560px);
-  }
-}
-
 .routing-detail-panel {
   position: absolute;
   z-index: 70;
@@ -2558,10 +2532,6 @@
 }
 
 @media (max-width: 760px) {
-  .app-shell.page-project:not(.project-empty):not(.view-data):has(.reach-surface.is-expanded) .shell-body {
-    grid-template-rows: minmax(0, 4fr) minmax(0, 1fr);
-  }
-
   .sidebar-panel.is-analyze { max-height: none; height: 100%; }
   .app-shell.page-project:not(.project-empty):not(.view-data) .app-sidebar:has(.sidebar-panel.is-pathfinder) {
     height: 100%;

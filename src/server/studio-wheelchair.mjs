@@ -46,3 +46,14 @@ export function studioWheelchairSelection(projectDirectory, project, request) {
   return { feed, storePath: path.join(directory, 'routing', 'project.sqlite'),
     streetPath: path.join(directory, 'osm', 'street-index.sqlite'), accessibility: manifest.accessibility }
 }
+
+// Capability discovery uses the same source and profile checks as routing.
+export function studioWheelchairAvailability(directory, project, request) {
+  try {
+    studioWheelchairSelection(directory, project, { ...request, wheelchair: true, routingDataMode: 'scheduled', departNow: false })
+    return { available: true }
+  } catch (error) {
+    if (error.statusCode === 400 || error.code === 'wheelchair_profile_unavailable') return { available: false }
+    throw error
+  }
+}

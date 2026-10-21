@@ -15,10 +15,10 @@
   gap: 7px;
   min-height: 32px;
   padding: 6px 9px;
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: 7px;
-  background: var(--panel-strong);
-  color: var(--text-strong);
+  background: transparent;
+  color: var(--text-muted);
   font-size: 11px;
   white-space: nowrap;
   cursor: pointer;
@@ -35,11 +35,11 @@
   position: absolute;
   top: calc(100% + 10px);
   right: 0;
-  width: min(370px, calc(100vw - 24px));
-  max-height: min(560px, calc(100dvh - 80px));
+  width: min(340px, calc(100vw - 24px));
+  max-height: min(480px, calc(100dvh - 80px));
   overflow: auto;
-  padding: 14px;
-  border: 1px solid var(--border-strong);
+  padding: 16px;
+  border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--panel-strong);
   color: var(--text-strong);
@@ -82,7 +82,7 @@
 }
 
 .background-task {
-  padding: 12px 0;
+  padding: 0;
   border-top: 1px solid var(--border);
 }
 
@@ -115,16 +115,34 @@
 }
 
 .background-task.is-complete .background-task-heading > svg {
-  color: var(--accent);
+  color: var(--text-muted);
 }
 
 .background-task.is-failed .background-task-heading > svg {
   color: var(--danger, #c24135);
 }
 
-.background-tasks-data {
+.background-tasks-panel .background-tasks-data {
   width: 100%;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-muted);
+  text-align: left;
+  padding: 8px 0 0;
 }
+.background-tasks-trigger:hover, .background-tasks-trigger[aria-expanded="true"] { background: var(--hover-surface); color: var(--text-strong); }
+.background-tasks-panel header button { display: grid; place-items: center; border: 0; background: transparent; color: var(--text-muted); padding: 5px; }
+.background-tasks-panel .background-tasks-summary { margin: 4px 0 14px; font-size: 11px; }
+.background-task-heading { min-height: 44px; padding: 10px 0; cursor: pointer; list-style: none; }
+.background-task-heading::-webkit-details-marker { display: none; }
+.background-task-heading > svg { flex-shrink: 0; }
+.background-task-heading strong { font-weight: 500; }
+.background-task-heading::after { content: '›'; color: var(--text-muted); transform: rotate(0); transition: transform .15s ease; }
+.background-task details[open] > summary::after { transform: rotate(90deg); }
+.background-task-details { padding: 0 0 12px 24px; }
+.background-tasks :is(button, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) { .background-task-heading::after { transition: none; } }
+
 
 .task-spinner {
   flex-shrink: 0;

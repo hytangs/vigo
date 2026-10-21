@@ -108,6 +108,10 @@ export function StudioSettings({ appearance, basemap, localBasemapAvailable, run
           <p className="settings-note">This is the VIGO 1 Poros development preview (2026), named for an island in the Saronic Gulf whose name means a passage, a way through.</p>
           <p className="settings-note">Timetables, streets, and routing stay on this computer. Live feeds and online maps use the internet.</p>
         </section>
+        <section className="settings-section" aria-labelledby="settings-acknowledgements-title">
+          <div className="settings-section-heading"><div><h2 id="settings-acknowledgements-title">Acknowledgements</h2></div></div>
+          <p className="settings-note">Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>. Online vector maps provided by <a href="https://openfreemap.org/" target="_blank" rel="noopener noreferrer">OpenFreeMap</a>, using <a href="https://openmaptiles.org/" target="_blank" rel="noopener noreferrer">OpenMapTiles</a>. Map rendering by <a href="https://maplibre.org/" target="_blank" rel="noopener noreferrer">MapLibre</a>.</p>
+        </section>
         <section className="settings-section" aria-labelledby="settings-health-title">
           <div className="settings-section-heading"><div><h2 id="settings-health-title">Availability</h2></div></div>
           <dl className="settings-health">{[

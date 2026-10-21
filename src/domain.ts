@@ -502,7 +502,7 @@ export type VigoProject = {
 
 export type LayerKey = 'routes' | 'segments' | 'stops' | 'transfers' | 'coverage' | 'scenario' | 'access'
 
-export type LayerState = Record<LayerKey, boolean>
+export type LayerState = Record<LayerKey, boolean> & { vehicles?: boolean }
 
 export type GtfsRouteStatusFilter = 'all' | 'baseline' | 'added' | 'changed' | 'removed' | 'unchanged'
 

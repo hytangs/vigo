@@ -96,13 +96,7 @@ window.checkSettings = async () => {
 window.checkLayout = dark => {
   flushSync(() => window.setTheme(dark))
   const panel = document.querySelector('.reach-surface'), list = document.querySelector('.reach-settings-list')
-  const sidebar = document.querySelector('.app-sidebar'), expand = document.querySelector('.reach-expand')
-  const expanded = expand.getAttribute('aria-expanded') === 'true'
-  if (expanded) flushSync(() => expand.click())
-  const compact = sidebar.getBoundingClientRect()
-  flushSync(() => expand.click())
-  const wide = sidebar.getBoundingClientRect()
-  assert(innerWidth > 760 ? wide.width > compact.width + 50 : wide.height > compact.height + 50, 'Expand does not increase available space')
+  const sidebar = document.querySelector('.app-sidebar').getBoundingClientRect()
   assert(panel.clientHeight > 80 && panel.getBoundingClientRect().bottom <= innerHeight, 'Panel is outside its scroll area')
   assert(panel.scrollWidth <= panel.clientWidth + 1, 'Panel has horizontal overflow')
   for (const el of list.querySelectorAll('input:not([type=range]),select')) {
@@ -122,5 +116,5 @@ window.checkLayout = dark => {
   assert(run.top >= bounds.top && run.bottom <= bounds.bottom, 'Run button cannot be reached by scrolling')
   const scrolled = panel.scrollTop
   panel.scrollTop = 0
-  return { width: innerWidth, panelWidth: wide.width, compactHeight: compact.height, expandedHeight: wide.height, scrolled, dark }
+  return { width: innerWidth, panelWidth: sidebar.width, panelHeight: sidebar.height, scrolled, dark }
 }

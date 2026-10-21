@@ -1,4 +1,4 @@
-import { Clock3, SlidersHorizontal } from 'lucide-react'
+import { ChevronDown, Clock3, SlidersHorizontal } from 'lucide-react'
 import { useId, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { classNames } from '../domain'
 import { routingTimeOptions } from '../app/uiOptions'
@@ -75,18 +75,18 @@ export function RoutingSetup(props: RoutingSetupProps) {
       <button type="button" className="routing-setup-fold" aria-expanded={!collapsed} aria-controls={`${id}-content`}
         aria-label={collapsed ? 'Expand journey settings' : 'Collapse journey settings'}
         title={collapsed ? 'Expand journey settings' : 'Collapse journey settings'} onClick={() => setCollapsed(value => !value)}>
-        {collapsed ? 'Options' : 'Hide'}
+        <ChevronDown size={16} aria-hidden="true" />
       </button>
     </header>
 
     <div id={`${id}-content`} hidden={collapsed}>
-    {onRoutingWheelchairChange ? <div className="routing-setup-panel">
+    {onRoutingWheelchairChange ? <div className="routing-accessibility">
       <label className="routing-setup-toggle">
         <span><strong>Wheelchair routing</strong><small>Use vehicles and paths marked accessible</small></span>
         <input type="checkbox" role="switch" aria-label="Wheelchair routing" checked={routingWheelchair}
           onChange={event => onRoutingWheelchairChange(event.currentTarget.checked)} />
       </label>
-      {routingWheelchair ? <p role="note">Requires a prepared wheelchair network. Unknown accessibility is excluded. Elevator outages and access from a building to the street are not verified.</p> : null}
+      {routingWheelchair ? <details className="routing-accessibility-details"><summary>Accessibility coverage</summary><p>Uses the prepared wheelchair network. Unknown accessibility is excluded. Elevator outages and access from a building to the street are not verified.</p></details> : null}
     </div> : null}
     {transit ? <div className="routing-setup-tabs" role="tablist" aria-label="Journey settings">
       {(['when', 'preferences'] as const).map(value => <button key={value} type="button" role="tab"

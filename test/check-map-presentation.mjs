@@ -386,3 +386,19 @@ assert.equal(firstRenderTelemetry.markBasemapReady(tracker, 500), true)
 assert.equal(firstRenderTelemetry.basemapTelemetryStatus(tracker), 'not-requested')
 
 console.log('Map presentation behavior passed.')
+
+// Mode selection removes other services without dropping shared stops or changing the source.
+{
+  const network = { routes: [
+    { id: 'bus', routeType: 3, stopIds: ['shared', 'bus-only'] },
+    { id: 'rail', routeType: 2, stopIds: ['shared', 'rail-only'] },
+  ], stops: ['shared', 'bus-only', 'rail-only'].map(id => ({ id })),
+  stopPairs: [{ patternId: 'bus' }, { patternId: 'rail' }] }
+  assert.equal(presentation.filterPreviewByMode(network, null), network)
+  const filtered = presentation.filterPreviewByMode(network, 2)
+  assert.deepEqual(filtered.routes.map(route => route.id), ['rail'])
+  assert.deepEqual(filtered.stops.map(stop => stop.id), ['shared', 'rail-only'])
+  assert.deepEqual(filtered.stopPairs, [{ patternId: 'rail' }])
+  assert.equal(network.routes.length, 2)
+  assert.equal(presentation.filterPreviewByMode(network, 4).routes.length, 0)
+}

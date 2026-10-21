@@ -82,7 +82,6 @@ body,
   --signal-ink: #0e1407;
   --signal-soft: rgba(205, 230, 124, 0.12);
   --signal-line: rgba(205, 230, 124, 0.42);
-  --material: rgba(9, 15, 25, 0.88);
   --material-strong: rgba(11, 18, 29, 0.93);
   --material-blur: blur(32px) saturate(1.5);
   --elev-1: 0 1px 0 rgba(255, 255, 255, 0.035) inset, 0 1px 2px rgba(0, 0, 0, 0.38);
@@ -110,7 +109,6 @@ body,
   --signal-ink: #10150a;
   --signal-soft: rgba(124, 168, 0, 0.11);
   --signal-line: rgba(96, 132, 0, 0.42);
-  --material: rgba(255, 255, 255, 0.88);
   --material-strong: rgba(255, 255, 255, 0.94);
   --material-blur: blur(28px) saturate(1.8);
   --elev-1: 0 1px 2px rgba(15, 23, 42, 0.06);

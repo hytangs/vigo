@@ -56,8 +56,8 @@ app.whenReady().then(async()=>{try{
   const markdown=(await save('Save journey','md')).text;assert(markdown.includes('24:10:30'));assert(markdown.includes('Harvard station'));
   const routeMap=JSON.parse((await save('Save journey','geojson')).text);assert.deepEqual(routeMap.features[0].geometry.coordinates,expected.legs[0].coordinates);
   const legs=Papa.parse((await save('Save journey','csv')).text,{header:true,skipEmptyLines:true});assert.deepEqual(legs.errors,[]);assert.equal(legs.data[0].to,expected.legs[0].toName);
-  const options=JSON.parse((await save('Save all 7 journeys','json')).text);assert.equal(options.plans.length,7);assert.equal(options.selectedJourneyId,expected.id);
-  const optionRows=Papa.parse((await save('Save all 7 journeys','csv')).text,{header:true,skipEmptyLines:true}).data;assert.equal(optionRows.length,7);assert.equal(optionRows[0].selected,'true');
+  const options=JSON.parse((await save('Save all 7 departures','json')).text);assert.equal(options.plans.length,7);assert.equal(options.selectedJourneyId,expected.id);
+  const optionRows=Papa.parse((await save('Save all 7 departures','csv')).text,{header:true,skipEmptyLines:true}).data;assert.equal(optionRows.length,7);assert.equal(optionRows[0].selected,'true');
   await run('window.showResult("reach")');
   const reachJson=JSON.parse((await save('Save Reach results','json')).text);assert.equal(reachJson.selectedCutoffMinutes,15);assert.equal(reachJson.selectedSummary[1].fasterOrNewlyReachedCells,1);assert.equal(reachJson.selectedSummary[1].differenceFromBaseline.areaKm2,2.5);
   const reachRows=Papa.parse((await save('Save Reach results','csv')).text,{header:true,skipEmptyLines:true}).data;assert.equal(reachRows[1].cutoff_minutes,'15');assert.equal(reachRows[1].faster_or_newly_reached_cells,'1');assert.equal(reachRows[1].total_processing_ms,'31.25');

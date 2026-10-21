@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync, spawn } from 'node:child_process'
-import { studioWheelchairSelection } from '../src/server/studio-wheelchair.mjs'
+import { studioWheelchairAvailability, studioWheelchairSelection } from '../src/server/studio-wheelchair.mjs'
 import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
 import { once } from 'node:events'
 import { DatabaseSync } from 'node:sqlite'
@@ -78,6 +78,7 @@ try {
     osmStreetIndex: { status: 'ready', sourceFingerprint: manifest.sources.osm.sha256 } }
   fs.writeFileSync(path.join(studio, 'project.json'), JSON.stringify(project))
   assert.throws(() => studioWheelchairSelection(studio, project, { wheelchair: true }), /no prepared wheelchair/)
+  assert.deepEqual(studioWheelchairAvailability(studio, project, {}), { available: false })
   const attach = () => execFileSync(process.execPath, ['scripts/attach-studio-wheelchair.mjs', path.dirname(studio), accessible], { cwd: root })
   attach(); attach()
   assert(fs.readdirSync(studio).some(name => name.startsWith('wheelchair-backup-')))
@@ -85,9 +86,19 @@ try {
   assert(studioWheelchairSelection(studio, project, { wheelchair: true, feedId: 'feed' }))
   assert.throws(() => studioWheelchairSelection(studio, project, { wheelchair: true, feedId: 'unrelated' }), /must match/)
   assert.throws(() => studioWheelchairSelection(studio, { ...project, osmStreetIndex: {} }, { wheelchair: true }), /must match/)
+  assert.deepEqual(studioWheelchairAvailability(studio, project, { feedId: 'feed' }), { available: true })
+  for (const request of [{ feedId: 'unrelated' }, { mode: 'drive' }, { waypoints: [{}] }, { scenario: {} }]) {
+    assert.deepEqual(studioWheelchairAvailability(studio, project, request), { available: false })
+  }
+  assert.deepEqual(studioWheelchairAvailability(studio, { ...project, osmStreetIndex: {} }, {}), { available: false })
   const api = await startInMemoryVigoApi({ repositoryRoot: root, environment: {
     VIGO_PROJECTS_DIR: path.join(folder, 'cities'), VIGO_CONFIG_DIR: path.join(folder, 'config'), VIGO_ROUTE_PROJECT_PREWARM: '0' } })
   try {
+    for (const [feedId, available] of [['feed', true], ['unrelated', false]]) {
+      const capability = await api.requestJson('/api/projects/fixture/wheelchair-availability', { method: 'POST', body: { feedId } })
+      assert.equal(capability.status, 200)
+      assert.equal(capability.body.available, available)
+    }
     const request = { ...base, wheelchair: true, mode: 'transit', feedId: '__project__', routingDataMode: 'scheduled',
       timePreference: 'depart', departMinutes: 475, arriveMinutes: 510, departureWindowMinutes: 0, serviceDay: 'weekday' }
     for (const action of ['national-ready', 'national-route']) {

@@ -7,7 +7,7 @@ const sourceId = 'vigo-network'
  * A City scope's transit network tiles (the whole City or one feed) at one
  * revision, with the extent the Network view frames.
  */
-export type NetworkTiles = { scope: string; revision: string; bounds?: [LngLat, LngLat] | null }
+export type NetworkTiles = { scope: string; revision: string; bounds?: [LngLat, LngLat] | null; displayMode?: number; stopIds?: string[] }
 
 /**
  * GeoJSON network layers drawn from the Rust kernel's vector tiles in the
@@ -89,5 +89,20 @@ export function installNetworkTiles(map: MapLibreMap, projectId: string, tiles: 
   }
   if (!map.getLayer(contextRouteLayerId)) {
     map.addLayer(contextRouteLayer, map.getLayer('vigo-route-casing') ? 'vigo-route-casing' : undefined)
+  }
+}
+
+/** Filter existing tiles in place; catalog previews deliberately omit full geometry. */
+export function applyNetworkTileMode(map: MapLibreMap, mode?: number, stopIds: string[] = []) {
+  for (const [kind, ids] of Object.entries(tiledLayers)) {
+    for (const id of ids) {
+      const target = networkTileLayerId(id)
+      if (!map.getLayer(target)) continue
+      const original = map.getFilter(id)
+      const restriction: FilterSpecification = kind === 'routes'
+        ? ['==', ['to-number', ['get', 'routeType'], -1], mode ?? -1]
+        : ['in', ['get', 'stopId'], ['literal', stopIds]]
+      map.setFilter(target, mode === undefined ? original ?? null : original ? ['all', original, restriction] as FilterSpecification : restriction)
+    }
   }
 }

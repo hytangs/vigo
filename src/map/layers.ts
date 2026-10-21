@@ -804,7 +804,7 @@ export function applyLayerVisibility(
   // A focused route draws its own tiles until its detailed patterns arrive.
   if (options.networkTiles === 'focus') setVisibility(map, [networkTileLayerId('vigo-selected-route')], layers.routes)
   setVisibility(map, accessLayerIds, layers.access)
-  setVisibility(map, vehicleLayerIds, layers.routes)
+  setVisibility(map, vehicleLayerIds, layers.vehicles ?? layers.routes)
   setVisibility(map, routingLayerIds, options.routingVisible ?? true)
   setVisibility(map, reachResultLayerIds, options.reachResultVisible ?? false)
 

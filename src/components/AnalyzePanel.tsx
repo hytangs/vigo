@@ -3,10 +3,8 @@ import {
   ArrowRight,
   CircleDot,
   Eraser,
-  Expand,
   LoaderCircle,
   MapPin,
-  Minimize2,
   Pencil,
   Plus,
   Radar,
@@ -772,11 +770,6 @@ export function AnalyzePanelView({
   const [newInterventionKind, setNewInterventionKind] = useState<ScenarioChangeKind>('add-line')
   const [routeQuery, setRouteQuery] = useState('')
   const [scenarioEditorOpen, setScenarioEditorOpen] = useState(false)
-  const [panelExpanded, setPanelExpanded] = useState(false)
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => window.dispatchEvent(new Event('resize')))
-    return () => cancelAnimationFrame(frame)
-  }, [panelExpanded])
   const activeCase = cases.find((entry) => entry.id === activeCaseId) ?? cases[0]
   const interventions = activeCase?.interventions ?? []
   const activeIntervention = interventions.find((entry) => entry.id === activeInterventionId)
@@ -910,7 +903,7 @@ export function AnalyzePanelView({
   }
 
   return (
-    <section className={classNames('sidebar-section reach-surface', panelExpanded && 'is-expanded')} aria-label="Reach analysis controls">
+    <section className="sidebar-section reach-surface" aria-label="Reach analysis controls">
       <form onSubmit={submit}>
         <div className="reach-analysis-switch">
           <div className="studio-tabs reach-mode-tabs" role="group" aria-label="Analyze mode">
@@ -931,11 +924,7 @@ export function AnalyzePanelView({
               <span>Compare</span>
             </button>
           </div>
-          <button type="button" className="reach-expand" aria-label={panelExpanded ? 'Compact analysis controls' : 'Expand analysis controls'}
-            title={panelExpanded ? 'Compact controls' : 'Expand controls'} aria-expanded={panelExpanded}
-            onClick={() => setPanelExpanded(value => !value)}>
-            {panelExpanded ? <Minimize2 size={16} /> : <Expand size={16} />}
-          </button>
+
         </div>
 
 

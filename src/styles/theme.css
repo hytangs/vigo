@@ -1449,18 +1449,18 @@
     width: var(--panel-width);
     max-height: calc(100% - 2 * var(--stage-gutter));
     border: 0;
-    border-radius: var(--radius-lg);
-    background: var(--material);
+    border-radius: var(--workspace-radius);
+    background: var(--ink-2);
     box-shadow: var(--elev-2);
-    backdrop-filter: var(--material-blur);
-    -webkit-backdrop-filter: var(--material-blur);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     animation: stage-panel-in var(--duration-slow) var(--ease-emphasis) both;
   }
 
   .app-shell.has-stage .sidebar-panel {
     flex: 0 0 auto;
     margin: var(--stage-gutter);
-    padding: 22px 20px 24px;
+    padding: var(--workspace-inset);
   }
 
   .app-shell.has-stage.view-agency .project-workbench,

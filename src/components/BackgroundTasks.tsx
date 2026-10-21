@@ -30,23 +30,25 @@ export function BackgroundTasks({ tasks, open, onOpenChange, onOpenData, onRecon
     <div className="background-tasks" ref={container}>
       <button ref={trigger} type="button" className="background-tasks-trigger" aria-expanded={open} aria-controls="background-task-list" aria-label={`Background tasks${active.length ? `, ${active.length} active` : attention ? ', needs attention' : ''}`} onClick={() => onOpenChange(!open)}>
         {attention ? <AlertCircle size={15} /> : active.length ? <LoaderCircle size={15} className="task-spinner" /> : <Activity size={15} />}
-        <span>{active.length ? 'Preparing data' : 'Background tasks'}</span>
+        <span>{active.length ? 'Preparing data' : attention ? 'Needs attention' : 'Tasks'}</span>
         {active.length ? <b>{active.length}</b> : null}
       </button>
       {open ? (
         <section id="background-task-list" className="background-tasks-panel" aria-label="Background tasks">
           <header><strong>Background tasks</strong><button type="button" aria-label="Close background tasks" onClick={() => { onOpenChange(false); trigger.current?.focus() }}><X size={15} /></button></header>
-          <p>Data preparation continues while you use other views.</p>
+          <p className="background-tasks-summary">{active.length ? `${active.length} running in the background` : attention ? 'Some tasks need your attention' : tasks.length ? 'Everything is up to date' : 'No tasks yet'}</p>
           {!tasks.length ? <p>No data preparation tasks yet. Add GTFS schedules and OSM streets in City.</p> : (
             <ul>{tasks.map((task) => {
               const working = isActiveTask(task)
               const status = task.statusError ? 'Updates paused' : task.status === 'complete' ? 'Complete' : task.status === 'failed' ? 'Failed' : task.status === 'cancelled' ? 'Cancelled' : task.status === 'queued' ? 'Queued' : 'Processing'
-              return <li key={task.id} className={`background-task ${task.status === 'failed' ? 'is-failed' : task.status === 'complete' ? 'is-complete' : ''}`}>
-                <div className="background-task-heading">
+              return <li key={task.id} className={`background-task ${task.status === 'failed' || task.statusError ? 'is-failed' : task.status === 'complete' ? 'is-complete' : ''}`}>
+                <details open={working || task.status === 'failed' || Boolean(task.statusError)}>
+                <summary className="background-task-heading">
                   {task.statusError || task.status === 'failed' ? <AlertCircle size={16} /> : task.status === 'complete' ? <CheckCircle2 size={16} /> : working ? <LoaderCircle size={16} className="task-spinner" /> : <Clock3 size={16} />}
                   <strong>{task.kind === 'vehicle-schedules' ? 'Static vehicle schedules' : task.kind === 'street-runtime-prepare' ? 'Street routing' : task.kind === 'city-data-load' ? 'Loading City' : task.kind === 'national-osm-import' ? 'OSM street networks' : task.kind === 'national-gtfs-merge' ? 'Combining transit feeds' : 'GTFS schedules'}</strong>
                   <span>{status}</span>
-                </div>
+                </summary>
+                <div className="background-task-details">
                 <small className="background-task-source">{task.label}</small>
                 <p>{task.statusError || task.error || task.phase || status}</p>
                 {working || task.status === 'complete' ? <OperationProgress key={`${task.id}:${task.createdAt}`} phase={task.phase || status} work={task.work}
@@ -56,6 +58,8 @@ export function BackgroundTasks({ tasks, open, onOpenChange, onOpenData, onRecon
                 {task.detail && task.detail !== task.error ? <small>{task.detail}</small> : null}
                 {task.statusError ? <button type="button" onClick={() => onReconnect(task)}>Reconnect to task</button> : null}
                 {!task.statusError && ['street-runtime-prepare', 'vehicle-schedules'].includes(task.kind) && task.status === 'failed' ? <button type="button" onClick={() => onReconnect(task)}>Retry preparation</button> : null}
+                </div>
+                </details>
               </li>
             })}</ul>
           )}

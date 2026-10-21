@@ -217,7 +217,7 @@
  * Network workspace. Routes read like signage: their own color, short name
  * and mode. Status color is reserved for service states (watch, alert).
  */
-.agency-scroll { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 18px 18px 28px; scrollbar-width: thin; }
+.agency-scroll { min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .agency-route-label { display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
 .agency-route-label > b { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; max-width: 100%; min-height: 22px; padding: 2px 8px; overflow: hidden; border-radius: 6px; color: var(--line-ink, #fff); background: var(--line-color); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12); font-size: var(--type-xs); font-weight: 720; letter-spacing: -0.005em; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
 .agency-route-label > small { color: var(--text-4); font-size: var(--type-2xs); font-weight: 560; letter-spacing: 0.02em; text-transform: uppercase; }

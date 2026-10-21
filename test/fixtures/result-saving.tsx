@@ -166,7 +166,7 @@ window.checkResultState = () => {
   window.saveResult('Save failure example', 'json')
   assert(group('Save failure example').querySelector('[role="alert"]').textContent.includes('Try again'), 'Formatting failure is not visible')
   window.showResult('journey', 'loading')
-  assert(group('Save all 7 journeys').querySelector('button').disabled, 'An incomplete alternative collection can be saved')
+  assert(group('Save all 7 departures').querySelector('button').disabled, 'An incomplete alternative collection can be saved')
   assert(!group('Save journey').querySelector('button').disabled, 'A completed selected journey should remain savable')
   return { positiveAndNegativeDifferences: true, cutoffSpecific: true, partialResultsBlocked: true, errorsVisible: true }
 }
@@ -183,8 +183,6 @@ window.checkFeedbackReset = () => {
 }
 window.checkResultLayout = (mode, dark) => {
   window.showResult(mode); window.changeTheme(dark)
-  const expand = document.querySelector('.reach-expand')
-  if (expand?.getAttribute('aria-expanded') === 'false') flushSync(() => expand.click())
   const controls = [...document.querySelectorAll('.result-export-actions')]
   for (const control of controls) {
     control.scrollIntoView({ block: 'center' })

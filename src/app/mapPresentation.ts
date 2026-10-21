@@ -195,3 +195,13 @@ export function previewForSelectedRoute(
     coverage: preview.coverage,
   }
 }
+
+/** Mode filtering retains only the selected services and their associated stops. */
+export function filterPreviewByMode(preview: MapPreview, mode: number | null): MapPreview {
+  if (mode === null) return preview
+  const routes = preview.routes.filter(route => route.routeType === mode)
+  const stops = new Set(routes.flatMap(route => route.stopIds))
+  const patterns = new Set(routes.map(route => route.id))
+  return { routes, stops: preview.stops.filter(stop => stops.has(stop.id)),
+    stopPairs: preview.stopPairs?.filter(pair => patterns.has(pair.patternId)) ?? [] }
+}

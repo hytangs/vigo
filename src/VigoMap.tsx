@@ -1,4 +1,3 @@
-import { addMapControls } from './app/mapControls'
 import {
   baseCanvasColor,
   ensureLocalBasemapLayers,
@@ -20,6 +19,7 @@ import {
 } from './map/layers'
 import { accessFeatures, directionLabel, routeDisplayName, routeFeatures, segmentFeatures, stopFeatures } from './map/networkFeatures'
 import {
+  applyNetworkTileMode,
   contextRouteLayerId,
   installNetworkTiles,
   networkTileLayerId,
@@ -864,18 +864,6 @@ export function VigoMap({
     map.on('sourcedata', handleSourceData)
     map.on('load', handleMapLoad)
     map.on('idle', retryMapReady)
-    try {
-      addMapControls(map)
-    } catch (error) {
-      map.off('error', handleMapError)
-      map.off('sourcedata', handleSourceData)
-      map.off('load', handleMapLoad)
-      map.off('idle', retryMapReady)
-      if (mapReadyFallbackTimer !== null) window.clearTimeout(mapReadyFallbackTimer)
-      map.remove()
-      reportMapFailure('initialize', error)
-      return
-    }
     mapRef.current = map
     mapReadyFallbackTimer = window.setTimeout(retryMapReady, 0)
 
@@ -1172,6 +1160,8 @@ export function VigoMap({
   // refetches a tile.
   const networkTileScope = networkTiles?.scope ?? ''
   const networkTileRevision = networkTiles?.revision ?? ''
+  const networkDisplayMode = networkTiles?.displayMode
+  const networkModeStopIds = networkTiles?.stopIds
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -1183,6 +1173,7 @@ export function VigoMap({
       }
       ensureLayers(map)
       installNetworkTiles(map, projectId, { scope: networkTileScope, revision: networkTileRevision })
+      applyNetworkTileMode(map, networkDisplayMode, networkModeStopIds)
       const none: FilterSpecification = ['==', ['get', 'featureId'], '__none__']
       map.setFilter(networkTileLayerId('vigo-selected-stop'), ['==', ['get', 'stopId'], resolvedSelectedStopId || '__none__'])
       map.setFilter(networkTileLayerId('vigo-selected-route'), networkTileMode === 'focus'
@@ -1197,7 +1188,7 @@ export function VigoMap({
     return () => {
       if (!mapRemovedRef.current) map.off('load', update)
     }
-  }, [contextRouteFilter, focusTileRouteIds, networkTileMode, networkTileRevision, networkTileScope, projectId, resolvedSelectedStopId])
+  }, [networkDisplayMode, networkModeStopIds, contextRouteFilter, focusTileRouteIds, networkTileMode, networkTileRevision, networkTileScope, projectId, resolvedSelectedStopId])
 
   useEffect(() => {
     const map = mapRef.current

@@ -57,6 +57,7 @@ export type RouteState = {
   routingAllowLongWalk: boolean
   routingAllowStreetTransfers: boolean
   routingWheelchair: boolean
+  wheelchairAvailableKey: string
   routingMinimumTransferBufferMinutes: number
   selectedRoutingPlanId: string
   routingDetailsVisible: boolean
@@ -86,6 +87,7 @@ const initialRouteState = (): RouteState => ({
   routingAllowLongWalk: true,
   routingAllowStreetTransfers: true,
   routingWheelchair: false,
+  wheelchairAvailableKey: '',
   routingMinimumTransferBufferMinutes: 1,
   selectedRoutingPlanId: '',
   routingDetailsVisible: false,
@@ -449,4 +451,15 @@ const networkOptionsOf = memoizeLast((cases: ScenarioDraft[], selectedId: string
 }))
 export const routingNetwork = () => networkOptionsOf(scenarioLibrary().scenarioDrafts, route.get().routeScenarioId, routeScenario().error, selectedProject())
 
-export const setRoutingWheelchair = (routingWheelchair: boolean) => route.set({ routingWheelchair, ...(routingWheelchair ? { routingDataMode: 'scheduled' as const, routeScenarioId: '' } : {}) })
+export const setRoutingWheelchair = (routingWheelchair: boolean) => route.set({ routingWheelchair, ...(routingWheelchair ? { routingDataMode: 'scheduled' as const } : {}) })
+
+/** A capability belongs to exactly one source selection and routing mode. */
+export function wheelchairSelectionKey() {
+  const project = selectedProject()
+  const state = route.get()
+  return JSON.stringify([project.id, project.osmStreetIndex, routingScope().nationalRoutingStoreKey,
+    state.routeScenarioId, state.routingMode, state.routingWaypoints.length])
+}
+export function wheelchairAvailable() {
+  return route.get().wheelchairAvailableKey === wheelchairSelectionKey()
+}

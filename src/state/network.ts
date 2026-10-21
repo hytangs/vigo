@@ -33,6 +33,7 @@ export type ScheduleLoadRequest = {
 
 /** Network workspace: map layers and scope, selection, agency browsing and live vehicles. */
 export type NetworkState = {
+  displayMode: number | null
   layers: LayerState
   mapScope: MapScope
   networkLens: NetworkLens
@@ -58,6 +59,7 @@ export type NetworkState = {
 
 const initialNetworkState = (): NetworkState => ({
   layers: initialLayers,
+  displayMode: null,
   mapScope: 'network',
   networkLens: 'network',
   routeRenderMode: 'service',

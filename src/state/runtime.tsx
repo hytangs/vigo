@@ -1,3 +1,4 @@
+import { wheelchairSelectionKey } from './route'
 import { startTransition, useEffect, useLayoutEffect, useRef } from 'react'
 import { apiJson } from '../app/api'
 import { subscribeDesktopCommands, syncDesktopChromeState } from '../app/desktopBridge'
@@ -442,6 +443,25 @@ function RouteRuntime() {
   const routeAllowed = useStudio(() => routingStreetState() === 'ready') && !(settings.routingMode === 'transit' && settings.routeScenarioId && !scenario.request)
   const routingServiceDay = serviceDay()
 
+  const wheelchairKey = useStudio(wheelchairSelectionKey)
+  const availableKey = useStore(route, state => state.wheelchairAvailableKey)
+  const wheelchairReady = wheelchairKey === availableKey
+  useEffect(() => {
+    const controller = new AbortController()
+    route.set({ wheelchairAvailableKey: '', routingWheelchair: false })
+    if (!project.id || !nationalRoutingFeed || (settings.routeScenarioId && !scenario.request)) return
+    void apiJson<{ available: boolean }>(`/api/projects/${encodeURIComponent(project.id)}/wheelchair-availability`, {
+      method: 'POST', signal: controller.signal,
+      body: JSON.stringify({ ...(scenario.request ? { feedIds: scenario.request.feedIds, scenario: scenario.request.scenario } : { feedId: nationalRoutingFeed.id }),
+        mode: settings.routingMode, waypoints: settings.routingWaypoints }),
+    }).then(result => {
+      if (!controller.signal.aborted && wheelchairSelectionKey() === wheelchairKey) {
+        route.set({ wheelchairAvailableKey: result.available ? wheelchairKey : '' })
+      }
+    }).catch(() => { /* Unknown capability stays hidden; routing still validates every request. */ })
+    return () => controller.abort()
+  }, [wheelchairKey])
+
   const engine = useNationalRouting({
     active: Boolean(page === 'project' && nationalRoutingFeed && activeRouteTool === 'pathfinder'),
     projectId: project.id,
@@ -461,7 +481,7 @@ function RouteRuntime() {
     maxTransfers: settings.routingMaxTransfers,
     allowLongWalk: settings.routingAllowLongWalk,
     allowStreetTransfers: settings.routingAllowStreetTransfers,
-    wheelchair: settings.routingWheelchair,
+    wheelchair: settings.routingWheelchair && wheelchairReady,
     minimumTransferBufferMinutes: settings.routingMinimumTransferBufferMinutes,
     departureWindowMinutes: settings.routingDepartureWindowMinutes,
     realtimeSnapshot,

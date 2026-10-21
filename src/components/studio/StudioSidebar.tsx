@@ -1,3 +1,4 @@
+import { wheelchairAvailable } from '../../state/route'
 import { feedIdentity, liveVehicleDiagnostics, quietMapLabel, type MapScope } from './presentation'
 
 import { Clock3, Database, MapPin, Radio, Server, TableProperties } from 'lucide-react'
@@ -332,6 +333,7 @@ function SidebarRouteBox() {
     routingPointError: state.routingPointError,
     routingPickIndex: state.routingPickIndex,
   }), shallowEqual)
+  const showWheelchair = useStudio(wheelchairAvailable)
   const routingNetworkState = useStudio(routingNetwork)
   const points = useStudio(routingDisplayPoints)
   const engine = useStore(route, (state) => state.engine)
@@ -361,8 +363,8 @@ function SidebarRouteBox() {
       routingMaxTransfers={settings.routingMaxTransfers}
       routingAllowLongWalk={settings.routingAllowLongWalk}
       routingAllowStreetTransfers={settings.routingAllowStreetTransfers}
-      routingWheelchair={settings.routingWheelchair}
-      onRoutingWheelchairChange={setRoutingWheelchair}
+      routingWheelchair={showWheelchair && settings.routingWheelchair}
+      onRoutingWheelchairChange={showWheelchair ? setRoutingWheelchair : undefined}
       routingMinimumTransferBufferMinutes={settings.routingMinimumTransferBufferMinutes}
       routingActivity={activity}
       routingAlternativesLoading={engine.alternativesLoading}

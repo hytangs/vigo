@@ -1,3 +1,4 @@
+import { filterPreviewByMode } from '../../app/mapPresentation'
 import { liveVehicleDiagnostics, type MapScope } from './presentation'
 
 import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
@@ -150,6 +151,7 @@ export function RouteSurfaceView({
   onOpenTrip,
   operationalEvents,
   agencyFocus,
+  restrictVehicleScope = false,
   scheduleLoadStatus,
   agencyLocation,
   routeDetailStatus,
@@ -207,6 +209,7 @@ export function RouteSurfaceView({
   agencyFocus: boolean
   scheduleLoadStatus?: string
   routeDetailStatus?: string
+  restrictVehicleScope?: boolean
   projectId: string
   /** The City scope's network as Rust vector tiles; absent draws GeoJSON. */
   networkTiles?: NetworkTiles
@@ -285,7 +288,7 @@ export function RouteSurfaceView({
       : scheduledVehiclesAtTime(mapPreview, scheduleTimeMinutes, scheduleServiceDate),
     [analysisFocus, mapPreview, routingFocus, scheduleServiceDate, scheduleTimeMinutes, vehicleMode],
   )
-  const vehicleFrame = useMemo(
+  const unfilteredVehicleFrame = useMemo(
     () => routingFocus || analysisFocus ? emptyVehicleFrame : buildServiceVehicleFrame({
       mode: vehicleMode,
       preview: vehicleMode === 'live' ? visiblePreview : mapPreview,
@@ -295,6 +298,11 @@ export function RouteSurfaceView({
     }),
     [analysisFocus, mapPreview, realtimeSnapshot, operationalEvents, routingFocus, scheduledVehicles, vehicleMode, visiblePreview],
   )
+  const vehicleFrame = useMemo(() => {
+    if (!restrictVehicleScope) return unfilteredVehicleFrame
+    const services = new Set(visiblePreview.routes.map(serviceKeyForRoute))
+    return { ...unfilteredVehicleFrame, vehicles: unfilteredVehicleFrame.vehicles.filter(vehicle => services.has(vehicle.serviceKey)) }
+  }, [restrictVehicleScope, unfilteredVehicleFrame, visiblePreview])
   const visibleVehicleCount = serviceVehicleCount(vehicleFrame, isNetworkMap || scheduledNetwork ? undefined : selectedRoute, mapPreview)
   const selectedPatternOnly = !isNetworkMap && mapPreview.routes.length === 1 && (selectedRoute?.serviceVariantCount ?? 1) > 1
   const unknownBranchVehicles = vehicleMode === 'live' && selectedPatternOnly && selectedRoute
@@ -502,6 +510,7 @@ export const RouteSurface = memo(function RouteSurface() {
   const analysisFocus = tool === 'analyze'
   const networkState = useStore(network, (state) => ({
     layers: state.layers,
+    displayMode: state.displayMode,
     mapScope: state.mapScope,
     networkLens: state.networkLens,
     vehicleMode: state.vehicleMode,
@@ -531,9 +540,13 @@ export const RouteSurface = memo(function RouteSurface() {
   const detailOpen = useStudio(routingDetailOpen)
   const scopeTiles = useStudio(() => selectedProject().networkTiles?.[activeFeed().id])
   const feed = useStudio(activeFeed)
-  const networkTiles = useMemo(() => scopeTiles ? { scope: feed.id, ...scopeTiles } : undefined, [feed.id, scopeTiles])
+  const baseNetworkTiles = useMemo(() => scopeTiles ? { scope: feed.id, ...scopeTiles } : undefined, [feed.id, scopeTiles])
   const focusedPreview = useStudio(focusedMapPreview)
-  const visiblePreview = useStudio(workbenchMapPreview)
+  const unfilteredPreview = useStudio(workbenchMapPreview)
+  const visiblePreview = useMemo(() => agencyFocus ? filterPreviewByMode(unfilteredPreview, networkState.displayMode) : unfilteredPreview, [agencyFocus, unfilteredPreview, networkState.displayMode])
+  const networkTiles = useMemo(() => baseNetworkTiles && agencyFocus && networkState.displayMode !== null
+    ? { ...baseNetworkTiles, displayMode: networkState.displayMode, stopIds: visiblePreview.stops.map(stop => stop.id) }
+    : baseNetworkTiles, [baseNetworkTiles, agencyFocus, networkState.displayMode, visiblePreview])
   const focusRoute = useStudio(selectedNetworkRoute)
   const focusStopId = useStudio(() => selectedNetworkStop()?.id ?? '')
   const routeDetailStatus = useStudio(() => {
@@ -570,6 +583,7 @@ export const RouteSurface = memo(function RouteSurface() {
       onOpenTrip={openAgencyTrip}
       operationalEvents={agencyFocus ? networkState.operationalEvents : undefined}
       agencyFocus={agencyFocus}
+      restrictVehicleScope={agencyFocus && (networkState.displayMode !== null || feed.id !== '__bundle__')}
       scheduleLoadStatus={networkState.scheduleLoadStatus}
       agencyLocation={networkState.agencyLocation}
       routeDetailStatus={routeDetailStatus}
@@ -582,7 +596,7 @@ export const RouteSurface = memo(function RouteSurface() {
       selectedRoute={focusRoute}
       mapScope={networkState.mapScope}
       networkLens={networkState.networkLens}
-      layers={networkState.layers}
+      layers={agencyFocus ? { ...networkState.layers, transfers: false } : networkState.layers}
       appearance={appearance}
       basemap={basemap}
       localBasemapAvailable={project.localBasemapAvailable}
