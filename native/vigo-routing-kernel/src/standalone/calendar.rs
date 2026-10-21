@@ -1,20 +1,12 @@
 //! Immutable calendar rules; dates are views over weekday masks and exceptions.
 //! Service-clock offsets and overnight coverage are resolved by City, not here.
 use super::Result;
-use chrono::{Datelike, NaiveDate, TimeZone};
+use chrono::{Datelike, NaiveDate};
 use rusqlite::Connection;
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem::size_of;
 
-/// GTFS service time starts twelve elapsed hours before local noon, even on DST days.
-pub(crate) fn service_epoch(zone: chrono_tz::Tz, day: NaiveDate) -> Result<i64> {
-    Ok(zone
-        .from_local_datetime(&day.and_hms_opt(12, 0, 0).unwrap())
-        .single()
-        .ok_or("Service date has no unambiguous local noon")?
-        .timestamp()
-        - 43_200)
-}
+pub(crate) use crate::realtime::service_epoch;
 
 struct Weekly {
     service: usize,

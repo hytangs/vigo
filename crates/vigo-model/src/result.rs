@@ -97,6 +97,50 @@ pub struct RealtimeReport {
     pub date_mismatches: u64,
     pub past_prefix_trips: u64,
     pub omitted_past_prefix_stops: u64,
+    /// Present when the server's live snapshot was used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot: Option<LiveSnapshotReport>,
+    /// Present when the snapshot carries Service Alerts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alerts: Option<AlertReport>,
+}
+
+/// The live publication a query used: `vigo serve --realtime-poll`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveSnapshotReport {
+    /// `server`.
+    pub source: String,
+    /// Content identifier; equal snapshots have equal identifiers.
+    pub id: String,
+    pub generation: u64,
+    /// Each configured source's kind, scope, feed timestamp and failure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feeds: Option<Value>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AlertReport {
+    pub received: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fresh: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale: Option<u64>,
+    /// Fresh `NO_SERVICE` alerts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_service: Option<u64>,
+    /// Entities that select nothing VIGO can resolve, such as an agency alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unsupported_entities: Option<u64>,
+    /// Ride segments that lost boarding or alighting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed_boardings: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed_alightings: Option<u64>,
+    /// `timezone_required` when the City clock is ambiguous.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]

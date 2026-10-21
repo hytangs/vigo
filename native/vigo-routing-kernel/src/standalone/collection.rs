@@ -46,6 +46,12 @@ pub(crate) struct Collection {
     timetable_budget: usize,
 }
 impl Runtime {
+    pub(crate) fn install_realtime(&mut self, message: &mut Value) -> Result<()> {
+        let Self::Single(city) = self else {
+            return fail("GTFS-RT polling requires a single City");
+        };
+        city.install_realtime(message)
+    }
     pub(crate) fn install_traffic(&mut self, value: &Value) -> Result<()> {
         let Self::Single(city) = self else {
             return fail("Automatic NDW polling requires a single City");

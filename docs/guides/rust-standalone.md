@@ -51,11 +51,11 @@ Resident Cities share immutable street arrays and CCH indexes by canonical path.
 
 ### Timetable preparation and retention
 
-Scheduled timetables retain a service-clock prefix through at least 06:00 the next day. Longer requests extend that prefix in six-hour blocks; narrower requests reuse it. Future days are read only through the loaded departure bound. Realtime uses the unfiltered source so an update can move a later trip into the query window. `GET /v1/info` reports `timetablePreparations` and `timetableCoverageEndSeconds` for each resident scenario.
+Scheduled timetables retain a service-clock prefix through at least 06:00 the next day. Longer requests extend that prefix in six-hour blocks; narrower requests reuse it. Future days are read only through the loaded departure bound. Realtime uses the unfiltered source so an update can move a later trip into the query window. That source read is retained (up to two service-day windows), so a new snapshot derives its view from memory instead of reading the City database again; trip, stop and transfer inputs are shared rather than rebuilt. `GET /v1/info` reports `timetablePreparations` and `timetableCoverageEndSeconds` for each resident scenario.
 
 Cold startup opens the City and prepares the first requested service date. Timetable preparation reads trip-sized groups and restores the canonical date order in native arrays; it does not require a new City format or extra disk index. Keep `stream` or `serve` resident to reuse this work across requests.
 
-Each standalone City also retains up to eight inactive scheduled timetables, with a default 128 MiB budget set by `VIGO_TIMETABLE_CACHE_BYTES`. Returning to a retained date and transfer policy reuses its prepared arrays and indexes. Entries use exact dates and sufficient time coverage, preserving calendar exceptions, overnight service and timezone offsets. Least recently used entries are evicted; oversized entries and realtime snapshots are not retained. Set the budget to `0` to disable date retention. This is an additional budget, separate from the active timetable, street data and preparation temporaries. A standalone City receives the full budget. In a scenario collection, retained entries keep their byte allocation and the selected scenario can borrow unused capacity from the collection budget. This avoids a fixed per-scenario share; it does not evict another resident's retained dates to make room. Separate workers each have their own budget. Shared blocks are charged in full for cache admission. `memory.timetableCache` reports entries, charged `retainedBytes`, `budgetBytes`, hits and evictions. Collection residency reports aggregate `inactiveTimetableBudgetBytes` and `inactiveTimetableRetainedBytes`. Retained-date activation does not trigger Linux preparation-memory trimming unless retention evicts another timetable. Matrix and Reach still reclaim their temporary allocations after completion. The owner-level memory ledger includes inactive timetables and counts shared blocks once. Calendar rules load once per City as weekday masks plus dated exceptions. Standalone Cities also share equal immutable source-column blocks across retained dates; date-specific scan indexes remain separate. The first-date layout stays contiguous until another date is retained. `memory.calendarIndexBytes` and `memory.timetableSharedColumns` expose the index and shared storage.
+Each standalone City also retains up to eight inactive scheduled timetables, with a default 128 MiB budget set by `VIGO_TIMETABLE_CACHE_BYTES`. Returning to a retained date and transfer policy reuses its prepared arrays and indexes. Entries use exact dates and sufficient time coverage, preserving calendar exceptions, overnight service and timezone offsets. Least recently used entries are evicted, and oversized entries are not retained. The latest two realtime views are also retained, so alternating scheduled and realtime queries do not rebuild them; a realtime view only uses space no scheduled timetable or retained source needs, because it rebuilds from its source in a fraction of a source read. Set the budget to `0` to disable date retention. This is an additional budget, separate from the active timetable, street data and preparation temporaries. A standalone City receives the full budget. In a scenario collection, retained entries keep their byte allocation and the selected scenario can borrow unused capacity from the collection budget. This avoids a fixed per-scenario share; it does not evict another resident's retained dates to make room. Separate workers each have their own budget. Shared blocks are charged in full for cache admission. `memory.timetableCache` reports entries, charged `retainedBytes`, `budgetBytes`, hits and evictions. Collection residency reports aggregate `inactiveTimetableBudgetBytes` and `inactiveTimetableRetainedBytes`. Retained-date activation does not trigger Linux preparation-memory trimming unless retention evicts another timetable. Matrix and Reach still reclaim their temporary allocations after completion. The owner-level memory ledger includes inactive timetables and counts shared blocks once. Calendar rules load once per City as weekday masks plus dated exceptions. Standalone Cities also share equal immutable source-column blocks across retained dates; date-specific scan indexes remain separate. The first-date layout stays contiguous until another date is retained. `memory.calendarIndexBytes` and `memory.timetableSharedColumns` expose the index and shared storage.
 
 ### Query workspaces and residency
 
@@ -687,7 +687,7 @@ Run `node scripts/benchmark-service-reuse.mjs --reference /path/to/baseline-vigo
 
 Reach finds the streets and areas accessible from an origin within a set of travel-time limits. Transit queries combine timetable travel with walking over the prepared street network. Use `mode: "walk"` for walking only, or call `isochrone` as an alias of `reach`.
 
-Reach supports depart-at queries. Drive and realtime transit are unavailable in Reach; see [Compatibility](#20-validation-and-compatibility) for the supported combinations.
+Reach supports depart-at queries, including realtime transit. Drive is unavailable in Reach; see [Compatibility](#20-validation-and-compatibility) for the supported combinations.
 
 ### Request
 
@@ -865,13 +865,13 @@ Hold origin, clock/date, walking policy, cutoffs, and grid fixed when interpreti
 
 ## 12. Realtime transit and supplied traffic
 
-Supply transit predictions or traffic observations with a query to use them in routing. Your application can supply decoded feeds; the Rust HTTP server can also poll NDW traffic as described below.
+Supply transit predictions or traffic observations with a query to use them in routing. Your application can supply decoded feeds; the Rust HTTP server can also poll GTFS-Realtime feeds and NDW traffic itself, as described below.
 
 Without automatic polling, each query uses only the snapshot supplied with it. Omission restores scheduled/baseline routing on the next request. Explicit `routingDataMode: "scheduled"` rejects observation input; `"realtime"` requires a snapshot or traffic. Without an explicit mode, supplied input selects its corresponding observation path.
 
 ### Transit snapshot
 
-Transit realtime supports Route only. Use a `FULL_DATASET` snapshot with `tripUpdates`. Feed timestamps are Unix **seconds**, not milliseconds. A record needs `sourceFeedTimestamp` or the enclosing `feedTimestamp`, no older than 180 seconds and at most 60 seconds in the future. If present, its own `timestamp` must also be fresh.
+Transit realtime supports Route, Matrix and Reach; all three search the same realtime view, and a Reach scenario applies on top of it. Use a `FULL_DATASET` snapshot with `tripUpdates` and, optionally, `alerts`. Feed timestamps are Unix **seconds**, not milliseconds. A record needs `sourceFeedTimestamp` or the enclosing `feedTimestamp`, no older than 180 seconds and at most 60 seconds in the future. If present, its own `timestamp` must also be fresh.
 
 Create a current synthetic delayed-trip request from `route.json`:
 
@@ -908,7 +908,59 @@ A stop update uses integer `stopSequence` or an unambiguous `stopId`; both, if p
 
 Invalid, duplicate, stale, ambiguous, or mismatched records preserve scheduled service and increment diagnostics. A malformed enclosing snapshot fails the request. Omitted past prefixes can be removed only when source clocks establish that the omitted calls are past; their boarding opportunities are removed with them. Cached snapshot validity changes at freshness/source-clock boundaries.
 
-Read `diagnostics.realtime` for coverage and the numbers of applied, canceled, stale, invalid, duplicate, and unmatched records. A successful route may use scheduled fallback. A fresh prediction is not a verified arrival or a completeness guarantee.
+Read `diagnostics.realtime` (public `meta.realtime`) for coverage and the numbers of applied, canceled, stale, invalid, duplicate, and unmatched records. A successful route may use scheduled fallback. A fresh prediction is not a verified arrival or a completeness guarantee. A transit leg on a trip with applied predictions reports `quality.schedule: "realtime"`.
+
+### Service Alerts
+
+`realtimeSnapshot.alerts` holds GTFS-Realtime Service Alerts in the record form the server's poller produces:
+
+```json
+{
+  "id": "closure-1",
+  "effect": "NO_SERVICE",
+  "header": "Park Street closed",
+  "activePeriods": [{ "start": 1792764000, "end": 1792778400 }],
+  "informedEntities": [{ "stopId": "place-pktrm" }, { "routeId": "Red", "directionId": 0 }]
+}
+```
+
+An informed entity matches when all of its fields match (`routeId`, `routeType`, `directionId`, `trip.tripId`, `stopId`); an alert applies when any entity matches. A station `stopId` also selects its platforms. Active periods are POSIX seconds with open bounds; no period means always active. `effect` accepts a name or its GTFS-RT code.
+
+| Effect | Routing |
+| --- | --- |
+| `NO_SERVICE` on a route, trip or route type | Its trips cannot be boarded or left during the period |
+| `NO_SERVICE` on a stop | No boarding or alighting there during the period; vehicles pass through |
+| `NO_SERVICE` on a route and a stop | That route does not serve that stop |
+| Any other effect | None; the alert is reported on the legs it describes |
+
+Every fresh alert active during a ride and selecting its trip, route or any of its stops appears in the leg's `alerts` list (`id`, `effect`, `cause`, `severity`, `header`, `description`, `url`). Alert freshness follows the record rule above. `meta.realtime.alerts` counts received, fresh, stale and `NO_SERVICE` alerts, the boardings and alightings closed, and entities VIGO cannot resolve: an agency alone, because a City does not record each route's agency, or a direction without a route. Alerts need the City's clock; a City with several agency timezones reports `status: "timezone_required"` unless the snapshot gives `timezone`. Wheelchair Cities still require scheduled service, so `ACCESSIBILITY_ISSUE` is reported but not applied.
+
+### Automatic GTFS-RT polling
+
+Start the Rust HTTP server with the feeds it should poll:
+
+```sh
+vigo serve --city ./city --realtime-poll ./realtime.json
+```
+
+```json
+{
+  "sources": [
+    { "url": "https://cdn.mbta.com/realtime/TripUpdates.pb", "kind": "tripUpdates", "sourceScope": "mbta" },
+    { "url": "https://cdn.mbta.com/realtime/Alerts.pb", "kind": "alerts", "sourceScope": "mbta" }
+  ],
+  "intervalSeconds": 30,
+  "timeoutSeconds": 10
+}
+```
+
+`kind` is `feed` (default: trip updates and alerts), `tripUpdates` or `alerts`; Vehicle Positions never change a route and are not polled. `sourceScope` names the static feed a source describes in a City built from several. `headers` sends up to eight request headers, such as an API key; status output never shows URLs, query strings or headers. URLs require HTTPS, except loopback HTTP for local mirrors and tests, and redirects are rejected. Up to 16 sources, intervals of 5–3600 seconds and HTTP deadlines of 1–60 seconds are accepted. Downloads are bounded to 32 MiB (128 MiB after gzip), and each feed must be a `FULL_DATASET` FeedMessage within the snapshot limits above.
+
+For transit Route, Matrix or Reach, set `routingDataMode: "realtime"` and omit `realtimeSnapshot` to use the server's latest snapshot; an inline snapshot takes precedence for its own query. Every query admitted after a publication sees it in full, and `meta.realtime.snapshot` names it (`source: "server"`, content `id`, `generation`, and each source's feed timestamp and failure). Equal content never publishes a new generation.
+
+One background producer downloads, decodes and merges the sources; decoding never runs in the routing worker. When the server is idle, the worker installs each new publication and derives the realtime view of the last live query (or, before the first one, a departure now in the City's timezone), so the next live query normally finds its view ready. A failed or invalid read keeps that source's last good records without extending their validity: record freshness still expires them after 180 seconds, and `coverage.complete` becomes false. Failures back off exponentially, capped at one hour. `GET /v1/realtime` reports status (`fresh`, `stale_fallback` or `unavailable_fallback`), generation, snapshot id, counts, attempts, failures, the next attempt, poll time and each source's state, under the same authentication policy as other `/v1` endpoints.
+
+Polling currently supports a single City per Rust HTTP server, not scenario collections or the legacy Node server. DIFFERENTIAL feeds, deleted entities, added trips and trip modifications are not applied.
 
 ### Drive traffic
 
@@ -1455,6 +1507,7 @@ Start the HTTP service with `vigo serve` and send query JSON to the endpoints be
 | `GET /readyz` | 200 ready, 503 while recovering | Public, no City data |
 | `GET /v1/capabilities` | Runtime features and compatibility | Bearer when configured; otherwise local Host/Origin |
 | `GET /v1/info` | Loaded City summary | Bearer when configured; otherwise local Host/Origin |
+| `GET /v1/realtime` | GTFS-RT polling status | Bearer when configured; otherwise local Host/Origin |
 | `POST /v1/route` | Route request/result | Bearer when configured; otherwise local Host/Origin |
 | `POST /v1/matrix` | Matrix request/result | Bearer when configured; otherwise local Host/Origin |
 | `POST /v1/reach`, `/v1/isochrone` | Reach request/result | Bearer when configured; otherwise local Host/Origin |
@@ -1477,6 +1530,7 @@ The executable runs an HTTP front end and a supervised child worker. The worker 
 | `--query-timeout-ms` | 30000 | 1–600000; queued/dispatched computation |
 | `--max-connections` | 32 | 2–256 |
 | `--max-queue` | 8 | 0–128 waiting jobs |
+| `--realtime-poll` | None | GTFS-RT polling settings file; see [Automatic GTFS-RT polling](#automatic-gtfs-rt-polling) |
 
 Queued HTTP requests retain encoded JSON; only the worker expands nested query fields. Across connections, uploads and queued requests share a 64 MiB encoded-byte admission budget (including normalization headroom). Chunked uploads reserve their configured maximum before reading. Pending response buffers share a 128 MiB budget until socket writes finish. Capacity exhaustion returns 503, including before `100 Continue` for rejected uploads. These bounds cover transport buffers, not total process RSS or the City working set; response reading can additionally hold one worker result of up to 64 MiB. Closing, canceling, or expiring a request releases its reservation when its retained work is discarded.
 
@@ -1699,11 +1753,11 @@ Use `vigo capabilities` to inspect the executable you are running. The standalon
 | Route and Matrix | Transit, walk, and drive; depart-at and arrive-by |
 | Reach | Transit and walk; raster, polygons, contours, and street evidence |
 | Scenarios | Reach with exclusions, explicit schedules, or compiled overlays |
-| Realtime transit | Route |
+| Realtime transit | Route, Matrix and Reach; supplied or polled, with Service Alerts |
 | Supplied traffic | Drive Route and Matrix |
 | Saved comparison | Reach surfaces |
 
-Drive Reach and realtime transit Matrix/Reach are not supported. City compilation, Studio/Python response envelopes, fare annotations, fare optimization, and Studio route-preference presentation are outside the standalone interface. Prepare editor branches and automatic retiming as explicit schedules or overlays before querying. Native Pareto operations are available separately.
+Drive Reach is not supported. City compilation, Studio/Python response envelopes, fare annotations, fare optimization, and Studio route-preference presentation are outside the standalone interface. Prepare editor branches and automatic retiming as explicit schedules or overlays before querying. Native Pareto operations are available separately.
 
 ### Platform and build records
 

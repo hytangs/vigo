@@ -91,10 +91,31 @@ pub struct TransitLeg {
     pub quality: TransitQuality,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fare: Option<Fare>,
+    /// Service Alerts active during the ride for its trip, route or stops.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alerts: Option<Vec<LegAlert>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub endpoint_connector: Option<EndpointConnector>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub geometry: Option<LineString>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LegAlert {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub effect: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cause: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub severity: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -154,6 +175,8 @@ pub enum ScheduleQuality {
     Timetable,
     /// The source repeats times or bridges untimed stops.
     SourceTimeLimitations,
+    /// Realtime predictions for this trip were applied.
+    Realtime,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]

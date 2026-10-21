@@ -147,7 +147,14 @@ impl City {
         };
         let previous_preparations = self.timetable_preparations;
         let previous_evictions = self.timetable_cache.evictions;
+        // Realtime updates without a startDate still describe the requested
+        // date when the search clock starts on the preceding one.
+        self.query_start_date = clock_date
+            .as_ref()
+            .and(request["serviceDate"].as_str())
+            .map(str::to_owned);
         let execution = self.execute(command, &query);
+        self.query_start_date = None;
         let release_memory = previous_preparations != self.timetable_preparations
             || previous_evictions != self.timetable_cache.evictions
             || matches!(command, "reach" | "isochrone" | "matrix");
@@ -235,22 +242,10 @@ impl City {
         if opt.time >= horizon + reserve + window {
             return Ok(None);
         }
-        let Some(text) = query["serviceDate"].as_str() else {
+        if !query["serviceDate"].is_string() {
             return Ok(None);
-        };
-        let original_date = text.to_owned();
-        let mut date = Self::validated_service_date(query)?;
-        if let Some(updates) = query
-            .get_mut("realtimeSnapshot")
-            .and_then(|s| s.get_mut("tripUpdates"))
-            .and_then(Value::as_array_mut)
-        {
-            for update in updates {
-                if update.get("startDate").is_none() && update["trip"].get("startDate").is_none() {
-                    update["startDate"] = json!(original_date);
-                }
-            }
         }
+        let mut date = Self::validated_service_date(query)?;
         let zone: chrono_tz::Tz = self.metadata["agencyTimezones"]
             .as_array()
             .and_then(|a| a.first())
@@ -312,23 +307,39 @@ impl City {
         if !request.is_object() {
             return fail("Request must be a JSON object");
         }
-        validate_request(command, request, self.polling_enabled)?;
+        validate_request(command, request, self.polling_enabled, self.live.is_some())?;
         self.validate_wheelchair_request(request)?;
         let started = Instant::now();
         self.timetable_activation_ms = 0.;
         self.timetable_preparation_profile = Value::Null;
         let reserved = arrival_reserve(command, request)?;
         let effective = reserved.as_ref().map_or(request, |(query, _)| query);
-        let mut result = match command {
-            "info" => self.info(),
-            "capabilities" => capabilities(),
-            "route" => self.route(effective)?,
-            "matrix" => self.matrix(effective)?,
-            "reach" | "isochrone" => self.reach(effective)?,
-            "compare" => super::compare(&request["before"], &request["after"])?,
-            "native" => self.native(request)?,
-            _ => return fail(format!("Unknown command: {command}")),
-        };
+        // The live snapshot installed when this query was admitted applies to
+        // every search it runs; a newer one waits for the next query.
+        if uses_live_snapshot(command, request) {
+            self.query_live = self.live.clone();
+            // Activation reads only scalar options; places can be large.
+            let activation = effective.as_object().map(|o| {
+                o.iter()
+                    .filter(|(_, v)| !v.is_array() && !v.is_object())
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect::<serde_json::Map<_, _>>()
+            });
+            self.live_request =
+                activation.map(|o| (Value::Object(o), self.query_start_date.clone()));
+        }
+        let dispatched = self.dispatch(command, request, effective);
+        let live = self.query_live.take().is_some();
+        let mut result = dispatched?;
+        // Matrix and Reach search the same realtime view as Route and report it
+        // the same way. Route reports its own data mode.
+        if matches!(command, "matrix" | "reach" | "isochrone")
+            && (live || request.get("realtimeSnapshot").is_some())
+            && let Some(timetable) = &self.timetable
+        {
+            result["diagnostics"]["realtime"] = timetable.realtime.clone();
+            result["dataMode"] = json!("realtime");
+        }
         if let Some((_, diagnostics)) = reserved {
             if command == "matrix" {
                 let minutes = diagnostics["arrivalBufferMinutes"].as_f64().unwrap();
@@ -355,6 +366,66 @@ impl City {
             result["schemaVersion"] = json!("vigo.standalone.result.v1");
         }
         Ok(result)
+    }
+    fn dispatch(&mut self, command: &str, request: &Value, effective: &Value) -> Result<Value> {
+        Ok(match command {
+            "info" => self.info(),
+            "capabilities" => capabilities(),
+            "route" => self.route(effective)?,
+            "matrix" => self.matrix(effective)?,
+            "reach" | "isochrone" => self.reach(effective)?,
+            "compare" => super::compare(&request["before"], &request["after"])?,
+            "native" => self.native(request)?,
+            _ => return fail(format!("Unknown command: {command}")),
+        })
+    }
+    /// Installs the server's newest live snapshot. With `warm`, it derives the
+    /// realtime view of the last live query now, so that a similar query
+    /// finds it ready instead of compiling it on the query path.
+    pub(crate) fn install_realtime(&mut self, message: &mut Value) -> Result<()> {
+        let snapshot = message["snapshot"].take();
+        if !snapshot["tripUpdates"].is_array() {
+            return fail("Live GTFS-RT snapshot requires tripUpdates");
+        }
+        self.live = Some(std::sync::Arc::new(super::realtime_poll::LiveSnapshot {
+            generation: message["generation"]
+                .as_u64()
+                .ok_or("Missing live generation")?,
+            id: message["id"]
+                .as_str()
+                .ok_or("Missing live snapshot id")?
+                .to_owned(),
+            snapshot,
+        }));
+        if message["warm"] == true
+            && let Some((request, start_date)) =
+                self.live_request.clone().or_else(|| self.now_request())
+        {
+            self.query_live = self.live.clone();
+            self.query_start_date = start_date;
+            // Best effort: a failure here reappears on the query itself.
+            let _ = self.activate(&request);
+            self.query_live = None;
+            self.query_start_date = None;
+        }
+        Ok(())
+    }
+    /// Until a live query arrives, warm the view a departure now would use:
+    /// the current local date and time in the City's timezone.
+    fn now_request(&self) -> Option<(Value, Option<String>)> {
+        let zone: chrono_tz::Tz = self.metadata["agencyTimezones"][0]
+            .as_str()
+            .unwrap_or("UTC")
+            .parse()
+            .ok()?;
+        let seconds = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_secs() as i64;
+        let local = chrono::DateTime::from_timestamp(seconds, 0)?.with_timezone(&zone);
+        let request = json!({"serviceDate":local.format("%Y-%m-%d").to_string(),
+            "time":local.format("%H:%M").to_string(),"routingDataMode":"realtime"});
+        Some((request, None))
     }
     pub(crate) fn point(&self, value: &Value) -> Result<Point> {
         if let Some(object) = value.as_object() {
@@ -892,7 +963,9 @@ impl City {
         output["serviceDate"] = q["serviceDate"].clone();
         output["diagnostics"]["realtime"] = self.timetable.as_ref().unwrap().realtime.clone();
         output["warnings"] = self.metadata["routingLimitations"].clone();
-        output["dataMode"] = json!(if q.get("realtimeSnapshot").is_some() {
+        output["dataMode"] = json!(if q.get("realtimeSnapshot").is_some()
+            || self.query_live.is_some()
+        {
             "realtime"
         } else {
             "scheduled"
@@ -1402,7 +1475,7 @@ impl City {
                 let t = self.timetable.as_mut().unwrap();
                 match operation {
                     "timetable.identifiers" => {
-                        json!({"stopIds":t.stop_ids,"tripIds":t.trip_ids,"routeIds":t.route_ids,"accessMemberStopIds":self.members})
+                        json!({"stopIds":&*t.stop_ids,"tripIds":&*t.trip_ids,"routeIds":&*t.route_ids,"accessMemberStopIds":self.members})
                     }
                     "timetable.route" => call!(t.kernel, route_scalar_csa),
                     "timetable.arrive_by" => call!(t.kernel, route_arrive_by_csa),
@@ -1601,7 +1674,16 @@ fn arrival_reserve(command: &str, q: &Value) -> Result<Option<(Value, Value)>> {
     Ok(Some((effective, diagnostics)))
 }
 
-fn validate_request(command: &str, q: &Value, polling: bool) -> Result<()> {
+// Realtime transit queries without their own snapshot use the server's.
+fn uses_live_snapshot(command: &str, q: &Value) -> bool {
+    matches!(command, "route" | "matrix" | "reach" | "isochrone")
+        && q.get("realtimeSnapshot").is_none()
+        && q["mode"].as_str().unwrap_or("transit") == "transit"
+        && q.get("routingDataMode")
+            .or_else(|| q.get("dataMode"))
+            .is_some_and(|v| v == "realtime")
+}
+fn validate_request(command: &str, q: &Value, polling: bool, live: bool) -> Result<()> {
     let common = [
         "kind",
         "wheelchair",
@@ -1753,8 +1835,10 @@ fn validate_request(command: &str, q: &Value, polling: bool) -> Result<()> {
             }
         }
     }
-    if q.get("realtimeSnapshot").is_some() && (command != "route" || mode != "transit") {
-        return fail("Realtime transit snapshots are supported by Transit Route");
+    if q.get("realtimeSnapshot").is_some()
+        && (!matches!(command, "route" | "matrix" | "reach" | "isochrone") || mode != "transit")
+    {
+        return fail("Realtime transit snapshots are supported by transit Route, Matrix and Reach");
     }
     if q.get("traffic").is_some() && (mode != "drive" || !["route", "matrix"].contains(&command)) {
         return fail("Traffic is supported by Drive Route and Drive Matrix");
@@ -1773,6 +1857,7 @@ fn validate_request(command: &str, q: &Value, polling: bool) -> Result<()> {
             && q.get("realtimeSnapshot").is_none()
             && q.get("traffic").is_none()
             && !(polling && mode == "drive" && matches!(command, "route" | "matrix"))
+            && !(live && uses_live_snapshot(command, q))
         {
             return fail("Realtime mode requires a supplied snapshot");
         }

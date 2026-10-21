@@ -23,6 +23,8 @@ use std::{
 const REQUEST_BYTES: usize = 64 * 1024 * 1024;
 const RESPONSE_BYTES: usize = 128 * 1024 * 1024;
 const WORKER_LINE_BYTES: usize = 8 * 1024 * 1024;
+// Live snapshots come from the server's own poller, never from a client body.
+pub(crate) const WORKER_INSTALL_BYTES: usize = 64 * 1024 * 1024;
 #[derive(Default)]
 struct ByteBudget(AtomicUsize);
 struct ByteLease {
@@ -233,6 +235,7 @@ fn error(error: impl std::fmt::Display) -> Body {
 
 struct Worker {
     traffic_generation: Option<u64>,
+    realtime_generation: Option<u64>,
     child: Child,
     input: SyncSender<Vec<u8>>,
     output: Receiver<std::result::Result<EncodedOutput, String>>,
@@ -266,6 +269,7 @@ impl Worker {
         // reaps it; dropping the channels also releases any started I/O thread.
         let mut worker = Self {
             traffic_generation: None,
+            realtime_generation: None,
             child,
             input,
             output,
@@ -336,6 +340,36 @@ impl Worker {
         }
         self.traffic_generation = Some(publication.generation);
         Ok(())
+    }
+    /// Installs a newer live snapshot. With `warm`, the worker also derives
+    /// the realtime view its last live query used, so the next one finds it
+    /// ready instead of compiling it on the query path.
+    fn install_realtime(
+        &mut self,
+        publication: Option<super::realtime_poll::Publication>,
+        timeout: Duration,
+        canceled: &AtomicBool,
+        warm: bool,
+    ) -> Result<bool> {
+        let Some(publication) = publication else {
+            return Ok(false);
+        };
+        if self.realtime_generation == Some(publication.generation) {
+            return Ok(false);
+        }
+        let mut bytes = serde_json::to_vec(&json!({"kind":"_realtime_install",
+            "generation":publication.generation,"id":publication.id,"warm":warm,
+            "snapshot":publication.snapshot.as_ref()}))?;
+        bytes.push(b'\n');
+        if bytes.len() > WORKER_INSTALL_BYTES {
+            return fail("GTFS-RT snapshot exceeds worker update limit");
+        }
+        let response = self.query(bytes, timeout, canceled)?;
+        if response.failed {
+            return fail("Worker rejected GTFS-RT snapshot");
+        }
+        self.realtime_generation = Some(publication.generation);
+        Ok(true)
     }
     fn query(
         &mut self,
@@ -469,6 +503,7 @@ fn restart(
 }
 struct State {
     traffic: Option<super::traffic_poll::Poller>,
+    realtime: Option<super::realtime_poll::Poller>,
     token: Option<String>,
     maximum: usize,
     io_timeout: Duration,
@@ -525,10 +560,12 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
     let queue = setting(o, "max-queue", 8, 0, 128)?;
     let startup_timeout = Duration::from_secs(60);
     let traffic = super::traffic_poll::Poller::start(city, o)?;
+    let realtime = super::realtime_poll::Poller::start(city, o)?;
     let (worker, info) = Worker::open(city, startup_timeout)?;
     let (sender, receiver) = mpsc::sync_channel::<Job>(queue);
     let state = Arc::new(State {
         traffic,
+        realtime,
         token,
         maximum,
         io_timeout,
@@ -574,6 +611,20 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
                                 &supervisor.ready,
                             );
                         }
+                        // Idle: install a new live snapshot now and derive
+                        // its view before any query asks for it.
+                        if let (Some(poller), Some(w)) = (&supervisor.realtime, worker.as_mut())
+                            && w.install_realtime(
+                                poller.publication(),
+                                supervisor.query_timeout,
+                                &AtomicBool::new(false),
+                                true,
+                            )
+                            .is_err()
+                        {
+                            drop(worker.take());
+                            supervisor.ready.store(false, Ordering::Release);
+                        }
                         continue;
                     }
                 };
@@ -608,6 +659,20 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
                     poller.publication(),
                     job.deadline.saturating_duration_since(Instant::now()),
                     &job.canceled,
+                )
+            {
+                drop(worker.take());
+                supervisor.ready.store(false, Ordering::Release);
+                let _ = job.response.send((503, error(e.to_string())));
+                continue;
+            }
+            // Every admitted query sees the newest complete live snapshot.
+            if let (Some(poller), Some(w)) = (&supervisor.realtime, worker.as_mut())
+                && let Err(e) = w.install_realtime(
+                    poller.publication(),
+                    job.deadline.saturating_duration_since(Instant::now()),
+                    &job.canceled,
+                    false,
                 )
             {
                 drop(worker.take());
@@ -964,6 +1029,16 @@ fn handle_api(
                 return Ok((403, error(message)));
             }
         }
+    }
+    if method == "GET" && path == "/v1/realtime" {
+        return Ok((
+            200,
+            state
+                .realtime
+                .as_ref()
+                .map_or(json!({"enabled":false}), |p| p.status())
+                .into(),
+        ));
     }
     if method == "GET" && path == "/v1/traffic" {
         return Ok((

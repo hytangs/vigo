@@ -157,7 +157,7 @@
           "intermediateStops": [],
           "quality": {
             "geometry": "stop_sequence",
-            "schedule": "timetable"
+            "schedule": "realtime"
           },
           "route": {
             "color": "",

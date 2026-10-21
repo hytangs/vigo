@@ -414,6 +414,16 @@ impl City {
                 let ids: Vec<_> = indexes.iter().map(|&i| &t.stop_ids[i as usize]).collect();
                 v["stopIds"] = json!(&ids[first..=last]);
                 v["stopCount"] = json!(last - first);
+                if t.realtime_trips.binary_search(&trip).is_ok() {
+                    v["realtimeTrip"] = json!(true);
+                }
+                if let Some(alerts) = &t.alerts {
+                    let ride =
+                        alerts.for_ride(trip, &indexes[first..=last], leg.departure, leg.arrival);
+                    if !ride.is_empty() {
+                        v["alerts"] = Value::Array(ride);
+                    }
+                }
                 let calls = t.kernel.ride_calls(trip);
                 v["intermediateStops"] = Value::Array(calls[first + 1..last].iter().map(|c| {
                     let id = &t.stop_ids[c.stop as usize];

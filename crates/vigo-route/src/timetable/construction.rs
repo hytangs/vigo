@@ -28,12 +28,7 @@ impl TimetableKernel {
         let transfer_duration = input.transfer_duration.as_ref();
         let transfer_offset = input.transfer_offset.as_ref();
         let transfer_to = input.transfer_to.as_ref();
-        let mut connection_order: Vec<u32> = (0..segment_count as u32).collect();
-        connection_order.sort_unstable_by(|left, right| {
-            departure_seconds[*left as usize]
-                .cmp(&departure_seconds[*right as usize])
-                .then_with(|| left.cmp(right))
-        });
+        let connection_order = departure_order(departure_seconds);
         let mut scan_events = Vec::with_capacity(segment_count);
         let mut scan_times = Vec::new();
         let mut scan_time_offsets = Vec::new();
@@ -159,59 +154,17 @@ impl TimetableKernel {
                 reverse_transfer_cursor[target] += 1;
             }
         }
-        let mut exit_records = Vec::<(u32, ExitEvent)>::new();
-        for segment in 0..segment_count {
-            let run = segment_run[segment];
-            if can_alight[segment] == 1 {
-                exit_records.push((
-                    to_stop[segment],
-                    ExitEvent::new(
-                        arrival_seconds[segment],
-                        run,
-                        segment as u32,
-                        run_start[run as usize],
-                    ),
-                ));
-            }
-            let run_index = run as usize;
-            let bridge_exit = segment > run_start[run_index] as usize
-                && continuity_break[segment] == 0
-                && segment_run[segment - 1] == run
-                && to_stop[segment - 1] != from_stop[segment];
-            if bridge_exit {
-                exit_records.push((
-                    from_stop[segment],
-                    ExitEvent::new(
-                        departure_seconds[segment],
-                        run,
-                        segment as u32 - 1,
-                        run_start[run as usize],
-                    ),
-                ));
-            }
-        }
-        exit_records.sort_unstable_by(|left, right| {
-            left.0
-                .cmp(&right.0)
-                .then_with(|| left.1.time().cmp(&right.1.time()))
-                .then_with(|| left.1.run().cmp(&right.1.run()))
-                .then_with(|| {
-                    left.1
-                        .through_segment(&run_start)
-                        .cmp(&right.1.through_segment(&run_start))
-                })
+        let (exit_event_offset, exit_events) = exit_index(ExitSegments {
+            stop_count,
+            departure_seconds,
+            arrival_seconds,
+            from_stop,
+            to_stop,
+            segment_run,
+            continuity_break,
+            can_alight,
+            run_start: &run_start,
         });
-        exit_records.dedup_by(|left, right| left.0 == right.0 && left.1.0 == right.1.0);
-        let mut exit_event_offset = vec![0_u32; stop_count + 1];
-        for (stop, _) in &exit_records {
-            exit_event_offset[*stop as usize + 1] += 1;
-        }
-        for stop in 0..stop_count {
-            exit_event_offset[stop + 1] += exit_event_offset[stop];
-        }
-        let exit_events: Vec<ExitEvent> =
-            exit_records.into_iter().map(|(_, event)| event).collect();
-        let exit_events = exit_events.into_boxed_slice().into_vec();
         scan_times.shrink_to_fit();
         scan_time_offsets.shrink_to_fit();
         scan_time_needs_closure.shrink_to_fit();
@@ -252,5 +205,242 @@ impl TimetableKernel {
             exit_events,
             query: TimetableQueryWorkspace::new(stop_count, run_count, trip_count),
         })
+    }
+}
+
+/// Segments in (departure, index) order. Departures are validated to the
+/// 20-bit exit time domain, so two stable 10-bit counting passes produce the
+/// same order as a comparison sort in linear time. Realtime views rebuild this
+/// for every snapshot, so the constant factor matters.
+fn departure_order(departures: &[u32]) -> Vec<u32> {
+    const DIGIT: u32 = 10;
+    const BUCKETS: usize = 1 << DIGIT;
+    let mut order: Vec<u32> = (0..departures.len() as u32).collect();
+    if departures.len() < BUCKETS {
+        order.sort_unstable_by_key(|&segment| (departures[segment as usize], segment));
+        return order;
+    }
+    debug_assert!(departures.iter().all(|&time| time <= EXIT_TIME_MASK));
+    let mut sorted = vec![0_u32; order.len()];
+    for shift in [0, DIGIT] {
+        let digit =
+            |segment: u32| ((departures[segment as usize] >> shift) as usize) & (BUCKETS - 1);
+        let mut cursor = vec![0_u32; BUCKETS + 1];
+        for &segment in &order {
+            cursor[digit(segment) + 1] += 1;
+        }
+        for bucket in 0..BUCKETS {
+            cursor[bucket + 1] += cursor[bucket];
+        }
+        for &segment in &order {
+            let bucket = digit(segment);
+            sorted[cursor[bucket] as usize] = segment;
+            cursor[bucket] += 1;
+        }
+        std::mem::swap(&mut order, &mut sorted);
+    }
+    order
+}
+
+struct ExitSegments<'a> {
+    stop_count: usize,
+    departure_seconds: &'a [u32],
+    arrival_seconds: &'a [u32],
+    from_stop: &'a [u32],
+    to_stop: &'a [u32],
+    segment_run: &'a [u32],
+    continuity_break: &'a [u8],
+    can_alight: &'a [u8],
+    run_start: &'a [u32],
+}
+impl ExitSegments<'_> {
+    // A same-run segment that starts away from where the previous one ended
+    // lets riders leave at the bridge's departure stop.
+    fn bridge_exit(&self, segment: usize) -> bool {
+        let run = self.segment_run[segment];
+        segment > self.run_start[run as usize] as usize
+            && self.continuity_break[segment] == 0
+            && self.segment_run[segment - 1] == run
+            && self.to_stop[segment - 1] != self.from_stop[segment]
+    }
+    fn for_each_exit(&self, mut visit: impl FnMut(u32, ExitEvent)) {
+        for segment in 0..self.departure_seconds.len() {
+            let run = self.segment_run[segment];
+            let start = self.run_start[run as usize];
+            if self.can_alight[segment] == 1 {
+                let event =
+                    ExitEvent::new(self.arrival_seconds[segment], run, segment as u32, start);
+                visit(self.to_stop[segment], event);
+            }
+            if self.bridge_exit(segment) {
+                let event = ExitEvent::new(
+                    self.departure_seconds[segment],
+                    run,
+                    segment as u32 - 1,
+                    start,
+                );
+                visit(self.from_stop[segment], event);
+            }
+        }
+    }
+}
+
+/// Exit events grouped by stop, each ordered by (time, run, through segment)
+/// without duplicates. Bucketing by stop first keeps every sort local to the
+/// events of one stop instead of sorting all exits of the timetable together.
+fn exit_index(segments: ExitSegments<'_>) -> (Vec<u32>, Vec<ExitEvent>) {
+    let stop_count = segments.stop_count;
+    let mut exit_event_offset = vec![0_u32; stop_count + 1];
+    segments.for_each_exit(|stop, _| exit_event_offset[stop as usize + 1] += 1);
+    for stop in 0..stop_count {
+        exit_event_offset[stop + 1] += exit_event_offset[stop];
+    }
+    let mut cursor = exit_event_offset[..stop_count].to_vec();
+    let mut exit_events = vec![ExitEvent(0); exit_event_offset[stop_count] as usize];
+    segments.for_each_exit(|stop, event| {
+        exit_events[cursor[stop as usize] as usize] = event;
+        cursor[stop as usize] += 1;
+    });
+    let run_start = segments.run_start;
+    let mut written = 0;
+    let mut start = 0;
+    for stop in 0..stop_count {
+        let end = exit_event_offset[stop + 1] as usize;
+        exit_events[start..end].sort_unstable_by(|left, right| {
+            left.time()
+                .cmp(&right.time())
+                .then_with(|| left.run().cmp(&right.run()))
+                .then_with(|| {
+                    left.through_segment(run_start)
+                        .cmp(&right.through_segment(run_start))
+                })
+        });
+        // Equal (time, run, through segment) keys pack to identical events.
+        exit_event_offset[stop] = written as u32;
+        for index in start..end {
+            if index == start || exit_events[index].0 != exit_events[index - 1].0 {
+                exit_events[written] = exit_events[index];
+                written += 1;
+            }
+        }
+        start = end;
+    }
+    exit_event_offset[stop_count] = written as u32;
+    exit_events.truncate(written);
+    exit_events.shrink_to_fit();
+    (exit_event_offset, exit_events)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The previous global sort and dedup, kept as the reference ordering.
+    fn reference_exit_index(segments: &ExitSegments<'_>) -> (Vec<u32>, Vec<u64>) {
+        let mut records = Vec::new();
+        segments.for_each_exit(|stop, event| records.push((stop, event)));
+        let run_start = segments.run_start;
+        records.sort_unstable_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then_with(|| left.1.time().cmp(&right.1.time()))
+                .then_with(|| left.1.run().cmp(&right.1.run()))
+                .then_with(|| {
+                    left.1
+                        .through_segment(run_start)
+                        .cmp(&right.1.through_segment(run_start))
+                })
+        });
+        records.dedup_by(|left, right| left.0 == right.0 && left.1.0 == right.1.0);
+        let mut offsets = vec![0_u32; segments.stop_count + 1];
+        for (stop, _) in &records {
+            offsets[*stop as usize + 1] += 1;
+        }
+        for stop in 0..segments.stop_count {
+            offsets[stop + 1] += offsets[stop];
+        }
+        (
+            offsets,
+            records.into_iter().map(|(_, event)| event.0).collect(),
+        )
+    }
+
+    struct Random(u64);
+    impl Random {
+        fn next(&mut self, bound: u32) -> u32 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            (self.0 % u64::from(bound)) as u32
+        }
+    }
+
+    #[test]
+    fn linear_departure_order_matches_comparison_sort() {
+        let mut random = Random(0x9e37_79b9_7f4a_7c15);
+        for (count, range) in [
+            (0, 1),
+            (7, 3),
+            (1023, 100),
+            (1024, 1),
+            (5000, 86_400),
+            (70_000, EXIT_TIME_MASK + 1),
+        ] {
+            let departures: Vec<u32> = (0..count).map(|_| random.next(range)).collect();
+            let mut expected: Vec<u32> = (0..count as u32).collect();
+            expected.sort_unstable_by_key(|&segment| (departures[segment as usize], segment));
+            assert_eq!(departure_order(&departures), expected, "{count} segments");
+        }
+    }
+
+    #[test]
+    fn bucketed_exit_index_matches_global_sort() {
+        let mut random = Random(0x2545_f491_4f6c_dd1d);
+        for case in 0..200 {
+            let stop_count = 1 + random.next(12) as usize;
+            let (mut departures, mut arrivals, mut from, mut to) = (vec![], vec![], vec![], vec![]);
+            let (mut runs, mut breaks, mut alight, mut run_start) =
+                (vec![], vec![], vec![], vec![]);
+            for run in 0..1 + random.next(40) {
+                run_start.push(departures.len() as u32);
+                let mut time = random.next(2_000);
+                let mut stop = random.next(stop_count as u32);
+                for _ in 0..1 + random.next(6) {
+                    // Occasional bridges and duplicate-time exits at loops.
+                    if random.next(5) == 0 {
+                        stop = random.next(stop_count as u32);
+                    }
+                    let next = random.next(stop_count as u32);
+                    departures.push(time);
+                    time += random.next(3);
+                    arrivals.push(time);
+                    from.push(stop);
+                    to.push(next);
+                    runs.push(run);
+                    breaks.push(0);
+                    alight.push(u8::from(random.next(4) != 0));
+                    stop = next;
+                }
+            }
+            let segments = ExitSegments {
+                stop_count,
+                departure_seconds: &departures,
+                arrival_seconds: &arrivals,
+                from_stop: &from,
+                to_stop: &to,
+                segment_run: &runs,
+                continuity_break: &breaks,
+                can_alight: &alight,
+                run_start: &run_start,
+            };
+            let expected = reference_exit_index(&segments);
+            let (offsets, events) = exit_index(segments);
+            assert_eq!(offsets, expected.0, "case {case}");
+            assert_eq!(
+                events.iter().map(|e| e.0).collect::<Vec<_>>(),
+                expected.1,
+                "case {case}"
+            );
+        }
     }
 }

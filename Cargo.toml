@@ -3,7 +3,7 @@
 # now live in the workspace; street kernels and transports are still migrating.
 [workspace]
 resolver = "3"
-members = ["crates/vigo-model", "crates/vigo-route", "crates/vigo-format", "crates/vigo-prepare", "crates/vigo-traffic"]
+members = ["crates/vigo-model", "crates/vigo-route", "crates/vigo-format", "crates/vigo-prepare", "crates/vigo-traffic", "crates/vigo-gtfs"]
 exclude = ["native/vigo-routing-kernel"]
 
 [workspace.package]

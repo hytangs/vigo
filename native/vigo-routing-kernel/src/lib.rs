@@ -21,6 +21,10 @@ pub use network_overview::node::{NetworkOverviewTask, network_overview, network_
 mod reach_boundaries;
 #[cfg(feature = "node")]
 pub use reach_boundaries::reach_boundary_areas;
+// GTFS-Realtime overlays, shared by the standalone runtime and the addon.
+mod realtime;
+#[cfg(feature = "node")]
+mod realtime_node;
 pub(crate) mod route_alternatives;
 pub(crate) mod shared_legs;
 use bincode::Options;

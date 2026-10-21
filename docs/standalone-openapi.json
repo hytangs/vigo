@@ -1194,6 +1194,44 @@
         }
       }
     },
+    "/v1/realtime": {
+      "get": {
+        "operationId": "realtime",
+        "summary": "Realtime",
+        "responses": {
+          "200": {
+            "description": "Runtime metadata; inspect capabilities for supported combinations.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bearer authentication failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tokenless loopback request with a non-local Host or Origin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/healthz": {
       "get": {
         "operationId": "healthz",
@@ -6624,13 +6662,118 @@
             },
             "minItems": 0,
             "maxItems": 100000
+          },
+          "alerts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "effect": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 11
+                    }
+                  ]
+                },
+                "cause": {},
+                "severity": {},
+                "header": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "sourceScope": {
+                  "type": "string"
+                },
+                "sourceFeedTimestamp": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "activePeriods": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "start": {
+                        "type": "integer"
+                      },
+                      "end": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [],
+                    "additionalProperties": false
+                  }
+                },
+                "informedEntities": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "agencyId": {
+                        "type": "string"
+                      },
+                      "routeId": {
+                        "type": "string"
+                      },
+                      "routeType": {
+                        "type": "integer"
+                      },
+                      "directionId": {},
+                      "stopId": {
+                        "type": "string"
+                      },
+                      "trip": {
+                        "type": "object",
+                        "properties": {
+                          "tripId": {
+                            "type": "string"
+                          },
+                          "routeId": {
+                            "type": "string"
+                          },
+                          "directionId": {},
+                          "startDate": {
+                            "type": "string"
+                          },
+                          "startTime": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [],
+                        "additionalProperties": true
+                      }
+                    },
+                    "required": [],
+                    "additionalProperties": true
+                  }
+                }
+              },
+              "required": [],
+              "additionalProperties": true,
+              "description": "GTFS-RT Service Alert. NO_SERVICE removes the selected service or closes the selected stops during its active periods; every fresh alert is reported on the legs it describes."
+            },
+            "minItems": 0,
+            "maxItems": 10000
           }
         },
         "required": [
           "tripUpdates"
         ],
         "additionalProperties": true,
-        "description": "Timestamp freshness is checked at runtime. Invalid individual records retain scheduled service and report diagnostics."
+        "description": "Timestamp freshness is checked at runtime. Invalid individual records retain scheduled service and report diagnostics. Without a snapshot, realtime mode uses the server poller's latest one when configured."
       },
       "Traffic": {
         "oneOf": [
@@ -7438,6 +7581,9 @@
             "default": 0,
             "description": "Caller-selected arrival reserve. Positive values require arrive-by Transit Route/Matrix without via points; reserve the final minutes of the original horizon. Not a calibrated probability."
           },
+          "realtimeSnapshot": {
+            "$ref": "#/components/schemas/RealtimeSnapshot"
+          },
           "traffic": {
             "$ref": "#/components/schemas/Traffic"
           },
@@ -7514,7 +7660,7 @@
             }
           }
         ],
-        "description": "At most 65536 pairs. Journeys require transit; geometry requires full journeys. No realtime transit."
+        "description": "At most 65536 pairs. Journeys require transit; geometry requires full journeys. Realtime applies to transit."
       },
       "ReachOverlay": {
         "type": "object",
@@ -8094,6 +8240,9 @@
           },
           "scenario": {
             "$ref": "#/components/schemas/Scenario"
+          },
+          "realtimeSnapshot": {
+            "$ref": "#/components/schemas/RealtimeSnapshot"
           }
         },
         "required": [
@@ -10503,6 +10652,36 @@
             "items": {
               "type": "object"
             }
+          },
+          "alerts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "effect": {
+                  "type": "string"
+                },
+                "cause": {},
+                "severity": {},
+                "header": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "effect"
+              ],
+              "additionalProperties": true
+            },
+            "description": "Realtime Service Alerts active during the ride for its trip, route or stops."
           },
           "geometry": {
             "type": "object",

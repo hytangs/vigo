@@ -120,6 +120,88 @@
         ],
         "type": "object"
       },
+      "ActivePeriod": {
+        "description": "POSIX seconds; a missing bound is open.",
+        "properties": {
+          "end": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "start": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "AlertReport": {
+        "properties": {
+          "closedAlightings": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "closedBoardings": {
+            "description": "Ride segments that lost boarding or alighting.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "fresh": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "noService": {
+            "description": "Fresh `NO_SERVICE` alerts.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "received": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "stale": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "description": "`timezone_required` when the City clock is ambiguous.",
+            "type": "string"
+          },
+          "unsupportedEntities": {
+            "description": "Entities that select nothing VIGO can resolve, such as an agency alone.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "received"
+        ],
+        "type": "object"
+      },
+      "AlertTrip": {
+        "properties": {
+          "directionId": true,
+          "routeId": {
+            "type": "string"
+          },
+          "startDate": {
+            "type": "string"
+          },
+          "startTime": {
+            "type": "string"
+          },
+          "tripId": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "AlternativeRanking": {
         "oneOf": [
           {
@@ -1179,6 +1261,29 @@
         ],
         "type": "object"
       },
+      "InformedEntity": {
+        "description": "An alert's GTFS-Realtime EntitySelector. A stop that is a station also\nselects its platforms. Agency-only entities are not applied.",
+        "properties": {
+          "agencyId": {
+            "type": "string"
+          },
+          "directionId": true,
+          "routeId": {
+            "type": "string"
+          },
+          "routeType": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "stopId": {
+            "type": "string"
+          },
+          "trip": {
+            "$ref": "#/components/schemas/AlertTrip"
+          }
+        },
+        "type": "object"
+      },
       "IntermediateStop": {
         "properties": {
           "arrivalTime": {
@@ -1321,6 +1426,31 @@
           }
         ]
       },
+      "LegAlert": {
+        "properties": {
+          "cause": true,
+          "description": {
+            "type": "string"
+          },
+          "effect": {
+            "type": "string"
+          },
+          "header": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "severity": true,
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "effect"
+        ],
+        "type": "object"
+      },
       "LineString": {
         "description": "A GeoJSON `LineString`.",
         "properties": {
@@ -1338,6 +1468,33 @@
         "required": [
           "type",
           "coordinates"
+        ],
+        "type": "object"
+      },
+      "LiveSnapshotReport": {
+        "description": "The live publication a query used: `vigo serve --realtime-poll`.",
+        "properties": {
+          "feeds": {
+            "description": "Each configured source's kind, scope, feed timestamp and failure."
+          },
+          "generation": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "description": "Content identifier; equal snapshots have equal identifiers.",
+            "type": "string"
+          },
+          "source": {
+            "description": "`server`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "id",
+          "generation"
         ],
         "type": "object"
       },
@@ -1546,6 +1703,10 @@
             "maxItems": 65536,
             "minItems": 1,
             "type": "array"
+          },
+          "realtimeSnapshot": {
+            "$ref": "#/components/schemas/RealtimeSnapshot",
+            "description": "Transit Matrix searches the same realtime view as Route."
           },
           "requireCompleteServiceCoverage": {
             "default": false,
@@ -2298,6 +2459,10 @@
             "$ref": "#/components/schemas/ReachFormat",
             "default": "full"
           },
+          "realtimeSnapshot": {
+            "$ref": "#/components/schemas/RealtimeSnapshot",
+            "description": "Transit Reach searches the same realtime view as Route; a scenario\napplies on top of it."
+          },
           "requireCompleteServiceCoverage": {
             "default": false,
             "type": "boolean"
@@ -2560,6 +2725,10 @@
       "RealtimeReport": {
         "description": "How a supplied realtime snapshot was admitted and applied.",
         "properties": {
+          "alerts": {
+            "$ref": "#/components/schemas/AlertReport",
+            "description": "Present when the snapshot carries Service Alerts."
+          },
           "appliedTrips": {
             "format": "uint64",
             "minimum": 0,
@@ -2606,6 +2775,10 @@
             "minimum": 0,
             "type": "integer"
           },
+          "snapshot": {
+            "$ref": "#/components/schemas/LiveSnapshotReport",
+            "description": "Present when the server's live snapshot was used."
+          },
           "staleTrips": {
             "format": "uint64",
             "minimum": 0,
@@ -2639,8 +2812,17 @@
         "type": "object"
       },
       "RealtimeSnapshot": {
-        "description": "Trip Updates applied to one Route request. Freshness is checked against\nthe current time.",
+        "description": "Trip Updates and Service Alerts applied to one transit Route, Matrix or\nReach request. Freshness is checked against the current time. With\n`realtime` mode and no snapshot, `vigo serve --realtime-poll` uses its own.",
         "properties": {
+          "alerts": {
+            "description": "`NO_SERVICE` removes the selected service or closes the selected stops\nduring the active periods. Every fresh alert is reported on the legs\nit describes.",
+            "items": {
+              "$ref": "#/components/schemas/ServiceAlert"
+            },
+            "maxItems": 10000,
+            "minItems": 0,
+            "type": "array"
+          },
           "feedTimestamp": {
             "description": "POSIX seconds.",
             "format": "uint64",
@@ -3340,6 +3522,11 @@
             "const": "source_time_limitations",
             "description": "The source repeats times or bridges untimed stops.",
             "type": "string"
+          },
+          {
+            "const": "realtime",
+            "description": "Realtime predictions for this trip were applied.",
+            "type": "string"
           }
         ]
       },
@@ -3447,6 +3634,58 @@
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "ServiceAlert": {
+        "description": "A GTFS-Realtime Service Alert, as the server's poller records it.",
+        "properties": {
+          "activePeriods": {
+            "default": [],
+            "description": "No periods means always active.",
+            "items": {
+              "$ref": "#/components/schemas/ActivePeriod"
+            },
+            "type": "array"
+          },
+          "cause": {
+            "$ref": "#/components/schemas/Enumerated"
+          },
+          "description": {
+            "type": "string"
+          },
+          "effect": {
+            "$ref": "#/components/schemas/Enumerated",
+            "description": "Such as `NO_SERVICE`, `DETOUR` or `SIGNIFICANT_DELAYS`, or its code."
+          },
+          "header": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "informedEntities": {
+            "default": [],
+            "description": "Each entity matches when all of its fields match; any entity applies.",
+            "items": {
+              "$ref": "#/components/schemas/InformedEntity"
+            },
+            "type": "array"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Enumerated"
+          },
+          "sourceFeedTimestamp": {
+            "format": "uint64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "sourceScope": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -3914,6 +4153,13 @@
       "TransitLeg": {
         "description": "A ride on one scheduled trip.",
         "properties": {
+          "alerts": {
+            "description": "Service Alerts active during the ride for its trip, route or stops.",
+            "items": {
+              "$ref": "#/components/schemas/LegAlert"
+            },
+            "type": "array"
+          },
           "arrivalTime": {
             "type": [
               "string",

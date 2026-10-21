@@ -35,6 +35,45 @@ pub struct RealtimeTimetableInput {
     pub canceled: U8Buffer,
     pub replacements: Vec<RealtimeTripInput>,
 }
+/// Borrowed scheduled arrays for one realtime view. A resident schedule can
+/// derive any number of views; only the compiled view is allocated.
+pub struct RealtimeTimetableView<'a> {
+    pub stop_count: u32,
+    pub departure_seconds: &'a [u32],
+    pub arrival_seconds: &'a [u32],
+    pub from_stop: &'a [u32],
+    pub to_stop: &'a [u32],
+    pub sequence: &'a [u32],
+    pub segment_run: &'a [u32],
+    pub continuity_break: &'a [u8],
+    pub can_board: &'a [u8],
+    pub can_alight: &'a [u8],
+    pub trip_start: &'a [u32],
+    pub canceled: &'a [u8],
+    pub replacements: &'a [RealtimeTripInput],
+    /// Callers that prepare their own stop indexes may skip this one.
+    pub index_departures: bool,
+}
+impl RealtimeTimetableInput {
+    pub fn view(&self) -> RealtimeTimetableView<'_> {
+        RealtimeTimetableView {
+            stop_count: self.stop_count,
+            departure_seconds: &self.departure_seconds,
+            arrival_seconds: &self.arrival_seconds,
+            from_stop: &self.from_stop,
+            to_stop: &self.to_stop,
+            sequence: &self.sequence,
+            segment_run: &self.segment_run,
+            continuity_break: &self.continuity_break,
+            can_board: &self.can_board,
+            can_alight: &self.can_alight,
+            trip_start: &self.trip_start,
+            canceled: &self.canceled,
+            replacements: &self.replacements,
+            index_departures: true,
+        }
+    }
+}
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RealtimeTimetableResult {
@@ -70,6 +109,11 @@ fn malformed() -> Error {
 pub fn compile_realtime_timetable(
     input: RealtimeTimetableInput,
 ) -> Result<RealtimeTimetableResult> {
+    compile_realtime_timetable_view(input.view())
+}
+pub fn compile_realtime_timetable_view(
+    input: RealtimeTimetableView<'_>,
+) -> Result<RealtimeTimetableResult> {
     let segments = input.departure_seconds.len();
     let trips = input.canceled.len();
     if segments > i32::MAX as usize
@@ -79,15 +123,15 @@ pub fn compile_realtime_timetable(
         || input.trip_start.last().copied().map(|v| v as usize) != Some(segments)
         || input.trip_start.windows(2).any(|p| p[0] > p[1])
         || [
-            &input.arrival_seconds,
-            &input.from_stop,
-            &input.to_stop,
-            &input.sequence,
-            &input.segment_run,
+            input.arrival_seconds,
+            input.from_stop,
+            input.to_stop,
+            input.sequence,
+            input.segment_run,
         ]
         .iter()
         .any(|v| v.len() != segments)
-        || [&input.can_board, &input.can_alight, &input.continuity_break]
+        || [input.can_board, input.can_alight, input.continuity_break]
             .iter()
             .any(|v| v.len() != segments || v.iter().any(|&b| b > 1))
         || input.canceled.iter().any(|&v| v > 1)
@@ -100,7 +144,7 @@ pub fn compile_realtime_timetable(
         return Err(malformed());
     }
     let mut replacements = vec![None; trips];
-    for replacement in &input.replacements {
+    for replacement in input.replacements {
         let trip = replacement.trip as usize;
         if trip >= trips || replacements[trip].is_some() {
             return Err(invalid(trip, "unknown or duplicate original trip index"));
@@ -209,8 +253,11 @@ pub fn compile_realtime_timetable(
         }
     }
     trip_start.push(departure.len() as u32);
-    let (departure_offset, departure_order) =
-        departure_index(input.stop_count as usize, &from, &departure, &board)?;
+    let (departure_offset, departure_order) = if input.index_departures {
+        departure_index(input.stop_count as usize, &from, &departure, &board)?
+    } else {
+        (Vec::new(), Vec::new())
+    };
     Ok(RealtimeTimetableResult {
         departure_seconds: departure.into(),
         arrival_seconds: arrival.into(),

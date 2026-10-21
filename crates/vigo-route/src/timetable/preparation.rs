@@ -274,8 +274,9 @@ pub fn prepare_timetable_indexes_view(
     })
 }
 
-// Shared by scheduled preparation and immutable realtime reconstruction.
-pub(super) fn departure_index(
+/// Boardable departures grouped by stop in departure-time order, as offsets
+/// and segment indexes. Shared by scheduled preparation and realtime views.
+pub fn departure_index(
     stops: usize,
     from: &[u32],
     times: &[u32],

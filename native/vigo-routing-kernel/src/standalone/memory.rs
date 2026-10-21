@@ -46,6 +46,18 @@ impl<T: Heap> Heap for Vec<T> {
         self.capacity() * size_of::<T>() + self.iter().map(Heap::heap_bytes).sum::<usize>()
     }
 }
+// Tables shared by realtime views are charged in full to each owner, as shared
+// timetable columns are for cache admission.
+impl<T: Heap> Heap for std::sync::Arc<[T]> {
+    fn heap_bytes(&self) -> usize {
+        self.len() * size_of::<T>() + self.iter().map(Heap::heap_bytes).sum::<usize>()
+    }
+}
+impl<K: Heap, V: Heap> Heap for std::sync::Arc<HashMap<K, V>> {
+    fn heap_bytes(&self) -> usize {
+        self.as_ref().heap_bytes()
+    }
+}
 impl<T: Heap> Heap for Option<T> {
     fn heap_bytes(&self) -> usize {
         self.as_ref().map_or(0, Heap::heap_bytes)

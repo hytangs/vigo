@@ -161,9 +161,22 @@ fn leg(v: &mut Value, geometry: bool) -> Value {
                     .collect::<Vec<_>>(),
             );
         }
-        out["quality"] = json!({"geometry":source,"schedule":if v["sourceEqualTime"] == true || v["bridgedUntimedGapCount"].as_f64().unwrap_or(0.) > 0. {"source_time_limitations"} else {"timetable"}});
+        // Realtime predictions replace the source times of the whole ride.
+        let schedule = if v["realtimeTrip"] == true {
+            "realtime"
+        } else if v["sourceEqualTime"] == true
+            || v["bridgedUntimedGapCount"].as_f64().unwrap_or(0.) > 0.
+        {
+            "source_time_limitations"
+        } else {
+            "timetable"
+        };
+        out["quality"] = json!({"geometry":source,"schedule":schedule});
         if let Some(fare) = v.get("fare") {
             out["fare"] = fare.clone();
+        }
+        if let Some(alerts) = v.get("alerts") {
+            out["alerts"] = alerts.clone();
         }
     } else {
         out["quality"] = json!({"streetGeometry":street,"geometrySource":source});

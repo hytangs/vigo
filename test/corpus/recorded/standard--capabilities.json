@@ -25,7 +25,7 @@
     "matrix": {
       "journeyGeometry": true,
       "journeys": true,
-      "realtimeTransit": false,
+      "realtimeTransit": true,
       "traffic": true
     },
     "modes": ["transit","walk","drive"],
@@ -43,7 +43,7 @@
       "geojson": true,
       "modes": ["transit","walk"],
       "raster": true,
-      "realtimeTransit": false,
+      "realtimeTransit": true,
       "scenarios": ["frequency","explicit-scheduled-trips","compiled-overlay"],
       "streets": true,
       "timePreferences": ["depart_at"]

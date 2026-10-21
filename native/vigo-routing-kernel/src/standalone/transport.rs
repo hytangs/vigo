@@ -122,6 +122,7 @@ fn run() -> Result<()> {
     }
     let known = [
         "ndw-poll",
+        "realtime-poll",
         "configuration",
         "measurements",
         "ttl-seconds",
@@ -165,7 +166,7 @@ fn run() -> Result<()> {
             return fail(format!("Unknown option --{key}"));
         }
         let allowed = match key.as_str() {
-            "ndw-poll" => command == "serve",
+            "ndw-poll" | "realtime-poll" => command == "serve",
             "configuration" | "measurements" | "ttl-seconds" => command == "traffic-import",
             "city" => !["capabilities", "health"].contains(&command.as_str()),
             "stream-output" => command == "stream",
@@ -242,17 +243,23 @@ fn run() -> Result<()> {
         let mut bytes = Vec::new();
         // Like the Node stream, number each nonblank request line from one.
         let mut sequence = 0_u64;
+        // The server's own worker also receives live snapshots on this pipe.
+        let line_limit = if command == "_worker" {
+            super::http::WORKER_INSTALL_BYTES
+        } else {
+            8 * 1024 * 1024
+        };
         loop {
             bytes.clear();
             let read = reader
                 .by_ref()
-                .take(8 * 1024 * 1024 + 1)
+                .take(line_limit as u64 + 1)
                 .read_until(b'\n', &mut bytes)?;
             if read == 0 {
                 break;
             }
-            if read > 8 * 1024 * 1024 {
-                return fail("NDJSON line exceeds 8 MiB");
+            if read > line_limit {
+                return fail(format!("NDJSON line exceeds {} MiB", line_limit >> 20));
             }
             if bytes.iter().all(u8::is_ascii_whitespace) {
                 continue;
@@ -261,6 +268,16 @@ fn run() -> Result<()> {
             let value: std::result::Result<Value, _> = serde_json::from_slice(&bytes);
             let result = match value {
                 Ok(mut q) => {
+                    if command == "_worker" && q["kind"] == "_realtime_install" {
+                        let result = city
+                            .install_realtime(&mut q)
+                            .map(|()| serde_json::json!({"installed":true}))
+                            .unwrap_or_else(error);
+                        serde_json::to_writer(&mut stdout, &result)?;
+                        writeln!(stdout)?;
+                        stdout.flush()?;
+                        continue;
+                    }
                     if command == "_worker" && q["kind"] == "_traffic_install" {
                         let result = city
                             .install_traffic(&q["snapshot"])

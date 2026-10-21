@@ -1,0 +1,9 @@
+[package]
+name = "vigo-gtfs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+serde_json.workspace = true

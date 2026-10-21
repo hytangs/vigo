@@ -1,4 +1,5 @@
 use super::{Result, access::AccessContext, fail, flag, number};
+use crate::realtime::{self, TimetableNames};
 use crate::*;
 use chrono::{Datelike, NaiveDate};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
@@ -9,6 +10,7 @@ use std::{
     fs::{self, File},
     io::Read,
     path::{Path, PathBuf},
+    sync::{Arc, OnceLock},
 };
 
 fn routing_source_identity(metadata: &Value) -> Value {
@@ -134,16 +136,147 @@ pub(crate) struct Stop {
 }
 pub(crate) struct Timetable {
     pub kernel: TimetableKernel,
-    pub stop_ids: Vec<String>,
-    pub index: HashMap<String, u32>,
-    pub trip_ids: Vec<String>,
-    pub route_ids: Vec<String>,
-    pub trip_service_dates: Vec<String>,
+    pub stop_ids: Arc<[String]>,
+    pub index: Arc<HashMap<String, u32>>,
+    pub trip_ids: Arc<[String]>,
+    pub route_ids: Arc<[String]>,
+    pub trip_service_dates: Arc<[String]>,
     pub key: String,
     pub realtime: Value,
     pub preparation: &'static str,
     pub complete_service_coverage: bool,
     pub coverage_end: Option<u32>,
+    /// Trips whose calls carry realtime predictions, ascending.
+    pub realtime_trips: Arc<[u32]>,
+    pub alerts: Option<Arc<crate::realtime::alerts::Alerts>>,
+}
+/// Stop-domain inputs of timetable index preparation. They depend only on the
+/// City's stops and access context, never on the active service, so every
+/// scheduled and realtime view of the City shares them.
+pub(crate) struct TransferInputs {
+    pub index: Arc<HashMap<String, u32>>,
+    // Stops kept for direct service even when no trip in the view serves them.
+    pub direct: Vec<u8>,
+    pub coords: Vec<f64>,
+    pub forbidden_from: Vec<u32>,
+    pub forbidden_to: Vec<u32>,
+    pub forbidden_same_stop: Vec<u8>,
+    pub same_stop_transfer_minimum: Vec<u32>,
+    pub transfer_from: Vec<u32>,
+    pub transfer_to: Vec<u32>,
+    pub transfer_seconds: Vec<f64>,
+    pub station_offset: Vec<u32>,
+    pub station_members: Vec<u32>,
+    /// Each stop's parent station index, or `u32::MAX`.
+    pub parents: Vec<u32>,
+}
+/// One SQLite read of a service-day view. It is retained so that each new
+/// realtime snapshot derives its view without reading the schedule again.
+pub(crate) struct ScheduleSource {
+    pub key: String,
+    pub arrays: ServiceTimetableResult,
+    pub names: TimetableNames,
+}
+impl ScheduleSource {
+    pub fn new(key: String, mut arrays: ServiceTimetableResult) -> Self {
+        fn shared(values: &mut Vec<String>) -> Arc<[String]> {
+            std::mem::take(values).into()
+        }
+        let names = TimetableNames::new(
+            shared(&mut arrays.stop_ids),
+            shared(&mut arrays.trip_ids),
+            shared(&mut arrays.route_ids),
+            shared(&mut arrays.direction_ids),
+            shared(&mut arrays.trip_service_dates),
+        );
+        // Service identifiers only select rows during the read.
+        arrays.service_ids = Vec::new();
+        Self { key, arrays, names }
+    }
+    pub fn schedule(&self) -> realtime::Schedule<'_> {
+        let a = &self.arrays;
+        realtime::Schedule {
+            stop_count: a.stop_count,
+            departure_seconds: &a.departure_seconds,
+            arrival_seconds: &a.arrival_seconds,
+            from_stop: &a.from_stop,
+            to_stop: &a.to_stop,
+            sequence: &a.sequence,
+            segment_run: &a.segment_run,
+            continuity_break: &a.continuity_break,
+            can_board: &a.can_board,
+            can_alight: &a.can_alight,
+            trip_start: &a.trip_start,
+            names: &self.names,
+        }
+    }
+    pub fn heap_bytes(&self) -> usize {
+        use super::memory::Heap;
+        let a = &self.arrays;
+        let n = &self.names;
+        4 * (a.departure_seconds.len()
+            + a.arrival_seconds.len()
+            + a.from_stop.len()
+            + a.to_stop.len()
+            + a.sequence.len()
+            + a.segment_trip.len()
+            + a.segment_run.len()
+            + a.trip_start.len())
+            + a.continuity_break.len()
+            + a.can_board.len()
+            + a.can_alight.len()
+            + n.stop_ids.heap_bytes()
+            + n.trip_ids.heap_bytes()
+            + n.route_ids.heap_bytes()
+            + n.direction_ids.heap_bytes()
+            + n.trip_service_dates.heap_bytes()
+            // The two trip index orders, once built.
+            + 8 * n.trip_ids.len()
+    }
+}
+/// The query's service date and, when one is known, the City clock's zone.
+fn realtime_clock(snapshot: &Value, request: &Value, metadata: &Value) -> Result<realtime::Clock> {
+    let date = NaiveDate::parse_from_str(
+        request["serviceDate"]
+            .as_str()
+            .ok_or("Missing serviceDate")?,
+        "%Y-%m-%d",
+    )?;
+    let timezone = snapshot["timezone"]
+        .as_str()
+        .or_else(|| metadata["agencyTimezone"].as_str())
+        .or_else(|| metadata["timezone"].as_str())
+        .or_else(|| {
+            metadata["agencyTimezones"]
+                .as_array()
+                .filter(|z| z.len() == 1)
+                .and_then(|z| z[0].as_str())
+        });
+    Ok(realtime::Clock {
+        date,
+        zone: timezone.map(str::parse).transpose()?,
+    })
+}
+/// The Result's `meta.realtime` for one overlay.
+fn realtime_diagnostics(overlay: &realtime::Overlay, snapshot: &Value) -> Value {
+    let c = realtime::Counts::of(&overlay.outcomes);
+    let applied = c.applied + c.canceled;
+    let rejected = c.feed_updates - applied;
+    let status = if applied > 0 {
+        if rejected > 0 { "partial" } else { "applied" }
+    } else if c.stale > 0 {
+        "stale_fallback"
+    } else {
+        "no_matches"
+    };
+    // Relationships that routing does not model are reported as invalid.
+    json!({"mode":"full-snapshot","feedTripUpdates":c.feed_updates,"appliedTrips":c.applied,
+        "canceledTrips":c.canceled,"staleTrips":c.stale,"unmatchedTrips":c.unmatched,
+        "invalidTrips":c.invalid + c.unsupported,"duplicateTrips":c.duplicate,
+        "dateMismatches":c.date_mismatches,"pastPrefixTrips":c.past_prefix_trips,
+        "omittedPastPrefixStops":c.omitted_past_prefix_stops,"status":status,
+        "coverage":{"appliedUpdates":applied,"rejectedUpdates":rejected,
+            "complete":rejected == 0 && snapshot["failedFeeds"].as_u64().unwrap_or(0) == 0}})
 }
 pub(crate) struct Drive {
     pub automatic_traffic: Option<std::sync::Arc<vigo_traffic::Snapshot>>,
@@ -176,6 +309,14 @@ pub struct City {
     pub(crate) timetable_activation_ms: f64,
     pub(crate) timetable_preparation_profile: Value,
     pub(crate) calendar: std::sync::OnceLock<super::calendar::CalendarIndex>,
+    pub(crate) transfer_inputs: OnceLock<Arc<TransferInputs>>,
+    pub(crate) route_types: OnceLock<Arc<HashMap<String, i64>>>,
+    // The server's installed live snapshot, the one this query uses, and the
+    // last live query, whose view a new snapshot derives ahead of demand.
+    pub(crate) live: Option<Arc<super::realtime_poll::LiveSnapshot>>,
+    pub(crate) query_live: Option<Arc<super::realtime_poll::LiveSnapshot>>,
+    pub(crate) live_request: Option<(Value, Option<String>)>,
+    pub(crate) query_start_date: Option<String>,
     pub(crate) timetable_blocks: Option<TimetableBlockPool>,
     pub(crate) speed: f64,
     pub(crate) padding: f64,
@@ -476,6 +617,12 @@ impl City {
             timetable_activation_ms: 0.,
             timetable_preparation_profile: Value::Null,
             calendar: Default::default(),
+            transfer_inputs: OnceLock::new(),
+            route_types: OnceLock::new(),
+            live: None,
+            query_live: None,
+            live_request: None,
+            query_start_date: None,
             timetable_blocks: Some(Default::default()),
             speed,
             padding,
@@ -609,138 +756,13 @@ impl City {
         }
         Ok(date)
     }
-    pub(crate) fn activate(&mut self, request: &Value) -> Result<()> {
-        let started = std::time::Instant::now();
-        let result = self.activate_inner(request);
-        self.timetable_activation_ms += started.elapsed().as_secs_f64() * 1000.;
-        result
-    }
-    fn activate_inner(&mut self, request: &Value) -> Result<()> {
-        let started = std::time::Instant::now();
-        let date = Self::validated_service_date(request)?;
-        let date_text = request["serviceDate"].as_str().unwrap();
-        let allow = flag(request, "allowStreetTransfers", true)?;
-        let buffer = number(request, "minimumTransferBufferMinutes", 0., 0., 60.)?;
-        if buffer.fract() != 0. {
-            return fail("minimumTransferBufferMinutes must be an integer");
-        }
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs_f64();
-        let complete_coverage = flag(request, "requireCompleteServiceCoverage", false)?;
-        // Ordinary morning/evening requests share a stable prefix through
-        // 06:00 the next day. Longer searches grow it in six-hour blocks;
-        // narrower queries reuse the already loaded superset. Clipping avoids
-        // loading an entire next day for a horizon that only reaches midnight.
-        let clocked = request.get("time").is_some() || request.get("timeMinutes").is_some();
-        let coverage_end = if clocked && request.get("realtimeSnapshot").is_none() {
-            Some(
-                ((super::query::Options::parse(request)?.end.max(108_000.) / 21_600.).ceil()
-                    * 21_600.) as u32,
-            )
-        } else {
-            None
-        };
-        // A resident scheduled prefix already establishes the active services.
-        // Resolve calendars only when it grows or the service date changes.
-        let (key, instances) = if coverage_end.is_some() {
-            (format!("{date_text}:{allow}:{buffer}:scheduled"), None)
-        } else {
-            let instances = self.service_instances(request, date, None)?;
-            let days_key = instances.as_ref().map(|a| {
-                a.iter()
-                    .map(|v| (&v.service_date, v.offset_seconds))
-                    .collect::<BTreeSet<_>>()
-            });
-            let realtime_key = format!(
-                "{:x}",
-                Sha256::digest(serde_json::to_vec(&json!([
-                    request["realtimeSnapshot"],
-                    super::realtime::validity(request, now)
-                ]))?)
-            );
-            (
-                format!("{date_text}:{allow}:{buffer}:{realtime_key}:{days_key:?}"),
-                instances,
-            )
-        };
-        if self.timetable.as_ref().is_some_and(|t| {
-            t.key == key
-                && coverage_end.is_none_or(|end| t.coverage_end.is_some_and(|saved| saved >= end))
-        }) {
-            if complete_coverage && !self.timetable.as_ref().unwrap().complete_service_coverage {
-                return fail(
-                    "Incomplete service coverage across source feeds on the requested date",
-                );
-            }
-            self.install_query_workspace();
-            return Ok(());
-        }
-        if let Some(index) = self.timetable_cache.find(&key, coverage_end) {
-            if complete_coverage && !self.timetable_cache.get(index).complete_service_coverage {
-                return fail(
-                    "Incomplete service coverage across source feeds on the requested date",
-                );
-            }
-            let timetable = self.timetable_cache.take(index);
-            self.retire_timetable();
-            self.timetable = Some(timetable);
-            self.install_query_workspace();
-            return Ok(());
-        }
-        let instances = if coverage_end.is_some() {
-            self.service_instances(request, date, coverage_end)?
-        } else {
-            instances
-        };
-        self.retire_timetable();
-        self.timetable_preparations += 1;
-        let services = self.services_on(date)?;
-        let complete_service_coverage = self.calendar()?.complete(&services);
-        if complete_coverage && !complete_service_coverage {
-            return fail("Incomplete service coverage across source feeds on the requested date");
-        }
-        if allow
-            && instances.is_none()
-            && request.get("realtimeSnapshot").is_none()
-            && let Ok(mut timetable) = self.prepared_timetable(
-                &services,
-                key.clone(),
-                buffer as u32 * 60,
-                complete_service_coverage,
-            )
-        {
-            timetable.coverage_end = coverage_end;
-            self.timetable = Some(timetable);
-            self.install_query_workspace();
-            return Ok(());
-        }
-        let has_permissions: bool = self.db.query_row(
-            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='connection_permissions')",
-            [],
-            |r| r.get(0),
-        )?;
-        let calendar_ms = started.elapsed().as_secs_f64() * 1000.;
-        let source_started = std::time::Instant::now();
-        let mut source = read_service_timetable(ServiceTimetableInput {
-            store_path: str_path(&self.path.join("routing/project.sqlite"))?,
-            stop_ids: self.stops.iter().map(|s| s.id.clone()).collect(),
-            service_ids: services.into_iter().collect(),
-            has_connection_permissions: has_permissions,
-            segment_count: None,
-            service_instances: instances,
-            maximum_departure_seconds: coverage_end,
-        })?;
-        let realtime = super::realtime::apply(&mut source, request, &self.metadata, now)?;
-        let source_ms = source_started.elapsed().as_secs_f64() * 1000.;
-        let index_started = std::time::Instant::now();
-        let index: HashMap<String, u32> = source
-            .stop_ids
+    fn transfer_inputs_for(&self, stop_ids: &[String]) -> TransferInputs {
+        let index: HashMap<String, u32> = stop_ids
             .iter()
             .enumerate()
             .map(|(i, s)| (s.clone(), i as u32))
             .collect();
-        let n = source.stop_count as usize;
+        let n = stop_ids.len();
         let saved = &self.access.materialized;
         let direct: HashSet<&str> = saved
             .stop_access_index
@@ -748,16 +770,11 @@ impl City {
             .iter()
             .map(String::as_str)
             .collect();
-        let mut retained: Vec<u8> = source
-            .stop_ids
+        let direct = stop_ids
             .iter()
             .map(|s| u8::from(direct.contains(s.as_str())))
             .collect();
-        for &s in source.from_stop.iter().chain(&source.to_stop) {
-            retained[s as usize] = 1;
-        }
-        let coords: Vec<f64> = source
-            .stop_ids
+        let coords = stop_ids
             .iter()
             .flat_map(|id| {
                 self.stop(id)
@@ -828,19 +845,263 @@ impl City {
             }
             station_offset.push(station_members.len() as u32);
         }
+        let parents = stop_ids
+            .iter()
+            .map(|id| {
+                self.stop(id)
+                    .ok()
+                    .and_then(|s| index.get(&s.parent).copied())
+                    .unwrap_or(u32::MAX)
+            })
+            .collect();
+        TransferInputs {
+            parents,
+            index: Arc::new(index),
+            direct,
+            coords,
+            forbidden_from,
+            forbidden_to,
+            forbidden_same_stop,
+            same_stop_transfer_minimum,
+            transfer_from,
+            transfer_to,
+            transfer_seconds,
+            station_offset,
+            station_members,
+        }
+    }
+    fn read_schedule(
+        &self,
+        services: BTreeSet<String>,
+        instances: Option<Vec<ServiceInstance>>,
+        coverage_end: Option<u32>,
+    ) -> Result<ServiceTimetableResult> {
+        let has_permissions: bool = self.db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='connection_permissions')",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(read_service_timetable(ServiceTimetableInput {
+            store_path: str_path(&self.path.join("routing/project.sqlite"))?,
+            stop_ids: self.stops.iter().map(|s| s.id.clone()).collect(),
+            service_ids: services.into_iter().collect(),
+            has_connection_permissions: has_permissions,
+            segment_count: None,
+            service_instances: instances,
+            maximum_departure_seconds: coverage_end,
+        })?)
+    }
+    pub(crate) fn activate(&mut self, request: &Value) -> Result<()> {
+        let started = std::time::Instant::now();
+        let result = self.activate_inner(request);
+        self.timetable_activation_ms += started.elapsed().as_secs_f64() * 1000.;
+        result
+    }
+    fn activate_inner(&mut self, request: &Value) -> Result<()> {
+        let started = std::time::Instant::now();
+        let date = Self::validated_service_date(request)?;
+        let date_text = request["serviceDate"].as_str().unwrap();
+        let allow = flag(request, "allowStreetTransfers", true)?;
+        let buffer = number(request, "minimumTransferBufferMinutes", 0., 0., 60.)?;
+        if buffer.fract() != 0. {
+            return fail("minimumTransferBufferMinutes must be an integer");
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs_f64();
+        let complete_coverage = flag(request, "requireCompleteServiceCoverage", false)?;
+        // Ordinary morning/evening requests share a stable prefix through
+        // 06:00 the next day. Longer searches grow it in six-hour blocks;
+        // narrower queries reuse the already loaded superset. Clipping avoids
+        // loading an entire next day for a horizon that only reaches midnight.
+        let clocked = request.get("time").is_some() || request.get("timeMinutes").is_some();
+        // A supplied snapshot overrides the server's live one for this query.
+        let live = self.query_live.clone();
+        let start_date = self.query_start_date.clone();
+        let snapshot = request
+            .get("realtimeSnapshot")
+            .or(live.as_deref().map(|l| &l.snapshot));
+        let coverage_end = if clocked && snapshot.is_none() {
+            Some(
+                ((super::query::Options::parse(request)?.end.max(108_000.) / 21_600.).ceil()
+                    * 21_600.) as u32,
+            )
+        } else {
+            None
+        };
+        // A resident scheduled prefix already establishes the active services.
+        // Resolve calendars only when it grows or the service date changes.
+        // A realtime view derives from the retained source read of the same
+        // service days. Its key excludes the snapshot, transfers and buffer.
+        let (key, instances, source_key) = if coverage_end.is_some() {
+            (
+                format!("{date_text}:{allow}:{buffer}:scheduled"),
+                None,
+                None,
+            )
+        } else {
+            let instances = self.service_instances(request, date, None)?;
+            let days_key = instances.as_ref().map(|a| {
+                a.iter()
+                    .map(|v| (&v.service_date, v.offset_seconds))
+                    .collect::<BTreeSet<_>>()
+            });
+            // A live snapshot is named by its content identifier, so a large
+            // feed is not serialized again for every query.
+            let inline = &request["realtimeSnapshot"];
+            let live_id = live.as_ref().filter(|_| inline.is_null()).map(|l| &l.id);
+            let validity = realtime::validity(snapshot.unwrap_or(&Value::Null), now);
+            let realtime_key = format!(
+                "{:x}",
+                Sha256::digest(serde_json::to_vec(&(
+                    inline,
+                    live_id,
+                    validity,
+                    &start_date
+                ))?)
+            );
+            let source_key = snapshot
+                .is_some()
+                .then(|| format!("{date_text}:{days_key:?}"));
+            (
+                format!("{date_text}:{allow}:{buffer}:{realtime_key}:{days_key:?}"),
+                instances,
+                source_key,
+            )
+        };
+        if self.timetable.as_ref().is_some_and(|t| {
+            t.key == key
+                && coverage_end.is_none_or(|end| t.coverage_end.is_some_and(|saved| saved >= end))
+        }) {
+            if complete_coverage && !self.timetable.as_ref().unwrap().complete_service_coverage {
+                return fail(
+                    "Incomplete service coverage across source feeds on the requested date",
+                );
+            }
+            self.install_query_workspace();
+            return Ok(());
+        }
+        if let Some(index) = self.timetable_cache.find(&key, coverage_end) {
+            if complete_coverage && !self.timetable_cache.get(index).complete_service_coverage {
+                return fail(
+                    "Incomplete service coverage across source feeds on the requested date",
+                );
+            }
+            let timetable = self.timetable_cache.take(index);
+            self.retire_timetable();
+            self.timetable = Some(timetable);
+            self.install_query_workspace();
+            return Ok(());
+        }
+        let instances = if coverage_end.is_some() {
+            self.service_instances(request, date, coverage_end)?
+        } else {
+            instances
+        };
+        self.retire_timetable();
+        self.timetable_preparations += 1;
+        let services = self.services_on(date)?;
+        let complete_service_coverage = self.calendar()?.complete(&services);
+        if complete_coverage && !complete_service_coverage {
+            return fail("Incomplete service coverage across source feeds on the requested date");
+        }
+        if allow
+            && instances.is_none()
+            && snapshot.is_none()
+            && let Ok(mut timetable) = self.prepared_timetable(
+                &services,
+                key.clone(),
+                buffer as u32 * 60,
+                complete_service_coverage,
+            )
+        {
+            timetable.coverage_end = coverage_end;
+            self.timetable = Some(timetable);
+            self.install_query_workspace();
+            return Ok(());
+        }
+        let calendar_ms = started.elapsed().as_secs_f64() * 1000.;
+        let source_started = std::time::Instant::now();
+        let mut source_reused = false;
+        let mut realtime_trips: Arc<[u32]> = Arc::new([]);
+        let mut alerts = None;
+        let (source, names, realtime) = if let Some(source_key) = source_key {
+            let base = match self.timetable_cache.source(&source_key) {
+                Some(base) => {
+                    source_reused = true;
+                    base
+                }
+                None => {
+                    let read = self.read_schedule(services, instances, coverage_end)?;
+                    let base = Arc::new(ScheduleSource::new(source_key, read));
+                    if self.timetable_cache.insert_source(base.clone())
+                        && let Some(pool) = &mut self.timetable_blocks
+                    {
+                        pool.prune();
+                    }
+                    base
+                }
+            };
+            let input = realtime::Input {
+                snapshot: snapshot.ok_or("Realtime view requires a snapshot")?,
+                start_date: start_date.as_deref(),
+            };
+            let clock = realtime_clock(input.snapshot, request, &self.metadata)?;
+            let overlay = realtime::apply(&base.schedule(), &input, clock, now)?;
+            let mut diagnostics = realtime_diagnostics(&overlay, input.snapshot);
+            if let Some(live) = live
+                .as_deref()
+                .filter(|_| request.get("realtimeSnapshot").is_none())
+            {
+                diagnostics["snapshot"] = json!({"source":"server","id":live.id,"generation":live.generation,
+                    "feeds":input.snapshot["feeds"]});
+            }
+            let mut compiled = overlay.view;
+            if input.snapshot.get("alerts").is_some() {
+                let parents = &self.transfers_for(&base.names.stop_ids).parents;
+                alerts = realtime::apply_alerts(
+                    &mut compiled,
+                    &base.names,
+                    input.snapshot,
+                    clock,
+                    now,
+                    parents,
+                    self.route_types()?,
+                    &mut diagnostics,
+                )?
+                .map(Arc::new);
+            }
+            realtime_trips = compiled.realtime_trip_indices.to_vec().into();
+            let arrays = realtime_arrays(compiled, base.arrays.stop_count);
+            (arrays, base.names.clone(), diagnostics)
+        } else {
+            let read = self.read_schedule(services, instances, coverage_end)?;
+            let ScheduleSource { arrays, names, .. } = ScheduleSource::new(String::new(), read);
+            (arrays, names, Value::Null)
+        };
+        let source_ms = source_started.elapsed().as_secs_f64() * 1000.;
+        let index_started = std::time::Instant::now();
+        // Sources normally use exactly the City's stops; a source that adds a
+        // stop absent from them derives its own inputs.
+        let transfers = self.transfers_for(&names.stop_ids);
+        let n = source.stop_count as usize;
+        let mut retained = transfers.direct.clone();
+        for &s in source.from_stop.iter().chain(&source.to_stop) {
+            retained[s as usize] = 1;
+        }
         let mut p = crate::prepare_timetable_indexes_view(crate::TimetablePreparationView {
             departure_seconds: &source.departure_seconds,
             from_stop: &source.from_stop,
             can_board: &source.can_board,
             retained_stops: &retained,
-            coordinates: &coords,
-            transfer_from: &transfer_from,
-            transfer_to: &transfer_to,
-            transfer_seconds: &transfer_seconds,
-            forbidden_from: &forbidden_from,
-            forbidden_to: &forbidden_to,
-            station_offset: &station_offset,
-            station_members: &station_members,
+            coordinates: &transfers.coords,
+            transfer_from: &transfers.transfer_from,
+            transfer_to: &transfers.transfer_to,
+            transfer_seconds: &transfers.transfer_seconds,
+            forbidden_from: &transfers.forbidden_from,
+            forbidden_to: &transfers.forbidden_to,
+            station_offset: &transfers.station_offset,
+            station_members: &transfers.station_members,
             walking_speed_kph: self.speed,
         })?;
         if !allow {
@@ -856,7 +1117,7 @@ impl City {
                 }
                 id
             };
-            let groups: Vec<String> = source.stop_ids.iter().map(group).collect();
+            let groups: Vec<String> = names.stop_ids.iter().map(group).collect();
             let mut offsets = vec![0];
             let mut to = vec![];
             let mut duration = vec![];
@@ -895,27 +1156,53 @@ impl City {
             transfer_offset: p.transfer_offset,
             transfer_to: p.transfer_to,
             transfer_duration: p.transfer_duration,
-            forbidden_same_stop: forbidden_same_stop.into(),
-            same_stop_transfer_minimum: Some(same_stop_transfer_minimum.into()),
+            forbidden_same_stop: transfers.forbidden_same_stop.clone().into(),
+            same_stop_transfer_minimum: Some(transfers.same_stop_transfer_minimum.clone().into()),
             minimum_transfer_buffer_seconds: Some(buffer as u32 * 60),
         })?;
-        self.timetable_preparation_profile = json!({"setupMs":calendar_ms,"sourceAndRealtimeMs":source_ms,
+        self.timetable_preparation_profile = json!({"setupMs":calendar_ms,"sourceAndRealtimeMs":source_ms,"sourceReused":source_reused,
             "indexMs":index_ms,"kernelMs":kernel_started.elapsed().as_secs_f64()*1000.});
         self.timetable = Some(Timetable {
             kernel,
-            stop_ids: source.stop_ids,
-            index,
-            trip_ids: source.trip_ids,
-            route_ids: source.route_ids,
-            trip_service_dates: source.trip_service_dates,
+            stop_ids: names.stop_ids,
+            index: transfers.index.clone(),
+            trip_ids: names.trip_ids,
+            route_ids: names.route_ids,
+            trip_service_dates: names.trip_service_dates,
             key,
             realtime,
             preparation: "source",
             complete_service_coverage,
             coverage_end,
+            realtime_trips,
+            alerts,
         });
         self.install_query_workspace();
         Ok(())
+    }
+    fn transfers_for(&self, stop_ids: &[String]) -> Arc<TransferInputs> {
+        if stop_ids.len() == self.stops.len() {
+            self.transfer_inputs
+                .get_or_init(|| Arc::new(self.transfer_inputs_for(stop_ids)))
+                .clone()
+        } else {
+            Arc::new(self.transfer_inputs_for(stop_ids))
+        }
+    }
+    fn route_types(&self) -> Result<Arc<HashMap<String, i64>>> {
+        if let Some(types) = self.route_types.get() {
+            return Ok(types.clone());
+        }
+        let mut types = HashMap::new();
+        let mut statement = self.db.prepare("SELECT route_id,route_type FROM routes")?;
+        for row in statement.query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, Option<i64>>(1)?))
+        })? {
+            if let (id, Some(kind)) = row? {
+                types.insert(id, kind);
+            }
+        }
+        Ok(self.route_types.get_or_init(|| Arc::new(types)).clone())
     }
     fn retire_timetable(&mut self) {
         if let Some(mut timetable) = self.timetable.take() {
@@ -1007,6 +1294,31 @@ impl City {
             spatial_nodes,
         });
         Ok(())
+    }
+}
+
+// Realtime views keep every original trip, so the source's tables still apply.
+fn realtime_arrays(view: RealtimeTimetableResult, stop_count: u32) -> ServiceTimetableResult {
+    ServiceTimetableResult {
+        stop_ids: Vec::new(),
+        departure_seconds: view.departure_seconds,
+        arrival_seconds: view.arrival_seconds,
+        from_stop: view.from_stop,
+        to_stop: view.to_stop,
+        sequence: view.sequence,
+        segment_trip: view.segment_trip,
+        segment_run: view.segment_run,
+        continuity_break: view.continuity_break,
+        can_board: view.can_board,
+        can_alight: view.can_alight,
+        trip_start: view.trip_start,
+        trip_ids: Vec::new(),
+        route_ids: Vec::new(),
+        service_ids: Vec::new(),
+        direction_ids: Vec::new(),
+        trip_service_dates: Vec::new(),
+        run_count: view.run_count,
+        stop_count,
     }
 }
 

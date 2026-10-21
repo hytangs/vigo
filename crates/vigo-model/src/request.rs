@@ -343,6 +343,9 @@ query_request! {
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
         #[schemars(range(min = 0, max = 60), extend("default" = 0))]
         pub arrival_buffer_minutes: Option<u32>,
+        /// Transit Matrix searches the same realtime view as Route.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
+        pub realtime_snapshot: Option<RealtimeSnapshot>,
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
         pub traffic: Option<Traffic>,
     }
@@ -391,6 +394,10 @@ query_request! {
         pub include_nodes: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
         pub scenario: Option<Scenario>,
+        /// Transit Reach searches the same realtime view as Route; a scenario
+        /// applies on top of it.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
+        pub realtime_snapshot: Option<RealtimeSnapshot>,
     }
 }
 
@@ -648,8 +655,9 @@ pub enum Enumerated {
     Code(i64),
 }
 
-/// Trip Updates applied to one Route request. Freshness is checked against
-/// the current time.
+/// Trip Updates and Service Alerts applied to one transit Route, Matrix or
+/// Reach request. Freshness is checked against the current time. With
+/// `realtime` mode and no snapshot, `vigo serve --realtime-poll` uses its own.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RealtimeSnapshot {
@@ -664,6 +672,87 @@ pub struct RealtimeSnapshot {
     pub feed_timestamp: Option<u64>,
     #[schemars(length(min = 0, max = 100000))]
     pub trip_updates: Vec<TripUpdate>,
+    /// `NO_SERVICE` removes the selected service or closes the selected stops
+    /// during the active periods. Every fresh alert is reported on the legs
+    /// it describes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(length(min = 0, max = 10000))]
+    pub alerts: Option<Vec<ServiceAlert>>,
+}
+
+/// A GTFS-Realtime Service Alert, as the server's poller records it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceAlert {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Such as `NO_SERVICE`, `DETOUR` or `SIGNIFICANT_DELAYS`, or its code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effect: Option<Enumerated>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cause: Option<Enumerated>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub severity: Option<Enumerated>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// No periods means always active.
+    #[serde(default)]
+    pub active_periods: Vec<ActivePeriod>,
+    /// Each entity matches when all of its fields match; any entity applies.
+    #[serde(default)]
+    pub informed_entities: Vec<InformedEntity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1))]
+    pub source_feed_timestamp: Option<u64>,
+}
+
+/// POSIX seconds; a missing bound is open.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ActivePeriod {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<i64>,
+}
+
+/// An alert's GTFS-Realtime EntitySelector. A stop that is a station also
+/// selects its platforms. Agency-only entities are not applied.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InformedEntity {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agency_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route_type: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction_id: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trip: Option<AlertTrip>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AlertTrip {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trip_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction_id: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_date: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_time: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]

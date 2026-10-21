@@ -28,6 +28,44 @@ Accessibility = TypedDict(
     },
 )
 
+# POSIX seconds; a missing bound is open.
+ActivePeriod = TypedDict(
+    "ActivePeriod",
+    {
+        "end": NotRequired[int],
+        "start": NotRequired[int],
+    },
+)
+
+AlertReport = TypedDict(
+    "AlertReport",
+    {
+        "closedAlightings": NotRequired[int],
+        # Ride segments that lost boarding or alighting.
+        "closedBoardings": NotRequired[int],
+        "fresh": NotRequired[int],
+        # Fresh `NO_SERVICE` alerts.
+        "noService": NotRequired[int],
+        "received": int,
+        "stale": NotRequired[int],
+        # `timezone_required` when the City clock is ambiguous.
+        "status": NotRequired[str],
+        # Entities that select nothing VIGO can resolve, such as an agency alone.
+        "unsupportedEntities": NotRequired[int],
+    },
+)
+
+AlertTrip = TypedDict(
+    "AlertTrip",
+    {
+        "directionId": NotRequired[Any],
+        "routeId": NotRequired[str],
+        "startDate": NotRequired[str],
+        "startTime": NotRequired[str],
+        "tripId": NotRequired[str],
+    },
+)
+
 AlternativeRanking = Literal["pareto"] | Literal["ranked"]
 
 # How alternatives were found: requested alternatives, or a journey window.
@@ -214,6 +252,33 @@ Identifier = TypedDict(
 
 JourneyFormat = Literal["full"] | Literal["compact"]
 
+LegAlert = TypedDict(
+    "LegAlert",
+    {
+        "cause": NotRequired[Any],
+        "description": NotRequired[str],
+        "effect": str,
+        "header": NotRequired[str],
+        "id": NotRequired[str],
+        "severity": NotRequired[Any],
+        "url": NotRequired[str],
+    },
+)
+
+# The live publication a query used: `vigo serve --realtime-poll`.
+LiveSnapshotReport = TypedDict(
+    "LiveSnapshotReport",
+    {
+        # Each configured source's kind, scope, feed timestamp and failure.
+        "feeds": NotRequired[Any],
+        "generation": int,
+        # Content identifier; equal snapshots have equal identifiers.
+        "id": str,
+        # `server`.
+        "source": str,
+    },
+)
+
 MatrixCapabilities = TypedDict(
     "MatrixCapabilities",
     {
@@ -328,7 +393,7 @@ SampledAlternatives = TypedDict(
 
 ScheduleMode = Literal["frequency", "preserve-trips"]
 
-ScheduleQuality = Literal["timetable"] | Literal["source_time_limitations"]
+ScheduleQuality = Literal["timetable"] | Literal["source_time_limitations"] | Literal["realtime"]
 
 ScheduledTrip = TypedDict(
     "ScheduledTrip",
@@ -587,6 +652,20 @@ ErrorResult = TypedDict(
     },
 )
 
+# An alert's GTFS-Realtime EntitySelector. A stop that is a station also
+# selects its platforms. Agency-only entities are not applied.
+InformedEntity = TypedDict(
+    "InformedEntity",
+    {
+        "agencyId": NotRequired[str],
+        "directionId": NotRequired[Any],
+        "routeId": NotRequired[str],
+        "routeType": NotRequired[int],
+        "stopId": NotRequired[str],
+        "trip": NotRequired[AlertTrip],
+    },
+)
+
 IntermediateStop = TypedDict(
     "IntermediateStop",
     {
@@ -698,6 +777,8 @@ ReachSurface = TypedDict(
 RealtimeReport = TypedDict(
     "RealtimeReport",
     {
+        # Present when the snapshot carries Service Alerts.
+        "alerts": NotRequired[AlertReport],
         "appliedTrips": int,
         "canceledTrips": int,
         "coverage": RealtimeCoverage,
@@ -708,6 +789,8 @@ RealtimeReport = TypedDict(
         "mode": str,
         "omittedPastPrefixStops": int,
         "pastPrefixTrips": int,
+        # Present when the server's live snapshot was used.
+        "snapshot": NotRequired[LiveSnapshotReport],
         "staleTrips": int,
         # Such as `applied` or `stale_fallback`.
         "status": str,
@@ -979,6 +1062,27 @@ RouteQuery = TypedDict(
     },
 )
 
+# A GTFS-Realtime Service Alert, as the server's poller records it.
+ServiceAlert = TypedDict(
+    "ServiceAlert",
+    {
+        # No periods means always active.
+        "activePeriods": NotRequired[list[ActivePeriod]],
+        "cause": NotRequired[Enumerated],
+        "description": NotRequired[str],
+        # Such as `NO_SERVICE`, `DETOUR` or `SIGNIFICANT_DELAYS`, or its code.
+        "effect": NotRequired[Enumerated],
+        "header": NotRequired[str],
+        "id": NotRequired[str],
+        # Each entity matches when all of its fields match; any entity applies.
+        "informedEntities": NotRequired[list[InformedEntity]],
+        "severity": NotRequired[Enumerated],
+        "sourceFeedTimestamp": NotRequired[int],
+        "sourceScope": NotRequired[str],
+        "url": NotRequired[str],
+    },
+)
+
 # A walking or driving leg.
 StreetLeg = TypedDict(
     "StreetLeg",
@@ -1025,11 +1129,16 @@ CutoffFeatures = TypedDict(
     },
 )
 
-# Trip Updates applied to one Route request. Freshness is checked against
-# the current time.
+# Trip Updates and Service Alerts applied to one transit Route, Matrix or
+# Reach request. Freshness is checked against the current time. With
+# `realtime` mode and no snapshot, `vigo serve --realtime-poll` uses its own.
 RealtimeSnapshot = TypedDict(
     "RealtimeSnapshot",
     {
+        # `NO_SERVICE` removes the selected service or closes the selected stops
+        # during the active periods. Every fresh alert is reported on the legs
+        # it describes.
+        "alerts": NotRequired[list[ServiceAlert]],
         # POSIX seconds.
         "feedTimestamp": NotRequired[int],
         # `FULL_DATASET` or `0`.
@@ -1078,6 +1187,8 @@ Traffic = PreparedTraffic | ObservedTraffic
 TransitLeg = TypedDict(
     "TransitLeg",
     {
+        # Service Alerts active during the ride for its trip, route or stops.
+        "alerts": NotRequired[list[LegAlert]],
         "arrivalTime": str | None,
         "departureTime": str | None,
         "directionId": str | None,
@@ -1137,6 +1248,8 @@ MatrixRequest = TypedDict(
         "minimumTransferBufferMinutes": NotRequired[int],
         "mode": NotRequired[Mode],
         "origins": list[Point],
+        # Transit Matrix searches the same realtime view as Route.
+        "realtimeSnapshot": NotRequired[RealtimeSnapshot],
         "requireCompleteServiceCoverage": NotRequired[bool],
         "requireTransitRide": NotRequired[bool],
         "routingDataMode": NotRequired[DataMode],
@@ -1336,6 +1449,9 @@ ReachRequest = TypedDict(
         # Cells per side. Default 96.
         "rasterSize": NotRequired[int],
         "reachFormat": NotRequired[ReachFormat],
+        # Transit Reach searches the same realtime view as Route; a scenario
+        # applies on top of it.
+        "realtimeSnapshot": NotRequired[RealtimeSnapshot],
         "requireCompleteServiceCoverage": NotRequired[bool],
         "routingDataMode": NotRequired[DataMode],
         "scenario": NotRequired[Scenario],

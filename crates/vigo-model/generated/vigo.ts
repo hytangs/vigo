@@ -43,6 +43,37 @@ export interface Accessibility {
   unknownData: string;
 }
 
+/**
+ * POSIX seconds; a missing bound is open.
+ */
+export interface ActivePeriod {
+  end?: number;
+  start?: number;
+}
+
+export interface AlertReport {
+  closedAlightings?: number;
+  /** Ride segments that lost boarding or alighting. */
+  closedBoardings?: number;
+  fresh?: number;
+  /** Fresh `NO_SERVICE` alerts. */
+  noService?: number;
+  received: number;
+  stale?: number;
+  /** `timezone_required` when the City clock is ambiguous. */
+  status?: string;
+  /** Entities that select nothing VIGO can resolve, such as an agency alone. */
+  unsupportedEntities?: number;
+}
+
+export interface AlertTrip {
+  directionId?: unknown;
+  routeId?: string;
+  startDate?: string;
+  startTime?: string;
+  tripId?: string;
+}
+
 export type AlternativeRanking = "pareto" | "ranked";
 
 /**
@@ -364,6 +395,19 @@ export interface InfoResult {
   status: OkStatus;
 }
 
+/**
+ * An alert's GTFS-Realtime EntitySelector. A stop that is a station also
+ * selects its platforms. Agency-only entities are not applied.
+ */
+export interface InformedEntity {
+  agencyId?: string;
+  directionId?: unknown;
+  routeId?: string;
+  routeType?: number;
+  stopId?: string;
+  trip?: AlertTrip;
+}
+
 export interface IntermediateStop {
   arrivalTime: string | null;
   coordinate?: Coordinate;
@@ -397,12 +441,35 @@ export type JourneyFormat = "full" | "compact";
 
 export type Leg = StreetLeg | TransitLeg;
 
+export interface LegAlert {
+  cause?: unknown;
+  description?: string;
+  effect: string;
+  header?: string;
+  id?: string;
+  severity?: unknown;
+  url?: string;
+}
+
 /**
  * A GeoJSON `LineString`.
  */
 export interface LineString {
   coordinates: Coordinate[];
   type: "LineString";
+}
+
+/**
+ * The live publication a query used: `vigo serve --realtime-poll`.
+ */
+export interface LiveSnapshotReport {
+  /** Each configured source's kind, scope, feed timestamp and failure. */
+  feeds?: unknown;
+  generation: number;
+  /** Content identifier; equal snapshots have equal identifiers. */
+  id: string;
+  /** `server`. */
+  source: string;
 }
 
 /**
@@ -465,6 +532,8 @@ export interface MatrixRequest {
   minimumTransferBufferMinutes?: number;
   mode?: Mode;
   origins: Point[];
+  /** Transit Matrix searches the same realtime view as Route. */
+  realtimeSnapshot?: RealtimeSnapshot;
   requireCompleteServiceCoverage?: boolean;
   requireTransitRide?: boolean;
   routingDataMode?: DataMode;
@@ -706,6 +775,9 @@ export interface ReachRequest {
   /** Cells per side. Default 96. */
   rasterSize?: number;
   reachFormat?: ReachFormat;
+  /** Transit Reach searches the same realtime view as Route; a scenario */
+  /** applies on top of it. */
+  realtimeSnapshot?: RealtimeSnapshot;
   requireCompleteServiceCoverage?: boolean;
   routingDataMode?: DataMode;
   scenario?: Scenario;
@@ -796,6 +868,8 @@ export interface RealtimeCoverage {
  * How a supplied realtime snapshot was admitted and applied.
  */
 export interface RealtimeReport {
+  /** Present when the snapshot carries Service Alerts. */
+  alerts?: AlertReport;
   appliedTrips: number;
   canceledTrips: number;
   coverage: RealtimeCoverage;
@@ -806,6 +880,8 @@ export interface RealtimeReport {
   mode: string;
   omittedPastPrefixStops: number;
   pastPrefixTrips: number;
+  /** Present when the server's live snapshot was used. */
+  snapshot?: LiveSnapshotReport;
   staleTrips: number;
   /** Such as `applied` or `stale_fallback`. */
   status: string;
@@ -813,10 +889,15 @@ export interface RealtimeReport {
 }
 
 /**
- * Trip Updates applied to one Route request. Freshness is checked against
- * the current time.
+ * Trip Updates and Service Alerts applied to one transit Route, Matrix or
+ * Reach request. Freshness is checked against the current time. With
+ * `realtime` mode and no snapshot, `vigo serve --realtime-poll` uses its own.
  */
 export interface RealtimeSnapshot {
+  /** `NO_SERVICE` removes the selected service or closes the selected stops */
+  /** during the active periods. Every fresh alert is reported on the legs */
+  /** it describes. */
+  alerts?: ServiceAlert[];
   /** POSIX seconds. */
   feedTimestamp?: number;
   /** `FULL_DATASET` or `0`. */
@@ -1022,7 +1103,7 @@ export interface ScenarioService {
 
 export type ScheduleMode = "frequency" | "preserve-trips";
 
-export type ScheduleQuality = "timetable" | "source_time_limitations";
+export type ScheduleQuality = "timetable" | "source_time_limitations" | "realtime";
 
 export interface ScheduledTrip {
   arrivalOffsetsSeconds: number[];
@@ -1050,6 +1131,26 @@ export interface SearchSummary {
   relaxedStops?: number;
   reverseSearches?: number;
   scannedDepartures?: number;
+}
+
+/**
+ * A GTFS-Realtime Service Alert, as the server's poller records it.
+ */
+export interface ServiceAlert {
+  /** No periods means always active. */
+  activePeriods?: ActivePeriod[];
+  cause?: Enumerated;
+  description?: string;
+  /** Such as `NO_SERVICE`, `DETOUR` or `SIGNIFICANT_DELAYS`, or its code. */
+  effect?: Enumerated;
+  header?: string;
+  id?: string;
+  /** Each entity matches when all of its fields match; any entity applies. */
+  informedEntities?: InformedEntity[];
+  severity?: Enumerated;
+  sourceFeedTimestamp?: number;
+  sourceScope?: string;
+  url?: string;
 }
 
 export type ServiceDay = "weekday" | "saturday" | "sunday";
@@ -1204,6 +1305,8 @@ export interface TrafficObservation {
  * A ride on one scheduled trip.
  */
 export interface TransitLeg {
+  /** Service Alerts active during the ride for its trip, route or stops. */
+  alerts?: LegAlert[];
   arrivalTime: string | null;
   departureTime: string | null;
   directionId: string | null;
