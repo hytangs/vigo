@@ -350,8 +350,8 @@ ReachCapabilities = TypedDict(
 
 ReachFormat = Literal["full"] | Literal["map"]
 
-# Reach covers transit and walking only.
-ReachMode = Literal["transit", "walk"]
+# Reach covers transit, walking, and driving travel times.
+ReachMode = Literal["transit", "walk", "drive"]
 
 # Reach searches forward in time only.
 ReachTimePreference = Literal["depart_at", "depart"]

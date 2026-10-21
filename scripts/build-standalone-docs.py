@@ -304,7 +304,7 @@ def specification(native):
     schemas['Scenario'] = obj({'id':text(),'name':text(),'cityRevision':text(),'services':array(service,0,128),'excludedTripIds':array(text()),'excludedRouteIds':array(text()),'overlay':ref('ReachOverlay')},description='Request-scoped. Use services or overlay. At most 256 unique planned points and one million planned stop events.')
     reach_common = {k:v for k,v in common.items() if k not in ['maxStreetKm','horizonMinutes','requireTransitRide','allowLongWalk']}
     reach_common['surfaceSampling'] = text('street','cell-center',default='street')
-    reach_common['mode'] = text('transit','walk',default='transit')
+    reach_common['mode'] = text('transit','walk','drive',default='transit')
     reach_common['timePreference'] = text('depart_at','depart',default='depart_at')
     schemas['ReachRequest'] = obj({'reachFormat':text('full','map',default='full'),**reach_common,'origin':ref('Point'),'cutoffsMinutes':{**array(number(1,240),1,16),'default':[15,30,45,60]},'rasterSize':number(16,1024,96,integer=True),
         'extentRadiusKm':number(1,40,8),'bounds':array(number(),4,4),'includeStreetEdges':boolean(),'includeNodes':boolean(),'scenario':ref('Scenario'),'realtimeSnapshot':ref('RealtimeSnapshot')},['origin'],allOf=[clock_rule,transit_date,mode_rule])
@@ -374,7 +374,7 @@ def specification(native):
         return obj({'type':{'const':'FeatureCollection'},'features':array(feature)},['type','features'],strict=False)
     schemas['ReachAreas'] = collection('MultiPolygon',array(array(array(ref('Coordinate')))))
     schemas['ReachContours'] = collection('MultiLineString',array(array(ref('Coordinate'))))
-    schemas['ReachResult'] = {'allOf':[ref('QueryMetadata'),obj({'kind':{'const':'reach'},'mode':text('transit','walk'),'origin':ref('Point'),'serviceDate':nullable(text()),
+    schemas['ReachResult'] = {'allOf':[ref('QueryMetadata'),obj({'kind':{'const':'reach'},'mode':text('transit','walk','drive'),'origin':ref('Point'),'serviceDate':nullable(text()),
         'surface':ref('ReachSurface'),'cutoffsMinutes':array(number()),'stops':array(ref('ReachStop')),
         'areas':ref('ReachAreas'),'fullAreas':ref('ReachAreas'),'contours':ref('ReachContours'),'fullContours':ref('ReachContours'),
         'diagnostics':{'type':'object'},'warnings':{}},['surface','stops'],strict=False)]}

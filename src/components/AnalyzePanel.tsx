@@ -37,6 +37,7 @@ import {
   changeReachMaxWalkKm,
   changeRenderMode,
   changeSurfaceSampling,
+  changeReachTravelMode,
   changeWalkSpeed,
   cityGrouping,
   clearScenarioSketch,
@@ -131,6 +132,8 @@ type AnalyzePanelProps = {
   maxWalkKm: number
   maxTransfers?: number
   walkSpeedKph: number
+  travelMode?: 'transit' | 'drive'
+  onTravelModeChange?: (value: 'transit' | 'drive') => void
   surfaceSampling?: 'street' | 'cell-center'
   onSurfaceSamplingChange?: (value: 'street' | 'cell-center') => void
   cutoffMinutes: number
@@ -301,7 +304,7 @@ function ReachSurfaceLegend({
       <div className="reach-surface-legend" role="group" aria-label={`${surface === 'baseline' ? 'Baseline' : 'Scenario'} travel time bands`}>
         <div className="reach-surface-legend-head">
           <strong>{surface === 'baseline' ? 'Baseline' : 'Scenario'}</strong>
-          <small>Area reached by elapsed time · final walk ≤ {terminalWalkKm} km</small>
+          <small>{analysis.request.mode === 'drive' ? 'Driving time · road-speed estimates' : `Area reached by elapsed time · final walk ≤ ${terminalWalkKm} km`}</small>
         </div>
         <ol className="reach-band-list">
           {bands.map((band, index) => (
@@ -323,7 +326,7 @@ function ReachSurfaceLegend({
     >
       <div className="reach-surface-legend-head">
         <strong>{difference ? 'Time difference' : view === 'baseline' ? 'Baseline' : 'Scenario'}</strong>
-        <small>{difference ? 'Green is faster · red is slower' : `Elapsed time · final walk ≤ ${terminalWalkKm} km`}</small>
+        <small>{difference ? 'Green is faster · red is slower' : analysis.request.mode === 'drive' ? 'Driving time · road-speed estimates' : `Elapsed time · final walk ≤ ${terminalWalkKm} km`}</small>
       </div>
       <div
         className="reach-surface-legend-bar"
@@ -404,10 +407,10 @@ export function ReachMetricCards({
   return (
     <div className="reach-metric-grid" aria-label={`${surface === 'baseline' ? 'Baseline' : 'Scenario'} network reach metrics`}>
       <ResultMetric value={`${reachDecimal(areaKm2, 2)} km²`} label={`sampled area reached by ${cutoffMinutes} min`} />
-      <ResultMetric value={stops === null ? 'Unavailable' : formatNumber(stops)} label={`stops reached by ${cutoffMinutes} min`} detail={stops === null ? 'Update Reach to compute this cutoff.' : undefined} />
+      {analysis.request.mode !== 'drive' ? <ResultMetric value={stops === null ? 'Unavailable' : formatNumber(stops)} label={`stops reached by ${cutoffMinutes} min`} detail={stops === null ? 'Update Reach to compute this cutoff.' : undefined} /> : null}
       <details className="reach-supporting-metrics"><summary>Network details</summary>
         <ResultMetric value={typeof network?.reachedEdgeLengthKm === 'number' && Number.isFinite(network.reachedEdgeLengthKm) ? `${reachDecimal(network.reachedEdgeLengthKm, 1)} km` : 'Unavailable'} label={`OSM streets · full ${analysis.summary.maximumCutoffMinutes} min window`} />
-        <ResultMetric value={`${walkBudgetKm} km`} label="final-walk budget" />
+        <ResultMetric value={analysis.request.mode === 'drive' ? 'Road speeds' : `${walkBudgetKm} km`} label={analysis.request.mode === 'drive' ? 'driving estimate · no live traffic' : 'final-walk budget'} />
       </details>
     </div>
   )
@@ -425,7 +428,7 @@ export function ReachTransitStatusNotice({
   const status: ReachTransitStatus | null | undefined = surface === 'scenario'
     ? analysis.summary.scenarioTransitStatus ?? analysis.summary.transitStatus
     : analysis.summary.transitStatus
-  if (!status) return null
+  if (!status || analysis.request.mode === 'drive') return null
   const stops = transitStopsForSelectedCutoff(analysis, surface, cutoffMinutes)
   const fullWindow = analysis.summary.maximumCutoffMinutes
   const fullStops = transitStopsForSelectedCutoff(analysis, surface, fullWindow)
@@ -693,6 +696,8 @@ export function AnalyzePanelView({
   maxWalkKm,
   maxTransfers,
   walkSpeedKph,
+  travelMode = 'transit',
+  onTravelModeChange,
   surfaceSampling = 'street',
   onSurfaceSamplingChange,
   cutoffMinutes,
@@ -779,10 +784,10 @@ export function AnalyzePanelView({
   const selectedRoute = useMemo(() => routes.find((route) => (
     route.id === activeIntervention?.routeId || route.patternId === activeIntervention?.routeId
   )), [activeIntervention?.routeId, routes])
-  const hasScenarioChanges = interventions.length > 0
+  const hasScenarioChanges = travelMode !== 'drive' && interventions.length > 0
   useEffect(() => {
     if (hasScenarioChanges && surfaceSampling === 'cell-center') onSurfaceSamplingChange?.('street')
-  }, [hasScenarioChanges, surfaceSampling, onSurfaceSamplingChange])
+  }, [hasScenarioChanges, travelMode, onTravelModeChange, surfaceSampling, onSurfaceSamplingChange])
   useEffect(() => {
     if (hasScenarioChanges) setScenarioEditorOpen(true)
   }, [hasScenarioChanges])
@@ -1012,12 +1017,12 @@ export function AnalyzePanelView({
           </div>
         </div>
 
-        <ReachSettings cutoffMinutes={cutoffMinutes} maxWalkKm={maxWalkKm} walkSpeedKph={walkSpeedKph}
+        <ReachSettings travelMode={travelMode} onTravelModeChange={mode === 'single' ? onTravelModeChange : undefined} cutoffMinutes={cutoffMinutes} maxWalkKm={maxWalkKm} walkSpeedKph={walkSpeedKph}
           maxTransfers={maxTransfers} surfaceSampling={surfaceSampling} hasScenarioChanges={hasScenarioChanges}
           onCutoffChange={onCutoffChange} onMaxWalkKmChange={onMaxWalkKmChange} onWalkSpeedChange={onWalkSpeedChange}
           onMaxTransfersChange={onMaxTransfersChange} onSurfaceSamplingChange={onSurfaceSamplingChange} />
 
-        {mode === 'single' ? (
+        {mode === 'single' && travelMode !== 'drive' ? (
           <details
             className="studio-disclosure is-compact reach-scenario-builder"
             open={scenarioEditorOpen}
@@ -1480,7 +1485,7 @@ export function AnalyzePanelView({
           </button>
           {loading || !canRun ? (
             <small className="reach-run-hint">
-              {loading ? 'Computing the complete reached-street surface…' : setupHint}
+              {loading ? (travelMode === 'drive' ? 'Computing driving times across the map…' : 'Computing the complete reached-street surface…') : setupHint}
             </small>
           ) : null}
           {loading ? (
@@ -1605,7 +1610,7 @@ export function AnalyzePanelView({
             unavailable={reachGeometryAvailable(analysisExportEntries, cutoffMinutes) ? {} : { geojson: 'Update Reach to retain geometry for this cutoff' }}
             onExport={format => exportReachResults(analysisExportEntries, format, cutoffMinutes)} />
           <div className="reach-result-toolbar">
-            <ReachRenderModePicker renderMode={renderMode} onRenderModeChange={onRenderModeChange} terminalWalkKm={analysis.surface.reachability?.baselineTerminalWalkKm ?? analysis.request.maxWalkKm} />
+            {analysis.request.mode !== 'drive' ? <ReachRenderModePicker renderMode={renderMode} onRenderModeChange={onRenderModeChange} terminalWalkKm={analysis.surface.reachability?.baselineTerminalWalkKm ?? analysis.request.maxWalkKm} /> : null}
             {hasScenarioChanges ? <div className="reach-result-view">
               <div className="reach-render-mode-head">
                 <div>
@@ -1664,12 +1669,12 @@ export function AnalyzePanelView({
             <summary>Method and limits</summary>
             <dl>
               <div><dt>Snapshot</dt><dd>{analysis.request.serviceDate} · {serviceTimeLabel(analysis.request.departMinutes)} · one origin</dd></div>
-              <div><dt>Measure</dt><dd>Reachable raster cells within {cutoffMinutes} total elapsed minutes; final walking consumes remaining time and is capped at {analysis.surface.reachability?.baselineTerminalWalkKm ?? analysis.request.maxWalkKm} km; not people or opportunities</dd></div>
-              <div><dt>Method</dt><dd>Total elapsed OSM access walk + transit + terminal walk; directed OSM network with area and reached-street renderings</dd></div>
-              <div><dt>Access</dt><dd>{analysis.request.maxWalkKm} km at {analysis.request.walkSpeedKph ?? walkSpeedKph} km/h · OSM pedestrian network</dd></div>
-              <div><dt>Surface</dt><dd>Complete reached-street vector extent · no rectangular map crop</dd></div>
+              <div><dt>Measure</dt><dd>{analysis.request.mode === 'drive' ? `Grid points reachable within ${cutoffMinutes} driving minutes.` : `Reachable raster cells within ${cutoffMinutes} total elapsed minutes; final walking is capped at ${analysis.request.maxWalkKm} km.`}</dd></div>
+              <div><dt>Method</dt><dd>{analysis.request.mode === 'drive' ? 'Directed OSM driving routes using road-speed estimates; no live traffic.' : 'Total elapsed OSM access walk + transit + terminal walk.'}</dd></div>
+              {analysis.request.mode !== 'drive' ? <div><dt>Access</dt><dd>{analysis.request.maxWalkKm} km at {analysis.request.walkSpeedKph ?? walkSpeedKph} km/h · OSM pedestrian network</dd></div> : null}
+              <div><dt>Surface</dt><dd>{analysis.request.surfaceSampling === 'cell-center' ? `Fixed grid within ${analysis.request.radiusKm} km of the origin. Outside this extent is not evaluated.` : 'Complete reached-street vector extent'}</dd></div>
             </dl>
-            {activeCase?.interventions.length ? (
+            {analysis.request.mode !== 'drive' && activeCase?.interventions.length ? (
               <ol className="reach-method-interventions" aria-label="Modeled scenario assumptions">
                 {activeCase.interventions.map((intervention) => (
                   <li key={intervention.id}>
@@ -1711,6 +1716,7 @@ export const AnalyzePanel = memo(function AnalyzePanel() {
     reachMaxTransfers: state.reachMaxTransfers,
     scenarioWalkSpeedKph: state.scenarioWalkSpeedKph,
     reachSurfaceSampling: state.reachSurfaceSampling,
+    reachTravelMode: state.reachTravelMode,
     scenarioCutoffMinutes: state.scenarioCutoffMinutes,
     scenarioRenderMode: state.scenarioRenderMode,
     comparisonFeedIds: state.comparisonFeedIds,
@@ -1760,6 +1766,8 @@ export const AnalyzePanel = memo(function AnalyzePanel() {
       maxWalkKm={settings.reachMaxWalkKm}
       maxTransfers={settings.reachMaxTransfers}
       walkSpeedKph={settings.scenarioWalkSpeedKph}
+      travelMode={settings.analyzeMode === 'single' ? settings.reachTravelMode : 'transit'}
+      onTravelModeChange={changeReachTravelMode}
       surfaceSampling={settings.reachSurfaceSampling}
       onSurfaceSamplingChange={changeSurfaceSampling}
       cutoffMinutes={settings.scenarioCutoffMinutes}

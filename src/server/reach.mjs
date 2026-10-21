@@ -591,12 +591,12 @@ function scenarioRequestRecord(request) {
 
 function scenarioReachRecord(request, cutoffMinutes, baselineMinutes, scenarioMinutes) {
   return {
-    mode: 'total-elapsed-walk-transit-walk',
+    mode: request.mode === 'drive' ? 'total-elapsed-drive' : 'total-elapsed-walk-transit-walk',
     cutoffMinutes,
-    baselineTerminalWalkKm: request.maxWalkKm,
-    scenarioTerminalWalkKm: request.maxWalkKm,
-    baselineTerminalWalkMinutes: Number(baselineMinutes.toFixed(3)),
-    scenarioTerminalWalkMinutes: Number(scenarioMinutes.toFixed(3)),
+    baselineTerminalWalkKm: request.mode === 'drive' ? 0 : request.maxWalkKm,
+    scenarioTerminalWalkKm: request.mode === 'drive' ? 0 : request.maxWalkKm,
+    baselineTerminalWalkMinutes: request.mode === 'drive' ? 0 : Number(baselineMinutes.toFixed(3)),
+    scenarioTerminalWalkMinutes: request.mode === 'drive' ? 0 : Number(scenarioMinutes.toFixed(3)),
   }
 }
 
@@ -828,10 +828,10 @@ export function validateReachRequest(value) {
     throw badRequest('cutoffsMinutes must contain between one and eight values.')
   }
   const { scenario } = compileReachScenario(value.scenario)
-  const surfaceSampling = value.surfaceSampling ?? 'street'
   const mode = value.mode ?? 'transit'
-  if (!['street', 'cell-center'].includes(surfaceSampling)) throw badRequest('surfaceSampling must be street or cell-center.')
-  if (!['transit', 'walk'].includes(mode)) throw badRequest('Reach supports transit or walk.')
+  const surfaceSampling = mode === 'drive' ? 'cell-center' : value.surfaceSampling ?? 'street'
+  if (!['street', 'cell-center'].includes(value.surfaceSampling ?? 'street')) throw badRequest('surfaceSampling must be street or cell-center.')
+  if (!['transit', 'walk', 'drive'].includes(mode)) throw badRequest('Reach supports transit, walk, or drive.')
   if ((mode === 'walk' || surfaceSampling === 'cell-center') && (scenario.services.length
     || scenario.excludedRouteIds.length || scenario.excludedTripIds.length || scenario.excludedPatternIds.length)) {
     throw badRequest('Planned transit changes require transit Reach with street sampling.')
@@ -861,7 +861,7 @@ export function validateReachRequest(value) {
       : boundedIntegralNumber(value.maxTransfers, 'maxTransfers', 0, 31),
     walkSpeedKph: baselineWalkSpeedKph,
     includePreliminary: value.includePreliminary !== false,
-    includeStreetEdges: value.includeStreetEdges !== false,
+    includeStreetEdges: mode !== 'drive' && value.includeStreetEdges !== false,
     radiusKm: boundedNumber(value.radiusKm ?? 8, 'radiusKm', 1, 40),
     rasterSize,
     cutoffsMinutes,

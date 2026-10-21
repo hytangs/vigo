@@ -15,6 +15,9 @@ impl City {
         let mut values = Vec::with_capacity(size * size);
         let mut query = q.clone();
         query["kind"] = json!("matrix");
+        if q["mode"] == "drive" && q.get("maxStreetKm").is_none() {
+            query["maxStreetKm"] = json!(750.);
+        }
         query["origins"] = json!([q["origin"]]);
         query["horizonMinutes"] = json!(maximum);
         query["allowLongWalk"] = json!(false);
@@ -35,8 +38,8 @@ impl City {
             values.extend(row.iter().map(|value| {
                 value
                     .as_f64()
-                    .map(|v| (v * 1000.).round() / 1000.)
                     .filter(|v| v.is_finite() && *v <= maximum)
+                    .map(|v| (v * 1000.).round() / 1000.)
                     .unwrap_or(f64::INFINITY)
             }));
         }
@@ -89,14 +92,18 @@ impl City {
         }
         let origin = self.point(&q["origin"])?;
         let mode = q["mode"].as_str().unwrap_or("transit");
-        if !["transit", "walk"].contains(&mode) {
-            return fail("Reach supports transit or walk");
+        if !["transit", "walk", "drive"].contains(&mode) {
+            return fail("Reach supports transit, walk, or drive");
         }
-        let sampling = match q.get("surfaceSampling") {
-            None => "street",
-            Some(value) => value
-                .as_str()
-                .ok_or("surfaceSampling must be street or cell-center")?,
+        let sampling = if mode == "drive" {
+            "cell-center"
+        } else {
+            match q.get("surfaceSampling") {
+                None => "street",
+                Some(value) => value
+                    .as_str()
+                    .ok_or("surfaceSampling must be street or cell-center")?,
+            }
         };
         if !["street", "cell-center"].contains(&sampling) {
             return fail("surfaceSampling must be street or cell-center");
@@ -175,7 +182,7 @@ impl City {
         {
             return fail("bounds must be finite, ordered longitude/latitude limits");
         }
-        if mode == "walk" && q.get("scenario").is_some() {
+        if mode != "transit" && q.get("scenario").is_some() {
             return fail("Transit scenarios require transit Reach");
         }
         let mut seeds = origin.coordinate.to_vec();
@@ -387,8 +394,7 @@ impl City {
             None
         };
         if let Some(values) = &grid
-            && !include_edges
-            && !flag(q, "includeNodes", false)?
+            && (mode == "drive" || (!include_edges && !flag(q, "includeNodes", false)?))
         {
             let areas = areas(values, size, size, &bounds, &cutoffs);
             if q["reachFormat"] == "map" {
@@ -406,7 +412,7 @@ impl City {
                 "diagnostics":{"transit":transit,"surface":{"surfaceModel":"coordinate_to_coordinate_cell_centers",
                     "sampledTargets":values.len(),"reachableTargets":reached,"blockedTargets":values.len()-reached,
                     "queryErrors":0,"fixedRequestedGrid":true,"walkingSpeedKph":opt.walk_speed.unwrap_or(self.speed),
-                    "directWalkingLimitKm":opt.walk_m/1000.}},"warnings":self.metadata["routingLimitations"]}),
+                    "directWalkingLimitKm":if mode == "drive" { Value::Null } else { json!(opt.walk_m/1000.) },"travelMode":mode,"fixedExtent":true}},"warnings":self.metadata["routingLimitations"]}),
             );
         }
         let mut result = self.street.street_surface(StreetSurfaceInput {

@@ -157,12 +157,13 @@ pub enum Mode {
     Drive,
 }
 
-/// Reach covers transit and walking only.
+/// Reach covers transit, walking, and driving travel times.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ReachMode {
     Transit,
     Walk,
+    Drive,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

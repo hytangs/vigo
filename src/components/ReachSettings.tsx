@@ -38,8 +38,9 @@ export function AnalysisNumberField({ label, value, min, max, unit, integer = fa
 
 const reachBudgetPresets = [15, 30, 45, 60, 90, 120]
 
-export function ReachSettings({ cutoffMinutes, maxWalkKm, walkSpeedKph, maxTransfers, surfaceSampling, hasScenarioChanges,
+export function ReachSettings({ travelMode = 'transit', onTravelModeChange, cutoffMinutes, maxWalkKm, walkSpeedKph, maxTransfers, surfaceSampling, hasScenarioChanges,
   onCutoffChange, onMaxWalkKmChange, onWalkSpeedChange, onMaxTransfersChange, onSurfaceSamplingChange }: {
+  travelMode?: 'transit' | 'drive'; onTravelModeChange?: (value: 'transit' | 'drive') => void
   cutoffMinutes: number; maxWalkKm: number; walkSpeedKph: number; maxTransfers?: number
   surfaceSampling: 'street' | 'cell-center'; hasScenarioChanges: boolean
   onCutoffChange: (value: number) => void; onMaxWalkKmChange: (value: number) => void
@@ -47,6 +48,13 @@ export function ReachSettings({ cutoffMinutes, maxWalkKm, walkSpeedKph, maxTrans
   onSurfaceSamplingChange?: (value: 'street' | 'cell-center') => void
 }) {
   return <section className="reach-settings-list" aria-label="Travel limits">
+    {onTravelModeChange ? <label className="reach-field reach-setting-method"><span>Travel mode</span>
+      <select value={travelMode} onChange={event => onTravelModeChange(event.currentTarget.value as 'transit' | 'drive')}>
+        <option value="transit">Transit & walking</option>
+        <option value="drive">Driving</option>
+      </select>
+    </label> : null}
+    {travelMode === 'drive' ? <small>Road-speed estimates, without live traffic. Routes to grid points within 40 km of the origin; areas beyond the map are not evaluated.</small> : null}
     <div className="reach-time-budget">
       <AnalysisNumberField label="Time budget" value={cutoffMinutes} min={1} max={240} unit="min"
         onChange={value => { if (value !== undefined) onCutoffChange(value) }} />
@@ -61,7 +69,7 @@ export function ReachSettings({ cutoffMinutes, maxWalkKm, walkSpeedKph, maxTrans
         ))}
       </div>
     </div>
-    <details className="studio-disclosure is-compact reach-advanced">
+    {travelMode !== 'drive' ? <details className="studio-disclosure is-compact reach-advanced">
       <summary><span>Limits & method</span><b>{maxTransfers === undefined ? 'Auto rides' : `≤ ${maxTransfers + 1} ride${maxTransfers ? 's' : ''}`} · {maxWalkKm} km walk</b></summary>
       <div className="reach-walking-settings">
         {onMaxTransfersChange ? <AnalysisNumberField label="Maximum transit rides" value={maxTransfers === undefined ? undefined : maxTransfers + 1}
@@ -80,6 +88,6 @@ export function ReachSettings({ cutoffMinutes, maxWalkKm, walkSpeedKph, maxTrans
           <small>{surfaceSampling === 'cell-center' ? 'Routes to each cell centre, walking at 4.8 km/h.' : 'Counts a cell when part of a street is reachable. Includes service changes.'}</small>
         </label> : null}
       </div>
-    </details>
+    </details> : null}
   </section>
 }

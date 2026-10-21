@@ -726,9 +726,9 @@ export interface ReachCapabilities {
 export type ReachFormat = "full" | "map";
 
 /**
- * Reach covers transit and walking only.
+ * Reach covers transit, walking, and driving travel times.
  */
-export type ReachMode = "transit" | "walk";
+export type ReachMode = "transit" | "walk" | "drive";
 
 export interface ReachQuery {
   dataMode: DataMode;

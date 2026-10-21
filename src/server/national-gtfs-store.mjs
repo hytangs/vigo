@@ -5955,10 +5955,10 @@ function reachTransitStatus({
 export function routeNationalGtfsReach(storePath, request, options = {}) {
   validateArrivalBuffer(request, false)
   const streetStorePath = options.streetStorePath ?? request.streetStorePath
-  const sampling = request.surfaceSampling ?? 'street'
   const mode = request.mode ?? 'transit'
+  const sampling = mode === 'drive' ? 'cell-center' : request.surfaceSampling ?? 'street'
   if (!['street', 'cell-center'].includes(sampling)) throw new Error('Reach surfaceSampling must be street or cell-center.')
-  if (!['transit', 'walk'].includes(mode)) throw new Error('Reach supports transit or walk.')
+  if (!['transit', 'walk', 'drive'].includes(mode)) throw new Error('Reach supports transit, walk, or drive.')
   if (sampling === 'street' && mode === 'transit') return routeNationalGtfsStreetReach(storePath, request, options)
   validateMaximumTransfers(request.maxTransfers)
   request = withResolvedServiceDay(normalizeScheduledAnalysisRequest(request, 'Reach'))
@@ -5982,12 +5982,12 @@ export function routeNationalGtfsReach(storePath, request, options = {}) {
     ? routeNationalGtfsStreetReach(storePath, { ...request,
         surface: surfaceRequest.includeEdges ? surfaceRequest : undefined }, options)
     : { schemaVersion: 'vigo.result.reach.v1', stops: [], scenarioStops: [],
-        surface: sampling === 'street' || surfaceRequest.includeEdges
+        surface: mode !== 'drive' && (sampling === 'street' || surfaceRequest.includeEdges)
           ? buildReachSurface(streetStorePath, surfaceRequest,
               [{ coordinate: request.origin.coordinate, durationMinutes: 0 }], maxWalkKm, speed, cutoff)
           : null,
         diagnostics: { owner: 'rust_resident_street_kernel', algorithm: 'directed_street_reach',
-          transit: { status: 'walk_only', detail: 'Walking only.', reachedStops: 0 } } }
+          transit: { status: mode === 'drive' ? 'drive_only' : 'walk_only', detail: mode === 'drive' ? 'Driving only; road-speed estimates.' : 'Walking only.', reachedStops: 0 } } }
   if (sampling === 'street') return native
   const { bounds, width, height } = surfaceRequest
   const [west, south, east, north] = bounds
@@ -6007,8 +6007,8 @@ export function routeNationalGtfsReach(storePath, request, options = {}) {
       routingPreference: 'fastest', horizonMinutes: cutoff, requireTransitRide: false,
       allowLongWalk: false, includeJourneys: false, includeGeometry: false, streetStorePath,
     }) : routeNationalStreetMatrix(streetStorePath, {
-      origins: [request.origin], destinations, mode: 'walk', walkingSpeedKph: speed,
-      maxDistanceKm: Math.min(maxWalkKm, cutoff / 60 * speed),
+      origins: [request.origin], destinations, mode, walkingSpeedKph: speed,
+      maxDistanceKm: mode === 'drive' ? 750 : Math.min(maxWalkKm, cutoff / 60 * speed),
     })
     queryCount += 1
     if (['unsupported_gtfs_feature', 'coverage_incomplete'].includes(matrix.diagnostics?.failure?.code)) {
@@ -6027,7 +6027,8 @@ export function routeNationalGtfsReach(storePath, request, options = {}) {
     nodes: [], edges: native.surface?.edges ?? null,
     diagnostics: { surfaceModel: 'coordinate_to_coordinate_cell_centers', sampledTargets: values.length,
       reachableTargets: ready, blockedTargets: blocked, queryErrors: 0, matrixBatches: queryCount,
-      walkingSpeedKph: speed, directWalkingLimitKm: maxWalkKm, fixedRequestedGrid: true,
+      walkingSpeedKph: mode === 'drive' ? null : speed, directWalkingLimitKm: mode === 'drive' ? null : maxWalkKm, fixedRequestedGrid: true,
+      ...(mode === 'drive' ? { travelTimeModel: 'osm_driving_speeds', liveTraffic: false } : {}),
       queryMs: Number((performance.now() - started).toFixed(3)) } }
   return { ...native, surface,
     diagnostics: { ...native.diagnostics, surface: surface.diagnostics, surfaceSampling: sampling } }

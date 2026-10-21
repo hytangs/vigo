@@ -35,7 +35,7 @@ function sampleRaster(raster: Pick<ReachResult['surface']['raster'], 'bounds' | 
 export type ReachInspectionSource = { id: string; label: string; result: ReachResult; feedId?: string }
 
 export function reachInspectionSources(result: ReachResult | null): ReachInspectionSource[] {
-  return result ? [{ id: result.request.baselineIdentity, label: 'Scheduled service', result }] : []
+  return result ? [{ id: result.request.baselineIdentity, label: result.request.mode === 'drive' ? 'Driving' : 'Scheduled service', result }] : []
 }
 
 export function reachHasServiceChanges(result: ReachResult) {

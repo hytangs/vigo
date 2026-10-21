@@ -35,10 +35,10 @@ try {
   execFileSync(process.execPath, ['public/vigo.mjs', 'build', `--gtfs=${inputs.gtfsPath}`, `--osm=${inputs.osmPath}`, `--output=${city}`], { cwd: root, stdio: 'pipe' })
   const node = resident(process.execPath, ['public/vigo.mjs', 'stream', `--city=${city}`, '--service-date=2026-07-15'])
   const rust = resident(standaloneBinary, ['stream', '--city', city])
-  for (const mode of ['walk', 'transit']) for (const maxTransfers of [0, 1]) {
+  for (const mode of ['walk', 'transit', 'drive']) for (const maxTransfers of [0, 1]) {
     const q = { kind: 'reach', mode, origin: { coordinate: [-77.049, 38.9005] }, serviceDate: '2026-07-15',
-      timeMinutes: 475, maxWalkKm: 1.2, maxTransfers, surfaceSampling: 'cell-center',
-      cutoffsMinutes: [15, 30, 45], extentRadiusKm: 2, rasterSize: 48 }
+      timeMinutes: 475, maxWalkKm: mode === 'drive' && maxTransfers === 1 ? .2 : 1.2, maxTransfers, surfaceSampling: 'cell-center',
+      cutoffsMinutes: mode === 'drive' ? [1, 2, 3] : [15, 30, 45], extentRadiusKm: 2, rasterSize: 48 }
     const n = await node(q)
     assert.equal(n.surface.sampling, 'cell-center')
     const r = await rust({ ...q, bounds: n.surface.bounds })
@@ -48,14 +48,14 @@ try {
     const [w, s, e, north] = n.surface.bounds
     const destinations = Array.from({ length: 48 * 48 }, (_, i) => ({ coordinate: [w + (i % 48 + .5) / 48 * (e - w), north - (Math.floor(i / 48) + .5) / 48 * (north - s)] }))
     const matrix = await node({ ...q, kind: 'matrix', origins: [q.origin], destinations,
-      horizonMinutes: 45, allowLongWalk: false, requireTransitRide: false, maxDistanceKm: 1.2 })
+      horizonMinutes: q.cutoffsMinutes.at(-1), allowLongWalk: false, requireTransitRide: false, maxDistanceKm: mode === 'drive' ? 750 : 1.2 })
     assert.equal(matrix.rows.length, destinations.length)
     let reached = 0
     n.surface.values.forEach((value, i) => {
       const row = matrix.rows[i]
-      const expected = row.status === 'ready' && row.durationMinutes <= 45 ? row.durationMinutes : null
+      const expected = row.status === 'ready' && row.durationMinutes <= q.cutoffsMinutes.at(-1) ? row.durationMinutes : null
       assert.equal(value, expected, `${mode} cap ${maxTransfers} matrix cell ${i}`)
-      assert.equal(value === null, r.surface.values[i] === null, `${mode} runtime cell ${i}`)
+      assert.equal(value === null, r.surface.values[i] === null, `${mode} runtime cell ${i}: ${value} / ${r.surface.values[i]}`)
       if (value !== null) { reached++; assert(Math.abs(value - r.surface.values[i]) <= .0011, `${mode} cell ${i}: ${value} / ${r.surface.values[i]}`) }
       cells++
     })
@@ -74,7 +74,7 @@ try {
   const n = await node(q), r = await rust({ ...q, bounds: n.surface.bounds })
   assert.equal(n.surface.diagnostics.matrixBatches, 3)
   assert.deepEqual(n.surface.values.map(v => v === null), r.surface.values.map(v => v === null))
-  console.log(JSON.stringify({ checkedCells: cells, chunkedCells: n.surface.values.length, modes: ['walk', 'transit'], maxTransfers: [0, 1], repeat: 'identical' }))
+  console.log(JSON.stringify({ checkedCells: cells, chunkedCells: n.surface.values.length, modes: ['walk', 'transit', 'drive'], maxTransfers: [0, 1], repeat: 'identical' }))
 } finally {
   await Promise.all(processes.filter(p => p.exitCode === null).map(async p => { const ended = once(p, 'exit'); p.kill(); await ended }))
   fs.rmSync(directory, { recursive: true, force: true })

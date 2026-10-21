@@ -1117,7 +1117,7 @@ async function computeReachRequest(
     throw new Error('Reach does not support supplied traffic or live transit state.')
   }
   const mode = value(args, 'mode', String(request.mode ?? 'transit'))
-  if (!['transit', 'walk'].includes(mode)) throw new Error('Reach supports transit or walk.')
+  if (!['transit', 'walk', 'drive'].includes(mode)) throw new Error('Reach supports transit, walk, or drive.')
   if (args.has('radius') || Object.hasOwn(request, 'radiusKm')) {
     throw new Error('Unknown Reach extent; use --extent-radius or extentRadiusKm')
   }
@@ -1224,7 +1224,7 @@ async function computeReachRequest(
     query: {
       routingDataMode: options.routingDataMode,
       mode,
-      surfaceSampling: request.surfaceSampling ?? 'street',
+      surfaceSampling: mode === 'drive' ? 'cell-center' : request.surfaceSampling ?? 'street',
       origin,
       timeMinutes: options.timeMinutes,
       serviceDate: options.serviceDate,

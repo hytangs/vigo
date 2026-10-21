@@ -331,7 +331,7 @@ Use `vigo route --help` for the general command overview. `--name value` and `--
 | `--stream-output public\|detailed` | Stream | Public results by default; detailed internal wrapper envelope when explicitly selected |
 | `--service-date YYYY-MM-DD` | Route, Matrix, Reach, Native, Stream | Set or override service date |
 | `--time HH:MM[:SS]` | Route, Matrix, Reach, Stream | Set clock; replaces JSON `timeMinutes` |
-| `--mode transit\|walk\|drive` | Route, Matrix, Reach, Stream | Reach supports transit/walk only |
+| `--mode transit\|walk\|drive` | Route, Matrix, Reach, Stream | Reach supports all three modes |
 | `--from lon,lat` or `--from stop:ID` | Route, Reach | Origin |
 | `--to lon,lat` or `--to stop:ID` | Route | Destination |
 | `--max-walk KM` | Route, Matrix, Reach, Stream | Walking endpoint budget |
@@ -386,7 +386,7 @@ Exact identifiers are case-sensitive. Multi-feed IDs may contain a feed scope an
 | `time` | Required unless `timeMinutes` is supplied | `HH:MM[:SS]`, hours 0–71; numeric minutes are also accepted |
 | `timeMinutes` | Alternative clock | Number 0–4319; never combine with `time` |
 | `timePreference` | `depart_at` | `depart_at` or `arrive_by`; aliases `depart` and `arrive` accepted |
-| `mode` | `transit` | `transit`, `walk`, `drive`; Reach has no drive mode |
+| `mode` | `transit` | `transit`, `walk`, `drive` |
 | `maxWalkKm` | 1.2 | Number 0–100; per transit access/egress endpoint or Reach terminal-walk budget |
 | `maxTransfers` | No explicit cap | Integer 0–31; zero means at most one boarding |
 | `horizonMinutes` | 480 | Number 1–2880; Route/Matrix only |
@@ -687,7 +687,7 @@ Run `node scripts/benchmark-service-reuse.mjs --reference /path/to/baseline-vigo
 
 Reach finds the streets and areas accessible from an origin within a set of travel-time limits. Transit queries combine timetable travel with walking over the prepared street network. Use `mode: "walk"` for walking only, or call `isochrone` as an alias of `reach`.
 
-Reach supports depart-at queries, including realtime transit. Drive is unavailable in Reach; see [Compatibility](#20-validation-and-compatibility) for the supported combinations.
+Reach supports depart-at queries, including realtime transit. Driving Reach uses `mode: "drive"` and routes to cell centers through the prepared directed driving network. It uses road-speed estimates without live traffic, ignores pedestrian walk limits, and does not apply transit scenarios. The raster has a fixed extent (`extentRadiusKm`, default 8, maximum 40); points outside that extent are not evaluated. Driving uses a 750 km road-distance search cap and does not return pedestrian edge or node evidence. Studio offers Driving under Analyze → Reach and uses a 40 km extent.
 
 ### Request
 
@@ -1751,13 +1751,13 @@ Use `vigo capabilities` to inspect the executable you are running. The standalon
 | Operation | Modes and coverage |
 | --- | --- |
 | Route and Matrix | Transit, walk, and drive; depart-at and arrive-by |
-| Reach | Transit and walk; raster, polygons, contours, and street evidence |
+| Reach | Transit, walk, and drive; driving uses a fixed grid with polygons and contours, without pedestrian street evidence |
 | Scenarios | Reach with exclusions, explicit schedules, or compiled overlays |
 | Realtime transit | Route, Matrix and Reach; supplied or polled, with Service Alerts |
 | Supplied traffic | Drive Route and Matrix |
 | Saved comparison | Reach surfaces |
 
-Drive Reach is not supported. City compilation, Studio/Python response envelopes, fare annotations, fare optimization, and Studio route-preference presentation are outside the standalone interface. Prepare editor branches and automatic retiming as explicit schedules or overlays before querying. Native Pareto operations are available separately.
+City compilation, Studio/Python response envelopes, fare annotations, fare optimization, and Studio route-preference presentation are outside the standalone interface. Prepare editor branches and automatic retiming as explicit schedules or overlays before querying. Native Pareto operations are available separately.
 
 ### Platform and build records
 

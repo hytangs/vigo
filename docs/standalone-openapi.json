@@ -8130,7 +8130,8 @@
             "type": "string",
             "enum": [
               "transit",
-              "walk"
+              "walk",
+              "drive"
             ],
             "default": "transit"
           },

@@ -21,7 +21,7 @@ export const options = {
   replace: ['', 'Replace an existing City', 'boolean'],
   input: ['PATH', 'Route CSV with origin/destination coordinates or stop IDs'],
   request: ['PATH', 'JSON request file; - reads standard input'],
-  mode: ['VALUE', 'transit (default), walk, or drive; Reach supports transit only'],
+  mode: ['VALUE', 'transit (default), walk, or drive'],
   'data-mode': ['VALUE', 'scheduled (default, research) or realtime with a supplied snapshot'],
   time: ['HH:MM', 'Local service time, 00:00–29:59 (default: 08:00)'],
   'time-preference': ['VALUE', 'depart (default) or arrive; Reach supports depart only'],
@@ -150,7 +150,7 @@ export function usage(version, command = '') {
       const [placeholder, description] = options[name]
       const label = `--${name}${placeholder ? ` ${placeholder}` : ''}`
       const explanation = name === 'output' && command === 'build' ? 'City output directory'
-        : name === 'mode' ? command === 'reach' ? 'transit (walking access and egress)' : 'transit (default), walk, or drive'
+        : name === 'mode' ? 'transit (default), walk, or drive'
           : name === 'time-preference' ? command === 'reach' ? 'depart (fixed departure)' : 'depart (default) or arrive'
             : description
       return `  ${label.padEnd(28)}${explanation}`

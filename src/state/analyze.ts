@@ -76,6 +76,7 @@ export type AnalyzeState = {
   reachMaxWalkKm: number
   reachMaxTransfers: number | undefined
   scenarioWalkSpeedKph: number
+  reachTravelMode: 'transit' | 'drive'
   reachSurfaceSampling: 'street' | 'cell-center'
   scenarioView: ScenarioView
   scenarioRenderMode: ScenarioRenderMode
@@ -102,6 +103,7 @@ const initialAnalyzeState = (): AnalyzeState => ({
   reachMaxWalkKm: 1.2,
   reachMaxTransfers: undefined,
   scenarioWalkSpeedKph: 4.8,
+  reachTravelMode: 'transit',
   reachSurfaceSampling: 'street',
   scenarioView: 'comparison',
   scenarioRenderMode: 'area',
@@ -1107,7 +1109,9 @@ export async function runSurfaceAnalysis(includeStreetEdges = analyze.get().scen
     analyze.set({ scenarioError: grouping.error || selection.error })
     return
   }
-  const draft = activeScenarioDraft()
+  const draft = settings.reachTravelMode === 'drive'
+    ? { scenario: { id: 'driving', name: 'Driving', services: [], excludedRouteIds: [] } }
+    : activeScenarioDraft()
   if ('error' in draft) {
     analyze.set({ scenarioError: draft.error ?? 'Configure the active case before running it.' })
     return
@@ -1116,7 +1120,7 @@ export async function runSurfaceAnalysis(includeStreetEdges = analyze.get().scen
   const baselineFeeds = baselineGroup && !caseFeedSelection({ ...grouping.value, cases: { baseline: baselineGroupId } }, 'baseline', project).error
     ? [...new Set(baselineGroup.feedIds)].sort() : null
   const { scheduleTimeMinutes, serviceDate } = clock.get()
-  const interventionCount = activeScenario()?.interventions.length ?? 0
+  const interventionCount = settings.reachTravelMode === 'drive' ? 0 : activeScenario()?.interventions.length ?? 0
   analysisAbort?.abort()
   const controller = new AbortController()
   analysisAbort = controller
@@ -1134,7 +1138,7 @@ export async function runSurfaceAnalysis(includeStreetEdges = analyze.get().scen
         signal: controller.signal,
         body: JSON.stringify({
           feedIds: selection.feedIds,
-          ...(baselineFeeds && baselineFeeds.join() !== [...selection.feedIds].sort().join() ? { baselineFeedIds: baselineFeeds } : {}),
+          ...(settings.reachTravelMode !== 'drive' && baselineFeeds && baselineFeeds.join() !== [...selection.feedIds].sort().join() ? { baselineFeedIds: baselineFeeds } : {}),
           origin: analysisOrigin,
           departMinutes: scheduleTimeMinutes,
           serviceDate,
@@ -1142,8 +1146,10 @@ export async function runSurfaceAnalysis(includeStreetEdges = analyze.get().scen
           maxWalkKm: settings.reachMaxWalkKm,
           maxTransfers: settings.reachMaxTransfers,
           walkSpeedKph: settings.reachSurfaceSampling === 'cell-center' ? 4.8 : settings.scenarioWalkSpeedKph,
-          surfaceSampling: settings.reachSurfaceSampling,
-          rasterSize: settings.reachSurfaceSampling === 'street' ? desktopStreetReachRasterSize : desktopReachRasterSize,
+          mode: settings.reachTravelMode,
+          surfaceSampling: settings.reachTravelMode === 'drive' ? 'cell-center' : settings.reachSurfaceSampling,
+          radiusKm: settings.reachTravelMode === 'drive' ? 40 : 8,
+          rasterSize: settings.reachTravelMode !== 'drive' && settings.reachSurfaceSampling === 'street' ? desktopStreetReachRasterSize : desktopReachRasterSize,
           cutoffsMinutes: reachTimeBands(settings.scenarioCutoffMinutes),
           // The final baseline surface is rendered after transit/routing
           // seeds are known. Avoid spending a second full OSM traversal on
@@ -1177,6 +1183,11 @@ export function cancelSurfaceAnalysis() {
 }
 
 // Analyze panel settings. A changed question clears the shown result.
+export function changeReachTravelMode(reachTravelMode: AnalyzeState['reachTravelMode']) {
+  analyze.set({ reachTravelMode, scenarioRenderMode: 'area' })
+  invalidateAnalyzeResult()
+}
+
 export function changeSurfaceSampling(reachSurfaceSampling: AnalyzeState['reachSurfaceSampling']) {
   analyze.set({ reachSurfaceSampling })
   invalidateAnalyzeResult()

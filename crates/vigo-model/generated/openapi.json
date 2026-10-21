@@ -2305,10 +2305,11 @@
         ]
       },
       "ReachMode": {
-        "description": "Reach covers transit and walking only.",
+        "description": "Reach covers transit, walking, and driving travel times.",
         "enum": [
           "transit",
-          "walk"
+          "walk",
+          "drive"
         ],
         "type": "string"
       },

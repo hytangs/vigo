@@ -38,7 +38,7 @@ export function ReachPointInspector({ inspection }: { inspection: ReturnType<typ
       {baseline.status === 'sampled' && baseline.estimatedBlock || scenario?.status === 'sampled' && scenario.estimatedBlock
         ? <p className="reach-point-note">Block shading estimates access from surrounding streets. The journey checks your selected point separately.</p> : null}
       {scenario ? <p className="reach-point-note">The journey below uses scheduled service. Planned changes are included in the scenario map estimate.</p> : null}
-      {plan && typeof plan.diagnostics.walkingSpeedKph === 'number' && Math.abs(plan.diagnostics.walkingSpeedKph - (request.walkSpeedKph ?? 4.8)) > 0.001
+      {request.mode !== 'drive' && plan && typeof plan.diagnostics.walkingSpeedKph === 'number' && Math.abs(plan.diagnostics.walkingSpeedKph - (request.walkSpeedKph ?? 4.8)) > 0.001
         ? <p className="reach-point-note">Journey walking: {plan.diagnostics.walkingSpeedKph} km/h. Map walking: {request.walkSpeedKph} km/h.</p> : null}
       {error ? <button type="button" className="button button-secondary" onClick={inspection.retry}>Try again</button> : null}
       {plan?.status === 'ready' ? <details className="reach-point-journey" key={`${source.id}:${point.coordinate.join(',')}`}>

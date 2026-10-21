@@ -538,7 +538,7 @@ export type ScenarioStreetEdgeSource =
   | ScenarioStreetEdgeReference
 
 export type ScenarioReachMethod = {
-  mode: 'total-elapsed-walk-transit-walk'
+  mode: 'total-elapsed-walk-transit-walk' | 'total-elapsed-drive'
   cutoffMinutes: number
   baselineTerminalWalkKm: number
   scenarioTerminalWalkKm: number
@@ -547,7 +547,7 @@ export type ScenarioReachMethod = {
 }
 
 export type ReachTransitStatus = {
-  status: 'walk_only' | 'reached' | 'no_service' | 'no_service_window' | 'no_target_stops' | 'outside_window' | 'no_reachable_stops' | 'preliminary'
+  status: 'drive_only' | 'walk_only' | 'reached' | 'no_service' | 'no_service_window' | 'no_target_stops' | 'outside_window' | 'no_reachable_stops' | 'preliminary'
   detail: string
   requestedDepartureMinutes?: number
   windowEndMinutes?: number
@@ -616,7 +616,7 @@ export type ReachResult = {
   request: {
     baselineIdentity: string
     feedIds?: string[]
-    mode?: 'walk' | 'transit'
+    mode?: 'walk' | 'transit' | 'drive'
     surfaceSampling?: 'street' | 'cell-center'
     origin: {
       id?: string
