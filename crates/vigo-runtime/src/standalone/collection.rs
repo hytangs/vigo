@@ -7,6 +7,7 @@ use std::{
     collections::{HashSet, VecDeque},
     fs,
     path::{Path, PathBuf},
+    time::Instant,
 };
 
 #[derive(Deserialize)]
@@ -44,6 +45,10 @@ pub(crate) struct Collection {
     query_workspace: Option<crate::timetable::TimetableQueryWorkspace>,
     timetable_blocks: crate::timetable::TimetableBlockPool,
     timetable_budget: usize,
+    resident_heap_budget: usize,
+    last_query_timing: Value,
+    load_ms: f64,
+    eviction_ms: f64,
 }
 impl Runtime {
     pub(crate) fn install_realtime(&mut self, message: &mut Value) -> Result<()> {
@@ -142,6 +147,20 @@ impl Runtime {
             query_workspace: None,
             timetable_blocks: Default::default(),
             timetable_budget: super::timetable_cache::TimetableCache::from_env()?.budget,
+            last_query_timing: Value::Null,
+            load_ms: 0.,
+            eviction_ms: 0.,
+            resident_heap_budget: match std::env::var("VIGO_RESIDENT_HEAP_BYTES") {
+                Ok(v) => v
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|n| *n > 0)
+                    .ok_or("VIGO_RESIDENT_HEAP_BYTES must be a positive integer")?,
+                Err(std::env::VarError::NotPresent) => {
+                    crate::resources::cache_budget(1024 * 1024 * 1024, 3)
+                }
+                Err(e) => return Err(e.into()),
+            },
         };
         collection.select(&default_id)?;
         Ok(Self::Collection(Box::new(collection)))
@@ -182,7 +201,10 @@ impl Runtime {
                     .as_object_mut()
                     .ok_or("Request must be an object")?
                     .remove("scenarioId");
+                let selection_started = Instant::now();
                 c.select(&id)?;
+                let selection_ms = selection_started.elapsed().as_secs_f64() * 1000.;
+                let execution_started = Instant::now();
                 let city = &mut c.cities.back_mut().unwrap().1;
                 city.query_workspace = c.query_workspace.take();
                 let result = if detailed {
@@ -190,6 +212,8 @@ impl Runtime {
                 } else {
                     city.execute_public(kind, &query)
                 };
+                let execution_ms = execution_started.elapsed().as_secs_f64() * 1000.;
+                let retention_started = Instant::now();
                 c.query_workspace = city.take_query_workspace();
                 if let Some(timetable) = &mut city.timetable
                     && timetable
@@ -199,6 +223,11 @@ impl Runtime {
                     c.timetable_blocks.prune();
                     super::release_preparation_memory();
                 }
+                c.enforce_resident_budget();
+                c.last_query_timing = json!({"scenarioId":id,"selectionMs":selection_ms,
+                    "cityOpenMs":c.load_ms,"executionMs":execution_ms,
+                    "retentionMs":retention_started.elapsed().as_secs_f64()*1000.,
+                    "evictionMs":c.eviction_ms});
                 let mut result = result?;
                 result["scenarioId"] = json!(id);
                 Ok(result)
@@ -207,7 +236,59 @@ impl Runtime {
     }
 }
 impl Collection {
+    fn resident_heap_bytes(&self) -> usize {
+        let mut streets = HashSet::new();
+        let mut bytes = self.timetable_blocks.unique_bytes()
+            + self.timetable_blocks.index_bytes()
+            + self
+                .query_workspace
+                .as_ref()
+                .map_or(0, crate::timetable::TimetableQueryWorkspace::byte_length);
+        for (_, city) in &self.cities {
+            let ledger = city.memory_ledger();
+            let n = |value: &Value, key: &str| value[key].as_u64().unwrap_or(0) as usize;
+            let street = &ledger["street"];
+            if streets.insert(&city.street_directory) {
+                bytes += n(street, "sharedHeapBytes");
+            }
+            for key in ["accessHeapBytes", "workspaceHeapBytes", "cacheHeapBytes"] {
+                bytes += n(street, key);
+            }
+            for key in [
+                "cityDictionaryHeapBytes",
+                "timetableSourceOwnedHeapBytes",
+                "timetableIndexHeapBytes",
+                "timetableWorkspaceHeapBytes",
+                "cityCacheHeapBytes",
+                "sqliteHeapBytes",
+            ] {
+                bytes += n(&ledger, key);
+            }
+            if let Some(drive) = ledger.get("drive") {
+                for key in ["networkHeapBytes", "trafficHeapBytes", "workspaceHeapBytes"] {
+                    bytes += n(drive, key);
+                }
+            }
+        }
+        bytes
+    }
+    fn enforce_resident_budget(&mut self) {
+        let started = Instant::now();
+        let mut released = false;
+        while self.cities.len() > 1 && self.resident_heap_bytes() > self.resident_heap_budget {
+            self.cities.pop_front();
+            self.evictions += 1;
+            self.timetable_blocks.prune();
+            released = true;
+        }
+        if released {
+            super::release_preparation_memory();
+            self.eviction_ms += started.elapsed().as_secs_f64() * 1000.;
+        }
+    }
     fn select(&mut self, id: &str) -> Result<&mut City> {
+        self.load_ms = 0.;
+        self.eviction_ms = 0.;
         if let Some(index) = self.cities.iter().position(|(key, _)| key == id) {
             let mut city = self.cities.remove(index).unwrap();
             if let Some((_, previous)) = self.cities.back_mut() {
@@ -215,6 +296,7 @@ impl Collection {
             }
             self.cities.push_back(city);
         } else {
+            self.enforce_resident_budget();
             let path = &self
                 .manifest
                 .scenarios
@@ -222,15 +304,26 @@ impl Collection {
                 .find(|s| s.id == id)
                 .ok_or_else(|| format!("Unknown scenarioId: {id}"))?
                 .city;
+            // Reserve an estimated resident view before opening its replacement.
+            // The estimate includes a share of common data and is conservative
+            // for similar scenarios; the post-query check uses actual ownership.
+            let reservation = self.resident_heap_bytes() / self.cities.len().max(1);
             let mut retired_street = None;
-            while self.cities.len() >= self.manifest.maximum_resident_scenarios {
+            while self.cities.len() >= self.manifest.maximum_resident_scenarios
+                || (!self.cities.is_empty()
+                    && self.resident_heap_bytes().saturating_add(reservation)
+                        > self.resident_heap_budget)
+            {
+                let eviction_started = Instant::now();
                 let (_, mut city) = self.cities.pop_front().unwrap();
                 // Drop the evicted timetable, stop data and caches before
                 // opening its replacement, retaining only reusable streets.
                 let mut streets = city.street.share_streets()?;
                 streets.reuse_street_scratch(&mut city.street);
-                retired_street = Some((city.street_directory, streets));
+                retired_street = Some((city.street_directory.clone(), streets));
                 self.evictions += 1;
+                drop(city);
+                self.eviction_ms += eviction_started.elapsed().as_secs_f64() * 1000.;
             }
             self.timetable_blocks.prune();
             let residents: Vec<_> = self
@@ -243,7 +336,9 @@ impl Collection {
                         .map(|(directory, street)| (directory.as_path(), street)),
                 )
                 .collect();
+            let load_started = Instant::now();
             let mut city = City::open_shared(Path::new(path), &residents)?;
+            self.load_ms = load_started.elapsed().as_secs_f64() * 1000.;
             city.timetable_blocks = None; // The collection owns the shared pool.
             let capacity = self
                 .manifest
@@ -267,7 +362,7 @@ impl Collection {
         let selected = self.cities.len() - 1;
         let mut available = self.timetable_budget;
         for (_, city) in self.cities.iter_mut().take(selected) {
-            available -= city.timetable_cache.bytes;
+            available = available.saturating_sub(city.timetable_cache.bytes);
             city.timetable_cache.budget = city.timetable_cache.bytes;
         }
         self.cities.back_mut().unwrap().1.timetable_cache.budget = available;
@@ -319,7 +414,7 @@ impl Collection {
             "resourcePolicy":{"memoryCapacityBytes":crate::resources::memory_capacity(),"swapCountsAsRam":false},
             "engineVersion":env!("CARGO_PKG_VERSION"),"defaultScenario":self.manifest.default_scenario,
             "scenarios":self.manifest.scenarios.iter().map(|s| json!({"id":s.id,"name":s.name})).collect::<Vec<_>>(),
-            "residency":{"maximumScenarios":self.manifest.maximum_resident_scenarios,"loadedScenarios":self.cities.len(),
+            "residency":{"lastQueryTiming":self.last_query_timing,"residentHeapBudgetBytes":self.resident_heap_budget,"residentHeapOverBudget":self.resident_heap_bytes()>self.resident_heap_budget,"maximumScenarios":self.manifest.maximum_resident_scenarios,"loadedScenarios":self.cities.len(),
                 "timetableQueryWorkspaces":usize::from(self.query_workspace.is_some()),
                 "inactiveTimetableBudgetBytes":self.cities.iter().map(|(_,c)| c.timetable_cache.budget).sum::<usize>(),
                 "inactiveTimetableRetainedBytes":self.cities.iter().map(|(_,c)| c.timetable_cache.bytes).sum::<usize>(),

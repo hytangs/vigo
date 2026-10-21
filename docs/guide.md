@@ -390,7 +390,7 @@ vigo route --city ./boston --request journey.json --output journey-result.json
 
 Check `status`, then the chronological `journey.legs`. Walking competes with transit, so a short trip can return a walk; set `requireTransitRide: true` to require a boarding, or `"mode": "walk"` to request walking alone. A `not_found` Result can reflect the date, timetable, access network, or constraints. It does not mean the places are physically disconnected; [Troubleshooting](#route-returns-no-journey) lists the checks in order.
 
-For several journeys at the requested time, add `"alternatives": 3`. The default `pareto` ranking keeps only genuine trade-offs between arrival, boardings, and walking; `"alternativeRanking": "ranked"` lists the earliest distinct journeys even when one beats another in every respect. See [alternative journeys](guides/rust-standalone.md#alternative-journeys) and [journey windows](guides/rust-standalone.md#journey-windows).
+For several journeys at the requested time, add `"alternatives": 3`. The default `pareto` ranking keeps only genuine trade-offs between arrival, boardings, and walking; `"alternativeRanking": "ranked"` lists the earliest distinct journeys even when one beats another in every respect. Equal-arrival ranked journeys prefer less walking, then fewer boardings; the least-walking returned tie becomes the primary journey. See [alternative journeys](guides/rust-standalone.md#alternative-journeys) and [journey windows](guides/rust-standalone.md#journey-windows).
 
 ### Reach one destination by a deadline
 
@@ -613,7 +613,7 @@ Stop IDs are exact GTFS identifiers. Coordinate points are `[longitude, latitude
 
 ### Walking and transit
 
-Transit Route and Matrix compare a direct OSM walk by default, so a short coordinate trip can return walking when it arrives sooner. Set `requireTransitRide: true` to require at least one boarding, or select Walk mode to request walking alone. `maxWalkKm` limits each access and egress walk. Set `allowLongWalk: false` to apply the same limit to a direct walking alternative; otherwise `maxStreetKm` bounds the complete walk. Explicit Walk mode always uses `maxStreetKm`, regardless of `allowLongWalk`.
+Transit Route and Matrix compare a direct OSM walk by default, so a short coordinate trip can return walking when it arrives sooner. Set `requireTransitRide: true` to require at least one boarding, or select Walk mode to request walking alone. `maxWalkKm` limits each access and egress walk. Set `allowLongWalk: false` to apply the same limit to a direct walking alternative; otherwise `maxStreetKm` bounds the complete walk. Explicit Walk mode always uses `maxStreetKm`, regardless of `allowLongWalk`, including when `maxWalkKm` is zero. `maxStreetKm` accepts 0.05–1000 km; zero and smaller values are rejected rather than rounded up. Clients offering smaller walking limits must enforce their own stricter distance contract.
 
 `horizonMinutes` sets the timetable search horizon (default 480, range 1–2880). For depart-at transit, boarding and alighting must happen at or before this boundary, including in alternative journeys; the final walk can finish after it. The horizon is therefore not a hard limit on door-to-door duration: comparisons with a total-duration cap must check the final arrival separately. Explicit Walk and Drive routes use `maxStreetKm` rather than the transit horizon; Walk also ignores the transit-only `allowLongWalk` restriction.
 
@@ -1374,6 +1374,7 @@ Compose defaults to 2 CPUs, 2 GiB of memory, two native threads, two resident sc
 | `VIGO_CPUS` / `VIGO_MEMORY` | `2` / `2g` | Container CPU and memory limits |
 | `VIGO_THREADS` | `2` | Native parallel threads |
 | `VIGO_MAX_RESIDENT_SCENARIOS` | `2` | Maximum resident scenario views |
+| `VIGO_RESIDENT_HEAP_BYTES` | min(1 GiB, memory / 3) | Collection retained-heap budget; one selected City may exceed it, reported by `/v1/info`; not an RSS limit |
 | `VIGO_ENDPOINT_CACHE_MAX_BYTES` | `8388608` | Shared endpoint-cache budget |
 | `VIGO_SHAPE_GEOMETRY_CACHE_MAX_BYTES` | `8388608` | Shared geometry-cache budget |
 | `VIGO_MAX_QUEUE` | `8` | Waiting queries |

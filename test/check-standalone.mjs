@@ -86,6 +86,12 @@ try {
     const restricted = run('route', walkOnly)
     assert.equal(restricted.status, 'ready', 'Transit access limits must not constrain Walk mode')
     assert.equal(restricted.durationMinutes, unrestricted.durationMinutes)
+    assert.equal(run('route', { ...walkOnly, maxWalkKm: 0 }).status, 'ready')
+    for (const maxStreetKm of [0, 0.001, 0.049]) {
+      rejects('route', { ...walkOnly, maxStreetKm }, /maxStreetKm/)
+      rejects('matrix', { ...walkOnly, maxStreetKm, origin: undefined, destination: undefined,
+        origins: [coordinate.origin], destinations: [coordinate.destination] }, /maxStreetKm/)
+    }
     assert.equal(run('route', { ...walkOnly, maxStreetKm: 0.05 }).status, 'blocked')
     assert.equal(run('route', { ...walkOnly, horizonMinutes: 1 }).durationMinutes, restricted.durationMinutes,
       'A transit scan horizon must not shorten an explicit Walk route')

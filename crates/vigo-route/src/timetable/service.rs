@@ -54,10 +54,16 @@ pub(super) struct ServiceIndex {
     pub(super) data: Arc<ServiceSemantics>,
     departures: Vec<Vec<usize>>,
     arrivals: Vec<Vec<usize>>,
+    headway_departures: Vec<Vec<usize>>,
+    headway_arrivals: Vec<Vec<usize>>,
     rules: HashMap<(u32, u32), Vec<usize>>,
     windows: HashMap<u32, Vec<usize>>,
     extra_forward: Vec<Vec<u32>>,
     extra_reverse: Vec<Vec<u32>>,
+    forward_classes: Vec<u32>,
+    reverse_classes: Vec<u32>,
+    forward_identity_stops: Vec<bool>,
+    reverse_identity_stops: Vec<bool>,
 }
 impl ServiceIndex {
     pub(super) fn byte_length(&self) -> usize {
@@ -74,8 +80,13 @@ impl ServiceIndex {
             + vectors(&self.data.physical_trips)
             + vectors(&self.departures)
             + vectors(&self.arrivals)
+            + vectors(&self.headway_departures)
+            + vectors(&self.headway_arrivals)
             + vectors(&self.extra_forward)
             + vectors(&self.extra_reverse)
+            + (self.forward_classes.capacity() + self.reverse_classes.capacity()) * 4
+            + self.forward_identity_stops.capacity()
+            + self.reverse_identity_stops.capacity()
             + self.rules.capacity() * std::mem::size_of::<((u32, u32), Vec<usize>)>()
             + self.windows.capacity() * std::mem::size_of::<(u32, Vec<usize>)>()
             + self
@@ -93,6 +104,7 @@ struct Label {
     anchor_clock: f64,
     anchor: u32,
     trip: Option<u32>,
+    transfer_class: Option<u32>,
     boardings: u32,
     walking: f64,
     walked: bool,
@@ -135,7 +147,7 @@ impl Search {
         let sign = if self.reverse { -1. } else { 1. };
         let key = (
             label.stop,
-            label.trip,
+            label.transfer_class,
             label.anchor,
             label.walked,
             label.scoped_path,
@@ -187,10 +199,16 @@ impl TimetableKernel {
             data: Arc::new(data),
             departures: vec![vec![]; self.stop_count],
             arrivals: vec![vec![]; self.stop_count],
+            headway_departures: vec![vec![]; self.stop_count],
+            headway_arrivals: vec![vec![]; self.stop_count],
             rules: HashMap::new(),
             windows: HashMap::new(),
             extra_forward: vec![vec![]; self.stop_count],
             extra_reverse: vec![vec![]; self.stop_count],
+            forward_classes: vec![],
+            reverse_classes: vec![],
+            forward_identity_stops: vec![false; self.stop_count],
+            reverse_identity_stops: vec![false; self.stop_count],
         };
         for (i, r) in index.data.rules.iter().enumerate() {
             if r.from_stop as usize >= self.stop_count
@@ -199,6 +217,10 @@ impl TimetableKernel {
             {
                 return Err(Error::from_reason("Invalid native transfer rule"));
             }
+            index.forward_identity_stops[r.from_stop as usize] |=
+                r.from_trip.is_some() || r.from_route.is_some();
+            index.reverse_identity_stops[r.to_stop as usize] |=
+                r.to_trip.is_some() || r.to_route.is_some();
             index
                 .rules
                 .entry((r.from_stop, r.to_stop))
@@ -209,6 +231,31 @@ impl TimetableKernel {
                 index.extra_reverse[r.to_stop as usize].push(r.from_stop);
             }
         }
+        // Incoming identity matters only through transfer-rule selectors. Keep
+        // explicitly selected trips distinct; other trips on the same route
+        // have identical transfer permissions and can share a dominance class.
+        // The label still retains the actual trip for reconstruction/rule lookup.
+        let classes = |reverse: bool| {
+            let specific: HashSet<u32> = index
+                .data
+                .rules
+                .iter()
+                .filter_map(|r| if reverse { r.to_trip } else { r.from_trip })
+                .collect();
+            let mut ids = HashMap::new();
+            (0..self.trip_start.len().saturating_sub(1))
+                .map(|trip| {
+                    let key = match index.data.trip_routes.get(trip) {
+                        Some(&route) if !specific.contains(&(trip as u32)) => (false, route),
+                        _ => (true, trip as u32),
+                    };
+                    let next = ids.len() as u32;
+                    *ids.entry(key).or_insert(next)
+                })
+                .collect()
+        };
+        index.forward_classes = classes(false);
+        index.reverse_classes = classes(true);
         for (i, w) in index.data.headways.iter().enumerate() {
             if w.trip as usize + 1 >= self.trip_start.len()
                 || !w.start.is_finite()
@@ -221,8 +268,19 @@ impl TimetableKernel {
             index.windows.entry(w.trip).or_default().push(i);
         }
         for i in 0..self.departure_seconds.len() {
-            index.departures[self.from_stop.view()[i] as usize].push(i);
-            index.arrivals[self.to_stop.view()[i] as usize].push(i);
+            if index.windows.contains_key(&self.segment_trip.view()[i]) {
+                index.headway_departures[self.from_stop.view()[i] as usize].push(i);
+                index.headway_arrivals[self.to_stop.view()[i] as usize].push(i);
+            } else {
+                index.departures[self.from_stop.view()[i] as usize].push(i);
+                index.arrivals[self.to_stop.view()[i] as usize].push(i);
+            }
+        }
+        for departures in &mut index.departures {
+            departures.sort_unstable_by_key(|&i| (self.departure_seconds.view()[i], i));
+        }
+        for arrivals in &mut index.arrivals {
+            arrivals.sort_unstable_by_key(|&i| (self.arrival_seconds.view()[i], i));
         }
         for edges in index
             .extra_forward
@@ -284,12 +342,14 @@ impl TimetableKernel {
         stops: &[u32],
         walks: &[f64],
         candidates: &[u32],
-        start: f64,
-        end: f64,
+        mut start: f64,
+        mut end: f64,
         reverse: bool,
         pre: bool,
         maximum: Option<u32>,
         excluded: &[u32],
+        distinct_trips: bool,
+        target: Option<(&[u32], &[f64], bool)>,
     ) -> Result<Search> {
         if stops.len() != walks.len()
             || stops.len() != candidates.len()
@@ -328,6 +388,7 @@ impl TimetableKernel {
                 anchor_clock: clock,
                 anchor: stop,
                 trip: None,
+                transfer_class: None,
                 boardings: 0,
                 walking: walk,
                 walked: false,
@@ -345,10 +406,36 @@ impl TimetableKernel {
                 ),
             })?;
         }
+        let targets: HashMap<u32, f64> = target.map_or_else(HashMap::new, |(stops, walks, _)| {
+            let mut targets = HashMap::<u32, f64>::new();
+            for (&stop, &walk) in stops.iter().zip(walks) {
+                targets
+                    .entry(stop)
+                    .and_modify(|w| *w = w.min(walk))
+                    .or_insert(walk);
+            }
+            targets
+        });
         let mut operations = 0usize;
         while let Some(Queue(_, index)) = search.queue.pop() {
             let l = search.labels[index].clone();
-            if !search.frontiers[&(l.stop, l.trip, l.anchor, l.walked, l.scoped_path)]
+            // Nonnegative ride/walk costs cannot improve an already completed
+            // point query beyond this clock. Keep equal clocks for tie-breaking.
+            if (!reverse && l.clock > end) || (reverse && l.clock < start) {
+                break;
+            }
+            if l.trip.is_some()
+                && !l.scoped_path
+                && target.is_some_and(|(_, _, terminal)| terminal || !l.walked)
+                && let Some(walk) = targets.get(&l.stop)
+            {
+                if reverse {
+                    start = start.max(l.clock - walk);
+                } else {
+                    end = end.min(l.clock + walk);
+                }
+            }
+            if !search.frontiers[&(l.stop, l.transfer_class, l.anchor, l.walked, l.scoped_path)]
                 .contains(&index)
             {
                 continue;
@@ -407,7 +494,27 @@ impl TimetableKernel {
             } else {
                 &s.departures[l.stop as usize]
             };
-            for &i in boardings {
+            // Scheduled candidates outside the current clock interval cannot
+            // board. Headway templates have relative clocks and are considered
+            // separately, with their real service windows checked below.
+            let times = if reverse {
+                self.arrival_seconds.view()
+            } else {
+                self.departure_seconds.view()
+            };
+            let lower = if reverse { start } else { l.clock };
+            let upper = if reverse { l.clock } else { end };
+            let first = boardings.partition_point(|&i| f64::from(times[i]) < lower);
+            let last = boardings.partition_point(|&i| f64::from(times[i]) <= upper);
+            let headways = if reverse {
+                &s.headway_arrivals
+            } else {
+                &s.headway_departures
+            };
+            for &i in boardings[first..last]
+                .iter()
+                .chain(&headways[l.stop as usize])
+            {
                 operations += 1;
                 if operations > 50_000_000 {
                     return Err(Error::from_reason(
@@ -490,6 +597,17 @@ impl TimetableKernel {
                     let run = self.segment_run.view()[i];
                     let mut j = i;
                     loop {
+                        let clock = if reverse {
+                            f64::from(self.departure_seconds.view()[j]) + shift - wait
+                        } else {
+                            f64::from(self.arrival_seconds.view()[j]) + shift
+                        };
+                        // Runs have monotone clocks, including linked physical
+                        // trips. Do not scan a whole through-service day after
+                        // its remaining calls have passed the query bound.
+                        if (!reverse && clock > end) || (reverse && clock < start) {
+                            break;
+                        }
                         operations += 1;
                         if operations > 50_000_000 {
                             return Err(Error::from_reason(
@@ -513,12 +631,34 @@ impl TimetableKernel {
                                     self.to_stop.view()[j]
                                 };
                                 let actual = self.physical_trip(trip, self.sequence.view()[j]);
+                                if let Some(walk) = targets.get(&stop) {
+                                    if reverse {
+                                        start = start.max(clock - walk);
+                                    } else {
+                                        end = end.min(clock + walk);
+                                    }
+                                }
                                 search.retain(Label {
                                     stop,
                                     clock,
                                     anchor_clock: clock,
                                     anchor: stop,
                                     trip: Some(actual),
+                                    transfer_class: Some(if distinct_trips {
+                                        actual
+                                    } else if reverse {
+                                        if s.reverse_identity_stops[stop as usize] {
+                                            s.reverse_classes[actual as usize]
+                                        } else {
+                                            0
+                                        }
+                                    } else {
+                                        if s.forward_identity_stops[stop as usize] {
+                                            s.forward_classes[actual as usize]
+                                        } else {
+                                            0
+                                        }
+                                    }),
                                     boardings: l.boardings + 1,
                                     walking: l.walking,
                                     walked: false,
@@ -648,6 +788,12 @@ impl TimetableKernel {
             input.allow_pre_ride_transfers,
             input.maximum_boardings,
             &[],
+            false,
+            Some((
+                &input.destination_stops,
+                &input.destination_walk_seconds,
+                input.allow_post_ride_transfers.unwrap_or(true),
+            )),
         )?;
         let completions = self.service_completions(
             &search,
@@ -700,6 +846,12 @@ impl TimetableKernel {
             input.allow_post_ride_transfers.unwrap_or(true),
             input.maximum_boardings,
             &[],
+            false,
+            Some((
+                &input.origin_stops,
+                &input.origin_walk_seconds,
+                input.allow_pre_ride_transfers,
+            )),
         )?;
         let completions = self.service_completions(
             &search,
@@ -740,6 +892,8 @@ impl TimetableKernel {
             input.allow_pre_ride_transfers,
             input.maximum_boardings,
             &input.excluded_trips,
+            false,
+            None,
         )?;
         let mut times = Vec::new();
         for (i, pair) in input.destination_offsets.windows(2).enumerate() {
@@ -784,6 +938,8 @@ impl TimetableKernel {
             input.allow_post_ride_transfers.unwrap_or(true),
             input.maximum_boardings,
             &input.excluded_trips,
+            false,
+            None,
         )?;
         let mut times = Vec::new();
         for (i, pair) in input.origin_offsets.windows(2).enumerate() {
@@ -824,6 +980,8 @@ impl TimetableKernel {
             input.allow_pre_ride_transfers,
             Some(input.boarding_upper_bound),
             &[],
+            input.collect_alternatives.unwrap_or(false),
+            None,
         )?;
         let mut completions = self.service_completions(
             &search,
@@ -886,7 +1044,7 @@ impl TimetableKernel {
         }
         if input.collect_alternatives == Some(true) {
             let ranked = input.alternative_ranking.as_deref() == Some("ranked");
-            let selected: Vec<_> = completions
+            let mut selected: Vec<_> = completions
                 .iter()
                 .filter(|c| {
                     ranked
@@ -900,6 +1058,15 @@ impl TimetableKernel {
                         })
                 })
                 .collect();
+            if ranked {
+                selected.sort_by(|a, b| {
+                    a.time
+                        .total_cmp(&b.time)
+                        .then(a.walking.total_cmp(&b.walking))
+                        .then(a.boardings.cmp(&b.boardings))
+                        .then(a.candidate.cmp(&b.candidate))
+                });
+            }
             result.alternatives = Some(
                 selected
                     .into_iter()
@@ -964,6 +1131,8 @@ impl TimetableKernel {
                     input.allow_pre_ride_transfers[origin],
                     input.maximum_boardings,
                     &[],
+                    false,
+                    None,
                 )?;
                 let completions = self.service_completions(
                     &search,
@@ -1264,6 +1433,100 @@ mod tests {
                             assert_eq!(result.times[0], if reverse { departure } else { 200. });
                         }
                     }
+                }
+            }
+        }
+    }
+    #[test]
+    fn point_bound_preserves_full_search_with_terminal_walks() {
+        let kernel = kernel(vec![], vec![]);
+        for reverse in [false, true] {
+            for walk in [0., 60., 70., 100.] {
+                let origins = if reverse { vec![2] } else { vec![0] };
+                let targets = if reverse { vec![0, 1] } else { vec![1, 2] };
+                let walks = vec![walk, 0.];
+                let full = kernel
+                    .service_search(
+                        &origins,
+                        &[0.],
+                        &[0],
+                        90.,
+                        400.,
+                        reverse,
+                        false,
+                        None,
+                        &[],
+                        false,
+                        None,
+                    )
+                    .unwrap();
+                let bounded = kernel
+                    .service_search(
+                        &origins,
+                        &[0.],
+                        &[0],
+                        90.,
+                        400.,
+                        reverse,
+                        false,
+                        None,
+                        &[],
+                        false,
+                        Some((&targets, &walks, true)),
+                    )
+                    .unwrap();
+                let best = |search: &Search| {
+                    kernel
+                        .service_completions(
+                            search,
+                            &targets,
+                            &walks,
+                            &[0, 1],
+                            true,
+                            if reverse { 90. } else { 400. },
+                        )
+                        .unwrap()
+                        .first()
+                        .map(|c| (c.time, c.boardings, c.walking))
+                };
+                assert_eq!(best(&bounded), best(&full));
+            }
+        }
+    }
+    #[test]
+    fn equivalent_transfer_classes_match_distinct_trip_frontiers() {
+        for rules in [vec![], vec![rule(Some(0), 3, 0)], vec![rule(None, 2, 25)]] {
+            let make = || {
+                let mut k = kernel(vec![], vec![]);
+                k.set_service_semantics(ServiceSemantics {
+                    rules: rules.clone(),
+                    trip_routes: vec![0, 0, 2],
+                    ..Default::default()
+                })
+                .unwrap();
+                k
+            };
+            let mut grouped = make();
+            let mut reference = make();
+            let index = reference.service.as_mut().unwrap();
+            index.forward_classes = vec![0, 1, 2];
+            index.reverse_classes = vec![0, 1, 2];
+            index.forward_identity_stops.fill(true);
+            index.reverse_identity_stops.fill(true);
+            for reverse in [false, true] {
+                for start in [90., 100., 105., 111.] {
+                    let input = || {
+                        let mut input = query(reverse);
+                        input.departure = start;
+                        input
+                    };
+                    let actual = grouped.route_matrix_csa(input()).unwrap();
+                    let expected = reference.route_matrix_csa(input()).unwrap();
+                    assert_eq!(actual.times, expected.times);
+                    assert_eq!(
+                        serde_json::to_value(actual.journeys).unwrap(),
+                        serde_json::to_value(expected.journeys).unwrap()
+                    );
                 }
             }
         }

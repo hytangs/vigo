@@ -109,6 +109,29 @@ pub(super) fn compile(
         // realtime trips: canceling the middle vehicle must not bridge a gap.
         // Shared service_id establishes a common calendar. Other block models
         // require explicit links instead of guessing cross-calendar continuity.
+        // Index explicit overrides once. A correlated OR subquery scans the
+        // complete links table for every block pair on real regional feeds.
+        let mut explicit_pairs: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+        let mut explicit_from = std::collections::HashSet::new();
+        let mut explicit_to = std::collections::HashSet::new();
+        if has_table(db, "trip_links")? {
+            let mut statement =
+                db.prepare("SELECT from_trip_id,to_trip_id,transfer_type FROM trip_links")?;
+            for row in statement.query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, u32>(2)?,
+                ))
+            })? {
+                let (from, to, kind) = row?;
+                if kind == 4 {
+                    explicit_from.insert(from.clone());
+                    explicit_to.insert(to.clone());
+                }
+                explicit_pairs.entry(from).or_default().insert(to);
+            }
+        }
         let mut statement = db.prepare("WITH bounds AS (
           SELECT t.trip_id,t.service_id,o.block_id,MIN(c.departure) AS departure,
             MAX(c.arrival) AS arrival,MAX(c.stop_sequence) AS terminal
@@ -124,10 +147,7 @@ pub(super) fn compile(
           WHERE a.arrival<=b.departure
           AND a.departure_count=1 AND b.departure_count=1
           AND (a.previous_arrival IS NULL OR a.previous_arrival<=a.departure)
-          AND b.previous_arrival<=b.departure
-          AND NOT EXISTS (SELECT 1 FROM trip_links l WHERE
-            (l.from_trip_id=a.trip_id AND l.to_trip_id=b.trip_id)
-            OR (l.transfer_type=4 AND (l.from_trip_id=a.trip_id OR l.to_trip_id=b.trip_id)))")?;
+          AND b.previous_arrival<=b.departure")?;
         for row in statement.query_map([], |r| {
             Ok((
                 r.get::<_, String>(0)?,
@@ -136,7 +156,15 @@ pub(super) fn compile(
                 true,
             ))
         })? {
-            candidates.push(row?);
+            let candidate = row?;
+            if !explicit_from.contains(&candidate.0)
+                && !explicit_to.contains(&candidate.1)
+                && !explicit_pairs
+                    .get(&candidate.0)
+                    .is_some_and(|targets| targets.contains(&candidate.1))
+            {
+                candidates.push(candidate);
+            }
         }
     }
     for (from, to, terminal, inferred) in candidates {

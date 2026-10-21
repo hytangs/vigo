@@ -63,7 +63,7 @@ Each standalone City also retains up to eight inactive scheduled timetables, wit
 
 One timetable query workspace belongs to the sequential worker and is lent to the selected scenario. Boarding layers, predecessors and generation tags are rebound to its stop and run dimensions; results never cross scenarios. Reusable street-search buffers move with the active request. Exact street attachments for Reach are shared only after scenario-specific station exits are resolved, with a limit of 16,384 coordinates per street graph.
 
-The least recently used City is evicted before opening another when `maximumResidentScenarios` is reached, retaining the street graph even with a one-City budget. `VIGO_MAX_RESIDENT_SCENARIOS` overrides this count from 1 to 16; this bounds resident scenarios, not total bytes. `GET /v1/info` reports current residency, unique timetable block bytes, column-view bytes and query-workspace bytes without opening every scenario. Timetable `sourceArrayBytes` measures logical column contents, including shared values; do not sum it as exclusive memory.
+The least recently used City is evicted before opening another when `maximumResidentScenarios` is reached, retaining the street graph even with a one-City budget. `VIGO_MAX_RESIDENT_SCENARIOS` overrides this count from 1 to 16; this bounds resident scenarios. `VIGO_RESIDENT_HEAP_BYTES` additionally bounds collection retention using tracked heap ownership (default: the smaller of 1 GiB and one third of the detected memory capacity). Least-recently-used Cities leave before an estimated replacement allocation and after queries when measured retained heap exceeds the budget. The selected City is always retained; `residentHeapOverBudget` reports when that City alone exceeds the budget. This is not an RSS limit: mapped pages, allocator overhead and temporary preparation allocations require additional capacity. `residency.lastQueryTiming` separates scenario selection, City opening, execution and post-query retention; eviction time is a subphase of selection/retention, not an extra additive duration. Profile/trace queries separately report timetable activation and preparation inside execution. `GET /v1/info` reports current residency, unique timetable block bytes, column-view bytes and query-workspace bytes without opening every scenario. Timetable `sourceArrayBytes` measures logical column contents, including shared values; do not sum it as exclusive memory.
 
 ### Memory ledger
 
@@ -393,7 +393,7 @@ Exact identifiers are case-sensitive. Multi-feed IDs may contain a feed scope an
 | `maxWalkKm` | 1.2 | Number 0–100; per transit access/egress endpoint, Reach terminal-walk budget, or Drive walk between a point and its road |
 | `maxTransfers` | No explicit cap | Integer 0–31; zero means at most one boarding |
 | `horizonMinutes` | 480 | Number 1–2880; Route/Matrix only |
-| `maxStreetKm` | 50 | Number 0.05–1000; Walk/Drive Route/Matrix limit |
+| `maxStreetKm` | 50 | Number 0.05–1000; Walk/Drive Route/Matrix limit. Zero and values below 0.05 are rejected, never rounded up or treated as unlimited. |
 | `allowStreetTransfers` | true | Keep or filter walking transfers between separate stops/stations |
 | `minimumTransferBufferMinutes` | 0 | Integer 0–60; extra time per subsequent transit transfer |
 | `requireTransitRide` | false | Transit Route/Matrix boarding policy |
@@ -523,7 +523,7 @@ Ask for several journeys at one time, plan through intermediate points, or compa
 `alternativeRanking` chooses them:
 
 - `pareto` (default) keeps only trade-offs: an alternative must beat every other returned journey on arrival, boardings, or walking. It uses no more boardings than the primary journey. When more trade-offs exist than requested, the fewest boardings and the least walking are kept first.
-- `ranked` keeps the earliest arrivals even when another journey is better in every respect, then prefers fewer boardings and less walking. It admits one more boarding than the primary journey, within `maxTransfers`. Journeys on the same sequence of vehicles count once, whatever stops they use to change or leave.
+- `ranked` keeps the earliest arrivals even when another journey is better in every respect, then prefers less walking and fewer boardings. A returned candidate with the same arrival and less walking replaces the primary journey, preserving any genuinely earlier arrival. This tie policy applies to ranked alternatives; scalar queries without alternatives retain their boarding-first tie policy. It admits one more boarding than the primary journey, within `maxTransfers`. Journeys on the same sequence of vehicles count once, whatever stops they use to change or leave.
 
 `alternativeSlackMinutes` (0–120, default 15) bounds how much later than the primary journey an alternative may arrive. `alternativeSearch` records `coverage: "requested_time"`, `ranking`, `maximumJourneys` (including the primary), `arrivalSlackMinutes`, and `status`. A search that exceeds the kernel's label budget reports `status: "unavailable"` with a `reason` and returns the primary journey alone. Alternatives are transit journeys; a faster direct walk remains the primary journey. Requests that combine alternatives with arrive-by, via points, or a journey window are rejected, except a window with `windowChoices: "supported"` (see [Supported window choices](#supported-window-choices)).
 
@@ -1687,6 +1687,7 @@ The environment variables for the Rust runtime are:
 | `VIGO_API_TOKEN` | Bearer token; nonempty values protect data endpoints, including loopback |
 | `RAYON_NUM_THREADS` | Optional native parallel thread count |
 | `VIGO_MAX_RESIDENT_SCENARIOS` | Maximum resident scenario views |
+| `VIGO_RESIDENT_HEAP_BYTES` | Collection retained-heap budget; default min(1 GiB, detected memory / 3), positive integer |
 | `VIGO_TIMETABLE_CACHE_BYTES` | Inactive scheduled-timetable budget per City or collection; default 134217728 bytes, `0` disables retention |
 | `VIGO_ENDPOINT_CACHE_MAX_BYTES` | Shared endpoint-cache budget |
 | `VIGO_SHAPE_GEOMETRY_CACHE_MAX_BYTES` | Shared geometry-cache budget |

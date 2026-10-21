@@ -149,14 +149,14 @@ impl Metrics {
     fn order(&self, other: &Self) -> Ordering {
         self.arrival
             .total_cmp(&other.arrival)
-            .then_with(|| self.boardings.total_cmp(&other.boardings))
             .then_with(|| self.walking.total_cmp(&other.walking))
+            .then_with(|| self.boardings.total_cmp(&other.boardings))
             .then_with(|| self.identity.cmp(&other.identity))
     }
 }
 
 /// Choose public alternatives from distinct formatted journeys. Ranked keeps
-/// the earliest arrivals, then fewer boardings and less walking, one per
+/// the earliest arrivals, then less walking and fewer boardings, one per
 /// sequence of vehicles (the primary's included). Pareto drops journeys
 /// dominated by the primary or an earlier alternative; when more remain than
 /// requested, the fewest boardings and least walking are kept before the
@@ -283,7 +283,7 @@ mod tests {
         let search = json!({"ranking":"ranked","maximumJourneys":3});
         assert_eq!(
             trips(&select(&primary, candidates.clone(), &search)),
-            ["a", "b"]
+            ["b", "a"]
         );
         // The primary's vehicles, alighting elsewhere, are not an alternative.
         let mut same_vehicle = journey("p", "08:31:00", 1, 60);
@@ -295,7 +295,7 @@ mod tests {
                 [vec![same_vehicle], candidates].concat(),
                 &search
             )),
-            ["a", "b", "late"]
+            ["b", "a", "late"]
         );
     }
 

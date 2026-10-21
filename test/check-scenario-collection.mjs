@@ -169,6 +169,30 @@ try {
     assert.equal(result.residency.inactiveTimetableBudgetBytes,budget)
     assert(result.residency.inactiveTimetableRetainedBytes<=budget)
   }
+  // A byte budget must constrain residency even when the count allows eight.
+  // Deliberately smaller than one City: keep only the selected City and report
+  // the unavoidable over-budget state instead of losing a valid query result.
+  const boundedRequests = []
+  for (const serviceDate of ['2026-07-15', '2026-07-16', '2026-07-15']) {
+    for (const scenario of scenarios) {
+      boundedRequests.push({ ...base, serviceDate, scenarioId: scenario.id }, { kind: 'info' })
+    }
+  }
+  const bounded = spawnSync(standaloneBinary, ['stream', '--city', collection], {
+    input: boundedRequests.map(q => JSON.stringify(q)).join('\n') + '\n', encoding: 'utf8',
+    env: { ...process.env, VIGO_MAX_RESIDENT_SCENARIOS: '8', VIGO_RESIDENT_HEAP_BYTES: '1' },
+  })
+  assert.equal(bounded.status, 0, bounded.stderr)
+  const boundedResults = bounded.stdout.trim().split('\n').map(line => JSON.parse(line))
+  for (let i = 0; i < boundedResults.length; i += 2) {
+    assert.equal(boundedResults[i].journey.arrivalTime, `08:${30 + (i / 2) % 8}:00`)
+    const residency = boundedResults[i + 1].residency
+    assert.equal(residency.loadedScenarios, 1)
+    assert.equal(residency.residentHeapBudgetBytes, 1)
+    assert.equal(residency.residentHeapOverBudget, true)
+    assert.equal(residency.scenarios[0].id, boundedRequests[i].scenarioId)
+  }
+  assert(boundedResults.at(-1).residency.evictions >= 23)
   const bad = await query({ ...base, scenarioId: 'missing' })
   assert.equal(bad.status, 'error')
   assert.match(bad.error.message, /Unknown scenarioId/)

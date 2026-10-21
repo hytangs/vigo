@@ -957,6 +957,7 @@ impl City {
         // Neither direction can board and alight without both frontiers. Keep
         // the optional direct-walk comparison below, but avoid a timetable scan
         // that cannot produce a transit witness.
+        let primary_started = Instant::now();
         let mut result = if a.stops.is_empty() || b.stops.is_empty() {
             TimetableMatrixQueryResult {
                 journeys: None,
@@ -987,6 +988,8 @@ impl City {
             .journeys
             .take()
             .and_then(|mut rows| rows.pop().flatten());
+        let primary_search_ms = primary_started.elapsed().as_secs_f64() * 1000.;
+        let mut alternative_search_ms = 0.;
         let mut choices = vec![];
         let mut alternative_search = None;
         // Alternatives share one timetable, options, and endpoint witnesses.
@@ -996,6 +999,7 @@ impl City {
         if (collect || requested.is_some())
             && let Some(j) = journey.as_ref()
         {
+            let alternatives_started = Instant::now();
             let (candidates, unsupported) = super::point::alternatives(
                 &mut self.timetable.as_mut().unwrap().kernel,
                 &Self::matrix_input(
@@ -1007,6 +1011,7 @@ impl City {
                 j,
                 requested.as_ref(),
             )?;
+            alternative_search_ms = alternatives_started.elapsed().as_secs_f64() * 1000.;
             alternative_search = requested.as_ref().map(|_| match &unsupported {
                 None => json!({"status":"complete"}),
                 Some(reason) => json!({"status":"unavailable","reason":reason}),
@@ -1103,6 +1108,9 @@ impl City {
                 [&a, &b],
             )?;
         }
+        if requested.as_ref().is_some_and(|r| r.ranking == "ranked") {
+            super::alternatives::promote_ranked(&mut output, &mut choices, opt.arrive);
+        }
         if collect {
             if output["status"] == "ready" {
                 choices.push(output.clone());
@@ -1114,6 +1122,10 @@ impl City {
             output["alternativeSearch"] = search;
         }
         output["diagnostics"] = json!({"search":{"startSeconds":opt.start,"endSeconds":opt.end,"horizonScope":"timetable_scan","maxTransfers":q["maxTransfers"],"allowStreetTransfers":q.get("allowStreetTransfers").unwrap_or(&Value::Bool(true)),"minimumTransferBufferMinutes":q.get("minimumTransferBufferMinutes").unwrap_or(&json!(0))},"native":result});
+        if matches!(q["diagnostics"].as_str(), Some("profile" | "trace")) {
+            output["diagnostics"]["search"]["primaryMs"] = json!(primary_search_ms);
+            output["diagnostics"]["search"]["alternativesMs"] = json!(alternative_search_ms);
+        }
         output["diagnostics"]["originAccess"] =
             a.diagnostics(&origin, self.full_access_evidence)?;
         output["diagnostics"]["destinationAccess"] =

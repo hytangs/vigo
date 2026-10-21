@@ -1417,7 +1417,7 @@ impl City {
                 self.query_workspace = Some(workspace);
             }
             if self.timetable_cache.budget > 0
-                && timetable.key.ends_with(":scheduled")
+                && timetable.coverage_end.is_some()
                 && let Some(pool) = &mut self.timetable_blocks
             {
                 timetable.kernel.share_source_columns(pool);

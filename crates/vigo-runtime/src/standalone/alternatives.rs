@@ -75,6 +75,34 @@ fn order(a: &Candidate, b: &Candidate, arrive: bool) -> Ordering {
         .then_with(|| a.arrival.total_cmp(&b.arrival))
         .then_with(|| a.identity.cmp(&b.identity))
 }
+/// Ranked candidates have already passed the native route constraints. Promote
+/// less walking only when the time objective ties; never trade away arrival.
+pub(super) fn promote_ranked(primary: &mut Value, choices: &mut [Value], arrive: bool) {
+    if primary["status"] != "ready" {
+        return;
+    }
+    let arrival = number(primary, "arrivalMinutes");
+    let departure = number(primary, "departureMinutes");
+    let current_walk = walking(primary);
+    let best = choices
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| {
+            c["status"] == "ready"
+                && number(c, "arrivalMinutes") == arrival
+                && (!arrive || number(c, "departureMinutes") == departure)
+                && walking(c) < current_walk
+        })
+        .min_by(|(_, a), (_, b)| {
+            walking(a)
+                .total_cmp(&walking(b))
+                .then_with(|| boardings(a).total_cmp(&boardings(b)))
+        })
+        .map(|(i, _)| i);
+    if let Some(index) = best {
+        std::mem::swap(primary, &mut choices[index]);
+    }
+}
 fn dominates(a: &Candidate, b: &Candidate, arrive: bool) -> bool {
     a.arrival <= b.arrival
         && (!arrive || a.departure >= b.departure)
@@ -150,6 +178,21 @@ mod tests {
             .collect()
     }
 
+    #[test]
+    fn connected_transfer_wins_only_on_equal_time() {
+        for arrive in [false, true] {
+            let mut primary = journey("street", 0., 30., 2., 9.);
+            let mut choices = vec![
+                journey("connected", 0., 30., 3., 4.),
+                journey("later", 0., 31., 1., 0.),
+            ];
+            promote_ranked(&mut primary, &mut choices, arrive);
+            assert_eq!(primary["id"], "connected");
+            let mut faster = journey("fast-street", 0., 29., 2., 9.);
+            promote_ranked(&mut faster, &mut choices, arrive);
+            assert_eq!(faster["id"], "fast-street");
+        }
+    }
     #[test]
     fn window_duplicates_keep_best_departure_and_arrival_choices() {
         let choices = vec![

@@ -1639,8 +1639,8 @@ fn collect_ranked_alternatives(
     ranked.sort_by(|left, right| {
         left.0
             .total_cmp(&right.0)
-            .then(left.1.cmp(&right.1))
             .then(left.2.total_cmp(&right.2))
+            .then(left.1.cmp(&right.1))
             .then(left.3.cmp(&right.3))
     });
     let mut rides = std::collections::HashSet::new();

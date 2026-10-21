@@ -228,5 +228,5 @@ impl TimetableCache {
 }
 
 fn scheduled(timetable: &Timetable) -> bool {
-    timetable.key.ends_with(":scheduled")
+    timetable.coverage_end.is_some()
 }
