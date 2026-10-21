@@ -149,14 +149,6 @@ pub fn compile_scenario_timetable(
         .map_err(node_error)
 }
 #[napi]
-pub fn compile_realtime_timetable(
-    input: RealtimeTimetableInput,
-) -> Result<RealtimeTimetableResult> {
-    vigo_route::timetable::compile_realtime_timetable(input.into())
-        .map(Into::into)
-        .map_err(node_error)
-}
-#[napi]
 pub fn read_service_timetable(input: ServiceTimetableInput) -> Result<ServiceTimetableResult> {
     vigo_format::read_service_timetable(input.into())
         .map(Into::into)

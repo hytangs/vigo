@@ -1,5 +1,6 @@
 // Service Alerts in routing, realtime leg quality, and realtime Matrix and
-// Reach, through the Rust binary on the public synthetic City.
+// Reach, through the Rust binary on the public synthetic City. Studio's Node
+// runtime applies the same overlay and must publish the same Route results.
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -20,6 +21,23 @@ function run(kind, request, { trace = true } = {}) {
   return JSON.parse(p.stdout)
 }
 const route = (request, options) => run('route', { ...base, routingDataMode: 'realtime', ...request }, options)
+// The public Route result of both runtimes for one realtime request.
+function both(request) {
+  const input = { ...base, routingDataMode: 'realtime', ...request }
+  const node = spawnSync(process.execPath, [path.join(root, 'public/vigo.mjs'), 'route', '--city', city, '--request', '-'],
+    { input: JSON.stringify(input), encoding: 'utf8', maxBuffer: 32 << 20 })
+  assert.equal(node.status, 0, node.stderr)
+  return [run('route', input, { trace: false }), JSON.parse(node.stdout)]
+}
+const transit = result => (result.journey?.legs ?? []).filter(l => l.type === 'transit')
+function sameRoute(request) {
+  const [rust, node] = both(request)
+  assert.equal(node.status, rust.status, JSON.stringify(node).slice(0, 400))
+  assert.deepEqual(node.meta?.realtime?.alerts, rust.meta?.realtime?.alerts)
+  assert.deepEqual(transit(node).map(l => [l.trip, l.quality.schedule, l.alerts, l.departureTime, l.arrivalTime]),
+    transit(rust).map(l => [l.trip, l.quality.schedule, l.alerts, l.departureTime, l.arrivalTime]))
+  return rust
+}
 const feedTimestamp = Math.floor(Date.now() / 1000)
 // Local midnight of the service date in the City's America/New_York clock.
 const midnight = Date.UTC(2026, 6, 15, 4) / 1000
@@ -63,6 +81,25 @@ try {
   assert.deepEqual(delayed.journey.legs.filter(l => l.type === 'transit').map(l => l.quality.schedule), ['timetable', 'realtime'])
   assert.equal(run('route', base, { trace: false }).journey.legs.filter(l => l.type === 'transit').every(l => l.quality.schedule === 'timetable'), true); checks++
 
+  // The Node runtime closes the same service and describes the same rides.
+  for (const realtimeSnapshot of [
+    snapshot([{ id: 'r2', effect: 'NO_SERVICE', informedEntities: [{ routeId: 'R2' }] }]),
+    snapshot([{ id: 'x', effect: 1, activePeriods: [{ start: at(8, 5), end: at(8, 20) }], informedEntities: [{ stopId: 'X' }] }]),
+    snapshot([{ id: 'x', effect: 1, activePeriods: [{ start: at(9, 0), end: at(10, 0) }], informedEntities: [{ stopId: 'X' }] }]),
+    snapshot([{ id: 'p', effect: 'NO_SERVICE', informedEntities: [{ stopId: 'P' }] }]),
+    snapshot([
+      { id: 'detour', effect: 'DETOUR', cause: 'CONSTRUCTION', header: 'R1 detour', informedEntities: [{ routeId: 'R1' }] },
+      { id: 'agency', effect: 'NO_SERVICE', informedEntities: [{ agencyId: 'fixture' }] },
+      { id: 'old', effect: 'NO_SERVICE', sourceFeedTimestamp: feedTimestamp - 3600, informedEntities: [{ routeId: 'R2' }] },
+      { id: 'later', effect: 'SIGNIFICANT_DELAYS', activePeriods: [{ start: at(12, 0), end: at(13, 0) }], informedEntities: [{ routeId: 'R1' }] },
+    ]),
+    snapshot([{ id: 'stop', effect: 'STOP_MOVED', informedEntities: [{ stopId: 'X' }] }], [{ tripId: 'T2', delaySeconds: 300 }]),
+  ]) sameRoute({ realtimeSnapshot })
+  const [, nodeDetour] = both({ realtimeSnapshot: snapshot([{ id: 'detour', effect: 'DETOUR', informedEntities: [{ routeId: 'R1' }] }]) })
+  assert.deepEqual(transit(nodeDetour).map(l => l.alerts?.map(a => a.id)), [['detour'], undefined])
+  const [, nodeDelayed] = both({ realtimeSnapshot: snapshot(undefined, [{ tripId: 'T2', delaySeconds: 300 }]) })
+  assert.deepEqual(transit(nodeDelayed).map(l => l.quality.schedule), ['timetable', 'realtime']); checks++
+
   // Matrix and Reach search the same realtime view as Route.
   const matrix = (extra = {}) => run('matrix', { serviceDate: base.serviceDate, time: base.time, origins: [base.origin], destinations: [base.destination], maxWalkKm: 0.2, requireTransitRide: true, ...extra }, { trace: false })
   const scheduledMatrix = matrix()
@@ -81,7 +118,7 @@ try {
   const refused = spawnSync(binary, ['matrix', '--city', city, '--request', '-'], { input: JSON.stringify({ serviceDate: base.serviceDate, time: base.time, mode: 'walk', origins: [base.origin], destinations: [base.destination], realtimeSnapshot: snapshot([]) }), env, encoding: 'utf8' })
   assert.equal(refused.status, 2); assert.match(refused.stderr, /transit Route, Matrix and Reach/); checks++
 
-  console.log(`Realtime alerts and query kinds passed (${checks} checks: NO_SERVICE routes and stops, active periods, leg alerts, stale and agency entities, realtime schedule quality, Matrix, Reach and scenarios).`)
+  console.log(`Realtime alerts and query kinds passed (${checks} checks: NO_SERVICE routes and stops, active periods, leg alerts, stale and agency entities, realtime schedule quality, Node runtime parity, Matrix, Reach and scenarios).`)
 } finally {
   fs.rmSync(directory, { recursive: true, force: true })
 }

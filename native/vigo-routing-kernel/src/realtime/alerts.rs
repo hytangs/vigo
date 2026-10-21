@@ -366,7 +366,13 @@ mod tests {
     fn names() -> TimetableNames {
         let ids = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Arc<[_]>>();
         TimetableNames::new(
-            ids(&["a\u{1f}P", "a\u{1f}S1", "a\u{1f}S2", "b\u{1f}S1", "b\u{1f}S2"]),
+            ids(&[
+                "a\u{1f}P",
+                "a\u{1f}S1",
+                "a\u{1f}S2",
+                "b\u{1f}S1",
+                "b\u{1f}S2",
+            ]),
             ids(&["a\u{1f}T1", "a\u{1f}T2", "b\u{1f}T1"]),
             ids(&["a\u{1f}R1", "a\u{1f}R2", "b\u{1f}R1"]),
             ids(&["0", "1", "0"]),

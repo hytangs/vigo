@@ -9,7 +9,7 @@ import { PbfWriter } from 'pbf'
 import { realtimeSources, maximumRealtimeSources } from '../src/shared/realtime-sources.mjs'
 import { mbtaRealtimeSources, realtimeRequestFromSources } from '../src/app/realtime.ts'
 import { inspectRealtimeFeed } from '../src/server/realtime-inspector.mjs'
-import { resolveRealtimeTripTimes } from '../src/server/realtime-trip-timing.mjs'
+import { realtimeTimetableForRequest, withRealtimeQueryContext } from '../src/server/gtfs/realtime-timetable.mjs'
 
 assert.deepEqual(realtimeRequestFromSources(mbtaRealtimeSources), { sources: mbtaRealtimeSources })
 assert.equal(realtimeSources({ sources: [{ url: 'https://transit.example/updates', kind: 'tripUpdates' }] }).length, 1, 'Trip predictions do not require a vehicle feed.')
@@ -64,10 +64,17 @@ try {
   assert.equal(snapshot.feeds[2].error.includes('DIFFERENTIAL'), true)
   assert.equal(snapshot.freshness.status, 'unknown', 'A failed source cannot yield an all-fresh batch.')
   assert.equal(snapshot.tripUpdates[0].delaySeconds, undefined, 'A stop prediction cannot become a trip-wide delay.')
-  const rows = [0, 1, 2].map(i => ({ stop_id: `S${i}`, stop_sequence: i + 1, arrival: 36000 + i * 600, departure: 36000 + i * 600 }))
-  const timing = resolveRealtimeTripTimes(rows, snapshot.tripUpdates[0], epoch => epoch)
-  assert.deepEqual(timing.stopTimes.map(stop => stop.departure), [36000, 36720, 37320], 'Only the reported stop and downstream calls inherit its delay.')
-  assert.equal(resolveRealtimeTripTimes(rows, { stopTimeUpdates: [{ stopSequence: 3 }, { stopSequence: 2 }] }, epoch => epoch).status, 'invalid')
+  // The native overlay applies the decoded prediction to its scheduled trip.
+  const u32 = values => Uint32Array.from(values)
+  const trip = { stopIds: ['S0', 'S1', 'S2'], tripIds: ['north\u001fsame-trip'], routeIds: ['north\u001fR'], directionIds: [''],
+    departureSeconds: u32([36000, 36600]), arrivalSeconds: u32([36600, 37200]), fromStop: u32([0, 1]), toStop: u32([1, 2]),
+    sequence: u32([1, 2]), segmentRun: u32([0, 0]), continuityBreak: Uint8Array.of(0, 0), canBoard: Uint8Array.of(1, 1),
+    canAlight: Uint8Array.of(1, 1), tripStart: u32([0, 2]), activeSegmentCount: 2, runCount: 1 }
+  const applied = update => realtimeTimetableForRequest({ agencyTimezones: ['UTC'] }, trip, withRealtimeQueryContext({
+    routingDataMode: 'realtime', realtimeSnapshot: { ...snapshot, tripUpdates: [update] } }), { resolvedServiceDate: '2026-09-26' })
+  const { kernel: timing } = applied(snapshot.tripUpdates[0])
+  assert.deepEqual([...timing.departureSeconds, timing.arrivalSeconds.at(-1)], [36000, 36720, 37320], 'Only the reported stop and downstream calls inherit its delay.')
+  assert.equal(applied({ ...snapshot.tripUpdates[0], stopTimeUpdates: [{ stopSequence: 3 }, { stopSequence: 2 }] }).diagnostics.invalidTrips, 1)
   const feeds = []
   for (const [scope, longitude] of [['north', 0], ['south', 10]]) {
     const zip = new JSZip()

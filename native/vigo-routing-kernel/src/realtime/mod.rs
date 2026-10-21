@@ -187,10 +187,15 @@ pub(crate) enum Outcome {
     Invalid,
     /// A valid record of a relationship routing does not model, such as ADDED.
     Unsupported,
-    Canceled { trip: u32 },
+    Canceled {
+        trip: u32,
+    },
     /// Predictions replace the trip's calls; `omitted` past calls had unknown
     /// actual times before an early first prediction.
-    Applied { trip: u32, omitted: u32 },
+    Applied {
+        trip: u32,
+        omitted: u32,
+    },
 }
 
 /// One snapshot compiled against one schedule. Callers that prepare their own
@@ -362,7 +367,14 @@ pub(crate) fn apply(schedule: &Schedule, input: &Input, clock: Clock, now: f64) 
         }
         let boundary = source_boundary(snapshot, update, now, &service_seconds);
         let predicted = scheduled_calls(schedule, trip).and_then(|calls| {
-            predict(calls, &names.stop_ids, update, &service_seconds, boundary, &mut total)
+            predict(
+                calls,
+                &names.stop_ids,
+                update,
+                &service_seconds,
+                boundary,
+                &mut total,
+            )
         });
         match predicted {
             Ok((stops, omitted)) => {

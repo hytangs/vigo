@@ -409,7 +409,8 @@ try {
   await check('arrive-by freezes freshness across reverse forward and preference searches', async () => {
     const store = await getDeadlineStore()
     const observed = Date.now() / 1000
-    const realtimeSnapshot = snapshot([update('late', { delaySeconds: 600 })], { feedTimestamp: observed })
+    // GTFS-Realtime clocks are whole POSIX seconds.
+    const realtimeSnapshot = snapshot([update('late', { delaySeconds: 600 })], { feedTimestamp: Math.floor(observed) })
     const input = deadlineRequest({ arriveMinutes: 650, routingPreference: 'balanced', realtimeSnapshot })
     const live = routeNationalGtfsStore(store, withRealtimeQueryContext(input, observed))
     connected(live)

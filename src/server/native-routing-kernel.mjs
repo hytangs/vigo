@@ -439,10 +439,10 @@ export function compileNativeStationPaths(input) {
   return binding.compileStationPaths(input)
 }
 
-export function compileNativeRealtimeTimetable(input) {
-  const binding = loadNativeBinding()
-  if (typeof binding.compileRealtimeTimetable !== 'function') throw new Error('Rust routing binding lacks realtime compilation. Rebuild the native kernel.')
-  return binding.compileRealtimeTimetable(input)
+export function createNativeRealtimeSchedule(input) {
+  const { RealtimeSchedule } = loadNativeBinding()
+  if (typeof RealtimeSchedule !== 'function') throw new Error('Rust routing binding lacks realtime overlays. Rebuild the native kernel.')
+  return new RealtimeSchedule(input)
 }
 
 export function encodeNativeRoutingSnapshot(metadataJson, arrays) {

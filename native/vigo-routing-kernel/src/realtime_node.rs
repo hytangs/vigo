@@ -98,23 +98,39 @@ impl RealtimeSchedule {
         let trips = input.trip_ids.len();
         let segments = input.departure_seconds.len();
         let stops = input.stop_ids.len();
-        let dates = input.trip_service_dates.unwrap_or_else(|| vec![String::new(); trips]);
+        let dates = input
+            .trip_service_dates
+            .unwrap_or_else(|| vec![String::new(); trips]);
         let trip_start: &[u32] = &input.trip_start;
         // The overlay reads trips and stops by index; reject inconsistent tables.
-        if [input.route_ids.len(), input.direction_ids.len(), dates.len()]
-            .iter()
-            .any(|&n| n != trips)
+        if [
+            input.route_ids.len(),
+            input.direction_ids.len(),
+            dates.len(),
+        ]
+        .iter()
+        .any(|&n| n != trips)
             || trip_start.len() != trips + 1
             || trip_start.first() != Some(&0)
             || trip_start.last().map(|&n| n as usize) != Some(segments)
             || trip_start.windows(2).any(|p| p[0] > p[1])
-            || [&input.arrival_seconds, &input.from_stop, &input.to_stop, &input.sequence, &input.segment_run]
-                .iter()
-                .any(|a| a.len() != segments)
+            || [
+                &input.arrival_seconds,
+                &input.from_stop,
+                &input.to_stop,
+                &input.sequence,
+                &input.segment_run,
+            ]
+            .iter()
+            .any(|a| a.len() != segments)
             || [&input.continuity_break, &input.can_board, &input.can_alight]
                 .iter()
                 .any(|a| a.len() != segments)
-            || input.from_stop.iter().chain(input.to_stop.iter()).any(|&s| s as usize >= stops)
+            || input
+                .from_stop
+                .iter()
+                .chain(input.to_stop.iter())
+                .any(|&s| s as usize >= stops)
             || input.stop_parents.len() != stops
             || stops > u32::MAX as usize
         {
@@ -150,7 +166,11 @@ impl RealtimeSchedule {
     /// its content, each record's validity at the observation time, and the
     /// clock it is read on. Equal keys yield identical views of this schedule.
     #[napi]
-    pub fn view_key(&mut self, snapshot: String, options: RealtimeOverlayOptions) -> Result<String> {
+    pub fn view_key(
+        &mut self,
+        snapshot: String,
+        options: RealtimeOverlayOptions,
+    ) -> Result<String> {
         Ok(self.identify(&snapshot, &options)?.0)
     }
 
@@ -248,10 +268,18 @@ impl RealtimeSchedule {
         }
     }
     /// The view key and content digest of `snapshot`.
-    fn identify(&mut self, snapshot: &str, options: &RealtimeOverlayOptions) -> Result<(String, String)> {
+    fn identify(
+        &mut self,
+        snapshot: &str,
+        options: &RealtimeOverlayOptions,
+    ) -> Result<(String, String)> {
         let digest = format!("{:x}", Sha256::digest(snapshot.as_bytes()));
         self.parsed = self.parsed.take().filter(|(parsed, _)| *parsed == digest);
-        match self.clocks.iter().position(|(retained, _)| *retained == digest) {
+        match self
+            .clocks
+            .iter()
+            .position(|(retained, _)| *retained == digest)
+        {
             Some(index) => {
                 let entry = self.clocks.remove(index);
                 self.clocks.push(entry);
@@ -350,7 +378,10 @@ impl RealtimeOverlay {
         departure: f64,
         arrival: f64,
     ) -> Option<String> {
-        let ride = self.alerts.as_ref()?.for_ride(trip, &stops, departure, arrival);
+        let ride = self
+            .alerts
+            .as_ref()?
+            .for_ride(trip, &stops, departure, arrival);
         (!ride.is_empty()).then(|| Value::Array(ride).to_string())
     }
 }

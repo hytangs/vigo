@@ -7,18 +7,17 @@ import {
 import { currentStreetStoreStorageIdentity } from './store-metadata.mjs'
 
 import crypto from 'node:crypto'
+import { createNativeRealtimeSchedule } from '../native-routing-kernel.mjs'
 import { numeric } from '../number-utils.mjs'
-import { compileRealtimeTimetableKernel } from '../realtime-timetable-kernel.mjs'
-import { resolveRealtimeTripTimes } from '../realtime-trip-timing.mjs'
-import { serviceClock as realtimeServiceClock, serviceEpochSeconds } from './service-clock.mjs'
 import { routingDataModeForRequest } from '../routing-data-mode.mjs'
 import { stableJson } from '../routing-plan-identity.mjs'
+import { runtimeCapacityError, timetableBudgetBytes } from '../runtime/resource-limits.mjs'
 
 const realtimeQueryContext = Symbol('vigo.internal.realtime-query-context')
 
-const realtimeTimetableCache = new WeakMap()
-
-const realtimeTripLookupCache = new WeakMap()
+// Each resident timetable keeps one native schedule and its recent views.
+const realtimeSchedules = new WeakMap()
+const retainedViews = 4
 
 function normalizeRealtimeSnapshotForRouting(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
@@ -26,101 +25,61 @@ function normalizeRealtimeSnapshotForRouting(value) {
     throw Object.assign(new Error('Realtime routing requires a FULL_DATASET snapshot.'), { statusCode: 400 })
   }
   const tripUpdates = Array.isArray(value.tripUpdates) ? value.tripUpdates : []
+  const alerts = Array.isArray(value.alerts) ? value.alerts : undefined
   if (tripUpdates.length > 100_000 || tripUpdates.reduce((total, update) => total + (Array.isArray(update?.stopTimeUpdates) ? update.stopTimeUpdates.length : 0), 0) > 500_000) {
     throw Object.assign(new Error('Realtime snapshot exceeds 100,000 trip updates or 500,000 stop predictions.'), { statusCode: 413 })
   }
-  if (!tripUpdates.length && !value.inputCoverage?.received) return null
+  if (!tripUpdates.length && !alerts?.length && !value.inputCoverage?.received) return null
+  const feedTimestamp = numeric(value.feedTimestamp, undefined)
   return {
     sourceUrl: String(value.sourceUrl ?? '').trim() || undefined,
     sourceUrls: Array.isArray(value.sourceUrls)
       ? value.sourceUrls.map((sourceUrl) => String(sourceUrl ?? '').trim()).filter(Boolean)
       : [],
     fetchedAt: String(value.fetchedAt ?? '').trim() || undefined,
-    feedTimestamp: numeric(value.feedTimestamp, undefined),
+    feedTimestamp,
     tripUpdates,
     failedFeeds: Array.isArray(value.feeds) ? value.feeds.filter(feed => feed.error).length : 0,
     inputCoverage: value.inputCoverage,
     counts: value.counts && typeof value.counts === 'object' ? value.counts : undefined,
+    // Only what the native overlay reads crosses to it; vehicle positions and
+    // feed reports stay here.
+    overlay: { feedTimestamp, timezone: value.timezone, tripUpdates, alerts },
   }
 }
 
-function realtimeTripLookup(kernel) {
-  const cached = realtimeTripLookupCache.get(kernel)
-  if (cached) return cached
-  const exact = new Map()
-  const suffix = new Map()
-  for (let index = 0; index < kernel.tripIds.length; index += 1) {
-    const tripId = String(kernel.tripIds[index] ?? '')
-    const exactMatches = exact.get(tripId) ?? []
-    exactMatches.push(index)
-    exact.set(tripId, exactMatches)
-    const baseId = tripId.includes('\u001f') ? tripId.split('\u001f').at(-1) : tripId
-    const matches = suffix.get(baseId) ?? []
-    matches.push(index)
-    suffix.set(baseId, matches)
+// The schedule retains the timetable's arrays without copying them. Alerts
+// resolve stations through parent stops and route selectors through types.
+function realtimeSchedule(store, kernel) {
+  const retained = realtimeSchedules.get(kernel)
+  if (retained) return retained
+  const stopIndex = kernel.stopIndex ?? new Map(kernel.stopIds.map((id, index) => [id, index]))
+  const stopParents = new Uint32Array(kernel.stopIds.length).fill(0xffff_ffff)
+  kernel.stopIds.forEach((id, index) => {
+    const parent = stopIndex.get(store.stopRecords?.get(id)?.parent_station)
+    if (parent !== undefined) stopParents[index] = parent
+  })
+  const routeTypes = {}
+  for (const routeId of new Set(kernel.routeIds)) {
+    const type = Number(store.routeLookup?.get(routeId)?.route_type)
+    if (Number.isInteger(type)) routeTypes[routeId] = type
   }
-  const lookup = { exact, suffix }
-  realtimeTripLookupCache.set(kernel, lookup)
-  return lookup
-}
-
-function resolveRealtimeTripIndex(kernel, tripId, sourceScope, serviceDate) {
-  const normalizedTripId = String(tripId ?? '').trim()
-  if (!normalizedTripId) return undefined
-  const lookup = realtimeTripLookup(kernel)
-  const matches = normalizedTripId.includes('\u001f')
-    ? lookup.exact.get(normalizedTripId) ?? []
-    : lookup.suffix.get(normalizedTripId) ?? []
-  const scoped = sourceScope == null ? matches : matches.filter(index => (
-    String(kernel.tripIds[index]).split('\u001f')[0] === String(sourceScope)
-  ))
-  const dated = scoped.filter(index => !kernel.tripServiceDates?.[index]
-    || realtimeServiceDateToken(kernel.tripServiceDates[index]) === realtimeServiceDateToken(serviceDate))
-  return dated.length === 1 ? dated[0] : undefined
-}
-
-function realtimeTripRelationship(value) {
-  if (value === undefined || value === null || value === '') return 'SCHEDULED'
-  if (typeof value === 'number') {
-    return { 0: 'SCHEDULED', 1: 'ADDED', 2: 'UNSCHEDULED', 3: 'CANCELED', 5: 'REPLACEMENT', 6: 'DUPLICATED', 7: 'DELETED' }[value] ?? 'UNKNOWN'
+  const text = values => Array.from(values, value => String(value ?? ''))
+  const schedule = {
+    native: createNativeRealtimeSchedule({
+      stopIds: text(kernel.stopIds), tripIds: text(kernel.tripIds), routeIds: text(kernel.routeIds),
+      directionIds: text(kernel.directionIds),
+      ...(kernel.tripServiceDates ? { tripServiceDates: text(kernel.tripServiceDates) } : {}),
+      departureSeconds: kernel.departureSeconds, arrivalSeconds: kernel.arrivalSeconds,
+      fromStop: kernel.fromStop, toStop: kernel.toStop, sequence: kernel.sequence,
+      segmentRun: kernel.segmentRun, continuityBreak: kernel.continuityBreak,
+      canBoard: kernel.canBoard, canAlight: kernel.canAlight, tripStart: kernel.tripStart,
+      stopParents, routeTypes,
+    }),
+    views: new Map(),
   }
-  return String(value).trim().toUpperCase()
-}
-
-function realtimeServiceDateToken(serviceDate) {
-  return String(serviceDate ?? '').replaceAll('-', '')
-}
-
-function realtimeStaticTripStopTimes(store, tripId) {
-  if (store.realtimeTripStopTimesLookup) {
-    return store.realtimeTripStopTimesLookup.all(tripId)
-  }
-  const connections = store.realtimeTripConnectionsLookup.all(tripId)
-  if (!connections.length) return []
-  const stopTimes = [{
-    stop_sequence: connections[0].stop_sequence,
-    stop_id: connections[0].from_stop_id,
-    arrival: connections[0].departure,
-    departure: connections[0].departure,
-    can_board: 1,
-    can_alight: 1,
-  }]
-  for (let index = 0; index < connections.length; index += 1) {
-    const connection = connections[index]
-    const next = connections[index + 1]
-    stopTimes.push({
-      stop_sequence: next?.stop_sequence ?? Number(connection.stop_sequence) + 1,
-      stop_sequence_inferred: !next,
-      stop_id: connection.to_stop_id,
-      arrival: connection.arrival,
-      departure: next && next.from_stop_id === connection.to_stop_id
-        ? next.departure
-        : connection.arrival,
-      can_board: 1,
-      can_alight: 1,
-    })
-  }
-  return stopTimes
+  realtimeSchedules.set(kernel, schedule)
+  return schedule
 }
 
 export function withRealtimeQueryContext(request, observationSeconds = Date.now() / 1000) {
@@ -193,124 +152,104 @@ export function attachRoutingDataProvenance(plan, store, request) {
 }
 
 // Freeze one observation time across reverse search, forward materialization,
-// and preference verification. A refreshed snapshot creates a new kernel; it
-// never edits the resident scheduled timetable or a search already in flight.
+// and preference verification. A new snapshot compiles a new view in the
+// native engine; it never edits the resident scheduled timetable or a search
+// already in flight. Views are retained by the snapshot's content and the
+// validity of its records at the observation time.
 export function realtimeTimetableForRequest(store, kernel, request, serviceDateResolution) {
   const context = request[realtimeQueryContext]
   const snapshot = context?.snapshot
   if (!snapshot) return null
   const serviceDate = serviceDateResolution.resolvedServiceDate
-  const instanceDates = new Set([serviceDate, ...(kernel.tripServiceDates ?? [])].filter(Boolean).map(realtimeServiceDateToken))
   const previous = context.resolutions.get(kernel)
   if (previous?.serviceDate === serviceDate) return previous.result
-  const now = context.nowSeconds
-  const fresh = timestamp => typeof timestamp === 'number' && Number.isFinite(timestamp)
-    && timestamp > 0 && now - timestamp <= 180 && timestamp - now <= 60
-  // Timestamp validity is part of the cache identity, so cached predictions
-  // expire even when the same snapshot is repeatedly submitted.
-  const validity = snapshot.tripUpdates.map(update => [
-    fresh(update?.sourceFeedTimestamp ?? snapshot.feedTimestamp),
-    update?.timestamp == null || fresh(update.timestamp),
-    (update?.sourceFeedTimestamp ?? snapshot.feedTimestamp) <= now
-      && (update?.timestamp == null || update.timestamp <= now),
-  ])
-  const cacheKey = crypto.createHash('sha256').update(stableJson({
-    snapshot, serviceDate, timetableIdentity: kernel.sourceArtifactIdentity ?? kernel.sourceStorageIdentity,
-    serviceKey: kernel.serviceKey, feedFresh: fresh(snapshot.feedTimestamp), validity,
-  })).digest('hex')
-  const cached = realtimeTimetableCache.get(kernel)
-  if (cached?.key === cacheKey) {
-    context.resolutions.set(kernel, { serviceDate, result: cached.result })
-    return cached.result
+  const schedule = realtimeSchedule(store, kernel)
+  context.json ??= JSON.stringify(snapshot.overlay)
+  const options = { serviceDate, timezone: store.agencyTimezones?.[0] || 'UTC', nowSeconds: context.nowSeconds }
+  const key = schedule.native.viewKey(context.json, options)
+  let result = schedule.views.get(key)
+  if (result) schedule.views.delete(key)
+  else result = compileRealtimeTimetable(kernel, schedule.native, context.json, options, snapshot)
+  schedule.views.set(key, result)
+  if (schedule.views.size > retainedViews) schedule.views.delete(schedule.views.keys().next().value)
+  context.resolutions.set(kernel, { serviceDate, result })
+  return result
+}
+
+function compileRealtimeTimetable(base, schedule, json, options, snapshot) {
+  const started = performance.now()
+  // A view replaces calls of scheduled trips, so it never exceeds the schedule
+  // by more than one call per update. Bound admission before compiling it.
+  const calls = base.activeSegmentCount + snapshot.tripUpdates.length
+  const estimatedBytes = (base.estimatedBytes ?? base.activeSegmentCount * 96 + base.stopIds.length * 256)
+    + Math.max(base.activeSegmentCount, calls) * 96 + calls * 256
+  if (estimatedBytes > timetableBudgetBytes) {
+    throw runtimeCapacityError(`Realtime reconstruction needs an estimated ${Math.ceil(estimatedBytes / 1024 / 1024)} MiB; the timetable budget is ${Math.floor(timetableBudgetBytes / 1024 / 1024)} MiB.`, 'VIGO_REALTIME_MEMORY_LIMIT')
   }
+  const overlay = schedule.apply(json, options)
+  const counts = overlay.counts
+  const trips = []
+  const pairs = overlay.applied
+  for (let index = 0; index < pairs.length; index += 2) {
+    const update = snapshot.tripUpdates[pairs[index]]
+    trips.push({ tripId: base.tripIds[pairs[index + 1]], feedTripId: String(update.tripId ?? update.trip?.tripId) })
+  }
+  const applied = counts.applied + counts.canceled
+  const upstreamRejected = Math.max(0, numeric(snapshot.inputCoverage?.rejected, 0))
+  const rejected = counts.feedUpdates - applied + upstreamRejected
+  const alerts = overlay.alertDiagnostics
   const diagnostics = {
-    mode: 'full-snapshot', snapshotId: cacheKey,
+    mode: 'full-snapshot', snapshotId: overlay.key,
     feedTimestamp: snapshot.feedTimestamp, fetchedAt: snapshot.fetchedAt,
-    feedTripUpdates: snapshot.tripUpdates.length,
+    feedTripUpdates: counts.feedUpdates,
     failedFeeds: snapshot.failedFeeds,
     inputCoverage: snapshot.inputCoverage,
-    matchedTripUpdates: 0, appliedTrips: 0, replacedTrips: 0, canceledTrips: 0,
-    unsupportedTrips: 0, dateMismatches: 0, unmatchedTrips: 0,
-    invalidTrips: 0, staleTrips: 0, duplicateTrips: 0, prunedTrips: 0,
-    pastPrefixTrips: 0, omittedPastPrefixStops: 0,
-    stale: !fresh(snapshot.feedTimestamp),
+    matchedTripUpdates: applied + counts.duplicate + counts.invalid + counts.unsupported,
+    appliedTrips: counts.applied, replacedTrips: counts.applied, canceledTrips: counts.canceled,
+    unsupportedTrips: counts.unsupported, dateMismatches: counts.dateMismatches, unmatchedTrips: counts.unmatched,
+    invalidTrips: counts.invalid, staleTrips: counts.stale, duplicateTrips: counts.duplicate, prunedTrips: 0,
+    pastPrefixTrips: counts.pastPrefixTrips, omittedPastPrefixStops: counts.omittedPastPrefixStops,
+    stale: !freshTimestamp(snapshot.feedTimestamp, options.nowSeconds),
+    coverage: {
+      inputUpdates: counts.feedUpdates + upstreamRejected,
+      appliedUpdates: applied, rejectedUpdates: rejected, prunedUpdates: 0,
+      failedFeeds: snapshot.failedFeeds,
+      complete: rejected === 0 && snapshot.failedFeeds === 0 && (counts.feedUpdates > 0 || snapshot.inputCoverage?.complete === true),
+    },
+    ...(alerts ? { alerts: JSON.parse(alerts) } : {}),
   }
-  const replacements = new Map(), canceledTrips = new Set(), trips = []
-  const resolved = snapshot.tripUpdates.map(update => resolveRealtimeTripIndex(kernel, update?.tripId, update?.sourceScope, update?.startDate || serviceDate))
-  const identities = new Map()
-  for (let index = 0; index < resolved.length; index++) {
-    const trip = resolved[index], update = snapshot.tripUpdates[index]
-    if (trip !== undefined && validity[index][0] && validity[index][1]
-      && (!update.startDate || instanceDates.has(realtimeServiceDateToken(update.startDate)))) {
-      identities.set(trip, (identities.get(trip) ?? 0) + 1)
-    }
-  }
-  let toServiceSeconds
-  for (let index = 0; index < snapshot.tripUpdates.length; index++) {
-    const update = snapshot.tripUpdates[index], tripIndex = resolved[index]
-    if (!validity[index][0] || !validity[index][1]) { diagnostics.staleTrips++; continue }
-    if (update.startDate && !instanceDates.has(realtimeServiceDateToken(update.startDate))) {
-      diagnostics.dateMismatches++; continue
-    }
-    if (tripIndex === undefined) { diagnostics.unmatchedTrips++; continue }
-    diagnostics.matchedTripUpdates++
-    if (identities.get(tripIndex) !== 1) { diagnostics.duplicateTrips++; continue }
-    const tripId = kernel.tripIds[tripIndex]
-    const sameId = (left, right) => String(left).includes('\u001f')
-      ? String(left) === String(right) : String(left) === String(right).split('\u001f').at(-1)
-    if ((update.routeId && !sameId(update.routeId, kernel.routeIds[tripIndex]))
-      || (update.directionId != null && String(update.directionId) !== String(kernel.directionIds[tripIndex]))) {
-      diagnostics.invalidTrips++; continue
-    }
-    const relationship = realtimeTripRelationship(update.scheduleRelationship)
-    if (relationship === 'CANCELED' || relationship === 'DELETED') {
-      canceledTrips.add(tripIndex); diagnostics.canceledTrips++
-      trips.push({ tripId, feedTripId: String(update.tripId) })
-      continue
-    }
-    if (relationship !== 'SCHEDULED') { diagnostics.unsupportedTrips++; continue }
-    let rows = realtimeStaticTripStopTimes(store, tripId)
-    const instanceDate = kernel.tripServiceDates?.[tripIndex] || serviceDate
-    if (instanceDate !== serviceDate) {
-      const zone = store.agencyTimezones[0] || 'UTC'
-      const offset = serviceEpochSeconds(instanceDate, zone) - serviceEpochSeconds(serviceDate, zone)
-      rows = rows.map(row => ({ ...row, arrival: row.arrival + offset, departure: row.departure + offset }))
-    }
-    if (rows.length < 2) { diagnostics.invalidTrips++; continue }
-    toServiceSeconds ??= realtimeServiceClock(serviceDate, store.agencyTimezones[0] || 'UTC')
-    const timing = resolveRealtimeTripTimes(rows, update, toServiceSeconds,
-      { nowSeconds: now, feedTimestamp: update.sourceFeedTimestamp ?? snapshot.feedTimestamp })
-    if (timing.status !== 'ready') {
-      diagnostics[timing.status === 'unsupported' ? 'unsupportedTrips' : 'invalidTrips']++
-      continue
-    }
-    if (timing.omittedPastPrefixStops > 0) {
-      diagnostics.pastPrefixTrips++
-      diagnostics.omittedPastPrefixStops += timing.omittedPastPrefixStops
-    }
-    replacements.set(tripIndex, { stopTimes: timing.stopTimes })
-    trips.push({ tripId, feedTripId: String(update.tripId) })
-  }
-  diagnostics.appliedTrips = replacements.size
-  diagnostics.replacedTrips = replacements.size
-  const applied = replacements.size + canceledTrips.size
-  const upstreamRejected = Math.max(0, numeric(snapshot.inputCoverage?.rejected, 0))
-  const rejected = snapshot.tripUpdates.length - applied + upstreamRejected
-  diagnostics.coverage = {
-    inputUpdates: snapshot.tripUpdates.length + upstreamRejected,
-    appliedUpdates: applied, rejectedUpdates: rejected, prunedUpdates: 0,
-    failedFeeds: snapshot.failedFeeds,
-    complete: rejected === 0 && snapshot.failedFeeds === 0 && (snapshot.tripUpdates.length > 0 || snapshot.inputCoverage?.complete === true),
-  }
-  const status = applied ? rejected || snapshot.failedFeeds ? 'partial' : replacements.size ? 'applied' : 'cancellations_only'
+  const status = applied ? rejected || snapshot.failedFeeds ? 'partial' : counts.applied ? 'applied' : 'cancellations_only'
     : diagnostics.staleTrips > 0 || diagnostics.stale ? 'stale_fallback' : 'no_matches'
   diagnostics.status = status
   if (status === 'stale_fallback') diagnostics.fallbackReason = 'feed_or_record_timestamp_missing_invalid_or_stale'
-  const result = { ready: applied > 0, status, diagnostics, trips,
-    kernel: applied ? compileRealtimeTimetableKernel(kernel, { replacements, canceledTrips, diagnostics }) : kernel }
-  diagnostics.activeSegments = result.kernel.activeSegmentCount
-  diagnostics.activeRuns = result.kernel.runCount
-  context.resolutions.set(kernel, { serviceDate, result })
-  realtimeTimetableCache.set(kernel, { key: cacheKey, result })
-  return result
+  const view = overlay.takeView()
+  const kernel = view ? realtimeKernel(base, view, diagnostics, started) : base
+  diagnostics.activeSegments = kernel.activeSegmentCount
+  diagnostics.activeRuns = kernel.runCount
+  return { ready: Boolean(view), status, diagnostics, trips, kernel, alerts: overlay.hasAlerts ? overlay : null }
+}
+
+// The view shares the schedule's names, stops and transfers; only its segment
+// arrays and departure index are new. Native indexes are rebuilt for it.
+function realtimeKernel(base, view, diagnostics, started) {
+  const kernel = { ...base, ...view, realtimeTripIndices: new Set(view.realtimeTripIndices), realtimeDiagnostics: diagnostics,
+    compileMs: Number((performance.now() - started).toFixed(3)), buildMs: 0, memoryDelta: null }
+  for (const field of ['nativeTimetableKernel', 'sourceTypedArrayBytes', 'nativeIndexBytes', 'nativeWorkspaceBytes', 'typedArrayBytes', 'estimatedBytes']) delete kernel[field]
+  return kernel
+}
+
+function freshTimestamp(timestamp, nowSeconds) {
+  return Number.isInteger(timestamp) && timestamp > 0 && nowSeconds - timestamp <= 180 && timestamp - nowSeconds <= 60
+}
+
+// The Service Alerts that describe one ride: its trip, its route or a stop it
+// calls at, during the ride.
+export function realtimeRideAlerts(realtimeTimetable, kernel, trip, connections) {
+  const alerts = realtimeTimetable?.alerts
+  if (!alerts || !connections.length) return undefined
+  const stopIndex = kernel.stopIndex ?? new Map(kernel.stopIds.map((id, index) => [id, index]))
+  const stops = [connections[0].from_stop_id, ...connections.map(connection => connection.to_stop_id)]
+    .map(id => stopIndex.get(id)).filter(stop => stop !== undefined)
+  const ride = alerts.alertsForRide(trip, stops, connections[0].departure, connections.at(-1).arrival)
+  return ride ? JSON.parse(ride) : undefined
 }

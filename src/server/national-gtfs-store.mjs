@@ -17,7 +17,7 @@ import {
   stopSupportsStationAccessRole,
 } from './gtfs/coordinate-access.mjs'
 
-import { attachRoutingDataProvenance, realtimeTimetableForRequest, withRealtimeQueryContext } from './gtfs/realtime-timetable.mjs'
+import { attachRoutingDataProvenance, realtimeRideAlerts, realtimeTimetableForRequest, withRealtimeQueryContext } from './gtfs/realtime-timetable.mjs'
 import {
   decorateScenarioPlan,
   prepareScenarioRouting,
@@ -2412,10 +2412,6 @@ function openNationalStore(storePath, options = {}) {
     FROM sqlite_master
     WHERE type='table' AND name='connection_permissions'
   `).get()?.ready === 1
-  const stopTimesTablePresent = db.prepare(`
-    SELECT 1 AS ready FROM sqlite_master
-    WHERE type='table' AND name='stop_times'
-  `).get()?.ready === 1
   const staticTopology = inspectStaticTopologyDatabase(db)
   const sourceStorageSnapshot = staticTopologySourceStorageSnapshot(resolvedStorePath)
   const sourceArtifactIdentity = routingArtifactSourceIdentity(
@@ -2497,15 +2493,6 @@ function openNationalStore(storePath, options = {}) {
     stopLookup: null,
     routeLookup: new Map(db.prepare('SELECT route_id, route_type, short_name, long_name, color FROM routes').all()
       .map(route => [route.route_id, route])),
-    realtimeTripStopTimesLookup: stopTimesTablePresent ? db.prepare(`
-      SELECT stop_sequence, stop_id, arrival, departure, can_board, can_alight
-      FROM stop_times WHERE trip_id=? ORDER BY stop_sequence
-    `) : null,
-    realtimeTripConnectionsLookup: db.prepare(`
-      SELECT trip_id, route_id, service_id, direction_id,
-        from_stop_id, to_stop_id, departure, arrival, stop_sequence
-      FROM connections WHERE trip_id=? ORDER BY stop_sequence
-    `),
     tripDetailsLookup: db.prepare('SELECT headsign, short_name FROM trip_details WHERE trip_id=?'),
     tripShapeLookup: shapeTablesReady ? db.prepare('SELECT shape_id FROM trip_shapes WHERE trip_id=?') : null,
     shapePointsLookup: shapeTablesReady ? db.prepare('SELECT lon, lat FROM shape_points WHERE shape_id=? ORDER BY sequence') : null,
@@ -5423,6 +5410,9 @@ function materializeActiveServiceKernelPlan(store, kernel, search, context) {
           ? 'equal-whole-minute'
           : 'equal-time'
         : undefined,
+      // Predictions replace the source times of the whole ride.
+      realtimeTrip: step.realtimeAdjusted || undefined,
+      alerts: realtimeRideAlerts(realtimeTimetable, kernel, step.kernelTripIndex, connections),
     })
   }
   const lastStop = stopLookup.get(bestStop.stop_id)
