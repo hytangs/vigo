@@ -3,7 +3,7 @@
 //! from another vehicle cannot dominate a legal connection from a later one.
 use super::*;
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashSet};
+use std::collections::{BTreeMap, BinaryHeap, HashSet};
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
@@ -456,7 +456,7 @@ impl TimetableKernel {
                         &s.extra_forward,
                     )
                 };
-                let mut transfers: HashMap<u32, (u32, bool)> = edges
+                let mut transfers: BTreeMap<u32, (u32, bool)> = edges
                     [offset[l.stop as usize] as usize..offset[l.stop as usize + 1] as usize]
                     .iter()
                     .map(|e| (e.stop() as u32, (e.duration(), false)))
@@ -771,6 +771,7 @@ impl TimetableKernel {
             .then(a.boardings.cmp(&b.boardings))
             .then(a.walking.total_cmp(&b.walking))
             .then(a.candidate.cmp(&b.candidate))
+            .then(a.label.cmp(&b.label))
         });
         Ok(result)
     }
@@ -1091,6 +1092,7 @@ impl TimetableKernel {
                         .then(a.walking.total_cmp(&b.walking))
                         .then(a.boardings.cmp(&b.boardings))
                         .then(a.candidate.cmp(&b.candidate))
+                        .then(a.label.cmp(&b.label))
                 });
             }
             result.alternatives = Some(
@@ -1428,6 +1430,56 @@ mod tests {
             include_journeys: Some(true),
         }
     }
+    #[test]
+    fn equal_cost_completions_do_not_depend_on_hash_iteration() {
+        let kernel = kernel(vec![], vec![]);
+        for reverse in [false, true] {
+            for _ in 0..32 {
+                let labels: Vec<_> = (0..2)
+                    .map(|i| Label {
+                        stop: 2,
+                        clock: 200.,
+                        anchor_clock: 100.,
+                        anchor: i,
+                        trip: Some(i),
+                        transfer_class: Some(i),
+                        boardings: 1,
+                        walking: 0.,
+                        walked: false,
+                        scoped_path: false,
+                        predecessor: None,
+                        step: (0, 0, 2, i as i32, 0., 1., 100, 200.),
+                    })
+                    .collect();
+                let search = Search {
+                    labels,
+                    frontiers: [
+                        ((2, Some(0), 0, false, false), vec![0]),
+                        ((2, Some(1), 1, false, false), vec![1]),
+                    ]
+                    .into_iter()
+                    .collect(),
+                    queue: BinaryHeap::new(),
+                    reverse,
+                };
+                let completions = kernel
+                    .service_completions(
+                        &search,
+                        &[2],
+                        &[0.],
+                        &[0],
+                        true,
+                        if reverse { 0. } else { 300. },
+                    )
+                    .unwrap();
+                assert_eq!(
+                    completions.iter().map(|c| c.label).collect::<Vec<_>>(),
+                    [0, 1]
+                );
+            }
+        }
+    }
+
     #[test]
     fn overlapping_access_frontiers_do_not_rescan_entire_vehicle_runs() {
         // Every stop is an endpoint candidate on 100 long runs. Enumerating
