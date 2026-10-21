@@ -18,7 +18,7 @@ export function ReachPointInspector({ inspection }: { inspection: ReturnType<typ
   const scenario = reachHasServiceChanges(result) ? reachPointSample(result, point.coordinate, 'scenario') : null
   const cutoff = Math.max(...request.cutoffsMinutes)
   const elapsed = plan?.status === 'ready' ? (plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes) - request.departMinutes : null
-  const sampleLabel = (sample: typeof baseline) => sample.status === 'sampled' ? `≈ ${minutes(sample.minutes)}${sample.estimatedBlock ? ' · block estimate' : ''}`
+  const sampleLabel = (sample: typeof baseline) => sample.status === 'sampled' ? `≈ ${minutes(sample.minutes)}${sample.estimatedBlock ? ' · off-street estimate' : ''}`
     : sample.status === 'outside' ? 'Outside map extent' : 'No sampled street here'
   const unnamed = coordinateLabel.test(point.label.trim())
   const budget = Number(cutoff.toFixed(2))
@@ -49,7 +49,7 @@ export function ReachPointInspector({ inspection }: { inspection: ReturnType<typ
       </dl>
       {elapsed === null ? <p className="reach-point-context">{request.serviceDate} · depart {formatScheduleClock(request.departMinutes)}</p> : null}
       {baseline.status === 'sampled' && baseline.estimatedBlock || scenario?.status === 'sampled' && scenario.estimatedBlock
-        ? <p className="reach-point-note">Block shading estimates access from surrounding streets. The journey checks your selected point separately.</p> : null}
+        ? <p className="reach-point-note">Shading between streets adds a walk of up to 100 m from the fastest nearby street. The journey checks your selected point separately.</p> : null}
       {scenario ? <p className="reach-point-note">The journey below uses scheduled service. Planned changes are included in the scenario map estimate.</p> : null}
       {request.mode !== 'drive' && plan && typeof plan.diagnostics.walkingSpeedKph === 'number' && Math.abs(plan.diagnostics.walkingSpeedKph - (request.walkSpeedKph ?? 4.8)) > 0.001
         ? <p className="reach-point-note">Journey walking: {plan.diagnostics.walkingSpeedKph} km/h. Map walking: {request.walkSpeedKph} km/h.</p> : null}

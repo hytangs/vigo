@@ -1,7 +1,6 @@
 import crypto from 'node:crypto'
-import { nativeRasterAreas } from './native-routing-kernel.mjs'
+import { nativeOffStreetEstimates, nativeRasterAreas } from './native-routing-kernel.mjs'
 export { nativeRasterAreas as rasterBoundaryAreas } from './native-routing-kernel.mjs'
-import { blockInteriorEstimates } from './reach-blocks.mjs'
 import { reachChangeCounts, reachChangeStats } from './reach-comparison.mjs'
 import { resolveServiceDay } from './service-day.mjs'
 import { integralNumber, timingMilliseconds } from './number-utils.mjs'
@@ -522,8 +521,10 @@ function displayBoundarySurfaces(baseline, scenario, request, readWater, baselin
   const memo = baselineSource && typeof baselineSource === 'object' ? baselineBoundaryMemo.get(baselineSource) : null
   const build = (raster, surface) => {
     const size = request.rasterSize
+    // Street sampling leaves the land between reached streets empty; shade it
+    // from the fastest nearby street. Payloads keep the `blockEstimates` name.
     const estimates = request.surfaceSampling === 'street' && readWater
-      ? blockInteriorEstimates(raster.areaValues, size, size, raster.areaBounds, readWater(raster.areaBounds), request.walkSpeedKph)
+      ? nativeOffStreetEstimates(raster.areaValues, size, size, raster.areaBounds, readWater(raster.areaBounds), request.walkSpeedKph)
       : new Float64Array(raster.areaValues.length).fill(Infinity)
     blockEstimates[surface] = { width: size, height: size, bounds: raster.areaBounds,
       values: encodeRaster(estimates), scale: rasterScale, nodata: rasterNoData }

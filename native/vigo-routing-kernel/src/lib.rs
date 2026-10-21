@@ -22,6 +22,10 @@ pub use network_overview::node::{NetworkOverviewTask, network_overview, network_
 mod reach_boundaries;
 #[cfg(feature = "node")]
 pub use reach_boundaries::reach_boundary_areas;
+#[cfg(any(feature = "node", test))]
+mod reach_off_street;
+#[cfg(feature = "node")]
+pub use reach_off_street::reach_off_street_estimates;
 // GTFS-Realtime overlays, shared by the standalone runtime and the addon.
 mod realtime;
 #[cfg(feature = "node")]
