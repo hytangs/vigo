@@ -613,7 +613,7 @@ Stop IDs are exact GTFS identifiers. Coordinate points are `[longitude, latitude
 
 ### Walking and transit
 
-Transit Route and Matrix compare a direct OSM walk by default, so a short coordinate trip can return walking when it arrives sooner. Set `requireTransitRide: true` to require at least one boarding, or select Walk mode to request walking alone. `maxWalkKm` limits each access and egress walk. Set `allowLongWalk: false` to apply the same limit to a direct walking alternative; otherwise `maxStreetKm` bounds the complete walk.
+Transit Route and Matrix compare a direct OSM walk by default, so a short coordinate trip can return walking when it arrives sooner. Set `requireTransitRide: true` to require at least one boarding, or select Walk mode to request walking alone. `maxWalkKm` limits each access and egress walk. Set `allowLongWalk: false` to apply the same limit to a direct walking alternative; otherwise `maxStreetKm` bounds the complete walk. Explicit Walk mode always uses `maxStreetKm`, regardless of `allowLongWalk`.
 
 `horizonMinutes` sets the timetable search horizon (default 480, range 1–2880). For depart-at transit, boarding and alighting must happen at or before this boundary, including in alternative journeys; the final walk can finish after it. The horizon is therefore not a hard limit on door-to-door duration: comparisons with a total-duration cap must check the final arrival separately.
 

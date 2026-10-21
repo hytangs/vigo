@@ -79,6 +79,22 @@ try {
     assert.equal(fallback.mode, 'walk')
   }
   const walk = run('route', { ...coordinate, mode: 'walk' })
+  for (const timePreference of ['depart_at', 'arrive_by']) {
+    const walkOnly = { ...coordinate, mode: 'walk', allowLongWalk: false,
+      maxWalkKm: 0.01, maxStreetKm: 50, timePreference }
+    const unrestricted = run('route', { ...walkOnly, allowLongWalk: true })
+    const restricted = run('route', walkOnly)
+    assert.equal(restricted.status, 'ready', 'Transit access limits must not constrain Walk mode')
+    assert.equal(restricted.durationMinutes, unrestricted.durationMinutes)
+    assert.equal(run('route', { ...walkOnly, maxStreetKm: 0.05 }).status, 'blocked')
+    assert.equal(run('route', { ...walkOnly, horizonMinutes: 1 }).status, 'blocked')
+    assert.equal(run('route', { ...walkOnly, via: [{ stopId: 'X' }] }).status, 'ready')
+    const walkingMatrix = run('matrix', { ...walkOnly, origin: undefined, destination: undefined,
+      origins: [coordinate.origin], destinations: [coordinate.destination] })
+    assert(Math.abs(walkingMatrix.durationsMinutes[0][0] - restricted.durationMinutes) < 1e-6)
+    assert.equal(run('route', { ...walkOnly, mode: 'transit', requireTransitRide: false,
+      serviceDate: '2026-07-19' }).status, 'blocked', 'Transit must retain the direct-walk limit')
+  }
   const drive = run('route', { ...coordinate, mode: 'drive' })
   assert.equal(walk.status, 'ready')
   assert.equal(drive.status, 'ready')

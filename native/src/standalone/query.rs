@@ -113,7 +113,9 @@ impl Options {
 }
 impl City {
     fn direct_walk_limit(&self, q: &Value, opt: &Options) -> Result<f64> {
-        let distance = if flag(q, "allowLongWalk", true)? {
+        // Transit access limits must not constrain an explicitly requested walk.
+        let allow_long_walk = flag(q, "allowLongWalk", true)?;
+        let distance = if q["mode"] == "walk" || allow_long_walk {
             opt.street_m
         } else {
             opt.walk_m

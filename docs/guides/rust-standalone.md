@@ -397,7 +397,7 @@ Exact identifiers are case-sensitive. Multi-feed IDs may contain a feed scope an
 | `allowStreetTransfers` | true | Keep or filter walking transfers between separate stops/stations |
 | `minimumTransferBufferMinutes` | 0 | Integer 0–60; extra time per subsequent transit transfer |
 | `requireTransitRide` | false | Transit Route/Matrix boarding policy |
-| `allowLongWalk` | true | When false, cap direct walking by `maxWalkKm` instead of `maxStreetKm` |
+| `allowLongWalk` | true | Transit only: when false, cap direct walking alternatives by `maxWalkKm` instead of `maxStreetKm`. Explicit Walk mode always uses `maxStreetKm` |
 | `walkSpeedKph` | City's walking policy, normally 4.8 | Number 1–8; walking legs, including a drive's walk to and from its road |
 | `disableCache` | false | Disable street endpoint caches; not a complete cold-run switch |
 | `requireCompleteServiceCoverage` | false | Reject missing active source scopes in a multi-feed service slice |
