@@ -29,12 +29,14 @@ export function makeAbortError(message = 'The request was cancelled.') {
 }
 
 /** The `vigo` executable beside the bundled server, or this checkout's release build. */
-export function nativeExecutable(environment = process.env) {
+export function nativeExecutable(environment = process.env, directory = moduleDirectory) {
   const configured = String(environment.VIGO_STANDALONE_PATH ?? '').trim()
   const candidates = configured ? [configured] : [
-    path.join(moduleDirectory, executableName),
-    path.join(moduleDirectory, '..', executableName),
-    path.resolve(moduleDirectory, '..', '..', '..', 'native', 'vigo-routing-kernel', 'target', 'release', executableName),
+    path.join(directory, executableName),
+    path.join(directory, '..', executableName),
+    path.join(directory, '..', 'server', executableName),
+    path.resolve(directory, '..', 'native', 'target', 'release', executableName),
+    path.resolve(directory, '..', '..', '..', 'native', 'target', 'release', executableName),
   ]
   for (const candidate of candidates) {
     try {

@@ -541,7 +541,7 @@ function streetLegsPlan(raw, trace, body, context) {
 }
 
 /** The blocked waypoint segment, named by its two points. */
-function orderedFailure(raw, trace, body, context) {
+function orderedFailure(raw, body, context) {
   const points = [body.origin, ...body.waypoints, body.destination]
   const index = Number(raw.legIndex ?? 0)
   const segmentBody = { ...body, origin: points[index], destination: points[index + 1], waypoints: [] }
@@ -590,7 +590,7 @@ function studioPlan(raw, trace, body, context) {
     return streetFailure(raw ?? {}, trace, body, context)
   }
   if (Array.isArray(body.waypoints) && body.waypoints.length) {
-    if (raw?.reason === 'via_leg_blocked') return orderedFailure(raw, trace, body, context)
+    if (raw?.reason === 'via_leg_blocked') return orderedFailure(raw, body, context)
     if (raw?.status === 'ready') return orderedPlan(raw, trace, body, context)
   }
   if (raw?.status !== 'ready') return blockedPlan(raw ?? {}, trace, body, context)

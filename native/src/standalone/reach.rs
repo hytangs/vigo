@@ -7,6 +7,8 @@ use crate::{
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
+type PolygonRenderer = fn(&[f64], usize, usize, &[f64], &[f64]) -> Value;
+
 impl City {
     fn reach_grid_values(
         &mut self,
@@ -571,14 +573,13 @@ impl City {
                 "diagnostics":{"transit":transit,"surface":{"queryNs":result.query_ns,"seedNs":result.seed_ns,"propagationNs":result.propagation_ns,"envelopeNs":result.envelope_ns,"rasterNs":result.raster_ns}},
                 "warnings":self.metadata["routingLimitations"]}));
         }
-        let polygon =
-            |draw: fn(&[f64], usize, usize, &[f64], &[f64]) -> Value, values: &[f64], b: &[f64]| {
-                if polygons {
-                    draw(values, size, size, b, &cutoffs)
-                } else {
-                    Value::Null
-                }
-            };
+        let polygon = |draw: PolygonRenderer, values: &[f64], b: &[f64]| {
+            if polygons {
+                draw(values, size, size, b, &cutoffs)
+            } else {
+                Value::Null
+            }
+        };
         let area_features = polygon(areas, &result.values, &bounds);
         let full_areas = polygon(areas, full_values, full_bounds);
         let contour_features = polygon(contours, &result.values, &bounds);

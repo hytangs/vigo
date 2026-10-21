@@ -158,7 +158,7 @@ pub(crate) fn profile_key(
             snapshots.push((modified, suffix.to_owned(), entry.path()));
         }
     }
-    snapshots.sort_by(|a, b| b.0.cmp(&a.0));
+    snapshots.sort_by_key(|entry| std::cmp::Reverse(entry.0));
     for (_, suffix, path) in snapshots {
         let Some(key) = snapshot_key(&path)? else {
             continue;

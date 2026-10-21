@@ -8,7 +8,7 @@ import { readGtfsRouteAnalysis } from '../src/server/gtfs-analysis-store.mjs'
 import { hydrateScenarioRouteServices } from '../src/server/scenario-services.mjs'
 import { compileReachScenario } from '../src/server/reach.mjs'
 
-const { TimetableKernel } = createRequire(import.meta.url)('../native/vigo-routing-kernel/vigo-routing-kernel.node')
+const { TimetableKernel } = createRequire(import.meta.url)('../native/vigo-routing-kernel.node')
 const directory = mkdtempSync(join(tmpdir(), 'vigo-scenario-schedules-'))
 const storePath = join(directory, 'fixture.sqlite')
 const db = new DatabaseSync(storePath)

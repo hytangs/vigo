@@ -85,11 +85,3 @@ export function describeAlertScope(selectors, context) {
       selector.directionId != null ? `direction ${selector.directionId}` : '', selector.tripId ? `trip ${rawId(selector.tripId)}` : '', selector.serviceDate || ''].filter(Boolean).join(' · ')
   }).filter(Boolean))].join('; ')
 }
-
-export function alertStopIds(context, ids) {
-  if (!ids?.size) return undefined
-  return new Set([...ids].flatMap(id => {
-    const parent = context.stopIndex.get(id)?.parent_station
-    return parent ? [id, parent] : [id, ...(context.stops ?? []).filter(stop => stop.parent_station === id).map(stop => stop.stop_id)]
-  }))
-}

@@ -30,7 +30,6 @@ import {
   wayTags,
 } from './osm-pbf-reader.mjs'
 import { timingMilliseconds } from './number-utils.mjs'
-import { stableKeySuffix } from './routing-plan-identity.mjs'
 import { createLocalBasemapWriter } from './local-basemap-store.mjs'
 import { createPlaceStreetWriter, placeWayNeedsNodes } from './place-names-store.mjs'
 

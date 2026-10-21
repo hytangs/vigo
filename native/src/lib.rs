@@ -8736,3 +8736,5 @@ mod endpoint_batch;
 
 #[cfg(feature = "node")]
 mod studio_choices;
+#[cfg(feature = "node")]
+pub use studio_choices::select_studio_journey_indices;

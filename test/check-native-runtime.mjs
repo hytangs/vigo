@@ -4,9 +4,36 @@
 // that are not retried.
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 // A short grace makes a cancelled query's process stop within the test.
 process.env.VIGO_NATIVE_CANCEL_GRACE_MS = '20'
-const { NativeCityUnavailableError, NativeRuntime, nativeLayout } = await import('../src/server/runtime/native-runtime.mjs')
+const { NativeCityUnavailableError, NativeRuntime, nativeLayout, nativeExecutable } = await import('../src/server/runtime/native-runtime.mjs')
+
+// Source, bundled CLI and bundled server all resolve the same native runtime.
+const locations = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-runtime-layout-'))
+try {
+  const binary = process.platform === 'win32' ? 'vigo.exe' : 'vigo'
+  for (const [modulePath, executablePath] of [
+    ['src/server/runtime', 'native/target/release'],
+    ['public', 'native/target/release'],
+    ['cli', 'cli'],
+    ['app/server/runtime', 'app/server'],
+  ]) {
+    const directory = path.join(locations, modulePath)
+    const executable = path.join(locations, executablePath, binary)
+    fs.mkdirSync(directory, { recursive: true })
+    fs.mkdirSync(path.dirname(executable), { recursive: true })
+    fs.writeFileSync(executable, '', { mode: 0o755 })
+    assert.equal(nativeExecutable({}, directory), executable)
+    assert.equal(nativeExecutable({ VIGO_STANDALONE_PATH: executable }, directory), executable)
+    assert.equal(nativeExecutable({ VIGO_STANDALONE_PATH: path.join(locations, 'missing') }, directory), null)
+    fs.unlinkSync(executable)
+  }
+} finally {
+  fs.rmSync(locations, { recursive: true, force: true })
+}
 
 const spawned = []
 // Each child answers its requests in order. A request may ask for a delay,

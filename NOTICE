@@ -7,8 +7,8 @@ Copyright (c) 2016 RoutingKit contributors, under the BSD 2-Clause License.
 
 The complete third-party license and attribution texts are retained in:
 
-  native/vigo-routing-kernel/vendor/cch/LICENSE
-  native/vigo-routing-kernel/vendor/cch/NOTICE
+  native/vendor/cch/LICENSE
+  native/vendor/cch/NOTICE
 
 The native routing kernel uses rusqlite (MIT) and its bundled SQLite library
 (public domain) to compile service timetables directly into Rust buffers.

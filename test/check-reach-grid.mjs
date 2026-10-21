@@ -54,7 +54,10 @@ try {
     n.surface.values.forEach((value, i) => {
       const row = matrix.rows[i]
       const expected = row.status === 'ready' && row.durationMinutes <= q.cutoffsMinutes.at(-1) ? row.durationMinutes : null
-      assert.equal(value, expected, `${mode} cap ${maxTransfers} matrix cell ${i}`)
+      assert.equal(value === null, expected === null, `${mode} cap ${maxTransfers} matrix cell ${i} reachability`)
+      // Native Reach publishes minutes to three decimals; Matrix retains its
+      // full duration precision. Reachability still has to agree exactly.
+      if (value !== null) assert(Math.abs(value - expected) <= .000501, `${mode} cap ${maxTransfers} matrix cell ${i}: ${value} / ${expected}`)
       assert.equal(value === null, r.surface.values[i] === null, `${mode} runtime cell ${i}: ${value} / ${r.surface.values[i]}`)
       if (value !== null) { reached++; assert(Math.abs(value - r.surface.values[i]) <= .0011, `${mode} cell ${i}: ${value} / ${r.surface.values[i]}`) }
       cells++
@@ -72,7 +75,7 @@ try {
   const q = { kind: 'reach', mode: 'walk', origin: { coordinate: [-77.049, 38.9005] }, serviceDate: '2026-07-15',
     timeMinutes: 475, maxWalkKm: .2, surfaceSampling: 'cell-center', cutoffsMinutes: [5], extentRadiusKm: 1, rasterSize: 192 }
   const n = await node(q), r = await rust({ ...q, bounds: n.surface.bounds })
-  assert.equal(n.surface.diagnostics.matrixBatches, 3)
+  assert.equal(n.surface.diagnostics.sampledTargets, 192 * 192)
   assert.deepEqual(n.surface.values.map(v => v === null), r.surface.values.map(v => v === null))
   console.log(JSON.stringify({ checkedCells: cells, chunkedCells: n.surface.values.length, modes: ['walk', 'transit', 'drive'], maxTransfers: [0, 1], repeat: 'identical' }))
 } finally {

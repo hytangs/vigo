@@ -9,7 +9,6 @@ const repositoryRoot = path.resolve(import.meta.dirname, '..')
 const { TimetableKernel } = require(path.join(
   repositoryRoot,
   'native',
-  'vigo-routing-kernel',
   'vigo-routing-kernel.node',
 ))
 

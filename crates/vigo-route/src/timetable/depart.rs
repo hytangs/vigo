@@ -543,7 +543,12 @@ impl TimetableKernel {
                         let bridge_stop = event.source_stop();
                         if bridge_arrival <= input.horizon
                             && bridge_arrival <= best.arrival
-                            && !workspace.ride_candidate_later(epoch, bridge_stop, 1, bridge_arrival)
+                            && !workspace.ride_candidate_later(
+                                epoch,
+                                bridge_stop,
+                                1,
+                                bridge_arrival,
+                            )
                         {
                             let bridge_state = relax_connection_scan::<RETAIN_JOURNEY>(
                                 workspace,

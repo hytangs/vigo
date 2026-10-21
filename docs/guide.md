@@ -98,7 +98,7 @@ npm run build:cli-runtime
 npm run build:standalone
 ```
 
-`build:cli-runtime` produces the compiler, `public/vigo.mjs`, and its native kernel. `build:standalone` produces the engine at `native/vigo-routing-kernel/target/release/vigo`. `npm run build` additionally compiles Studio, and `npm run studio` opens it.
+`build:cli-runtime` produces the compiler, `public/vigo.mjs`, and its native kernel. `build:standalone` produces the engine at `native/target/release/vigo`. `npm run build` additionally compiles Studio, and `npm run studio` opens it.
 
 ### Name the commands
 
@@ -109,7 +109,7 @@ alias vigo="/absolute/path/to/vigo"
 alias vigo-build='node "/absolute/path/to/vigo.mjs"'
 ```
 
-From a source checkout, point them at `native/vigo-routing-kernel/target/release/vigo` and `public/vigo.mjs`. On Windows, use `.\vigo.exe` and `node .\vigo.mjs`, or define your own functions. Both commands accept `--name value` and `--name=value` and reject unknown options.
+From a source checkout, point them at `native/target/release/vigo` and `public/vigo.mjs`. On Windows, use `.\vigo.exe` and `node .\vigo.mjs`, or define your own functions. Both commands accept `--name value` and `--name=value` and reject unknown options.
 
 ### Studio and Python
 
@@ -1101,7 +1101,7 @@ VIGO models the City revision and query it is given. It does not certify real-wo
 
 ## VIGO Studio desktop guide
 
-VIGO Studio puts Network, Route, Analyze, and City views over the same routing engine. It keeps its own project library and works offline once a City is imported.
+VIGO Studio puts Network, Route, Analyze, and City views over the same routing engine. It keeps its own project library and works offline once a City is imported. See [Networks within one City](guides/studio-networks.md) for network selection, timetable quality, and journey choices.
 
 ### Documentation and settings
 

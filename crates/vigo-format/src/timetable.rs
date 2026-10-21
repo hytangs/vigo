@@ -1335,7 +1335,7 @@ mod tests {
                             services
                                 .iter()
                                 .enumerate()
-                                .filter(move |(i, _)| (i + offset as usize / 3) % 3 != 0)
+                                .filter(move |(i, _)| !(i + offset as usize / 3).is_multiple_of(3))
                                 .map(move |(_, service)| ServiceInstance {
                                     service_id: service.clone(),
                                     offset_seconds: offset,

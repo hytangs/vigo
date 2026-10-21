@@ -13,13 +13,13 @@ import tarfile
 import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
-CRATE = ROOT / "native/vigo-routing-kernel"
+CRATE = ROOT / "native"
 
 
 def source_fingerprint(run):
     digest = hashlib.sha256()
     inputs = run(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--",
-                  "native/vigo-routing-kernel", "crates", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "docs/guide.html", "docs/standalone-openapi.json"], capture_output=True).stdout
+                  "native", "crates", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "docs/guide.html", "docs/standalone-openapi.json"], capture_output=True).stdout
     for relative in sorted(set(inputs.split(b"\0")) - {b""}):
         file = ROOT / os.fsdecode(relative)
         if file.is_file():

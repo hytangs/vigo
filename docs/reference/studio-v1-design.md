@@ -252,7 +252,7 @@ visible.
 ### Offline basemap tiles from Rust
 
 The Rust kernel now renders the offline basemap as Mapbox Vector Tiles
-(`native/vigo-routing-kernel/src/basemap_tiles.rs`), served at
+(`native/src/basemap_tiles.rs`), served at
 `GET /api/projects/{id}/basemap-tiles/{z}/{x}/{y}.mvt`. Tiles are cut in Web
 Mercator with a 64-unit buffer and rendered on the libuv thread pool, so a
 burst of tiles never blocks the API. Oceans are polygonized from coastlines per
@@ -280,7 +280,7 @@ extent exactly as the Studio did, over every route vertex and stop with the
 outer 2% trimmed. The default response, without `detail`, is unchanged for
 other clients.
 
-The kernel draws the network (`native/vigo-routing-kernel/src/network_tiles.rs`),
+The kernel draws the network (`native/src/network_tiles.rs`),
 served at `GET /api/projects/{id}/network-tiles/{z}/{x}/{y}.mvt?scope=&v=`.
 The server registers each scope's route and stop overview once per revision,
 the same records the Studio used to receive as JSON. Registration splits routes

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 
 const { TimetableKernel } = createRequire(import.meta.url)(
-  process.env.VIGO_NATIVE_ROUTING_KERNEL ?? '../native/vigo-routing-kernel/vigo-routing-kernel.node',
+  process.env.VIGO_NATIVE_ROUTING_KERNEL ?? '../native/vigo-routing-kernel.node',
 )
 
 function kernelFor(trips, stopCount, minimum = [0, 0, 0, 0], buffer = 0) {

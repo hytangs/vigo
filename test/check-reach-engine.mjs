@@ -550,7 +550,7 @@ try {
   )
 
   const native = createRequire(import.meta.url)(
-    path.join(repositoryRoot, 'native', 'vigo-routing-kernel', 'vigo-routing-kernel.node'),
+    path.join(repositoryRoot, 'native', 'vigo-routing-kernel.node'),
   )
   assert.equal(native.RegionalTopologyKernel, undefined)
   assert.equal(native.RegionalTimetableKernel, undefined)
@@ -561,7 +561,7 @@ try {
     'src/server/native-routing-kernel.mjs',
     'src/server/national-route-worker.mjs',
     'src/server/reach.mjs',
-    'native/vigo-routing-kernel/src/exact_routing.rs',
+    'native/src/exact_routing.rs',
   ]
   for (const file of sourceFiles) {
     const source = fs.readFileSync(path.join(repositoryRoot, file), 'utf8')

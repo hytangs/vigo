@@ -24,11 +24,11 @@ if (!electronVersion) throw new Error('package.json must pin an Electron develop
 await assertFile(path.join(repositoryRoot, 'public', 'index.html'), 'Missing built Studio. Run npm run build first.')
 await assertFile(path.join(repositoryRoot, 'public', 'vigo.mjs'), 'Missing built VIGO CLI. Run npm run build first.')
 await assertFile(
-  path.join(repositoryRoot, 'native', 'vigo-routing-kernel', 'vigo-routing-kernel.node'),
+  path.join(repositoryRoot, 'native', 'vigo-routing-kernel.node'),
   'Missing VIGO routing kernel. Run npm run build first.',
 )
 // Studio's queries run in the `vigo` executable, beside the bundled server.
-const queryRuntime = path.join(repositoryRoot, 'native', 'vigo-routing-kernel', 'target', 'release',
+const queryRuntime = path.join(repositoryRoot, 'native', 'target', 'release',
   process.platform === 'win32' ? 'vigo.exe' : 'vigo')
 await assertFile(queryRuntime, 'Missing VIGO executable. Run npm run build first.')
 await assertFile(path.join(repositoryRoot, 'public', 'main.mjs'), 'Missing Electron main process.')
@@ -139,7 +139,7 @@ async function bundleEngine() {
     '--chunkFileNames', 'route-[name].mjs',
   ])
   await copyFile(
-    path.join(repositoryRoot, 'native', 'vigo-routing-kernel', 'vigo-routing-kernel.node'),
+    path.join(repositoryRoot, 'native', 'vigo-routing-kernel.node'),
     path.join(serverRoot, 'vigo-routing-kernel.node'),
     constants.COPYFILE_FICLONE,
   )

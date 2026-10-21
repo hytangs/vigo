@@ -1815,10 +1815,10 @@ impl City {
                     arrive(&state.plan)
                 };
                 let key = clock.to_bits();
-                if !responses.contains_key(&key) {
+                if let std::collections::hash_map::Entry::Vacant(entry) = responses.entry(key) {
                     let response =
                         self.via_segment(q, &points[index], &points[index + 1], clock, arrive_by)?;
-                    responses.insert(key, Arc::new(response));
+                    entry.insert(Arc::new(response));
                     searches += 1;
                 }
                 let response = responses[&key].clone();

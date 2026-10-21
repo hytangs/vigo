@@ -17,7 +17,7 @@ spec.loader.exec_module(package)
 with tempfile.TemporaryDirectory() as folder:
     root = Path(folder)
     (root / ".gitignore").write_bytes((package.ROOT / ".gitignore").read_bytes())
-    crate = root / "native/vigo-routing-kernel"
+    crate = root / "native"
     crate.mkdir(parents=True)
     source = crate / "lib.rs"
     source.write_text("original source")

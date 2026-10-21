@@ -9,8 +9,8 @@ import '../../src/App.css'
 import '../../src/index.css'
 
 let map, setClock, setMode, setAppearance
-const addControl = Map.prototype.addControl
-Map.prototype.addControl = function(...args) { map = this; return addControl.apply(this,args) }
+const addLayer = Map.prototype.addLayer
+Map.prototype.addLayer = function(...args) { map = this; return addLayer.apply(this,args) }
 const stops = [['a','South Station',-71.06,42.35],['b','JFK/Columbia',-71.05,42.32],['c','Wachusett',-71.08,42.3]].map(([id,name,lon,lat])=>({id,name,lon,lat,routes:['R'],tripCount:1,transferScore:0}))
 const preview = {routes:[{id:'R',routeId:'R',shortName:'Regional Rail',longName:'Wachusett – Greenbush',mode:'rail',color:'#8c4387',tripCount:1,stopCount:3,coordinates:stops.map(s=>[s.lon,s.lat]),points:[],stopIds:stops.map(s=>s.id)}],stops,stopPairs:[]}
 function Fixture() {

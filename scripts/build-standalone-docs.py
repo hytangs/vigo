@@ -171,7 +171,7 @@ TYPE_FIELD_NOTES = {
 
 def native_contracts():
     structs = {}
-    sources = list((ROOT / 'native/vigo-routing-kernel/src').rglob('*.rs'))
+    sources = list((ROOT / 'native/src').rglob('*.rs'))
     for crate in ('vigo-route', 'vigo-format', 'vigo-prepare'):
         sources.extend((ROOT / 'crates' / crate / 'src').rglob('*.rs'))
     for path in sorted(sources):

@@ -58,15 +58,6 @@ export function engineFareNeedsScheduledTime(engine, leg) {
   try { return engine.needsScheduledTime(text(leg.routeId), text(leg.fromStopId), text(leg.toStopId)) } catch { return false }
 }
 
-// City preparation can index a catalog without quoting a journey.
-export function prepareBoardingFares(catalog) {
-  try { return fareEngine(catalog).usable() } catch { return false }
-}
-
-export function fareNeedsScheduledTime(catalog, leg) {
-  try { return engineFareNeedsScheduledTime(fareEngine(catalog), leg) } catch { return false }
-}
-
 export function quoteBoardingFare(catalog, leg, serviceDate) {
   try { return quoteEngineFare(fareEngine(catalog), leg, serviceDate) } catch { return invalid }
 }

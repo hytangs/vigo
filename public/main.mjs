@@ -44,7 +44,7 @@ const serverRoot = app.isPackaged
 const serverPath = path.join(serverRoot, 'vigo-api.mjs')
 const nativeKernelPath = app.isPackaged
   ? path.join(serverRoot, 'vigo-routing-kernel.node')
-  : path.join(applicationRoot, 'native', 'vigo-routing-kernel', 'vigo-routing-kernel.node')
+  : path.join(applicationRoot, 'native', 'vigo-routing-kernel.node')
 const preloadPath = path.join(moduleDirectory, 'preload.cjs')
 const studioIconPath = path.join(publicRoot, 'icons', 'VIGOIcon.png')
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 const require = createRequire(import.meta.url)
-const { TimetableKernel } = require('../native/vigo-routing-kernel/vigo-routing-kernel.node')
+const { TimetableKernel } = require('../native/vigo-routing-kernel.node')
 
 function input(trips, transfers = [], sameStop = Array(6).fill(0), forbidden = Array(6).fill(0)) {
   const rows = [], tripStart = [0]

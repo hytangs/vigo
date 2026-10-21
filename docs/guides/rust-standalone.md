@@ -195,10 +195,10 @@ To build from this source checkout, install the pinned Rust toolchain in `rust-t
 
 ```sh
 cargo build --locked --release \
-  --manifest-path native/vigo-routing-kernel/Cargo.toml \
+  --manifest-path native/Cargo.toml \
   --no-default-features --features standalone --bin vigo
 
-./native/vigo-routing-kernel/target/release/vigo --version
+./native/target/release/vigo --version
 python3 scripts/package-standalone.py
 ```
 
@@ -1854,9 +1854,9 @@ The packaged [test record](../reference/rust-standalone-audit.md) reports the ma
 The adapter tests use public synthetic GTFS/OSM fixtures and compare outputs with the existing public CLI. Separate graph and timetable oracles check the shared kernels. These tests cover modeled routing behavior; source-feed completeness, field arrival accuracy, station accessibility, and deployment capacity require their own validation.
 
 ```sh
-cargo test --manifest-path native/vigo-routing-kernel/Cargo.toml \
+cargo test --manifest-path native/Cargo.toml \
   --no-default-features --features standalone
-cargo clippy --manifest-path native/vigo-routing-kernel/Cargo.toml \
+cargo clippy --manifest-path native/Cargo.toml \
   --no-default-features --features standalone --all-targets -- -D warnings
 VIGO_STANDALONE_PATH=/absolute/path/to/vigo npm run check:standalone
 python3 test/check-standalone-package.py /absolute/path/to/package.tar.gz

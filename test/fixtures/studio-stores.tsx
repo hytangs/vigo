@@ -22,8 +22,8 @@ const config = { configured: true, setupRequired: false, storageRoot: '/fixture'
 const saved = new Map()
 const placeRequests = []
 let liveMap, cameraFits = 0
-const originalAddControl = MapLibreMap.prototype.addControl
-MapLibreMap.prototype.addControl = function(...args) { liveMap = this; return originalAddControl.apply(this, args) }
+const originalAddLayer = MapLibreMap.prototype.addLayer
+MapLibreMap.prototype.addLayer = function(...args) { liveMap = this; return originalAddLayer.apply(this, args) }
 const originalFitBounds = MapLibreMap.prototype.fitBounds
 MapLibreMap.prototype.fitBounds = function(...args) { cameraFits++; return originalFitBounds.apply(this, args) }
 let failDetail = false, detailReads = 0

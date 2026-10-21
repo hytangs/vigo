@@ -31,7 +31,6 @@ const repositoryRoot = path.resolve(import.meta.dirname, '..')
 const bindingPath = path.join(
   repositoryRoot,
   'native',
-  'vigo-routing-kernel',
   'vigo-routing-kernel.node',
 )
 const headerBytes = 4096

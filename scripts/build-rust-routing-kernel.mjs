@@ -11,7 +11,7 @@ import { remappedBuildEnvironment } from './lib/remapped-build.mjs'
 
 const execFileAsync = promisify(execFile)
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const crateRoot = path.join(repositoryRoot, 'native', 'vigo-routing-kernel')
+const crateRoot = path.join(repositoryRoot, 'native')
 const cargo = String(process.env.VIGO_CARGO ?? '').trim()
   || path.join(os.homedir(), '.cargo', 'bin', process.platform === 'win32' ? 'cargo.exe' : 'cargo')
 const platformBuild = rustRoutingTarget(process.platform, process.arch)

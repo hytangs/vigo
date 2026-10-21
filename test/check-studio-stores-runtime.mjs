@@ -20,14 +20,14 @@ await fs.writeFile(main,`const {app,BrowserWindow}=require('electron');app.setPa
 app.whenReady().then(async()=>{try{const w=new BrowserWindow({width:1280,height:900,show:true,webPreferences:{backgroundThrottling:false,sandbox:true,contextIsolation:true,nodeIntegration:false}});
 await w.loadURL(${JSON.stringify(`http://127.0.0.1:${server.httpServer.address().port}/stores-fixture.html`)});
 await w.webContents.executeJavaScript('new Promise((resolve,reject)=>{const t=setInterval(()=>{if(window.checkStores){clearInterval(t);resolve()}},20);setTimeout(()=>reject(Error("Fixture timeout")),10000)})');
-let failure;const checked=w.webContents.executeJavaScript('window.checkStores()').catch(e=>{failure=e});
+const checked=w.webContents.executeJavaScript('window.checkStores()').catch(e=>{console.error(e);app.exit(1)});
 await w.webContents.executeJavaScript('new Promise((resolve,reject)=>{const t=setInterval(()=>{if(window.coordinateSearchScreenshot){clearInterval(t);resolve()}},20);setTimeout(()=>{clearInterval(t);reject(Error("Coordinate screenshot timeout"))},15000)})');
 require('node:fs').writeFileSync(${JSON.stringify(path.join(directory,'coordinate-search.png'))},(await w.webContents.capturePage()).toPNG());
 await w.webContents.executeJavaScript('window.coordinateSearchCaptured()');
 await w.webContents.executeJavaScript('new Promise((resolve,reject)=>{const t=setInterval(()=>{if(window.sharedServicesScreenshot){clearInterval(t);resolve()}},20);setTimeout(()=>{clearInterval(t);reject(Error("Shared services screenshot timeout"))},15000)})');
 require('node:fs').writeFileSync(${JSON.stringify(path.join(directory,'shared-services.png'))},(await w.webContents.capturePage()).toPNG());
 await w.webContents.executeJavaScript('window.sharedServicesCaptured()');
-const result=await checked;if(failure)throw failure;console.log({...result,screenshot:${JSON.stringify(path.join(directory,'coordinate-search.png'))}});app.exit(0)}catch(e){console.error(e);app.exit(1)}});`)
+const result=await checked;console.log({...result,screenshot:${JSON.stringify(path.join(directory,'coordinate-search.png'))}});app.exit(0)}catch(e){console.error(e);app.exit(1)}});`)
 try{
  const env={...process.env};delete env.ELECTRON_RUN_AS_NODE
  const child=spawn(electronPath,[...(process.platform==='darwin'?[]:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']),...(process.platform==='linux'&&process.env.CI?['--no-sandbox']:[]),main],{env,stdio:'inherit'})

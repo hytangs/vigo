@@ -137,7 +137,6 @@ export function scenarioTimetableFor(kernel, prepared) {
     if (excludedRoutes.has(kernel.routeIds[trip]) || excludedTrips.has(kernel.tripIds[trip])) canceled[trip] = 1
   }
   const overlay = plan.overlay
-  const runs = overlay?.serviceStartSeconds?.length ?? 0
   const patternStops = []
   const patternDepartures = []
   const patternArrivals = []

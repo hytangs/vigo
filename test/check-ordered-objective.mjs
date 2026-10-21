@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import {createRequire} from 'node:module'
 const require=createRequire(import.meta.url)
-const {TimetableKernel}=require(process.env.VIGO_NATIVE_ROUTING_KERNEL??'../native/vigo-routing-kernel/vigo-routing-kernel.node')
+const {TimetableKernel}=require(process.env.VIGO_NATIVE_ROUTING_KERNEL??'../native/vigo-routing-kernel.node')
 const coverage={arrivalTiesWithDifferentBoardings:0,arrivalBoardingTiesWithDifferentWalking:0,deadlineBoardingTiesWithDifferentWalking:0}
 let seed=0x43cafe
 const rand=n=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return Math.floor(seed/4294967296*n)}

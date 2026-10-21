@@ -61,7 +61,7 @@ if (process.argv[2] === '--worker') {
       fs.writeFileSync(zipPath, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))
     }
     const sourceTreeSha256 = sourceTreeHash()
-    const nativeSha256 = hash(fs.readFileSync(path.join(root, 'native/vigo-routing-kernel/vigo-routing-kernel.node')))
+    const nativeSha256 = hash(fs.readFileSync(path.join(root, 'native/vigo-routing-kernel.node')))
     const samples = []
     for (let run = 0; run < runs; run++) {
       const started = performance.now()
@@ -72,7 +72,7 @@ if (process.argv[2] === '--worker') {
       if (value.compilation.length !== 1 || value.compilation[0].backend !== 'rust') throw new Error('Compiler profile did not observe the native connection compiler.')
       samples.push({ run, backend: 'rust', runnerWallMs: performance.now() - started, ...value })
     }
-    if (sourceTreeHash() !== sourceTreeSha256 || hash(fs.readFileSync(path.join(root, 'native/vigo-routing-kernel/vigo-routing-kernel.node'))) !== nativeSha256) {
+    if (sourceTreeHash() !== sourceTreeSha256 || hash(fs.readFileSync(path.join(root, 'native/vigo-routing-kernel.node'))) !== nativeSha256) {
       throw new Error('Source tree or native library changed during profiling; discard these measurements and rerun.')
     }
     const report = { sourceTreeSha256, schema: 'vigo.compiler-profile.v1', sourceCommit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),

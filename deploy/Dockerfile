@@ -6,16 +6,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 \
 WORKDIR /source
 COPY rust-toolchain.toml Cargo.toml Cargo.lock ./
 COPY crates ./crates
-COPY native/vigo-routing-kernel/Cargo.toml native/vigo-routing-kernel/Cargo.lock ./native/vigo-routing-kernel/
-COPY native/vigo-routing-kernel/vendor ./native/vigo-routing-kernel/vendor
-COPY native/vigo-routing-kernel/build.rs ./native/vigo-routing-kernel/
-COPY native/vigo-routing-kernel/src ./native/vigo-routing-kernel/src
+COPY native/Cargo.toml native/Cargo.lock ./native/
+COPY native/vendor ./native/vendor
+COPY native/build.rs ./native/
+COPY native/src ./native/src
 COPY docs/guide.html docs/standalone-openapi.json ./docs/
 COPY scripts/package-standalone.py ./scripts/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/source/native/vigo-routing-kernel/target \
-    cargo build --manifest-path native/vigo-routing-kernel/Cargo.toml --locked --release --no-default-features --features standalone --bin vigo \
-    && cp native/vigo-routing-kernel/target/release/vigo /vigo \
+    --mount=type=cache,target=/source/native/target \
+    cargo build --manifest-path native/Cargo.toml --locked --release --no-default-features --features standalone --bin vigo \
+    && cp native/target/release/vigo /vigo \
     && python3 scripts/package-standalone.py --notices-only /THIRD-PARTY-NOTICES.txt
 
 # glibc supports returning freed query/preparation memory to the operating system.

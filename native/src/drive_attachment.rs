@@ -250,7 +250,7 @@ impl RoadIndex {
             }
         }
         // A segment spanning several cells is seen once per cell.
-        found.sort_by(|a, b| a.1.cmp(&b.1));
+        found.sort_by_key(|entry| entry.1);
         found.dedup_by_key(|entry| entry.1);
         found.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
         found
@@ -414,7 +414,9 @@ mod tests {
 
     /// A straight two-way road from (0, 0) to (0.01, 0), about 1.1 km, and a
     /// detached one-way stub far to the north.
-    fn graph() -> (Vec<f64>, Vec<f64>, Vec<u32>, Vec<u32>, Vec<u32>, Vec<u32>) {
+    type GraphParts = (Vec<f64>, Vec<f64>, Vec<u32>, Vec<u32>, Vec<u32>, Vec<u32>);
+
+    fn graph() -> GraphParts {
         let lons = vec![0.0, 0.01, 0.0, 0.0001];
         let lats = vec![0.0, 0.0, 0.05, 0.05];
         // 0 -> 1, 1 -> 0, 2 -> 3
@@ -425,9 +427,7 @@ mod tests {
         (lons, lats, offsets, targets, distances, times)
     }
 
-    fn view<'a>(
-        parts: &'a (Vec<f64>, Vec<f64>, Vec<u32>, Vec<u32>, Vec<u32>, Vec<u32>),
-    ) -> DriveGraph<'a> {
+    fn view<'a>(parts: &'a GraphParts) -> DriveGraph<'a> {
         DriveGraph {
             lons: &parts.0,
             lats: &parts.1,

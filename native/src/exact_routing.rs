@@ -2023,7 +2023,7 @@ impl DriveKernel {
             || maximum_walk_meters < 0.0
             || !walking_speed_kph.is_finite()
             || walking_speed_kph <= 0.0
-            || coordinates.len() % 2 != 0
+            || !coordinates.len().is_multiple_of(2)
             || coordinates.chunks_exact(2).any(|point| {
                 !point[0].is_finite()
                     || !point[1].is_finite()

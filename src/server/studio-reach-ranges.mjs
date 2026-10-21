@@ -6,7 +6,7 @@
 
 const rasterSchema = 'vigo.street.network-raster.v1'
 
-function routePoint(point) {
+export function nativePoint(point) {
   return Object.fromEntries(['stopId', 'coordinate', 'id', 'name', 'label', 'source']
     .filter(key => point?.[key] !== undefined).map(key => [key, point[key]]))
 }
@@ -52,7 +52,7 @@ export function nativeReachRangeRequest(range, { sourceScopes } = {}) {
     surfaceSampling: range.surfaceSampling ?? 'street',
     // One request form for both directions, as the CLI and Python send it.
     timePreference: arriveBy ? 'arrive_by' : 'depart_at',
-    ...(arriveBy ? { destination: routePoint(range.destination) } : { origin: routePoint(range.origin) }),
+    ...(arriveBy ? { destination: nativePoint(range.destination) } : { origin: nativePoint(range.origin) }),
     serviceDate: range.serviceDate,
     timeMinutes: Number(range.departMinutes),
     maxWalkKm: range.maxWalkKm,

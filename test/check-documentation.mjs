@@ -10,8 +10,8 @@ const lock = JSON.parse(read('package-lock.json'))
 assert.equal(lock.version, manifest.version)
 assert.equal(lock.packages?.['']?.version, manifest.version)
 assert.equal(manifest.license, 'Apache-2.0')
-assert.equal(read('native/vigo-routing-kernel/Cargo.toml').match(/^version = "([^"]+)"/mu)?.[1], manifest.version)
-assert.equal(read('native/vigo-routing-kernel/Cargo.lock').match(/name = "vigo-routing-kernel"\nversion = "([^"]+)"/u)?.[1], manifest.version)
+assert.equal(read('native/Cargo.toml').match(/^version = "([^"]+)"/mu)?.[1], manifest.version)
+assert.equal(read('native/Cargo.lock').match(/name = "vigo-routing-kernel"\nversion = "([^"]+)"/u)?.[1], manifest.version)
 
 function walk(directory) {
   return fs.readdirSync(path.join(root, directory), { withFileTypes: true }).flatMap(entry => {
@@ -31,7 +31,7 @@ for (const file of ['README.md', 'docs/guide.md', 'docs/guide.html']) {
 
 const documents = [
   'README.md', 'CHANGELOG.md', 'SECURITY.md', '.github/CONTRIBUTING.md',
-  'src/styles/README.md', 'native/vigo-routing-kernel/UNIFIED_ROUTING_KERNEL.md',
+  'src/styles/README.md', 'native/UNIFIED_ROUTING_KERNEL.md',
   ...walk('docs').filter(file => /\.(?:md|html)$/u.test(file)),
 ]
 const sources = new Map(documents.map(file => [file, read(file)]))

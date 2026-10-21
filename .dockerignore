@@ -6,13 +6,12 @@
 !deploy/
 !deploy/Dockerfile
 !native/
-!native/vigo-routing-kernel/
-!native/vigo-routing-kernel/Cargo.toml
-!native/vigo-routing-kernel/Cargo.lock
-!native/vigo-routing-kernel/src/
-!native/vigo-routing-kernel/src/**
-!native/vigo-routing-kernel/vendor/
-!native/vigo-routing-kernel/vendor/**
+!native/Cargo.toml
+!native/Cargo.lock
+!native/src/
+!native/src/**
+!native/vendor/
+!native/vendor/**
 !docs/
 !docs/guide.html
 !docs/standalone-openapi.json
@@ -24,4 +23,4 @@
 !crates/
 !crates/**
 crates/**/target/
-!native/vigo-routing-kernel/build.rs
+!native/build.rs

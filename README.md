@@ -48,9 +48,9 @@ git clone https://github.com/hytangs/vigo.git
 cd vigo
 npm ci
 npm run build:cli-runtime   # the compiler, public/vigo.mjs
-npm run build:standalone    # the engine, native/vigo-routing-kernel/target/release/vigo
+npm run build:standalone    # the engine, native/target/release/vigo
 alias vigo-build="node \"$PWD/public/vigo.mjs\""
-alias vigo="\"$PWD/native/vigo-routing-kernel/target/release/vigo\""
+alias vigo="\"$PWD/native/target/release/vigo\""
 ```
 
 Build a City from a GTFS ZIP and an OpenStreetMap extract that covers it:

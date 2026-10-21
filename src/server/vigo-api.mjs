@@ -217,10 +217,6 @@ function integralRoutingMinute(value, label, fallback = 8 * 60) {
   return parsed
 }
 
-function compactObject(value) {
-  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined && entry !== null && entry !== ''))
-}
-
 async function exists(target) {
   try {
     await fs.access(target)
@@ -3627,7 +3623,6 @@ async function preloadNationalBuiltStore({
 
 async function prepareNationalRouting(projectId, body, signal) {
   const project = await readProjectMetadata(projectId)
-  const feedId = String(body?.feedId ?? '')
   const wheelchair = studioWheelchairSelection(projectMetaDir(projectId), project, body)
   const { storePath } = wheelchair ?? await requireCaseRoutingStore(projectId, project, body)
   if (!storePath || !await exists(storePath)) {

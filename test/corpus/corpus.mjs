@@ -28,7 +28,7 @@ const option = name => {
   return index < 0 ? undefined : args[index + 1]
 }
 const binary = path.resolve(option('binary') ?? process.env.VIGO_STANDALONE_PATH
-  ?? path.join(root, 'native/vigo-routing-kernel/target/release', process.platform === 'win32' ? 'vigo.exe' : 'vigo'))
+  ?? path.join(root, 'native/target/release', process.platform === 'win32' ? 'vigo.exe' : 'vigo'))
 const only = option('only')
 
 // Fields that legitimately differ between runs or builds. Each is replaced by a

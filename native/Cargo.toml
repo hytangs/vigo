@@ -21,11 +21,11 @@ path = "src/bin/vigo.rs"
 required-features = ["standalone"]
 
 [dependencies]
-vigo-traffic = { path = "../../crates/vigo-traffic" }
-vigo-route = { path = "../../crates/vigo-route" }
-vigo-format = { path = "../../crates/vigo-format" }
-vigo-prepare = { path = "../../crates/vigo-prepare" }
-vigo-gtfs = { path = "../../crates/vigo-gtfs" }
+vigo-traffic = { path = "../crates/vigo-traffic" }
+vigo-route = { path = "../crates/vigo-route" }
+vigo-format = { path = "../crates/vigo-format" }
+vigo-prepare = { path = "../crates/vigo-prepare" }
+vigo-gtfs = { path = "../crates/vigo-gtfs" }
 bincode = "1.3"
 cch = { path = "vendor/cch" }
 memmap2 = "0.9"

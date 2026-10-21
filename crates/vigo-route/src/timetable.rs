@@ -1203,9 +1203,7 @@ fn expand_connection_scan_transfer_edges<const RETAIN_JOURNEY: bool>(
     for edge in &transfer_edges[start..end] {
         let target = edge.stop();
         let duration = edge.duration();
-        if has_ride
-            && workspace.ride_candidate_later(epoch, target, 0, arrival + duration as f64)
-        {
+        if has_ride && workspace.ride_candidate_later(epoch, target, 0, arrival + duration as f64) {
             continue;
         }
         relax_connection_scan::<RETAIN_JOURNEY>(

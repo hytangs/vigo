@@ -9,7 +9,7 @@ const require = createRequire(import.meta.url)
 const baseline = process.argv[2]
 if (!baseline)
   throw new Error('Usage: node scripts/profile-traffic.mjs BASELINE.node [OUTPUT.json]')
-const current = path.resolve('native/vigo-routing-kernel/vigo-routing-kernel.node')
+const current = path.resolve('native/vigo-routing-kernel.node')
 const side = 60,
   count = side * side,
   lons = [],
