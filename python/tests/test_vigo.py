@@ -289,8 +289,20 @@ class VigoPythonTest(unittest.TestCase):
 
     def test_old_runtime_requires_current_engine(self) -> None:
         self.cli.write_text(self.cli.read_text().replace('"0.5.0"', '"0.4.4"'))
-        with self.assertRaisesRegex(vigo.VigoError, "VIGO 0.5 runtime"):
+        with self.assertRaisesRegex(vigo.VigoError, "Engine 0.5 or 1.0 runtime"):
             vigo.resolve_runtime(self.command)
+
+    def test_runtime_accepts_compatible_release_versions(self) -> None:
+        source = self.cli.read_text()
+        for version in ("0.5.0", "1.0.0-rc.1", "1.0.0", "1.0.1+build.2"):
+            with self.subTest(version=version):
+                self.cli.write_text(source.replace('"0.5.0"', f'"{version}"'))
+                self.assertEqual(vigo.resolve_runtime(self.command).product_version, version)
+        for version in ("1.1.0", "2.0.0", "1.0.0garbage", "1.0.0-"):
+            with self.subTest(version=version):
+                self.cli.write_text(source.replace('"0.5.0"', f'"{version}"'))
+                with self.assertRaises(vigo.VigoError):
+                    vigo.resolve_runtime(self.command)
 
     def test_runtime_requires_current_api_schema_and_trace_output(self) -> None:
         source = self.cli.read_text()

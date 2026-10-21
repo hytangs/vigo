@@ -129,6 +129,12 @@ pub enum AlternativeRanking {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub enum JourneyPolicy {
+    #[serde(rename = "alternatives-v1")]
+    AlternativesV1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum JourneyFormat {
     Full,
@@ -233,6 +239,13 @@ macro_rules! query_request {
 query_request! {
     /// `POST /v1/route`: journeys between two places.
     RouteRequest {
+        /// Versioned native alternatives selection; transit only.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
+        pub journey_policy: Option<JourneyPolicy>,
+        /// Explicit permission to search for faster alternatives with more walking.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
+        #[schemars(range(min = 0.2, max = 5))]
+        pub expanded_walk_km: Option<Number>,
         /// Include GeoJSON on legs.
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
         #[schemars(extend("default" = true))]

@@ -7,7 +7,7 @@
   "result": {
     "allocator": null,
     "defaultScenario": "current",
-    "engineVersion": "0.5.2",
+    "engineVersion": "1.0.0-rc.1",
     "memory": {
       "cacheHeapBytes": 0,
       "lastOutput": null,
@@ -24,8 +24,11 @@
       "evictions": 0,
       "inactiveTimetableBudgetBytes": 134217728,
       "inactiveTimetableRetainedBytes": 0,
+      "lastQueryTiming": null,
       "loadedScenarios": 1,
       "maximumScenarios": 2,
+      "residentHeapBudgetBytes": 0,
+      "residentHeapOverBudget": false,
       "scenarios": [
         {
           "id": "current",
@@ -36,7 +39,7 @@
               "cchBucketBytes": 0,
               "cchBucketEntries": 0,
               "cchTargetNodeCount": 0,
-              "configured": true,
+              "configured": false,
               "endpointCacheEntries": 0,
               "endpointCacheEstimatedBytes": 0,
               "endpointCacheMaximumBytesPerRole": 0,

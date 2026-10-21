@@ -4,7 +4,7 @@ members = ["crates/vigo-runtime", "crates/vigo-model", "crates/vigo-route", "cra
 exclude = ["vendor/cch"]
 
 [workspace.package]
-version = "0.5.2"
+version = "1.0.0-rc.1"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/hytangs/vigo"

@@ -16,8 +16,8 @@ def validate(pin: str, actual: str, engine_version: str, wrapper_version: str, t
         raise ValueError("Checked-out engine differs from the tagged repository commit.")
     if tag != f"python-v{wrapper_version}":
         raise ValueError("Release tag differs from the Python package version.")
-    if not re.fullmatch(r"0\.5\.\d+(?:[-+].+)?", engine_version):
-        raise ValueError("Python 0.5 requires an Engine 0.5 runtime.")
+    if not re.fullmatch(r"1\.0\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?", engine_version):
+        raise ValueError("Python 1.0 releases require an Engine 1.0 runtime.")
 
 
 def main() -> None:

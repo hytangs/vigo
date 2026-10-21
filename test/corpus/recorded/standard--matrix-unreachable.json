@@ -55,10 +55,11 @@
     },
     "durationsSeconds": [[2100,null,null],[null,null,null]],
     "meta": {
+      "assumptionsFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
       "cityRevision": "city-revision",
       "computeScope": "query_dispatch_including_materialization",
       "computeUs": 0,
-      "engineVersion": "0.5.2",
+      "engineVersion": "1.0.0-rc.1",
       "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
       "requestId": "vigo-request"
     },

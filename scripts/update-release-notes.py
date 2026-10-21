@@ -16,7 +16,7 @@ release = json.loads(subprocess.check_output(["gh", "release", "view", args.tag,
 marker = f"<!-- vigo-release:{manifest['sourceCommit']} -->"
 if marker not in release["body"]:
     base = release["url"].replace("/tag/", "/download/") + "/"
-    lines = [marker, f"## Latest 0.5 build: {manifest['build']}", "",
+    lines = [marker, f"## Latest {manifest['version']} build: {manifest['build']}", "",
              f"VIGO **{manifest['version']}**, source `{manifest['sourceCommit']}`. "
              "Updated Studio, CLI and native runtimes include the integrated offline documentation, "
              "device-aware native parallelism and memory budgets. Original downloads and tags are preserved.", "",

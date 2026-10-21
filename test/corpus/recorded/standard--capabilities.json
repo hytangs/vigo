@@ -6,7 +6,7 @@
   "request": null,
   "result": {
     "cityFormat": "vigo.city.v1",
-    "commands": ["info","route","matrix","reach","compare","native","stream","serve","health","capabilities"],
+    "commands": ["traffic-import","info","route","matrix","reach","compare","native","stream","serve","health","capabilities"],
     "compare": {
       "kinds": ["reach"]
     },
@@ -57,6 +57,7 @@
       "arrivalWindows": true,
       "departureWindows": true,
       "fareAnnotations": true,
+      "journeyPolicies": ["alternatives-v1"],
       "realtime": true,
       "requestedAlternatives": {
         "maximum": 9,
@@ -78,7 +79,7 @@
     "schemaVersion": "vigo.standalone.capabilities.v1",
     "standalone": true,
     "timePreferences": ["depart_at","arrive_by"],
-    "version": "0.5.2",
+    "version": "1.0.0-rc.1",
     "wheelchair": {
       "dataMode": "scheduled",
       "modes": ["transit","walk"],

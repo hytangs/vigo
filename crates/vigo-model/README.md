@@ -2,7 +2,7 @@
 
 The public VIGO contract in Rust: every request the engine accepts and every Result it returns, as typed structs with their JSON Schema.
 
-The types describe VIGO 0.5.2 exactly. Reading a recorded Result into them and writing it back produces the same JSON, number forms included. The runtime now uses the typed headway estimate payload. Other public envelopes still use the existing JSON projection; the corpus round-trip checks guard that remaining boundary.
+The types describe VIGO 1.0.0-rc.1 exactly. Reading a recorded Result into them and writing it back produces the same JSON, number forms included. The runtime now uses the typed headway estimate payload. Other public envelopes still use the existing JSON projection; the corpus round-trip checks guard that remaining boundary.
 
 ## What it contains
 
@@ -17,7 +17,7 @@ The types describe VIGO 0.5.2 exactly. Reading a recorded Result into them and w
 | `schema` | The OpenAPI 3.1 document, generated from the types |
 | `codegen` | TypeScript and Python types, generated from the OpenAPI components |
 
-Three conventions carry the 0.5.2 behavior:
+Three conventions carry the 1.0.0-rc.1 behavior:
 
 - **Numbers.** `Number` writes `1200`, not `1200.0`, exactly as the engine does.
 - **Absent, `null` and present.** An optional field is omitted rather than written as `null`. The few fields where VIGO uses all three states, such as a journey's `clockDate`, use `Maybe<T>`.

@@ -1,10 +1,10 @@
-# VIGO 0.5.2 guide
+# VIGO 1.0.0-rc.1 guide
 
 The canonical source for the [VIGO guide](guide.html), a single offline page that also includes the [engine reference](guides/rust-standalone.md), [Results](reference/results.md), [VIGO Python](../python/docs/guide.md), and [developer resources](developer.md#developer-resources). Edit a chapter here, then run `npm run docs:build`.
 
 ## Build a network. Answer a transport question.
 
-VIGO 0.5.2 turns GTFS timetables and OpenStreetMap streets into a reusable City, then answers three questions about it: how to make a journey, how long every trip takes, and how far people can get. It runs on your own machine, explains each answer, and never needs an internet connection to route.
+VIGO 1.0.0-rc.1 turns GTFS timetables and OpenStreetMap streets into a reusable City, then answers three questions about it: how to make a journey, how long every trip takes, and how far people can get. It runs on your own machine, explains each answer, and never needs an internet connection to route.
 
 ### Start here
 
@@ -42,9 +42,9 @@ Every answer carries its evidence. A Route Result says whether each walk follows
 - **Stable results.** The public `vigo.route.v1`, `vigo.matrix.v1`, and `vigo.reach.v1` schemas only gain optional fields. See [Read a Result](reference/results.md).
 - **Offline by default.** Queries never fetch anything. This guide works offline too: press `/` to search, and open saved Results in the [Result viewer](#inspect-a-saved-result).
 
-### What's new in 0.5.2
+### What's new in 1.0.0-rc.1
 
-Route can return several journeys at once with `alternatives`. The engine and the compiler now return the same Result for the same request, including fares and walking connections. Studio saves journeys and comparisons as JSON, GeoJSON, CSV, or Markdown. Read the [release notes](releases/0.5.2.md) and the [changelog](../CHANGELOG.md).
+Route can return several journeys at once with `alternatives`. The engine and the compiler now return the same Result for the same request, including fares and walking connections. Studio saves journeys and comparisons as JSON, GeoJSON, CSV, or Markdown. Read the [release notes](releases/1.0.0-rc.1.md) and the [changelog](../CHANGELOG.md).
 
 ## Install VIGO
 
@@ -787,7 +787,7 @@ A Scenario is an immutable set of changes tied to exactly one City revision. It 
 
 Scenarios never edit the imported GTFS or OSM, and a complete alternative feed is another City revision. Drawing geometry in an editor creates no computational change until it is attached to a valid service edit. Several nonconflicting planned changes may coexist; conflicts need an explicit resolution. A Scenario never moves to another City revision, and expired live state cannot be queried.
 
-In VIGO 0.5.2, planned service changes apply to Reach, supplied traffic to Drive Route and Drive Matrix, and supplied realtime predictions to transit Route. Transit Matrix and Reach remain scheduled. Studio can also route transit journeys on a saved scenario, on the scheduled timetable. Unsupported combinations are rejected with an explanation. The [Scenario request reference](guides/rust-standalone.md#10-scenarios) lists every field.
+In VIGO 1.0.0-rc.1, planned service changes apply to Reach, supplied traffic to Drive Route and Drive Matrix, and supplied realtime predictions to transit Route. Transit Matrix and Reach remain scheduled. Studio can also route transit journeys on a saved scenario, on the scheduled timetable. Unsupported combinations are rejected with an explanation. The [Scenario request reference](guides/rust-standalone.md#10-scenarios) lists every field.
 
 ### Planned service
 
@@ -1328,7 +1328,7 @@ Run the engine executable as the HTTP service. It opens a prepared City or scena
 From the repository root with Docker installed:
 
 ```sh
-docker build -f deploy/Dockerfile -t vigo:0.5.2 .
+docker build -f deploy/Dockerfile -t vigo:1.0.0-rc.1 .
 ```
 
 The image contains the engine with this guide embedded, license notices, and a Debian glibc runtime, and runs as UID/GID 65532. Its compiler matches `rust-toolchain.toml`; City data, JavaScript dependencies, desktop bundles, and build caches are excluded from the build context. Check the image before using it:
@@ -1336,7 +1336,7 @@ The image contains the engine with this guide embedded, license notices, and a D
 ```sh
 npm ci
 npm run build:cli-runtime
-npm run check:deployment -- --image vigo:0.5.2
+npm run check:deployment -- --image vigo:1.0.0-rc.1
 ```
 
 The check builds public synthetic inputs and exercises the real Compose service: a read-only City, authentication, Route, Matrix, Reach, scenario switching, readiness, restart, and resource limits, and it confirms that queries never change City files. CI runs it on Linux x64 and ARM64. Measure your own City and request mix before choosing production limits; the small fixture is not a metropolitan memory or latency result.
@@ -1346,7 +1346,7 @@ The check builds public synthetic inputs and exercises the real Compose service:
 Make the City directory and its files readable by UID 65532, and keep every referenced directory inside the mounted City or collection.
 
 ```sh
-export VIGO_IMAGE=vigo:0.5.2
+export VIGO_IMAGE=vigo:1.0.0-rc.1
 export VIGO_CITY=/absolute/path/to/prepared-city
 # Set VIGO_API_TOKEN through your shell or deployment secret store (16+ characters).
 docker compose -f deploy/compose.yml up -d --wait
@@ -1517,3 +1517,22 @@ A Matrix `ok` status can include unreachable `null` cells, and arrive-by Matrix 
 ### Report a reproducible issue
 
 Include the VIGO version, OS and CPU, the failing command, the request, the City inspection summary, stderr, and the full Result if one was returned. Say what you expected and whether it reproduces with the same inputs, and share a minimal redistributable fixture when possible. Review paths, coordinates, credentials, and source licenses before attaching files to a public issue, and use the [security policy](../SECURITY.md) for vulnerabilities. [Keep a reproducible run](reference/results.md#keep-a-reproducible-run) explains what to retain.
+
+### Concurrent stream queries
+
+Use `vigo stream --city ./city --workers 2 < requests.ndjson` for a bounded
+resident worker pool. The default is one worker; requests accept one through
+four, capped by CPU and resident-memory capacity (two CPUs and 6 GiB per
+worker). Results and query errors retain input order. Each worker loads its
+own City and caches; no more than one response per worker is buffered.
+`RAYON_NUM_THREADS` controls threads within each Rust process, separately
+from the number of concurrent requests. For performance comparisons, keep
+worker count, thread count, City, cache policy and output options identical.
+
+Detailed analytical Matrix streams with `includeJourneys: true` and
+`includeGeometry: false` return every timed leg, trip and stop reference,
+including boarding/alighting sequences and headway assumptions when present.
+They omit Studio display diagnostics and intermediate-stop presentation records.
+Set `journeyFormat: "full"` in the stream request for that additional metadata;
+`includeGeometry: true` also selects full materialization. This preserves the
+lightweight non-geometric Matrix contract used by the Python wrapper.

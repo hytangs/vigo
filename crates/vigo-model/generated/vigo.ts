@@ -467,6 +467,7 @@ export interface Journey {
   departureTime: string;
   drivingSeconds?: number;
   durationSeconds: number;
+  expandedWalkingLimitKm?: number;
   legs: Leg[];
   ridingSeconds: number | null;
   transfers: number | null;
@@ -476,6 +477,8 @@ export interface Journey {
 }
 
 export type JourneyFormat = "full" | "compact";
+
+export type JourneyPolicy = "alternatives-v1";
 
 export type Leg = StreetLeg | TransitLeg;
 
@@ -994,6 +997,7 @@ export interface RouteCapabilities {
   arrivalWindows: boolean;
   departureWindows: boolean;
   fareAnnotations: boolean;
+  journeyPolicies?: string[];
   realtime: boolean;
   requestedAlternatives: RequestedAlternatives;
   transferControls: boolean;
@@ -1036,6 +1040,8 @@ export interface RouteRequest {
   /** unstable internal `trace`. Default `none`. */
   diagnostics?: DiagnosticsLevel;
   disableCache?: boolean;
+  /** Explicit permission to search for faster alternatives with more walking. */
+  expandedWalkKm?: number;
   /** Default 480. */
   horizonMinutes?: number;
   /** Caller's identifier, echoed as `id` and `meta.requestId`. */
@@ -1044,6 +1050,8 @@ export interface RouteRequest {
   includeGeometry?: boolean;
   /** Add the City's dataset limitations to the Result. Default `false`. */
   includeLimitations?: boolean;
+  /** Versioned native alternatives selection; transit only. */
+  journeyPolicy?: JourneyPolicy;
   /** Query kind on a resident stream. */
   kind?: string;
   /** Default 50. */

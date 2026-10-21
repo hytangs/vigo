@@ -1,5 +1,16 @@
 # Version history
 
+## 1.0.0-rc.1
+
+- Add bounded Node CLI stream workers with ordered output and resource caps.
+- Restore lightweight timed-leg Matrix journeys without per-cell Studio metadata; retain full metadata and geometry on request. Reuse unique native Matrix journeys across the internal transport.
+
+- Execute Route, Matrix and Reach in Rust, including all-day accessibility.
+- Add the versioned alternatives policy for thin API clients, shared-service information and explicit walking limits.
+- Extend GTFS transfer, headway and station-access handling with capability and limitation reporting.
+- Preserve published 0.5 Cities, API 1.0, City format 1 and Result schema 1.
+- Align the Python release candidate with the same-commit engine and independent package tags.
+
 ## 0.5.2
 
 - Preserve the exact permanent 0.5.0 baseline as public, non-expiring archives; compatibility checks no longer need a GitHub token. Pin Docker base manifests by digest.

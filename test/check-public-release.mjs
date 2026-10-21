@@ -118,7 +118,7 @@ for (const file of files) {
 }
 
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
-assert.match(packageJson.version, /^\d+\.\d+\.\d+$/u, 'Public package must have a release version.')
+assert.match(packageJson.version, /^\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.[1-9]\d*)?$/u, 'Public package must have a release version.')
 if (process.env.GITHUB_REF_TYPE === 'tag') {
   assert.equal(process.env.GITHUB_REF_NAME, `v${packageJson.version}`, 'Release tag must match the package version.')
 }

@@ -103,7 +103,7 @@ Everything lives in one searchable, offline guide, [`docs/guide.html`](docs/guid
 - [VIGO Python](python/README.md), with a [walkthrough notebook](python/examples/walkthrough.ipynb).
 - [Developer resources](docs/developer.md#developer-resources): architecture, performance measurement, and routing accuracy.
 
-## VIGO 0.5.2
+## VIGO 1.0.0-rc.1
 
 - **Alternative journeys.** Route can return several journeys at once, ranked by trade-off or by arrival.
 - **One Result from both runtimes.** The engine and the compiler share transit geometry, walking connections, fares, and fingerprints.
@@ -111,7 +111,7 @@ Everything lives in one searchable, offline guide, [`docs/guide.html`](docs/guid
 - **Less redundant work** in point queries, Reach propagation, and response formatting.
 - **Authorized endpoint access** for private pedestrian paths at trip origins and destinations.
 
-Published 0.5 Cities remain readable without rebuilding; API 1.0, City format 1, and Result schema 1 are unchanged. [Release notes](docs/releases/0.5.2.md) · [Changelog](CHANGELOG.md) · [Prepared-data contract](docs/reference/format-0.5.0.md)
+Published 0.5 Cities remain readable without rebuilding; API 1.0, City format 1, and Result schema 1 are unchanged. [Release notes](docs/releases/1.0.0-rc.1.md) · [Changelog](CHANGELOG.md) · [Prepared-data contract](docs/reference/format-0.5.0.md)
 
 ## Develop and contribute
 

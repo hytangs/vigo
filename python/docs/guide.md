@@ -1,14 +1,14 @@
-# VIGO Python 0.5.2 guide
+# VIGO Python 1.0.0rc1 guide
 
 Canonical source for the [documentation reader](index.html). Edit the relevant chapter, then rebuild the reader.
 
 ## Routing from Python, without rebuilding the network.
 
-VIGO Python 0.5.2 gives scripts and notebooks a small set of objects for transport analysis. Build or open a City, run Route, Matrix, or Reach, and retain the Result. Reuse one open City for repeated work.
+VIGO Python 1.0.0rc1 gives scripts and notebooks a small set of objects for transport analysis. Build or open a City, run Route, Matrix, or Reach, and retain the Result. Reuse one open City for repeated work.
 
 ### Start with a working example
 
-- **[Your first query](#your-first-python-query)** Install the package, select Engine 0.5, and route using a prepared City.
+- **[Your first query](#your-first-python-query)** Install the package, select Engine 1.0, and route using a prepared City.
 - **[Build a City](reference.md#build-a-city)** Turn local GTFS and OSM inputs into a reusable network.
 - **[Calculate a matrix](reference.md#matrix)** Evaluate many origins and destinations together, with optional journeys.
 - **[Compare a service change](#compare-a-service-proposal)** Run baseline and Scenario queries on the same City.
@@ -49,18 +49,18 @@ Use a context manager, retain the open City, and request Matrix journeys or geom
 
 ### Reference and support
 
-[Read these docs offline](index.html) · [Python API](reference.md) · [Troubleshooting](#troubleshooting) · [Examples](../examples/README.md) · [0.5.2 release notes](releases/0.5.2.md) · [Contributing](../CONTRIBUTING.md)
+[Read these docs offline](index.html) · [Python API](reference.md) · [Troubleshooting](#troubleshooting) · [Examples](../examples/README.md) · [1.0.0rc1 release notes](releases/1.0.0rc1.md) · [Contributing](../CONTRIBUTING.md)
 
 ## Your first Python query
 
-Install VIGO Python 0.5.2, select Engine 0.5, and open a prepared City. The example below asks for a journey from Harvard Square to South Station.
+Install VIGO Python 1.0.0rc1, select Engine 1.0, and open a prepared City. The example below asks for a journey from Harvard Square to South Station.
 
 ### 1. Install
 
 For a packaged installation, select the wheel matching your OS and CPU from [VIGO Python releases](https://github.com/hytangs/vigo/tree/main/python/releases). Replace the filename below with the downloaded file:
 
 ```sh
-python -m pip install "/path/to/vigo-0.5.2-py3-none-PLATFORM.whl[speed]"
+python -m pip install "/path/to/vigo-1.0.0rc1-py3-none-PLATFORM.whl[speed]"
 ```
 
 Platform wheels include Node, the headless CLI bundle, and the Rust kernel. The optional `speed` extra adds accelerated JSON decoding. Omit the extra for the dependency-free Python package; the packaged Engine is still included. Python 3.10 or newer is required.
@@ -76,7 +76,7 @@ export VIGO_RUNTIME=/path/to/headless-runtime
 
 ### 2. Prepare the City
 
-Use a complete City built with Engine 0.5. Keep the entire directory, including its timetable and street files. If starting with raw inputs, follow the [Engine Boston tutorial](https://github.com/hytangs/vigo/blob/main/docs/guide.md#quickstart), or build from local files in Python:
+Use a complete City built with Engine 0.5 or 1.0. Keep the entire directory, including its timetable and street files. If starting with raw inputs, follow the [Engine Boston tutorial](https://github.com/hytangs/vigo/blob/main/docs/guide.md#quickstart), or build from local files in Python:
 
 ```python
 import vigo
@@ -236,7 +236,7 @@ with vigo.open("./city") as city:
 
 The VIGO command line uses the same nouns: `vigo build`, `vigo inspect`, `vigo route`, `vigo matrix`, `vigo reach`, and `vigo compare`.
 
-`vigo capabilities` reports the public API version and supported combinations. Python requires Engine 0.5.x with API 1.0, capability schema v3, and trace output. Runtime selection rejects other API versions and capability schemas.
+`vigo capabilities` reports the public API version and supported combinations. Python supports Engine 0.5.x and 1.0.x with API 1.0, capability schema v3, and trace output. Runtime selection rejects other API versions and capability schemas.
 
 `Route` and `Matrix` accept `max_transfers=0` for at most one boarding,
 `max_transfers=1` for at most two, and so on through 31. Omit the option
@@ -560,7 +560,7 @@ Timing describes execution, not accuracy. Synthetic integration tests check cont
 | Source checkout or universal development wheel | Select a compatible external Engine | Wrapper development or an independently managed Engine |
 | Python with a complete Studio installation | Select the app or extracted distribution | Reusing the Engine shipped with Studio |
 
-Python requires version 3.10 or newer. Install a local platform wheel with `python -m pip install /path/to/vigo-0.5.2-py3-none-PLATFORM.whl`, substituting its real filename. The package has no mandatory Python dependencies. `tqdm` is optional for Build progress.
+Python requires version 3.10 or newer. Install a local platform wheel with `python -m pip install /path/to/vigo-1.0.0rc1-py3-none-PLATFORM.whl`, substituting its real filename. The package has no mandatory Python dependencies. `tqdm` is optional for Build progress.
 
 For a source install, run `python -m pip install -e .` from the wrapper checkout, then select a compatible runtime explicitly. An adjacent Engine checkout is not automatically selected. Maintainers can [stage and build a headless platform wheel](../CONTRIBUTING.md#build-a-headless-wheel).
 
@@ -661,7 +661,7 @@ Selection follows this order:
 4. Installed `VIGO Studio.app` locations on macOS.
 5. `vigo` on `PATH`.
 
-An invalid explicit setting fails rather than selecting another engine. Once a complete bundled layout is selected, a failed capability check also ends discovery. Sibling source checkouts are not discovered implicitly. Python requires Engine 0.5.x, API 1.0, capability schema v3, City format 1, Result schema 1, the public commands, and advertised trace output. Other API versions and capability schemas are rejected at runtime selection.
+An invalid explicit setting fails rather than selecting another engine. Once a complete bundled layout is selected, a failed capability check also ends discovery. Sibling source checkouts are not discovered implicitly. Python supports Engine 0.5.x and 1.0.x, API 1.0, capability schema v3, City format 1, Result schema 1, the public commands, and advertised trace output. Other API versions and capability schemas are rejected at runtime selection.
 
 Use a path for a complete runtime directory or executable. Use an argument sequence for a custom command; a shell command string is not split into executable and arguments:
 
@@ -685,7 +685,7 @@ Matrix requires advertised resident execution. Supplied traffic for Drive Route/
 
 With the bundled engine, all Route modes (including waypoints and supplied traffic), Matrix, and Reach share resident processes by service date. A City keeps one to four processes according to CPU and resident memory capacity. On Linux, affinity and cgroup CPU quotas limit concurrency, while cgroup memory limits and `memory.high` cap the host RAM budget. Limits are read when sizing the executor/City; recreate the City after changing resource limits. Swap is not counted as RAM. Changing dates reclaims the least recently used idle process. Active queries finish before eviction or `City.close()` releases their process.
 
-VIGO Python 0.5 requires Engine 0.5. All queries use the documented `stream` protocol. Detailed Python Results request its explicit trace output. Opening several City objects does not share their routing processes.
+VIGO Python 1.0 supports Engine 0.5 and 1.0. All queries use the documented `stream` protocol. Detailed Python Results use the advertised detailed stream, falling back to trace only on earlier compatible runtimes. Opening several City objects does not share their routing processes.
 
 For repeated work, reuse one City in a context manager. Route answers are recomputed for every call. `disable_cache=True` on transit Route or Matrix disables street-access and reconstructed walking-path caches while leaving the prepared network resident.
 

@@ -12,7 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
 
-VERSION = "0.5.2"
+VERSION = "1.0.0rc1"
 API_VERSION = "1.0"
 CITY_FORMAT_VERSION = 1
 RESULT_SCHEMA_VERSION = 1
@@ -242,7 +242,7 @@ def _runtime_capabilities(
         not isinstance(capabilities, dict)
         or capabilities.get("schemaVersion") != "vigo.capabilities.v3"
         or capabilities.get("apiVersion") != API_VERSION
-        or not re.match(r"^0\.5\.\d+(?:$|[-+])", str(capabilities.get("productVersion", "")))
+        or not re.fullmatch(r"(?:0\.5|1\.0)\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?", str(capabilities.get("productVersion", "")))
         or capabilities.get("cityFormatVersion") != CITY_FORMAT_VERSION
         or capabilities.get("resultSchemaVersion") != RESULT_SCHEMA_VERSION
         or not isinstance(capabilities.get("publicCliCommands"), list)
@@ -250,14 +250,14 @@ def _runtime_capabilities(
             name not in capabilities["publicCliCommands"] for name in PUBLIC_COMMANDS
         )
     ):
-        raise VigoError("VIGO Python 0.5 requires a VIGO 0.5 runtime and the current stream API")
+        raise VigoError("VIGO Python requires an Engine 0.5 or 1.0 runtime with the current stream API")
     output = capabilities.get("output")
     if (
         not isinstance(output, dict)
         or not isinstance(output.get("diagnostics"), list)
         or "trace" not in output["diagnostics"]
     ):
-        raise VigoError("VIGO 0.5 must advertise trace output for detailed Python Results")
+        raise VigoError("VIGO must advertise trace output for detailed Python Results")
     return capabilities
 
 
@@ -292,8 +292,8 @@ def resolve_runtime(
 
     detail = f" Checked: {', '.join(failures)}." if failures else ""
     raise VigoError(
-        "No VIGO 0.5 runtime with the current stream API is available. "
-        "Install a VIGO 0.5 platform wheel or set VIGO_RUNTIME to an Engine 0.5 runtime." + detail
+        "No compatible VIGO runtime with the current stream API is available. "
+        "Install a VIGO platform wheel or set VIGO_RUNTIME to an Engine 0.5 or 1.0 runtime." + detail
     )
 
 

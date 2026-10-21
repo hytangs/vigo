@@ -48,6 +48,8 @@ pub struct OutputCapabilities {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RouteCapabilities {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub journey_policies: Option<Vec<String>>,
     pub realtime: bool,
     pub transfer_controls: bool,
     pub waypoints: bool,

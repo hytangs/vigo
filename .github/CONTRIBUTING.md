@@ -2,7 +2,7 @@
 
 This repository contains Engine, Studio and the independently packaged Python interface in `python/`. Keep private datasets, executed notebooks, generated data, release archives and local workspaces outside tracked source. Public Python tutorial notebooks belong in `python/examples/` with empty outputs. Follow the [quickstart](../docs/guide.md#quickstart) to install and build.
 
-The current release line is [VIGO 0.5.2](../docs/releases/0.5.2.md).
+The current release line is [VIGO 1.0.0-rc.1](../docs/releases/1.0.0-rc.1.md).
 
 ## Make a change
 

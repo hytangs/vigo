@@ -113,7 +113,7 @@
     {"id": "python-api", "title": "Python API reference", "heading": "Python API reference", "badge": "VIGO Python {python}", "group": "python", "source": "python/docs/reference.md"},
     {"id": "python-troubleshooting", "title": "Python troubleshooting", "heading": "Troubleshooting VIGO Python", "badge": "VIGO Python {python}", "group": "python", "source": "python/docs/guide.md", "section": "troubleshooting"},
 
-    {"id": "release", "title": "What’s new in 0.5.2", "group": "project", "source": "docs/releases/0.5.2.md"},
+    {"id": "release", "title": "What’s new in 1.0.0-rc.1", "group": "project", "source": "docs/releases/1.0.0-rc.1.md"},
     {"id": "release-0-5-1", "title": "VIGO 0.5.1", "group": "project", "parent": "release", "source": "docs/releases/0.5.1.md"},
     {"id": "release-0-5-0", "title": "VIGO 0.5.0", "group": "project", "parent": "release", "source": "docs/releases/0.5.0.md"},
     {"id": "history", "title": "Historical records", "group": "project", "parent": "release", "source": "docs/history.md"},

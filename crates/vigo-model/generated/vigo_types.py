@@ -292,6 +292,8 @@ InSeatContinuationType = Literal["stay_aboard"]
 
 JourneyFormat = Literal["full"] | Literal["compact"]
 
+JourneyPolicy = Literal["alternatives-v1"]
+
 LegAlert = TypedDict(
     "LegAlert",
     {
@@ -868,6 +870,7 @@ RouteCapabilities = TypedDict(
         "arrivalWindows": bool,
         "departureWindows": bool,
         "fareAnnotations": bool,
+        "journeyPolicies": NotRequired[list[str]],
         "realtime": bool,
         "requestedAlternatives": RequestedAlternatives,
         "transferControls": bool,
@@ -1396,6 +1399,8 @@ RouteRequest = TypedDict(
         # unstable internal `trace`. Default `none`.
         "diagnostics": NotRequired[DiagnosticsLevel],
         "disableCache": NotRequired[bool],
+        # Explicit permission to search for faster alternatives with more walking.
+        "expandedWalkKm": NotRequired[float],
         # Default 480.
         "horizonMinutes": NotRequired[float],
         # Caller's identifier, echoed as `id` and `meta.requestId`.
@@ -1404,6 +1409,8 @@ RouteRequest = TypedDict(
         "includeGeometry": NotRequired[bool],
         # Add the City's dataset limitations to the Result. Default `false`.
         "includeLimitations": NotRequired[bool],
+        # Versioned native alternatives selection; transit only.
+        "journeyPolicy": NotRequired[JourneyPolicy],
         # Query kind on a resident stream.
         "kind": NotRequired[str],
         # Default 50.
@@ -1474,6 +1481,7 @@ Journey = TypedDict(
         "departureTime": str,
         "drivingSeconds": NotRequired[int],
         "durationSeconds": int,
+        "expandedWalkingLimitKm": NotRequired[float],
         "legs": list[Leg],
         "ridingSeconds": int | None,
         "transfers": int | None,

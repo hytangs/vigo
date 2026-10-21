@@ -1471,6 +1471,9 @@
             "format": "int64",
             "type": "integer"
           },
+          "expandedWalkingLimitKm": {
+            "type": "number"
+          },
           "legs": {
             "items": {
               "$ref": "#/components/schemas/Leg"
@@ -1535,6 +1538,12 @@
             "type": "string"
           }
         ]
+      },
+      "JourneyPolicy": {
+        "enum": [
+          "alternatives-v1"
+        ],
+        "type": "string"
       },
       "Leg": {
         "discriminator": {
@@ -3164,6 +3173,12 @@
           "fareAnnotations": {
             "type": "boolean"
           },
+          "journeyPolicies": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "realtime": {
             "type": "boolean"
           },
@@ -3294,6 +3309,12 @@
             "default": false,
             "type": "boolean"
           },
+          "expandedWalkKm": {
+            "description": "Explicit permission to search for faster alternatives with more walking.",
+            "maximum": 5,
+            "minimum": 0.2,
+            "type": "number"
+          },
           "horizonMinutes": {
             "default": 480,
             "description": "Default 480.",
@@ -3313,6 +3334,10 @@
             "default": false,
             "description": "Add the City's dataset limitations to the Result. Default `false`.",
             "type": "boolean"
+          },
+          "journeyPolicy": {
+            "$ref": "#/components/schemas/JourneyPolicy",
+            "description": "Versioned native alternatives selection; transit only."
           },
           "kind": {
             "description": "Query kind on a resident stream.",
@@ -4675,7 +4700,7 @@
   "info": {
     "description": "Route, Matrix, Reach and Compare over a prepared City. Generated from the vigo-model types. Bearer authentication is optional only on a loopback listener without a configured token.",
     "title": "VIGO API",
-    "version": "0.5.2"
+    "version": "1.0.0-rc.1"
   },
   "openapi": "3.1.0",
   "paths": {
