@@ -2447,6 +2447,19 @@ export function nativeRasterAreas(values, width, height, bounds, cutoffs, surfac
   return JSON.parse(binding.reachBoundaryAreas(raster, width, height, bounds, cutoffs, surface, cells))
 }
 
+// Each enclosed cell between reached streets takes its fastest street plus a
+// straight walk of at most 100 m, never through mapped water. Without complete
+// water coverage nothing is shaded.
+export function nativeOffStreetEstimates(values, width, height, bounds, water, walkSpeedKph) {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width * height !== values.length || values.length > 1_048_576) {
+    throw new Error('Invalid Reach raster dimensions')
+  }
+  const raster = values instanceof Float64Array ? values : Float64Array.from(values, value => Number.isFinite(value) ? value : Infinity)
+  const binding = loadNativeBinding()
+  if (typeof binding.reachOffStreetEstimates !== 'function') throw new Error('Rust routing binding lacks Reach off-street shading. Rebuild the native kernel.')
+  return binding.reachOffStreetEstimates(raster, width, height, bounds, water ? JSON.stringify(water) : undefined, walkSpeedKph)
+}
+
 export function nativeNetworkOverview(storePath, sourceScope, asynchronous = false) {
   const binding = loadNativeBinding()
   if (typeof binding.networkOverview !== 'function') throw new Error('Rust routing binding lacks City overviews. Rebuild the native kernel.')

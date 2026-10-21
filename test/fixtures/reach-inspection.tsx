@@ -140,8 +140,8 @@ window.checkReachInspection = async () => {
   const blockBytes=new Uint8Array(32);blockBytes.fill(255);new DataView(blockBytes.buffer).setUint16(30,93,true)
   const blockResult={...result,surface:{...result.surface,blockEstimates:{baseline:{...result.surface.raster,values:btoa(String.fromCharCode(...blockBytes))}}}}
   const blockSample=reachPointSample(blockResult,[-71.08,42.34],'baseline')
-  assert(blockSample.status==='sampled'&&blockSample.minutes===9.3&&blockSample.estimatedBlock,'Missing street sample did not use the labelled block estimate')
-  assert(!reachPointSample(blockResult,[-71.12,42.38],'baseline').estimatedBlock,'Block estimate replaced a routed street sample')
+  assert(blockSample.status==='sampled'&&blockSample.minutes===9.3&&blockSample.estimatedBlock,'Missing street sample did not use the labelled off-street estimate')
+  assert(!reachPointSample(blockResult,[-71.12,42.38],'baseline').estimatedBlock,'Off-street estimate replaced a routed street sample')
   await until(()=>window.inspectionMap?.loaded())
   const map=window.inspectionMap
   assert((await map.getSource('vigo-stops').getData()).features.length===0,'Accessibility retained a hidden stop collection')
@@ -186,8 +186,8 @@ window.checkReachInspection = async () => {
   assert(document.querySelector('.reach-point-scroll').textContent.includes('journey below uses scheduled service'),'Scenario route presented as a planned-service journey')
   flushSync(()=>window.inspectionSetResult(blockResult))
   click([-71.08,42.34]);await until(()=>requests.length===9);requests[8].respond('transit');await until(()=>window.inspection.plan?.status==='ready')
-  assert(document.querySelector('.reach-point-estimates').textContent.includes('9.3 min · block estimate'),'Displayed block value was presented as a routed street sample')
-  assert(document.querySelector('.reach-point-scroll').textContent.includes('checks your selected point separately'),'Block shading was presented as verified interior access')
+  assert(document.querySelector('.reach-point-estimates').textContent.includes('9.3 min · off-street estimate'),'Displayed off-street value was presented as a routed street sample')
+  assert(document.querySelector('.reach-point-scroll').textContent.includes('checks your selected point separately'),'Off-street shading was presented as verified access')
   return { rasterCells:16, preciseClick:true, exactRequest:true, routeGeometry:true, staleCancellation:true, selectedVariant:true, walking:true, blockedAndRetry:true, keyboard:true, stopsRemoved:true }
 }
 window.checkInspectionLayout = async dark => {

@@ -769,6 +769,8 @@ For quantitative agreement, compute travel times at the same coordinates with Ma
 
 After running Reach in **Analyze**, click a destination to see its map estimate and request a journey there; with the map focused, press Enter to inspect its center. The journey keeps the analysis origin, date, departure time, timetable selection, and walking and ride limits. Expand **Show journey** for the walking and transit legs. A missing raster sample does not by itself mean no journey exists.
 
+With street sampling, the Studio map also shades the land between reached streets. Each cell enclosed by the reached network takes its fastest nearby reached street plus a straight walk of up to 100 m, never across mapped water. Land farther than that from a reached street, outside the reached network, or in a City without complete water coverage stays unshaded. The inspector labels these values as off-street estimates. Shading is for display only: area metrics and the saved raster keep the street samples.
+
 Destination journeys use scheduled service and the City's routing walking speed. Planned service changes affect the scenario map estimate but are not reconstructed in the destination journey; the panel labels the difference.
 
 ### Compare service changes
