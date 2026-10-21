@@ -73,8 +73,18 @@ export function nativeScenario(scenario) {
     name: scenario.name,
     excludedRouteIds: scenario.excludedRouteIds,
     excludedTripIds: scenario.excludedTripIds,
-    ...(scenario.services.length ? { services: scenario.services.map(plannedService) } : {}),
+    ...(scenario.services.length ? { services: scenario.services.map(nativeService) } : {}),
   } : undefined
+}
+
+// Normalized planned stops default to the "map" source, which the runtime
+// places by coordinate. A stop that names a GTFS stop joins it, as before.
+function nativeService(service) {
+  const planned = plannedService(service)
+  return {
+    ...planned,
+    stops: planned.stops.map(stop => stop.stopId && stop.source === 'map' ? { ...stop, source: 'stop' } : stop),
+  }
 }
 
 /**
@@ -83,15 +93,17 @@ export function nativeScenario(scenario) {
  */
 export function nativeReachRange(trace, scenario) {
   const surface = nativeSurface(trace)
-  const plannedIds = new Set((scenario?.services ?? []).flatMap(service => service.stops.map(stop => String(stop.id))))
+  // Planned stop IDs, with the GTFS stop each one joins.
+  const plannedStops = new Map((scenario?.services ?? []).flatMap(service => service.stops.map(stop => [String(stop.id), stop.stopId])))
   const stops = []
   const scenarioStops = []
   for (const stop of trace.stops ?? []) {
     const stopId = String(stop.stopId)
     const durationMinutes = Number(stop.durationMinutes)
-    if (plannedIds.has(stopId) || plannedStop.test(stopId)) {
+    if (plannedStops.has(stopId) || plannedStop.test(stopId)) {
+      const joined = plannedStops.get(stopId)
       scenarioStops.push({ id: stopId.split('\u001f').at(-1), label: stop.name, coordinate: stop.coordinate,
-        source: 'scenario-stop', durationMinutes })
+        source: 'scenario-stop', ...(joined ? { stopId: joined } : {}), durationMinutes })
     } else {
       stops.push({ id: `transit-stop:${stopId}`, label: stop.name, coordinate: stop.coordinate, source: 'stop',
         stopId, durationMinutes })
