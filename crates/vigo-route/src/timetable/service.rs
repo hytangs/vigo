@@ -417,6 +417,8 @@ impl TimetableKernel {
             targets
         });
         let mut operations = 0usize;
+        let mut ridden: HashMap<(usize, u64, u64), Vec<(u32, f64)>> = HashMap::new();
+        let mut ride_labels = 0usize;
         while let Some(Queue(_, index)) = search.queue.pop() {
             let l = search.labels[index].clone();
             // Nonnegative ride/walk costs cannot improve an already completed
@@ -608,6 +610,30 @@ impl TimetableKernel {
                         if (!reverse && clock > end) || (reverse && clock < start) {
                             break;
                         }
+                        // Once aboard the same vehicle event, the previous
+                        // transfer anchor no longer affects its continuation.
+                        // Retain the boarding/walking frontier, rather than
+                        // rescanning the remaining run for every access label.
+                        // Headway shifts and reverse waiting costs identify
+                        // different events and must not dominate one another.
+                        let frontier = ridden
+                            .entry((j, shift.to_bits(), wait.to_bits()))
+                            .or_default();
+                        if frontier.iter().any(|&(boardings, walking)| {
+                            boardings <= l.boardings && walking <= l.walking
+                        }) {
+                            break;
+                        }
+                        frontier.retain(|&(boardings, walking)| {
+                            !(l.boardings <= boardings && l.walking <= walking)
+                        });
+                        ride_labels += 1;
+                        if ride_labels > MAX_PARETO_LABELS {
+                            return Err(Error::from_reason(
+                                "Service search exceeds the bounded onboard label budget",
+                            ));
+                        }
+                        frontier.push((l.boardings, l.walking));
                         operations += 1;
                         if operations > 50_000_000 {
                             return Err(Error::from_reason(
@@ -1400,6 +1426,111 @@ mod tests {
             allow_post_ride_transfers: Some(vec![false]),
             maximum_boardings: Some(2),
             include_journeys: Some(true),
+        }
+    }
+    #[test]
+    fn overlapping_access_frontiers_do_not_rescan_entire_vehicle_runs() {
+        // Every stop is an endpoint candidate on 100 long runs. Enumerating
+        // every suffix independently exceeds the operation budget, although
+        // the feasible arrival/departure at each stop is trivial to enumerate.
+        let stops = 1_002usize;
+        let trips = 100usize;
+        let segments = stops - 1;
+        let count = trips * segments;
+        let mut kernel = TimetableKernel::new(TimetableKernelInput {
+            stop_count: stops as u32,
+            run_count: trips as u32,
+            departure_seconds: (0..count)
+                .map(|i| (i % segments + i / segments) as u32 + 100)
+                .collect::<Vec<_>>()
+                .into(),
+            arrival_seconds: (0..count)
+                .map(|i| (i % segments + i / segments) as u32 + 101)
+                .collect::<Vec<_>>()
+                .into(),
+            from_stop: (0..count)
+                .map(|i| (i % segments) as u32)
+                .collect::<Vec<_>>()
+                .into(),
+            to_stop: (0..count)
+                .map(|i| (i % segments + 1) as u32)
+                .collect::<Vec<_>>()
+                .into(),
+            sequence: (0..count)
+                .map(|i| (i % segments + 1) as u32)
+                .collect::<Vec<_>>()
+                .into(),
+            segment_trip: (0..count)
+                .map(|i| (i / segments) as u32)
+                .collect::<Vec<_>>()
+                .into(),
+            segment_run: (0..count)
+                .map(|i| (i / segments) as u32)
+                .collect::<Vec<_>>()
+                .into(),
+            continuity_break: (0..count)
+                .map(|i| u8::from(i % segments == 0))
+                .collect::<Vec<_>>()
+                .into(),
+            can_board: vec![1; count].into(),
+            can_alight: vec![1; count].into(),
+            trip_start: (0..=trips)
+                .map(|i| (i * segments) as u32)
+                .collect::<Vec<_>>()
+                .into(),
+            departure_offset: (0..=stops)
+                .map(|i| (i.min(segments) * trips) as u32)
+                .collect::<Vec<_>>()
+                .into(),
+            departure_order: (0..segments)
+                .flat_map(|stop| (0..trips).map(move |trip| (trip * segments + stop) as u32))
+                .collect::<Vec<_>>()
+                .into(),
+            transfer_offset: vec![0; stops + 1].into(),
+            transfer_to: vec![].into(),
+            transfer_duration: vec![].into(),
+            forbidden_same_stop: vec![0; stops].into(),
+            same_stop_transfer_minimum: None,
+            minimum_transfer_buffer_seconds: None,
+        })
+        .unwrap();
+        kernel
+            .set_service_semantics(ServiceSemantics {
+                trip_routes: vec![0; trips],
+                ..Default::default()
+            })
+            .unwrap();
+        let endpoints: Vec<_> = (0..stops as u32).collect();
+        for reverse in [false, true] {
+            let search = kernel
+                .service_search(
+                    &endpoints,
+                    &vec![0.; stops],
+                    &endpoints,
+                    0.,
+                    2_000.,
+                    reverse,
+                    false,
+                    Some(1),
+                    &[],
+                    false,
+                    None,
+                )
+                .unwrap();
+            for stop in 0..stops as u32 {
+                let actual = search
+                    .labels
+                    .iter()
+                    .filter(|l| l.stop == stop && l.trip.is_some())
+                    .map(|l| l.clock)
+                    .reduce(if reverse { f64::max } else { f64::min });
+                let expected = if reverse {
+                    (stop < segments as u32).then_some(f64::from(stop) + 199.)
+                } else {
+                    (stop > 0).then_some(f64::from(stop) + 100.)
+                };
+                assert_eq!(actual, expected);
+            }
         }
     }
     #[test]
