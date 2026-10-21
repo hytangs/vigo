@@ -2659,16 +2659,6 @@ export function prepareNationalGtfsRoutingContext(storePath, options = {}) {
   }
 }
 
-export function nationalGtfsRuntimeView(storePath) {
-  const store = openNationalStore(storePath)
-  return Object.freeze({
-    metadata: store.metadata,
-    stop(stopId) {
-      return store.stopLookup.get(String(stopId ?? '').trim()) ?? null
-    },
-  })
-}
-
 function fallbackRetryRequest(store, request) {
   if (request.__suppressServiceDateFallback === true || request.allowServiceDateFallback !== true || request.__serviceDateFallbackRetry === true) return null
   const resolution = resolveServiceDate(store, request.serviceDate, request.serviceDay, true)

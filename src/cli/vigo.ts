@@ -2,6 +2,7 @@ import { nativeRouteRequest, studioRouteResponse } from '../server/studio-route-
 import { routingResultStatus } from '../server/gtfs/route-results.mjs'
 import { wheelchairDescription, validateWheelchairRequest } from '../server/wheelchair-policy.mjs'
 import fs from 'node:fs'
+import { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
@@ -35,11 +36,10 @@ import {
   disposeNationalGtfsStore,
   ensureNationalGtfsOsmStopTransfers,
   inspectNationalStaticTopologySidecar,
-  nationalGtfsRuntimeView,
   prepareNationalGtfsRoutingContext,
   prepareNationalGtfsNativeCoordinateAccess,
-  readNationalGtfsStoreMetadata,
 } from '../server/national-gtfs-store.mjs'
+import { readNationalGtfsStoreMetadata } from '../server/gtfs/store-metadata.mjs'
 import {
   readNationalOsmStoreMetadata,
   buildNationalOsmDriveStore,
@@ -139,18 +139,37 @@ function numberField(row: Record<string, string>, names: string[]) {
   return undefined
 }
 
+const stopLookups = new Map<string, ReturnType<typeof createStopLookup>>()
 function openStopLookup(storePath: string) {
-  const view = nationalGtfsRuntimeView(storePath)
+  let lookup = stopLookups.get(storePath)
+  if (!lookup) {
+    lookup = createStopLookup(storePath)
+    stopLookups.set(storePath, lookup)
+  }
+  return lookup
+}
+
+function createStopLookup(storePath: string) {
+  // Endpoint labels need one indexed SQLite lookup, not a second routing store
+  // with timetable activation, transfer graphs and access materialization.
+  const metadata = readNationalGtfsStoreMetadata(storePath)
+  let db: DatabaseSync | undefined
+  let statement: ReturnType<DatabaseSync['prepare']> | undefined
   const routingStore = {
-    storeId: view.metadata.storeId,
-    connectionCount: view.metadata.connectionCount,
+    storeId: (metadata as Record<string, unknown>).storeId,
+    connectionCount: metadata.connectionCount,
   }
   type StopRow = { stop_id: string; name: string; lon: number; lat: number }
   return {
-    metadata: view.metadata,
+    metadata,
+    close() { db?.close() },
     routingStore,
     point(stopId: string, label?: string): RoutingPoint | null {
-      const row = view.stop(stopId) as StopRow | null
+      if (!statement) {
+        db = new DatabaseSync(storePath, { readOnly: true })
+        statement = db.prepare('SELECT stop_id, name, lon, lat FROM stops WHERE stop_id = ?')
+      }
+      const row = statement.get(String(stopId ?? '').trim()) as StopRow | undefined
       if (!row || !Number.isFinite(row.lon) || !Number.isFinite(row.lat)) return null
       return { stopId: row.stop_id, coordinate: [row.lon, row.lat], label: label || row.name || row.stop_id, source: 'stop' }
     },
@@ -914,7 +933,10 @@ async function computePreparedMatrix(
   }
   if (options.routingDataMode === 'realtime' && mode === 'drive') nativeRequest.traffic = request.traffic
   const { trace, openMs } = await queryNativeCity(paths.cityPath, nativeRequest)
-  const matrix = { diagnostics: trace.diagnostics, rows: origins.flatMap((origin, i) => destinations.map((destination, j) => {
+  // Public Matrix output consumes native arrays directly. Only the explicit
+  // legacy detailed stream needs flat rows and Studio journey adaptation.
+  const detailed = value(args, 'stream-output') === 'detailed' || value(args, 'diagnostics', String(request.diagnostics ?? '')) === 'trace'
+  const matrix = { diagnostics: trace.diagnostics, rows: detailed ? origins.flatMap((origin, i) => destinations.map((destination, j) => {
     const duration = trace.durationsMinutes[i][j]
     const ready = Number.isFinite(duration) && duration >= 0
     const rawJourney = trace.journeys?.[i]?.[j]
@@ -928,14 +950,8 @@ async function computePreparedMatrix(
       arriveMinutes: ready ? (options.timePreference === 'arrive' ? options.timeMinutes : options.timeMinutes + duration) : null,
       ...(trace.distancesMeters ? { distanceKm: ready ? trace.distancesMeters[i][j] / 1000 : null } : {}),
       ...(journey ? { journey } : {}) }
-  })) }
+  })) : undefined }
   const assemblyStarted = performance.now()
-  // Matrix owns fresh rows for this request; attach IDs without copying each row.
-  const rows = matrix.rows
-  for (const row of rows) {
-    row.originId = origins[Number(row.originIndex)]?.id ?? null
-    row.destinationId = destinations[Number(row.destinationIndex)]?.id ?? null
-  }
   const payload = {
     schemaVersion: 'vigo.result.matrix.v1',
     ...publicResultMetadata,
@@ -964,7 +980,9 @@ async function computePreparedMatrix(
       ...(request.arrivalBufferMinutes !== undefined ? { arrivalBufferMinutes: request.arrivalBufferMinutes } : {}),
       disableCache: request.disableCache === true,
     },
-    rows,
+    ...(detailed ? { rows: matrix.rows } : { durationsMinutes: trace.durationsMinutes,
+      ...(trace.distancesMeters ? { distancesMeters: trace.distancesMeters } : {}),
+      ...(trace.journeys ? { journeys: trace.journeys } : {}) }),
     diagnostics: matrix.diagnostics,
     timing: {
       computeMs: Number((assemblyStarted - queryStarted).toFixed(3)),
@@ -1983,4 +2001,6 @@ try {
   process.exitCode = 2
 } finally {
   closeNativeCity()
+  for (const lookup of stopLookups.values()) lookup.close()
+  stopLookups.clear()
 }

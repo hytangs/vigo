@@ -318,6 +318,14 @@ try {
   assert(Math.abs(matrix.rows[1].durationMinutes - route.result.durationMinutes) < 0.001,
     'Public transit Route and Matrix must select the same transit journey.')
   assert(route.result.legs.some(leg => leg.type === 'ride'))
+  const matrixPublicArgs = ['matrix', `--city=${cityPath}`, `--request=${matrixRequest}`,
+    '--time=07:55', '--service-date=2026-07-15', '--max-walk=0.2', '--horizon=90']
+  const matrixPublic = JSON.parse(execFileSync(executable, [...prefix, ...matrixPublicArgs], { encoding: 'utf8' }))
+  const matrixTraced = JSON.parse(run(matrixPublicArgs))
+  assert.deepEqual(matrixPublic.durationsSeconds, matrixTraced.durationsSeconds,
+    'Direct native arrays and detailed Matrix output must preserve cell values.')
+  assert.deepEqual(matrixPublic.query, matrixTraced.query,
+    'Matrix endpoint IDs and ordering must survive direct native presentation.')
   const earlyMatrixRequest = path.join(temporaryRoot, 'early-matrix.json')
   fs.writeFileSync(earlyMatrixRequest, JSON.stringify({ origins: ['A'], destinations: ['B'],
     requireTransitRide: true, includeJourneys: true }))
