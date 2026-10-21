@@ -33,10 +33,11 @@ export const vehicleMarkerLayer: CircleLayerSpecification = {
   source: 'vigo-service-vehicles',
   paint: {
     'circle-color': ['coalesce', ['get', 'routeColor'], '#35d0a1'],
-    'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 1.4, 9, 2.4, 10, 4.5, 13, 7, 16, 9],
+    // A gentle ramp keeps hundreds of vehicles legible over the network at City scale.
+    'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 1.2, 9, 2, 10, 2.8, 11, 3.8, 13, 6.5, 16, 9],
     'circle-opacity': 1,
     'circle-stroke-color': ['case', ['any', ['==', ['get', 'delaySeverity'], 'critical'], ['==', ['get', 'gapSeverity'], 'critical']], '#dc2626', ['any', ['==', ['get', 'delaySeverity'], 'warning'], ['==', ['get', 'gapSeverity'], 'warning']], '#d97706', '#ffffff'],
-    'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 5, ['case', ['any', ['in', ['get', 'delaySeverity'], ['literal', ['warning', 'critical']]], ['in', ['get', 'gapSeverity'], ['literal', ['warning', 'critical']]]], 1, .25], 10, ['case', ['any', ['in', ['get', 'delaySeverity'], ['literal', ['warning', 'critical']]], ['in', ['get', 'gapSeverity'], ['literal', ['warning', 'critical']]]], 2, 1], 13, ['case', ['any', ['in', ['get', 'delaySeverity'], ['literal', ['warning', 'critical']]], ['in', ['get', 'gapSeverity'], ['literal', ['warning', 'critical']]]], 2, 1.5]],
+    'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 5, ['case', ['any', ['in', ['get', 'delaySeverity'], ['literal', ['warning', 'critical']]], ['in', ['get', 'gapSeverity'], ['literal', ['warning', 'critical']]]], 1, .25], 10, ['case', ['any', ['in', ['get', 'delaySeverity'], ['literal', ['warning', 'critical']]], ['in', ['get', 'gapSeverity'], ['literal', ['warning', 'critical']]]], 1.5, 0.6], 13, ['case', ['any', ['in', ['get', 'delaySeverity'], ['literal', ['warning', 'critical']]], ['in', ['get', 'gapSeverity'], ['literal', ['warning', 'critical']]]], 2, 1.5]],
     'circle-pitch-alignment': 'map',
     'circle-pitch-scale': 'viewport',
   },

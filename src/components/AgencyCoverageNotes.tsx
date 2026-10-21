@@ -25,7 +25,7 @@ export function AgencyCoverageNotes({ warnings }: { warnings: string[] }) {
     {notes.map(note => <p className="agency-caption" key={note}>{note.includes('intervals cannot be compared')
       ? note.replace('intervals cannot be compared', 'stop-level headway comparisons were skipped') : note}</p>)}
     {notes.some(note => /headway comparisons|intervals cannot be compared/.test(note)) ? <p className="agency-caption">These are comparison limits, not confirmed disruptions. The same trips can be counted at multiple stops.</p> : null}
-    {alertIds.size ? <details className="agency-source-details">
+    {alertIds.size ? <details className="studio-disclosure agency-source-details">
       <summary>{alertIds.size} alerts with unresolved scope</summary>
       <p className="agency-caption">Alerts are retained. Only affected-service selectors that can be matched are assigned; unresolved selectors are excluded. An alert may have more than one matching issue.</p>
       {[...groups].map(([reason, ids]) => <details key={reason}><summary>{reason} · {ids.size}</summary><p className="agency-caption">Alert IDs: {[...ids].join(', ')}</p></details>)}

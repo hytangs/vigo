@@ -163,5 +163,3 @@
 @media (prefers-reduced-motion: reduce) {
   .city-feed-entry > summary > svg, .city-live-disclosure > summary > svg:last-child { transition: none; }
 }
-.city-case-group-link { align-self: start; padding: 6px 0; border: 0; background: transparent; color: var(--text-muted); text-align: left; font-size: 12px; cursor: pointer; }
-.city-case-group-link:hover { color: var(--text-strong); text-decoration: underline; }

@@ -24,13 +24,13 @@ body,
 
   --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", Inter, "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-  --type-2xs: 0.714rem;
-  --type-xs: 0.786rem;
-  --type-sm: 0.857rem;
-  --type-md: 0.929rem;
-
-  --space-1: 4px;
+  --type-2xs: 10px;
+  --type-xs: 11px;
+  --type-sm: 12px;
+  --type-md: 13px;
+  --type-lg: 15px;
+  --type-xl: 20px;
+  --type-2xl: 28px;
 
   --radius-xs: 5px;
   --radius-sm: 7px;
@@ -47,13 +47,18 @@ body,
 
   --rail-width: 48px;
   --pq-rail-width: var(--rail-width);
-  --panel-width: clamp(344px, 26vw, 392px);
-  --workbench-sidebar: var(--panel-width);
+  --panel-width: clamp(336px, 25vw, 368px);
+  --workbench-sidebar: calc(var(--rail-width) + var(--panel-width));
   --pq-sidebar-width: var(--panel-width);
   --routing-detail-width: clamp(300px, 24vw, 360px);
-  --stage-gutter: 12px;
-  --topbar-height: 48px;
+  --stage-gutter: 10px;
+  --topbar-height: 44px;
   --pq-control-height: 34px;
+  --control-h: 28px;
+  --row-h: 34px;
+  --panel-pad: 12px;
+  --panel-radius: 14px;
+  --group-radius: 10px;
 
   --good: #4ade9a;
   --watch: #f7b955;
@@ -84,6 +89,10 @@ body,
   --signal-line: rgba(205, 230, 124, 0.42);
   --material-strong: rgba(11, 18, 29, 0.93);
   --material-blur: blur(32px) saturate(1.5);
+  --fill-1: rgba(214, 226, 245, 0.045);
+  --fill-2: rgba(214, 226, 245, 0.075);
+  --fill-3: rgba(214, 226, 245, 0.12);
+  --seg-thumb: #344055;
   --elev-1: 0 1px 0 rgba(255, 255, 255, 0.035) inset, 0 1px 2px rgba(0, 0, 0, 0.38);
   --elev-2: 0 0 0 1px var(--line-2), 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 18px 46px -14px rgba(0, 0, 0, 0.7), 0 3px 10px rgba(0, 0, 0, 0.34);
   --elev-3: 0 0 0 1px var(--line-2), 0 28px 80px -18px rgba(0, 0, 0, 0.78), 0 6px 18px rgba(0, 0, 0, 0.4);
@@ -111,6 +120,10 @@ body,
   --signal-line: rgba(96, 132, 0, 0.42);
   --material-strong: rgba(255, 255, 255, 0.94);
   --material-blur: blur(28px) saturate(1.8);
+  --fill-1: rgba(15, 23, 42, 0.035);
+  --fill-2: rgba(15, 23, 42, 0.06);
+  --fill-3: rgba(15, 23, 42, 0.1);
+  --seg-thumb: #ffffff;
   --elev-1: 0 1px 2px rgba(15, 23, 42, 0.06);
   --elev-2: 0 0 0 1px var(--line-2), 0 18px 44px -16px rgba(15, 23, 42, 0.26), 0 2px 8px rgba(15, 23, 42, 0.07);
   --elev-3: 0 0 0 1px var(--line-2), 0 28px 72px -20px rgba(15, 23, 42, 0.32), 0 6px 16px rgba(15, 23, 42, 0.08);
@@ -143,7 +156,6 @@ body,
   --accent-2: var(--signal-text);
   --success: var(--good);
   --warn: var(--watch);
-  --warning: var(--watch);
   --danger: var(--alert);
   --shadow-soft: var(--elev-1);
   --shadow-lg: var(--elev-3);

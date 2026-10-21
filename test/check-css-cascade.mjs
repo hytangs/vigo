@@ -35,6 +35,7 @@ const generatedClassNames = new Set([
   'state-ready',
   'state-working',
   'tone-empty',
+  'tone-watch',
 ])
 const libraryClassPrefixes = ['lucide-', 'maplibregl-']
 const stylePaths = [...entrySource.matchAll(/@import\s+["']([^"']+)["'];/g)]

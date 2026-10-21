@@ -1,8 +1,8 @@
-import { ArrowRight, ChevronRight } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import type { AgencyRoute, AgencyState } from '../agency/types'
 import { browseRoutes, routeBrowserFreshness, routeDelayLabel, routeHasAttention } from '../agency/routeBrowser'
 import { classNames } from '../domain'
-import { AgencyRouteBadge } from './AgencyRouteBadge'
+import { AgencyRouteRow } from './AgencyRouteBadge'
 
 /** Delay thresholds match the live vehicle legend: warning ≥5 min, severe ≥15 min. */
 export function routeDelaySeverity(route: AgencyRoute) {
@@ -35,7 +35,7 @@ export function AgencyOverview({ state, refreshFailed, onBrowse, onRoute, onFeed
       <span className={classNames('agency-pulse-state', live ? 'is-live' : refreshFailed ? 'is-stale' : 'is-timetable')}><i aria-hidden="true" />{live ? 'Live' : refreshFailed ? 'Stale' : 'Timetable'}</span>
       <span className="agency-pulse-time">{refreshFailed ? 'Last updated' : 'Updated'} {shortTime}</span>
     </header>
-    <div className="agency-overview-metrics" aria-label="Network snapshot measures">
+    <div className="agency-overview-metrics kit-stats" aria-label="Network snapshot measures">
       <button onClick={() => onBrowse('all')}><strong>{count(state.routes.length)}</strong><span>Routes</span></button>
       <button onClick={() => reporting === null ? onFeeds() : onBrowse('reporting')}><strong>{reporting === null ? '—' : count(reporting)}</strong><span>Reporting</span></button>
       <button className={attention.length ? 'has-attention' : ''} onClick={() => onBrowse('attention')}><strong>{freshness.predictions || freshness.alerts ? count(attention.length) : '—'}</strong><span>To review</span></button>
@@ -55,17 +55,13 @@ export function AgencyOverview({ state, refreshFailed, onBrowse, onRoute, onFeed
     {!freshness.predictions ? <p className="agency-overview-basis">{freshness.label}. Unreported service is unknown.</p> : null}
 
     {attention.length ? <section className="agency-priority" aria-label="Routes to review">
-      <header><h2>Routes to review</h2><button className="agency-text-button" onClick={() => onBrowse('attention')}>View all <ArrowRight size={15} /></button></header>
-      <div>{attention.slice(0, 4).map(route => <button className="agency-priority-route" data-severity={routeDelaySeverity(route)} key={route.id} onClick={() => onRoute(route.id)}>
-        <AgencyRouteBadge name={route.name} color={route.color} mode={route.mode} showMode />
-        <span className="agency-priority-description">{route.longName && route.longName !== route.name ? <strong>{route.longName}</strong> : null}<small>{[
+      <header className="kit-section-title"><h2>Routes to review</h2><button type="button" onClick={() => onBrowse('attention')}>View all<ChevronRight size={13} aria-hidden="true" /></button></header>
+      <div className="agency-route-rows kit-group">{attention.slice(0, 5).map(route => <AgencyRouteRow key={route.id} route={route} severity={routeDelaySeverity(route)} detailClassName="agency-priority-description" onSelect={() => onRoute(route.id)}>{[
           freshness.alerts && route.alerts ? `${route.alerts} ${route.alerts === 1 ? 'alert' : 'alerts'}` : '',
           routeDelayLabel(route, freshness) ? `${routeDelayLabel(route, freshness)} predicted` : '',
           freshness.predictions && route.headway === 'changed' ? 'Changed departure spacing' : '',
-        ].filter(Boolean).slice(0, 2).join(' · ') || (routeHasAttention(route, freshness) ? 'Service change reported' : 'Open route evidence')}</small></span>
-        <ChevronRight size={16} aria-hidden="true" />
-      </button>)}</div>
+        ].filter(Boolean).slice(0, 2).join(' · ') || (routeHasAttention(route, freshness) ? 'Service change reported' : 'Open route evidence')}</AgencyRouteRow>)}</div>
     </section> : null}
-    <details className="agency-overview-details"><summary>Data &amp; coverage</summary><p>{refreshFailed ? 'Last successful snapshot' : 'Snapshot'} {time} · {state.coverage.timezone || 'UTC · agency timezone unknown'}</p><p>Service date {state.coverage.serviceDate || 'unknown'} · {state.cityName}</p><p>{freshness.detail}</p><p>Reporting counts routes with current trip reports. Review includes alerts and predicted service changes, ordered by alerts, service changes, then delay.</p></details>
+    <details className="studio-disclosure agency-overview-details"><summary><span>Data &amp; coverage</span></summary><p>{refreshFailed ? 'Last successful snapshot' : 'Snapshot'} {time} · {state.coverage.timezone || 'UTC · agency timezone unknown'}</p><p>Service date {state.coverage.serviceDate || 'unknown'} · {state.cityName}</p><p>{freshness.detail}</p><p>Reporting counts routes with current trip reports. Review includes alerts and predicted service changes, ordered by alerts, service changes, then delay.</p></details>
   </section>
 }

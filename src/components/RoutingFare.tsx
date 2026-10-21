@@ -21,8 +21,8 @@ export const RoutingFare = memo(function RoutingFare({ plan }: { plan: RoutingPl
   const quoted = rides.filter(leg => leg.fare?.status === 'published')
   const single = rides.length === 1
   const label = !quoted.length ? 'Fare unavailable' : single ? `${farePriceLabel(quoted[0].fare?.options)} boarding fare` : 'Fares by boarding'
-  return <details className="routing-fares" onToggle={event => setExpanded(event.currentTarget.open)}>
-    <summary>{label}</summary>
+  return <details className="studio-disclosure routing-fares" onToggle={event => setExpanded(event.currentTarget.open)}>
+    <summary><span>{label}</span></summary>
     {expanded ? <>{rides.map((leg, index) => <div key={index}>
       {!single ? <strong>{leg.routeShortName || leg.routeId} · {leg.fromName}</strong> : null}
       {leg.fare?.status === 'published' ? <><FareOptions fare={leg.fare} /><small>{leg.fare.standard} · {leg.fare.source}{leg.fare.agencyUrl ? <> · <a href={leg.fare.agencyUrl} target="_blank" rel="noreferrer">Agency fares</a></> : null}</small></> : <p>{leg.fare?.reason || 'Fare data was not imported with this timetable.'}</p>}

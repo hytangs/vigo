@@ -1,4 +1,4 @@
-import { Clock3, Pause, Play, Radio } from 'lucide-react'
+import { Info, Pause, Play, Radio } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { classNames, formatNumber } from '../domain'
 import { formatServiceTime, type ScheduledVehicleDiagnostics } from '../scheduledVehicles'
@@ -69,52 +69,53 @@ export function ServiceStateControl({
 
   return (
     <div aria-label={mode === 'schedule' ? 'Schedule playback: estimated positions from GTFS stop times' : 'Live vehicle positions'} className={classNames('service-state-panel', mode === 'live' ? 'is-live' : 'is-schedule')}>
-      <div className="service-mode-switch" role="group" aria-label="Vehicle source">
+      <div className="studio-tabs service-mode-switch" role="group" aria-label="Vehicle source">
         {(['live', 'schedule'] as const).map((option) => (
-          <button
-            key={option}
-            type="button"
-            className={classNames(mode === option && 'is-active')}
-            aria-pressed={mode === option}
-            onClick={() => onModeChange(option)}
-          >
+          <button key={option} type="button" aria-pressed={mode === option} onClick={() => onModeChange(option)}>
             {option === 'live' ? 'Live' : 'Schedule'}
           </button>
         ))}
       </div>
+      {mode === 'schedule' ? (
+        <button type="button" className="service-playback-toggle" onClick={onTogglePlayback} aria-label={playbackRunning ? 'Pause service playback' : 'Play service playback'}>
+          {playbackRunning ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
+        </button>
+      ) : null}
       <div className={classNames('service-state-readout', `tone-${diagnostics.tone}`)} title={diagnostics.detail}>
-        {mode === 'live' ? <Radio size={15} /> : <Clock3 size={15} />}
-        <span>
-          {mode === 'live' ? <strong>{formatNumber(vehicleCount)} vehicles</strong> : <input className="service-clock-input" aria-label="Scheduled time (HH:MM)" value={clockInput} onChange={event => setClockInput(event.currentTarget.value)} onFocus={() => { if (playbackRunning) onTogglePlayback() }} onBlur={commitClock} onKeyDown={event => { if (event.key === 'Enter') { commitClock(); event.currentTarget.blur() } }} />}
-          <small>{mode === 'schedule' ? `Estimated · ${diagnostics.title}` : diagnostics.title}{mode === 'schedule' && onNow ? <> · <button type="button" className="service-now-button" onClick={onNow}>Now</button></> : null}</small>
-        </span>
+        {mode === 'live' ? <Radio size={15} aria-hidden="true" /> : null}
+        {mode === 'live' ? <strong>{formatNumber(vehicleCount)} vehicles</strong> : <input className="service-clock-input" aria-label="Scheduled time (HH:MM)" value={clockInput} onChange={event => setClockInput(event.currentTarget.value)} onFocus={() => { if (playbackRunning) onTogglePlayback() }} onBlur={commitClock} onKeyDown={event => { if (event.key === 'Enter') { commitClock(); event.currentTarget.blur() } }} />}
+        <small>{mode === 'schedule' ? `Estimated · ${diagnostics.title}` : diagnostics.title}{mode === 'schedule' && onNow ? <> · <button type="button" className="service-now-button" onClick={onNow}>Now</button></> : null}</small>
       </div>
-      {mode === 'live' ? <details className="service-indicator-legend"><summary>! Delay · ↔ Spacing</summary><div className="service-indicator-popover"><p>Vehicle border: amber warning, red severe. ! means predicted delay; ↔ means irregular predicted spacing. Dashed links connect a verified bunching pair, not its driving path.</p><p>GTFS-RT departure predictions are compared with static GTFS at the same stop, direction and service date. Missing reports remain unknown.</p><p>Delay: warning ≥5 min, severe ≥15 min. Wider gaps: warning ≥1.5× scheduled and ≥5 min extra; severe ≥3×, ≥20 min total and ≥10 min extra. Compression: warning ≤half scheduled and ≥3 min compression; severe ≤25%, ≤2 min apart and ≥5 min compression.</p></div></details> : null}
       {mode === 'schedule' ? (
         <>
           <input className="service-playback-date" type="date" value={scheduleServiceDate}
             aria-label="Schedule service date" title="GTFS service date; times after 24:00 continue this service day"
             onChange={(event) => onScheduleServiceDateChange(event.currentTarget.value)} />
-          <div className="service-playback-controls">
-            <button type="button" className="service-playback-toggle" onClick={onTogglePlayback} aria-label={playbackRunning ? 'Pause service playback' : 'Play service playback'}>
-              {playbackRunning ? <Pause size={15} /> : <Play size={15} />}
-            </button>
-            <select value={playbackStep} onChange={(event) => onPlaybackStepChange(Number(event.currentTarget.value))} aria-label="Playback step" title="Timetable minutes advanced per playback step">
-              <option value={1}>1 min</option><option value={5}>5 min</option><option value={15}>15 min</option>
-            </select>
-            <div className="service-timeline">
-              <input className="service-playback-slider" type="range" min={0} max={scheduleEndMinutes} step={1} value={scheduleTimeMinutes}
-                style={{ '--playback-progress': `${100 * scheduleTimeMinutes / Math.max(1, scheduleEndMinutes)}%` } as CSSProperties}
-                aria-valuetext={formatServiceTime(scheduleTimeMinutes)} onChange={(event) => onScheduleTimeChange(Number(event.currentTarget.value))} aria-label="Service time of day" />
-              <span aria-hidden="true"><span>00:00</span><span>{formatServiceTime(scheduleEndMinutes)}</span></span>
-            </div>
+          <select className="service-playback-step" value={playbackStep} onChange={(event) => onPlaybackStepChange(Number(event.currentTarget.value))} aria-label="Playback step" title="Timetable minutes advanced per playback step">
+            <option value={1}>1 min</option><option value={5}>5 min</option><option value={15}>15 min</option>
+          </select>
+          <div className="service-timeline">
+            <input className="service-playback-slider" type="range" min={0} max={scheduleEndMinutes} step={1} value={scheduleTimeMinutes}
+              style={{ '--playback-progress': `${100 * scheduleTimeMinutes / Math.max(1, scheduleEndMinutes)}%` } as CSSProperties}
+              aria-valuetext={formatServiceTime(scheduleTimeMinutes)} onChange={(event) => onScheduleTimeChange(Number(event.currentTarget.value))} aria-label="Service time of day" />
+            <span aria-hidden="true"><span>00:00</span><span>{formatServiceTime(scheduleEndMinutes)}</span></span>
           </div>
         </>
       ) : (
-        <div className="service-live-meta">
-          <span className={classNames(frame.freshness?.status === 'stale' && 'is-stale')}><i aria-hidden="true" />{liveUpdatedLabel}</span>
-          <small>{formatNumber(frame.tripUpdateCount)} updates · {formatNumber(frame.alertCount)} alerts</small>
-        </div>
+        <>
+          <div className="service-live-meta">
+            <span className={classNames(frame.freshness?.status === 'stale' && 'is-stale')}><i aria-hidden="true" />{liveUpdatedLabel}</span>
+            <small>{formatNumber(frame.tripUpdateCount)} updates · {formatNumber(frame.alertCount)} alerts</small>
+          </div>
+          <details className="service-indicator-legend">
+            <summary aria-label="Vehicle marker key" title="Vehicle marker key"><Info size={14} aria-hidden="true" /></summary>
+            <div className="service-indicator-popover">
+              <p><strong>! Delay · ↔ Spacing.</strong> Vehicle border: amber warning, red severe. ! means predicted delay; ↔ means irregular predicted spacing. Dashed links connect a verified bunching pair, not its driving path.</p>
+              <p>GTFS-RT departure predictions are compared with static GTFS at the same stop, direction and service date. Missing reports remain unknown.</p>
+              <p>Delay: warning ≥5 min, severe ≥15 min. Wider gaps: warning ≥1.5× scheduled and ≥5 min extra; severe ≥3×, ≥20 min total and ≥10 min extra. Compression: warning ≤half scheduled and ≥3 min compression; severe ≤25%, ≤2 min apart and ≥5 min compression.</p>
+            </div>
+          </details>
+        </>
       )}
     </div>
   )

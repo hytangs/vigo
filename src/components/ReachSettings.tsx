@@ -1,4 +1,5 @@
-import { useId, useState } from 'react'
+import { Car, TrainFront } from 'lucide-react'
+import { useId, useState, type CSSProperties } from 'react'
 
 /** Keep incomplete edits local; only valid values enter a routing request. */
 export function AnalysisNumberField({ label, value, min, max, unit, integer = false, optional = false, disabled = false, help, onChange }: {
@@ -48,20 +49,22 @@ export function ReachSettings({ travelMode = 'transit', onTravelModeChange, cuto
   onSurfaceSamplingChange?: (value: 'street' | 'cell-center') => void
 }) {
   return <section className="reach-settings-list" aria-label="Travel limits">
-    {onTravelModeChange ? <label className="reach-field reach-setting-method"><span>Travel mode</span>
-      <select value={travelMode} onChange={event => onTravelModeChange(event.currentTarget.value as 'transit' | 'drive')}>
-        <option value="transit">Transit & walking</option>
-        <option value="drive">Driving</option>
-      </select>
-    </label> : null}
+    {onTravelModeChange ? <div className="studio-tabs reach-travel-mode" role="group" aria-label="Travel mode">
+      {([['transit', 'Transit & walk', TrainFront], ['drive', 'Drive', Car]] as const).map(([value, label, Icon]) => (
+        <button key={value} type="button" aria-pressed={travelMode === value} onClick={() => onTravelModeChange(value)}>
+          <Icon size={13} aria-hidden="true" /><span>{label}</span>
+        </button>
+      ))}
+    </div> : null}
     {travelMode === 'drive' ? <small>Road-speed estimates, without live traffic. Routes to grid points within 40 km of the origin; areas beyond the map are not evaluated.</small> : null}
     <div className="reach-time-budget">
       <AnalysisNumberField label="Time budget" value={cutoffMinutes} min={1} max={240} unit="min"
         onChange={value => { if (value !== undefined) onCutoffChange(value) }} />
       <input className="reach-budget-slider" type="range" min={1} max={240} step={0.25} value={cutoffMinutes}
+        style={{ '--range-progress': `${(cutoffMinutes - 1) / 239 * 100}%` } as CSSProperties}
         aria-label="Adjust time budget" aria-valuetext={`${cutoffMinutes} minutes`}
         onChange={event => onCutoffChange(Number(event.currentTarget.value))} />
-      <div className="reach-budget-presets" role="group" aria-label="Time budget presets">
+      <div className="studio-tabs reach-budget-presets" role="group" aria-label="Time budget presets">
         {reachBudgetPresets.map(minutes => (
           <button key={minutes} type="button" aria-pressed={cutoffMinutes === minutes} onClick={() => onCutoffChange(minutes)}>
             {minutes < 60 ? `${minutes}m` : `${minutes / 60}h`}

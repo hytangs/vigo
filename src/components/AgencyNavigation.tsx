@@ -3,7 +3,7 @@ import { Download, FileText, Map, MoreHorizontal, Radio, RefreshCw } from 'lucid
 
 export type AgencyMode = 'overview' | 'live'
 const views = [
-  { id: 'overview', label: 'Network' },
+  { id: 'overview', label: 'Overview' },
   { id: 'live', label: 'Routes' },
 ] as const
 
@@ -32,7 +32,7 @@ export function AgencyNavigation({ mode, onChange, health, mapOpen, onToggleMap,
     if (more.current) { more.current.open = false; more.current.querySelector('summary')?.focus() }
     action()
   }
-  return <nav className="agency-navigation" aria-label="Network navigation">
+  return <nav className="agency-navigation inspector-head" aria-label="Network navigation">
     <div className="studio-tabs agency-tabs" role="tablist" aria-label="Network views">{views.map(({ id, label }, index) => <button
       key={id} role="tab" id={`agency-tab-${id}`} aria-selected={mode === id} aria-controls={`agency-${id}`}
       tabIndex={mode === id || (!views.some(view => view.id === mode) && index === 0) ? 0 : -1}
@@ -45,14 +45,14 @@ export function AgencyNavigation({ mode, onChange, health, mapOpen, onToggleMap,
       }}>{label}</button>)}</div>
     <div className="agency-navigation-tools">
       <div className="agency-live-indicator">{health}</div>
-      <button className="agency-icon-button agency-mobile-map-toggle" aria-label={mapOpen ? 'Hide map' : 'Show map'} aria-pressed={mapOpen} onClick={onToggleMap}><Map size={16} /></button>
+      <button className="kit-icon-button agency-mobile-map-toggle" aria-label={mapOpen ? 'Hide map' : 'Show map'} aria-pressed={mapOpen} onClick={onToggleMap}><Map size={16} /></button>
       <details className="agency-more" ref={more} onKeyDown={event => { if (event.key === 'Escape' && more.current) { more.current.open = false; more.current.querySelector('summary')?.focus() } }}>
-        <summary className="agency-icon-button" aria-label="Network tools" title="Network tools"><MoreHorizontal size={18} /></summary>
+        <summary className="kit-icon-button" aria-label="Network tools" title="Network tools"><MoreHorizontal size={17} /></summary>
         <div className="agency-more-options">
-          <button onClick={() => runTool(onFeeds)}><Radio size={15} />Feed settings</button>
-          <button onClick={() => runTool(onRefresh)}><RefreshCw size={15} />Refresh observations</button>
-          {onExportReport ? <button onClick={() => runTool(onExportReport)}><FileText size={15} />Export report</button> : null}
-          {onExport ? <button onClick={() => runTool(onExport)}><Download size={15} />Export observations</button> : null}
+          <button onClick={() => runTool(onFeeds)}><Radio size={14} />Feed settings</button>
+          <button onClick={() => runTool(onRefresh)}><RefreshCw size={14} />Refresh observations</button>
+          {onExportReport ? <button onClick={() => runTool(onExportReport)}><FileText size={14} />Export report</button> : null}
+          {onExport ? <button onClick={() => runTool(onExport)}><Download size={14} />Export observations</button> : null}
         </div>
       </details>
     </div>

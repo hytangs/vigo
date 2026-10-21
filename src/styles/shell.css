@@ -215,141 +215,6 @@
   overflow: hidden;
 }
 
-.sidebar-panel {
-  min-width: 0;
-  min-height: 0;
-  display: grid;
-  grid-template-rows: none;
-  grid-auto-rows: max-content;
-  align-content: start;
-  overflow: auto;
-}
-
-.sidebar-panel-title {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-}
-
-.sidebar-section {
-  min-width: 0;
-  min-height: 0;
-  display: grid;
-  align-content: start;
-  gap: 8px;
-}
-
-.sidebar-section-title {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  color: var(--text-strong);
-}
-
-.sidebar-section-title strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.sidebar-section-title span {
-  flex: 0 0 auto;
-}
-
-.sidebar-list {
-  min-width: 0;
-  display: grid;
-  align-content: start;
-  gap: 6px;
-}
-
-.sidebar-list.compact {
-  gap: 5px;
-}
-
-.sidebar-panel.is-explore {
-  overflow: hidden;
-}
-
-.sidebar-list-row {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-  padding: 9px 10px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  color: var(--text);
-  background: color-mix(in srgb, var(--panel-strong) 38%, transparent);
-  cursor: pointer;
-  text-align: left;
-}
-
-.sidebar-list-row:hover,
-.sidebar-list-row.is-selected {
-  border-color: color-mix(in srgb, var(--accent) 48%, var(--border-strong));
-  background: color-mix(in srgb, var(--accent) 10%, var(--panel-strong));
-}
-
-.sidebar-list-row.is-empty {
-  border-style: dashed;
-}
-
-.sidebar-list-row strong,
-.sidebar-list-row span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar-list-row strong {
-  color: var(--text-strong);
-  font-size: 0.74rem;
-  font-weight: 880;
-}
-
-.sidebar-list-row span {
-  color: var(--text-muted);
-  font-size: 0.63rem;
-  font-weight: 760;
-}
-
-.sidebar-list-row.feed-scope-row {
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas:
-    "title chip"
-    "meta chip";
-  align-items: center;
-  column-gap: 8px;
-}
-
-.feed-scope-row strong {
-  grid-area: title;
-}
-
-.feed-scope-row span {
-  grid-area: meta;
-}
-
-.feed-scope-row small {
-  grid-area: chip;
-  max-width: 82px;
-  padding: 3px 6px;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--text-muted) 18%, transparent);
-  border-radius: 5px;
-  color: var(--text-soft);
-  background: color-mix(in srgb, var(--panel-strong) 56%, transparent);
-  font-size: 0.54rem;
-  font-weight: 820;
-  line-height: 1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .sidebar-empty-note {
   display: grid;
   gap: 5px;
@@ -437,10 +302,6 @@
 
 .project-empty .app-sidebar {
   grid-template-columns: 64px;
-}
-
-.project-empty .sidebar-panel {
-  display: none;
 }
 
 .project-empty .topbar-brand span,
@@ -612,10 +473,6 @@
   background: #060a0f;
   box-shadow: none;
   color: #eef4f8;
-}
-
-.page-projects .sidebar-panel {
-  display: none;
 }
 
 .page-projects .topbar {

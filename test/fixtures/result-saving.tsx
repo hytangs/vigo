@@ -189,7 +189,8 @@ window.checkResultLayout = (mode, dark) => {
     const r = control.getBoundingClientRect()
     assert(r.left >= -1 && r.right <= innerWidth + 1 && control.scrollWidth <= control.clientWidth + 1, 'Save control overflows')
     for (const button of control.querySelectorAll('select,button')) {
-      assert(button.clientHeight >= 30, 'Save control is too short')
+      // Desktop controls are 28 px (above the 24 px WCAG target minimum); touch widths use 36 px.
+      assert(button.clientHeight >= (innerWidth <= 760 ? 34 : 28), 'Save control is too short')
     }
   }
   const panel = document.querySelector(mode === 'journey' ? '.routing-detail-scroll' : '.reach-surface')

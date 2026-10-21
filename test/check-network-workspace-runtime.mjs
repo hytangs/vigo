@@ -46,7 +46,7 @@ window.checkNetwork=async()=>{
  await waitFor(()=>document.querySelector('.agency-overview'),'Network did not load');
  document.querySelector('.app-shell').classList.add('appearance-'+document.documentElement.dataset.appearance);
  const tabs=[...document.querySelectorAll('.agency-tabs [role=tab]')];
- if(tabs.map(b=>b.textContent).join(',')!=='Network,Routes')throw Error('Unexpected Network tabs');
+ if(tabs.map(b=>b.textContent).join(',')!=='Overview,Routes')throw Error('Unexpected Network tabs');
  if(tabs[0].getAttribute('aria-selected')!=='true'||sessionStorage.getItem('agency-mode-fixture')!=='overview')throw Error('Saved Ask tab did not recover to Network');
  if(document.querySelector('#agency-ask,.agency-composer-dock'))throw Error('Conversation UI remains');
  if(document.querySelector('.agency-briefing,.agency-provider-settings'))throw Error('Retired research UI remains');

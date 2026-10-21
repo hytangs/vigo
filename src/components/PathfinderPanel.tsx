@@ -22,7 +22,7 @@ import {
   Ship,
   TrainFront,
   TramFront,
-  Trash2,
+  X,
 } from 'lucide-react'
 import { useState, type CSSProperties, type KeyboardEvent } from 'react'
 import {
@@ -233,10 +233,8 @@ export function PathfinderRouteList({
 
   return (
     <section className="pathfinder-results" aria-label="Route results" aria-busy={alternativesLoading}>
-      <div className="pathfinder-results-head">
-        <span>
-          <strong>Choose a journey</strong>
-        </span>
+      <div className="pathfinder-results-head kit-section-title">
+        <strong>Journeys</strong>
         <b>{readyPlans.length
           ? groups.length > displayedPlans.length
             ? `${displayedPlans.length} of ${groups.length}`
@@ -245,7 +243,7 @@ export function PathfinderRouteList({
       </div>
 
       {readyPlans.length > 1 ? (
-        <div className="pathfinder-choice-sort" role="group" aria-label="Sort journeys">
+        <div className="studio-tabs pathfinder-choice-sort" role="group" aria-label="Sort journeys">
           {([['arrival', readyPlans[0].timePreference === 'arrive' ? 'Leave later' : 'Earliest'], ['transfers', 'Fewer transfers'], ['walking', 'Less walking']] as const).map(([value, label]) => (
             <button key={value} type="button" aria-pressed={sort === value} onClick={() => setSort(value)}>{label}</button>
           ))}
@@ -298,6 +296,8 @@ export function PathfinderRouteList({
                     ? `${formatRoutingMinutes(totalElapsedMinutes)} from the requested departure, including ${formatRoutingMinutes(startWaitMinutes)} before leaving; ${formatRoutingMinutes(journeyMinutes)} travelling`
                     : 'Time from leaving to arriving'}>{formatRoutingMinutes(totalElapsedMinutes)} total</b>
                 </span>
+                {plan.legs.length ? <JourneyLegStrip plan={plan} /> : null}
+                {departures.length > 1 ? <strong className="pathfinder-group-services">{serviceNames}</strong> : null}
                 <span className="pathfinder-route-rationale">
                   <strong>{plan === fastest ? `${plan.travelMode === 'walk' ? 'Walk only · ' : ''}${plan.timePreference === 'arrive' ? 'Latest departure' : 'Earliest arrival'}` : tradeoff || plan.choiceLabel || 'Another route'}</strong>
                   {startWaitMinutes > 0 ? (
@@ -306,16 +306,14 @@ export function PathfinderRouteList({
                     </span>
                   ) : totalWaitMinutes > 0 ? <span>Wait {formatRoutingMinutes(totalWaitMinutes)} between legs</span> : null}
                 </span>
-                <span className="pathfinder-route-metrics" aria-hidden="true">
-                  {plan.travelMode === 'transit' ? <span><b>{plan.transfers}</b><small>transfer{plan.transfers === 1 ? '' : 's'}</small></span> : null}
-                  <span><b>{formatRoutingMinutes(plan.walkMinutes)}</b><small>{plan.travelMode === 'drive' ? 'access' : 'walk'}</small></span>
-                  {plan.travelMode !== 'walk' ? <span><b>{formatRoutingMinutes(plan.rideMinutes)}</b><small>{plan.travelMode === 'drive' ? 'drive' : 'ride'}</small></span> : <span><b>0</b><small>vehicles</small></span>}
-                </span>
-                {plan.legs.length ? <JourneyLegStrip plan={plan} /> : null}
-                {departures.length > 1 ? <strong className="pathfinder-group-services">{serviceNames}</strong> : null}
                 <span className="pathfinder-route-footer">
-                  <span className="pathfinder-route-sequence">{[routeSequence, waypointNote].filter(Boolean).join(' · ')}</span>
-                  <span className="pathfinder-route-open">Details <ChevronRight size={13} aria-hidden="true" /></span>
+                  <span className="pathfinder-route-metrics" aria-hidden="true">
+                    {plan.travelMode === 'transit' ? <span><b>{plan.transfers}</b><small>transfer{plan.transfers === 1 ? '' : 's'}</small></span> : null}
+                    <span><b>{formatRoutingMinutes(plan.walkMinutes)}</b><small>{plan.travelMode === 'drive' ? 'access' : 'walk'}</small></span>
+                    {plan.travelMode !== 'walk' ? <span><b>{formatRoutingMinutes(plan.rideMinutes)}</b><small>{plan.travelMode === 'drive' ? 'drive' : 'ride'}</small></span> : <span><b>0</b><small>vehicles</small></span>}
+                  </span>
+                  {routeSequence || waypointNote ? <span className="pathfinder-route-sequence">{[routeSequence, waypointNote].filter(Boolean).join(' · ')}</span> : null}
+                  <ChevronRight className="pathfinder-route-open" size={14} aria-hidden="true" />
                 </span>
               </button>
               {departures.length > 1 ? <div className="pathfinder-group-departures" aria-label="Departures for this journey">
@@ -323,7 +321,7 @@ export function PathfinderRouteList({
                   <strong>{routingPlanRouteSequence(option)}</strong>
                   <span>{formatScheduleClock(option.departMinutes)} → {formatScheduleClock(option.arriveMinutes ?? option.departMinutes + option.durationMinutes)}</span>
                 </button>)}
-                {departures.length > 2 ? <details><summary>{departures.length - 2} later departures</summary>
+                {departures.length > 2 ? <details><summary>{departures.length - 2} later {departures.length === 3 ? 'departure' : 'departures'}</summary>
                   {departures.slice(2).map(option => <button key={option.id} type="button" aria-pressed={selectedPlanId === option.id} onClick={() => onSelect(option.id)}>
                     <strong>{routingPlanRouteSequence(option)}</strong>
                     <span>{formatScheduleClock(option.departMinutes)} → {formatScheduleClock(option.arriveMinutes ?? option.departMinutes + option.durationMinutes)}</span>
@@ -339,10 +337,10 @@ export function PathfinderRouteList({
       {exportPlans.length > 1 ? <ResultExportActions key={selectedPlanId} label={`Save all ${exportPlans.length} departures`} buttonLabel="Save all" formats={['json', 'csv']}
         disabled={alternativesLoading} resultKey={plans}
         onExport={format => exportJourneys(exportPlans, format, selectedPlanId)} /> : null}
-      {earliestTransit ? <details className="pathfinder-result-context"><summary>Search details</summary><p>{earliestTransit}</p></details> : null}
+      {earliestTransit ? <details className="studio-disclosure pathfinder-result-context"><summary><span>Search details</span></summary><p>{earliestTransit}</p></details> : null}
       {alternativesLoading ? (
         <div className="pathfinder-alternatives" role="status" aria-live="polite">
-          <LoaderCircle size={14} aria-hidden="true" />
+          <LoaderCircle className="is-spinning" size={14} aria-hidden="true" />
           <span>Finding journey alternatives…</span>
         </div>
       ) : null}
@@ -512,26 +510,26 @@ export function SidebarPathfinderBox({
       : []
 
   return (
-    <section className="sidebar-section sidebox sidebox-pathfinder pathfinder-query" aria-label="Routing controls">
+    <section className="pathfinder-query" aria-label="Routing controls">
       <form className="pathfinder-composer" onSubmit={(event) => { event.preventDefault(); if (canRun) onRunRouting() }}>
-        <div className="pathfinder-setup-head">
-          <div className="pathfinder-mode-switch" role="group" aria-label="Travel mode">
+        <header className="inspector-head pathfinder-setup-head">
+          <div className="studio-tabs pathfinder-mode-switch" role="group" aria-label="Travel mode">
             {travelModeChoices.map(([mode, label]) => {
               const Icon = travelModeIcons[mode]
               return (
-                <button key={mode} type="button" className={classNames(routingMode === mode && 'is-active')} onClick={() => onRoutingModeChange(mode)} aria-pressed={routingMode === mode}>
+                <button key={mode} type="button" onClick={() => onRoutingModeChange(mode)} aria-pressed={routingMode === mode}>
                   <Icon size={14} aria-hidden="true" /><span>{label}</span>
                 </button>
               )
             })}
           </div>
-          <button type="button" className="pathfinder-new-route" onClick={onClearRouting} disabled={!points.length} aria-label="New route" title="Clear points and start a new route">
-            <RotateCcw size={14} aria-hidden="true" />
+          <button type="button" className="kit-icon-button pathfinder-new-route" onClick={onClearRouting} disabled={!points.length} aria-label="New route" title="Clear points and start a new route">
+            <RotateCcw size={15} aria-hidden="true" />
           </button>
-        </div>
+        </header>
 
-        <div className="pathfinder-stage pathfinder-stage-points">
-          <div className="pathfinder-location-stack">
+        <div className="pathfinder-body">
+          <div className="pathfinder-location-stack kit-group">
             {pointRows.map((point, index) => {
               const role = index === 0 ? 'From' : index === pointRows.length - 1 ? 'To' : `Via ${index}`
               const selected = routingEnabled && (routingPickIndex === index || routingPickIndex === null && index === points.length && points.length < 2)
@@ -539,15 +537,14 @@ export function SidebarPathfinderBox({
                 <div className={classNames('pathfinder-location-field', selected && 'is-picking')} key={index}>
                   <span className={classNames('pathfinder-location-mark', index === 0 ? 'is-origin' : index === pointRows.length - 1 ? 'is-destination' : 'is-waypoint')} aria-hidden="true" />
                   <button type="button" className="pathfinder-coordinate-point" aria-label={`${point ? 'Repick' : 'Pick'} ${role.toLowerCase()} on map`} aria-pressed={selected} onClick={() => onPickRoutingPoint(index)} disabled={index > points.length}>
-                    <small>{role}</small>
-                    <strong className={classNames(!point && 'is-empty')}>{point ? routingPointName(point) : selected ? 'Click the map…' : 'Pick on map'}</strong>
-                    {point ? <span className="pathfinder-coordinate-value">{point.coordinate[1].toFixed(5)}, {point.coordinate[0].toFixed(5)}</span> : null}
+                    <small>{role}{point ? <span className="pathfinder-coordinate-value">{point.coordinate[1].toFixed(5)}, {point.coordinate[0].toFixed(5)}</span> : null}</small>
+                    <strong className={classNames(!point && 'is-empty')}>{point ? routingPointName(point) : selected ? 'Click the map…' : 'Choose on map'}</strong>
                   </button>
                   {point ? <span className="pathfinder-location-actions">
                     <button type="button" onClick={() => movePoint(index, -1)} disabled={index === 0} aria-label={`Move ${role.toLowerCase()} earlier`}><ArrowUp size={13} /></button>
                     <button type="button" onClick={() => movePoint(index, 1)} disabled={index === points.length - 1} aria-label={`Move ${role.toLowerCase()} later`}><ArrowDown size={13} /></button>
-                    <button type="button" onClick={() => onReorderRoutingPoints(points.filter((_, current) => current !== index))} aria-label={`Remove ${role.toLowerCase()}`}><Trash2 size={13} /></button>
-                  </span> : <MapPin size={14} aria-hidden="true" />}
+                    <button type="button" onClick={() => onReorderRoutingPoints(points.filter((_, current) => current !== index))} aria-label={`Remove ${role.toLowerCase()}`}><X size={13} /></button>
+                  </span> : <MapPin className="pathfinder-location-pin" size={14} aria-hidden="true" />}
                 </div>
               )
             })}
@@ -555,42 +552,41 @@ export function SidebarPathfinderBox({
               <button type="button" className="pathfinder-add-stop" onClick={() => onPickRoutingPoint(null)} disabled={mapPointLimitReached || routingEnabled} title={`${points.length} of ${maxRoutingPointCount} route points`}>
                 <Plus size={14} aria-hidden="true" /><span>Add stop</span>
               </button>
-              {routingEnabled ? <button type="button" className="pathfinder-map-pick is-active" onClick={onToggleRouting}><CheckCircle2 size={14} aria-hidden="true" /><span>Done</span></button> : null}
-              <button type="button" className="pathfinder-swap" onClick={() => onReorderRoutingPoints([...points].reverse())} disabled={points.length < 2} aria-label="Reverse route sequence" title="Reverse route">
+              {routingEnabled ? <button type="button" className="pathfinder-map-pick" onClick={onToggleRouting}><CheckCircle2 size={14} aria-hidden="true" /><span>Done</span></button> : null}
+              <button type="button" className="kit-icon-button pathfinder-swap" onClick={() => onReorderRoutingPoints([...points].reverse())} disabled={points.length < 2} aria-label="Reverse route sequence" title="Reverse route">
                 <ArrowUpDown size={14} aria-hidden="true" />
               </button>
             </div>
           </div>
           {routingEnabled ? <p className="pathfinder-points-hint" role="status">{pickLabel} on the map</p> : null}
-        </div>
 
-        <RoutingSetup {...{
-          routingMode, routingNetwork, routingDataMode, routingTimePreference, routingServiceDate,
-          routingServiceCoverage, routingServiceDateAvailability, scheduleTimeMinutes, routingWaypoints,
-          routingWheelchair, onRoutingWheelchairChange,
-          routingDepartureWindowMinutes, routingMaxTransfers, routingMinimumTransferBufferMinutes,
-          routingMaxWalkKm, routingAllowStreetTransfers, routingAllowLongWalk,
-          onRoutingDataModeChange, onRoutingTimePreferenceChange, onRoutingServiceDateChange,
-          onScheduleTimeChange, onRoutingDepartureWindowChange, onRoutingMaxTransfersChange,
-          onRoutingMinimumTransferBufferChange, onRoutingMaxWalkKmChange,
-          onRoutingAllowStreetTransfersChange, onRoutingAllowLongWalkChange,
-        }} />
+          <RoutingSetup {...{
+            routingMode, routingNetwork, routingDataMode, routingTimePreference, routingServiceDate,
+            routingServiceCoverage, routingServiceDateAvailability, scheduleTimeMinutes, routingWaypoints,
+            routingWheelchair, onRoutingWheelchairChange,
+            routingDepartureWindowMinutes, routingMaxTransfers, routingMinimumTransferBufferMinutes,
+            routingMaxWalkKm, routingAllowStreetTransfers, routingAllowLongWalk,
+            onRoutingDataModeChange, onRoutingTimePreferenceChange, onRoutingServiceDateChange,
+            onScheduleTimeChange, onRoutingDepartureWindowChange, onRoutingMaxTransfersChange,
+            onRoutingMinimumTransferBufferChange, onRoutingMaxWalkKmChange,
+            onRoutingAllowStreetTransfersChange, onRoutingAllowLongWalkChange,
+          }} resultsShown={resultPlans.length > 0} />
 
-        <div className="pathfinder-stage pathfinder-stage-route">
-          <button type="submit" className="pathfinder-directions-button" disabled={!canRun}>
-            {busy ? <LoaderCircle className="is-spinning" size={16} aria-hidden="true" /> : <Navigation2 size={16} aria-hidden="true" />}
+          <button type="submit" className="kit-button is-primary is-block pathfinder-directions-button" disabled={!canRun}>
+            {busy ? <LoaderCircle className="is-spinning" size={15} aria-hidden="true" /> : <Navigation2 size={15} aria-hidden="true" />}
             <span>{busy ? 'Routing…' : routingPlan ? 'Rerun route' : 'Run route'}</span>
           </button>
         </div>
       </form>
+      <div className="pathfinder-outcome">
       {routingPointError ? (
-        <div className="pathfinder-notice is-error" role="alert">
-          <AlertTriangle size={16} />
+        <div className="kit-notice is-error pathfinder-notice" role="alert">
+          <AlertTriangle size={15} />
           <span><strong>Check route points</strong><small>{routingPointError}</small></span>
         </div>
       ) : failedCombinedSchedule ? (
-        <div className="pathfinder-notice is-error" role="alert">
-          <AlertTriangle size={16} />
+        <div className="kit-notice is-error pathfinder-notice" role="alert">
+          <AlertTriangle size={15} />
           <span>
             <strong>Combined routing index failed</strong>
             <small>VIGO could not build the combined timetable. Open City and retry.</small>
@@ -598,8 +594,8 @@ export function SidebarPathfinderBox({
           <button type="button" onClick={onOpenFeed}>Open City</button>
         </div>
       ) : buildingCombinedSchedule ? (
-        <div className="pathfinder-notice is-warning" role="status" aria-live="polite">
-          <LoaderCircle className="is-spinning" size={16} />
+        <div className="kit-notice is-warning pathfinder-notice" role="status" aria-live="polite">
+          <LoaderCircle className="is-spinning" size={15} />
           <span>
             <strong>Combining timetable feeds</strong>
             <small>VIGO is building one timetable from the ready GTFS feeds. Route will be available when it finishes.</small>
@@ -607,13 +603,13 @@ export function SidebarPathfinderBox({
           <button type="button" onClick={onOpenFeed}>Open City</button>
         </div>
       ) : preparingExactSchedule ? (
-        <div className="pathfinder-notice is-loading" role="status" aria-live="polite">
-          <LoaderCircle className="is-spinning" size={16} />
+        <div className="kit-notice is-loading pathfinder-notice" role="status" aria-live="polite">
+          <LoaderCircle className="is-spinning" size={15} />
           <span><strong>Opening timetable</strong><small>{routingActivity.detail}</small><OperationProgress phase="Opening timetable" compact /></span>
         </div>
       ) : missingExactSchedule ? (
-        <div className="pathfinder-notice is-warning">
-          <AlertTriangle size={16} />
+        <div className="kit-notice is-warning pathfinder-notice">
+          <AlertTriangle size={15} />
           <span>
             <strong>No routing timetable ready</strong>
             <small>Import or finish indexing a GTFS feed in City.</small>
@@ -621,13 +617,13 @@ export function SidebarPathfinderBox({
           <button type="button" onClick={onOpenFeed}>Open City</button>
         </div>
       ) : routingActivity.kind === 'error' ? (
-        <div className="pathfinder-notice is-error" role="alert">
-          <AlertTriangle size={16} />
+        <div className="kit-notice is-error pathfinder-notice" role="alert">
+          <AlertTriangle size={15} />
           <span><strong>{routingActivity.title}</strong><small>{routingActivity.detail}</small></span>
         </div>
       ) : showServiceDateCorrection ? (
-        <div className="pathfinder-notice is-warning" role="status" aria-live="polite">
-          <AlertTriangle size={16} />
+        <div className="kit-notice is-warning pathfinder-notice" role="status" aria-live="polite">
+          <AlertTriangle size={15} />
           <span>
             <strong>{departNow ? 'Timetable unavailable for now' : outsideServiceCoverage ? 'Date outside timetable' : 'Timetable incomplete for this date'}</strong>
             <small>{outsideServiceCoverage ? `Complete local coverage: ${serviceCoverageLabel}` : routingPlan?.detail}</small>
@@ -648,13 +644,13 @@ export function SidebarPathfinderBox({
           ) : departNow ? <button type="button" onClick={() => onRoutingDataModeChange('scheduled')}>Use Scheduled</button> : null}
         </div>
       ) : showRoutingActivity ? (
-        <div className="pathfinder-notice is-loading" role="status" aria-live="polite">
-          <LoaderCircle className="is-spinning" size={16} />
+        <div className="kit-notice is-loading pathfinder-notice" role="status" aria-live="polite">
+          <LoaderCircle className="is-spinning" size={15} />
           <span><strong>{routingActivity.title}</strong><small>{routingActivity.detail}</small><OperationProgress phase={routingActivity.title} compact /></span>
         </div>
       ) : showRoutingBlock ? (
-        <div className="pathfinder-notice is-error" role="alert">
-          <AlertTriangle size={16} />
+        <div className="kit-notice is-error pathfinder-notice" role="alert">
+          <AlertTriangle size={15} />
           <span><strong>{routingPlan.title}</strong><small>{routingPlan.detail}</small></span>
           {routingAccessHints(routingPlan).map((hint) => (
             <span className="pathfinder-access-reason" key={hint.role}>
@@ -678,13 +674,12 @@ export function SidebarPathfinderBox({
       ) : null}
 
       <PathfinderRouteList
-          plans={resultPlans}
-          selectedPlanId={routingPlan?.id}
-          alternativesLoading={routingAlternativesLoading}
-          onSelect={onSelectRoutingPlan}
+        plans={resultPlans}
+        selectedPlanId={routingPlan?.id}
+        alternativesLoading={routingAlternativesLoading}
+        onSelect={onSelectRoutingPlan}
       />
-
-
+      </div>
     </section>
   )
 }

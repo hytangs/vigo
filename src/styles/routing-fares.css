@@ -1,32 +1,8 @@
-.routing-fares {
-  margin: 12px 0;
-  color: var(--text-soft);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.routing-fares > summary {
-  width: fit-content;
-  cursor: pointer;
-  padding: 6px 0;
-  color: var(--text-strong);
-  font-weight: 600;
-}
-
-.routing-fares > div {
-  margin: 8px 0;
-}
-
-.routing-fares p {
-  margin: 6px 0;
-}
-
-.routing-fares small {
-  display: block;
-  font-size: 11px;
-}
-
-.routing-fares a {
-  color: inherit;
-  text-decoration: underline;
-}
+/* Fares stay with the itinerary: a quiet disclosure with published prices. */
+.routing-fares { margin-top: 8px; color: var(--text-3); font-size: var(--type-sm); line-height: 1.45; }
+.routing-fares > div { margin: 0 0 8px 20px; }
+.routing-fares > div > strong { display: block; color: var(--text-1); font-weight: 500; }
+.routing-fares p { margin: 2px 0; }
+.routing-fares > p { margin: 0 0 8px 20px; }
+.routing-fares small { display: block; color: var(--text-4); font-size: var(--type-xs); }
+.routing-fares a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }

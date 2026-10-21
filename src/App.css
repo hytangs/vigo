@@ -5,7 +5,6 @@
 @import "./styles/components.css";
 @import "./styles/surfaces.css";
 @import "./styles/theme.css";
-@import "./styles/routing-setup.css";
 @import "./features/search/search.css";
 @import "./styles/gtfs-inspector.css";
 
@@ -18,4 +17,8 @@
 
 @import "./styles/city-workspace.css";
 
-@import "./styles/workspaces.css";
+
+@import "./styles/kit.css";
+@import "./styles/network-workspace.css";
+@import "./styles/route-workspace.css";
+@import "./styles/reach-workspace.css";

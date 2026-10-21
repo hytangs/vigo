@@ -95,9 +95,11 @@ speed or memory improvements.
 | `--text-1` … `--text-4` | Text from primary to disabled |
 | `--signal`, `--signal-text`, `--signal-ink`, `--signal-soft` | The single interface accent |
 | `--good`, `--watch`, `--alert` | Service states, never decoration |
-| `--material`, `--material-strong`, `--material-blur` | Glass for floating panels |
+| `--fill-1` … `--fill-3`, `--seg-thumb` | Control fills and the selected segment |
+| `--material-strong`, `--material-blur` | Glass for small map overlays |
 | `--elev-1` … `--elev-3` | Elevation |
-| `--font-ui`, `--font-display`, `--font-mono`, `--type-*` | Type |
+| `--font-ui`, `--font-display`, `--type-2xs` … `--type-2xl` | Type: 10, 11, 12, 13, 15, 20 and 28 px |
+| `--control-h`, `--row-h`, `--panel-pad`, `--panel-radius`, `--group-radius` | Density and shape of panels and controls |
 | `--radius-*`, `--ease-*`, `--duration-*` | Shape and motion |
 
 The pre-V1 names (`--panel`, `--border`, `--text-muted`, `--accent` and so on)
@@ -107,8 +109,10 @@ New rules should use the canonical names.
 ### Stage layout
 
 On windows at least 900 px wide, Network, Route and Analyze use the stage
-layout: a solid 48 px activity rail, a full-bleed map, and the tool panel
-floating in glass with a 12 px gutter. Panels carry `data-map-occluder`. The
+layout: a solid 48 px activity rail, a full-bleed map, and a 336–368 px tool
+panel floating with a 10 px gutter. Panels are opaque: a large blurred surface
+over a WebGL map costs a compositing pass every frame, so blur is kept for
+small overlays such as the service clock. Panels carry `data-map-occluder`. The
 map measures them (`mapOcclusion` in `src/app/mapViewport.ts`) and adds the
 covered area to every fit, so a selected route or journey lands in the visible
 part of the map. Narrower windows keep the stacked layout.
@@ -116,39 +120,85 @@ part of the map. Narrower windows keep the stacked layout.
 The map is mounted once. Moving between Network and a query workspace keeps
 the camera; selecting a route or receiving a journey still frames it.
 
+### Workspace kit
+
+The V1 kit audit (October 2026) found the three workspaces speaking different
+control languages. Route chose its travel mode with a segmented control and
+Reach with a menu; date and time were styled three ways; the primary action was
+lime in one panel, grey in another and dark green in a third. Cards nested
+inside cards, so the Network route catalog showed three routes per screen and
+its map filters took a quarter of the panel. Workspace rules were spread across
+five stylesheets that overrode one another, and a pinned Reach footer covered
+the scenario list.
+
+`src/styles/kit.css` now defines one vocabulary that every workspace composes:
+
+- **Inspector head**: a pinned row that holds the workspace's segmented
+  control (Overview | Routes, Transit | Walk | Drive, Reach | Compare).
+- **Segmented control** (`.studio-tabs`): 28 px, used for every choice among
+  two to six options, including filters with counts, sort orders and presets.
+- **Grouped rows** (`.kit-group`): one raised surface with hairline separators
+  in place of nested cards; route rows, journey settings and the Reach query
+  card are groups.
+- **Fields**: workspace inputs and menus share one 28 px shape with a quiet fill;
+  touch widths (760 px and below) raise controls to 36 px and rows to 44 px.
+- **Buttons**: a single signal-colored primary action per panel
+  (`.kit-button.is-primary`), quiet icon buttons, and text buttons for links.
+- **Stats, notices and disclosures**: a hairline-divided measure strip, toned
+  notices, a row disclosure (`.studio-disclosure`) and an inline one for small
+  print (`.kit-inline-details`).
+
+Workspace stylesheets own their compositions: `network-workspace.css`,
+`route-workspace.css` and `reach-workspace.css`. Their earlier rules were
+removed rather than overridden, and together with dead sidebar boxes this
+reduced Studio CSS from 10,068 to about 7,800 lines.
+
 ### Workspaces
 
 - **Route** draws the fixed-guideway network (rail, tram, ferry) faintly in its
   own colors under the query. Bus-only Cities fall back to their most frequent
   patterns. Placing points never zooms in; the camera only pans if a point is
   off screen, and frames the journey once it exists.
+- **Route points** form one grouped stack joined by a dotted spine: origin,
+  via points and destination, with reorder and remove actions on hover.
 - **Journey settings** combines the network, time and routing preferences in one
   surface. The network remains visible above keyboard-accessible When and
   Preferences tabs. Date and time share a row; transfers and walking use compact
   groups. Longer explanations are disclosed on demand. Switching tabs preserves
   every setting and does not submit a route. The header chevron folds the card
   to its network and a time/preferences summary; expanding restores the selected
-  tab. Invalid dates reopen the time controls. Scenarios retain scheduled service;
-  via points retain the existing transfer-limit and buffer restrictions.
+  tab. The card folds itself when journeys first arrive, so results take the
+  panel. Invalid dates reopen the time controls. Scenarios retain scheduled
+  service; via points retain the existing transfer-limit and buffer restrictions.
+- **Journeys** read time first: departure and arrival with the total, then the
+  boarded services as signs over a proportional walk/wait/ride bar, then the
+  reason the journey is shown and its transfers, walking and riding.
 - **Analyze** colors travel time with a ramp whose luminance falls
   monotonically, from the signal chartreuse through teal and blue to violet,
-  and shows an on-map key with the displayed band edges.
+  and shows an on-map key with the displayed band edges. Its query mirrors
+  Route: an origin card with the service date and departure, the travel mode as
+  the same segmented control (Transit & walk | Drive), then the budget with
+  presets. Run stays pinned while the query scrolls.
 - **Panels start with the task.** The top bar names the City and workspace
   once, so Route and Analyze drop their large titles and open on the travel
   mode or the Reach origin. Workspace views, render modes and filters share one
   segmented control.
-- **Network** opens on a status line (live, stale or timetable), three counts
-  and a route status bar split into routes to review, routes reporting with
-  nothing flagged, and routes without reports. Missing reports stay unknown,
-  never "on time". Routes to review carry an edge mark for predicted delays of
-  5 and 15 minutes, the same thresholds as the live vehicle legend.
+- **Network** opens on one line of map filters (network, mode, and lines,
+  stops and vehicles as icon toggles), then a status line (live, stale or
+  timetable), three counts and a route status bar split into routes to review,
+  routes reporting with nothing flagged, and routes without reports. Missing
+  reports stay unknown, never "on time". Routes to review carry an edge mark
+  for predicted delays of 5 and 15 minutes, the same thresholds as the live
+  vehicle legend.
 - **Routes** is a catalog: search first, filters with counts, and each route
-  shown as riders see it on signs, in its own color with readable ink, its
-  short name and its mode. Status chips use the service colors only.
-- The **service clock** floats as a compact transport bar under the visible
-  map, with its editable clock and date above the playback controls. It measures
-  its own height so map inspectors always clear it, including when controls wrap.
-  The delay legend opens as a popover.
+  as one row: its sign in its own color with readable ink, what it serves (or
+  its mode when the sign already names it), and its reported state underneath
+  in service colors only.
+- The **service clock** floats as a slim transport bar under the visible map.
+  Live is one line of vehicle counts and feed freshness; Schedule adds play, the
+  editable clock, the service date, the step and a timeline. It measures its own
+  height so map inspectors always clear it, including when controls wrap. The
+  vehicle marker key opens as a popover.
 - **Scheduled vehicle details** show the destination, next scheduled stop and
   trip progress without nested metric boxes. Trip identity and service date sit
   under Timetable details. A selected vehicle follows the current playback frame;

@@ -1,5 +1,5 @@
 import { ChevronDown, Clock3, SlidersHorizontal } from 'lucide-react'
-import { useId, useState, type CSSProperties, type KeyboardEvent } from 'react'
+import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { classNames } from '../domain'
 import { routingTimeOptions } from '../app/uiOptions'
 import { formatScheduleClock } from '../scheduledVehicles'
@@ -14,7 +14,10 @@ type RoutingSetupProps = Pick<SidebarPathfinderBoxProps,
   | 'onRoutingDataModeChange' | 'onRoutingTimePreferenceChange' | 'onRoutingServiceDateChange'
   | 'onScheduleTimeChange' | 'onRoutingDepartureWindowChange' | 'onRoutingMaxTransfersChange'
   | 'onRoutingMinimumTransferBufferChange' | 'onRoutingMaxWalkKmChange'
-  | 'onRoutingAllowStreetTransfersChange' | 'onRoutingAllowLongWalkChange'>
+  | 'onRoutingAllowStreetTransfersChange' | 'onRoutingAllowLongWalkChange'> & {
+  /** Fold to the summary when journeys first arrive, so results take the panel. */
+  resultsShown?: boolean
+}
 
 /** One settings surface. Tabs only change presentation; routing state stays with the caller. */
 export function RoutingSetup(props: RoutingSetupProps) {
@@ -27,11 +30,16 @@ export function RoutingSetup(props: RoutingSetupProps) {
     onRoutingDataModeChange, onRoutingTimePreferenceChange, onRoutingServiceDateChange,
     onScheduleTimeChange, onRoutingDepartureWindowChange, onRoutingMaxTransfersChange,
     onRoutingMinimumTransferBufferChange, onRoutingMaxWalkKmChange,
-    onRoutingAllowStreetTransfersChange, onRoutingAllowLongWalkChange,
+    onRoutingAllowStreetTransfersChange, onRoutingAllowLongWalkChange, resultsShown = false,
   } = props
   const id = useId()
   const [tab, setTab] = useState<'when' | 'preferences'>('when')
   const [collapsed, setCollapsed] = useState(false)
+  const resultsWereShown = useRef(resultsShown)
+  useEffect(() => {
+    if (resultsShown && !resultsWereShown.current) setCollapsed(true)
+    resultsWereShown.current = resultsShown
+  }, [resultsShown])
   const transit = routingMode === 'transit'
   const activeTab = transit ? tab : 'when'
   const departNow = transit && routingDataMode === 'realtime'
@@ -71,11 +79,11 @@ export function RoutingSetup(props: RoutingSetupProps) {
         </select>
       </div>
       {routingNetwork.error ? <p role="alert">{routingNetwork.error}</p> : null}
-    </div> : <span className="routing-setup-title"><SlidersHorizontal size={15} aria-hidden="true" />Journey settings</span>}
+    </div> : <span className="routing-setup-title"><SlidersHorizontal size={14} aria-hidden="true" />Journey settings</span>}
       <button type="button" className="routing-setup-fold" aria-expanded={!collapsed} aria-controls={`${id}-content`}
         aria-label={collapsed ? 'Expand journey settings' : 'Collapse journey settings'}
         title={collapsed ? 'Expand journey settings' : 'Collapse journey settings'} onClick={() => setCollapsed(value => !value)}>
-        <ChevronDown size={16} aria-hidden="true" />
+        <ChevronDown size={15} aria-hidden="true" />
       </button>
     </header>
 
@@ -86,13 +94,13 @@ export function RoutingSetup(props: RoutingSetupProps) {
         <input type="checkbox" role="switch" aria-label="Wheelchair routing" checked={routingWheelchair}
           onChange={event => onRoutingWheelchairChange(event.currentTarget.checked)} />
       </label>
-      {routingWheelchair ? <details className="routing-accessibility-details"><summary>Accessibility coverage</summary><p>Uses the prepared wheelchair network. Unknown accessibility is excluded. Elevator outages and access from a building to the street are not verified.</p></details> : null}
+      {routingWheelchair ? <details className="kit-inline-details routing-accessibility-details"><summary>Accessibility coverage</summary><p>Uses the prepared wheelchair network. Unknown accessibility is excluded. Elevator outages and access from a building to the street are not verified.</p></details> : null}
     </div> : null}
-    {transit ? <div className="routing-setup-tabs" role="tablist" aria-label="Journey settings">
+    {transit ? <div className="studio-tabs routing-setup-tabs" role="tablist" aria-label="Journey settings">
       {(['when', 'preferences'] as const).map(value => <button key={value} type="button" role="tab"
         id={`${id}-${value}-tab`} aria-controls={`${id}-${value}-panel`} aria-selected={activeTab === value}
         tabIndex={activeTab === value ? 0 : -1} onKeyDown={moveTab} onClick={() => setTab(value)}>
-        {value === 'when' ? <Clock3 size={14} aria-hidden="true" /> : <SlidersHorizontal size={14} aria-hidden="true" />}
+        {value === 'when' ? <Clock3 size={13} aria-hidden="true" /> : <SlidersHorizontal size={13} aria-hidden="true" />}
         {value === 'when' ? 'When' : 'Preferences'}
       </button>)}
     </div> : null}
@@ -108,12 +116,12 @@ export function RoutingSetup(props: RoutingSetupProps) {
         setTab('when')
         requestAnimationFrame(() => input.reportValidity())
       }}>
-      {transit ? <div className="routing-setup-source" role="group" aria-label="Transit data mode" aria-describedby="pathfinder-data-mode-help">
+      {transit ? <div className="studio-tabs routing-setup-source" role="group" aria-label="Transit data mode" aria-describedby="pathfinder-data-mode-help">
         <button type="button" aria-pressed={routingDataMode === 'realtime'} disabled={routingWheelchair || Boolean(routingNetwork?.selectedId)} title={routingWheelchair ? 'Wheelchair routing uses the published timetable.' : routingNetwork?.selectedId ? 'Scenarios run on the published timetable.' : undefined} onClick={() => onRoutingDataModeChange('realtime')}>Realtime</button>
         <button type="button" aria-pressed={routingDataMode === 'scheduled'} onClick={() => onRoutingDataModeChange('scheduled')}>Scheduled</button>
       </div> : null}
       {departNow ? <div className="routing-setup-now"><span aria-hidden="true" /><strong>Depart now</strong><small>At the time you run the route</small></div> : <>
-        {transit ? <div className="routing-setup-direction" role="group" aria-label="Time preference">
+        {transit ? <div className="studio-tabs routing-setup-direction" role="group" aria-label="Time preference">
           {routingTimeOptions.map(option => <button key={option.value} type="button" onClick={() => onRoutingTimePreferenceChange(option.value)} aria-pressed={routingTimePreference === option.value}>{option.label}</button>)}
         </div> : <span className="routing-setup-label">Depart at</span>}
         <div className="routing-setup-datetime">
@@ -129,7 +137,7 @@ export function RoutingSetup(props: RoutingSetupProps) {
     {transit ? <div className="routing-setup-panel" id={`${id}-preferences-panel`} role="tabpanel" aria-labelledby={`${id}-preferences-tab`} hidden={activeTab !== 'preferences'}>
       {departNow || routingTimePreference === 'depart' ? <div className="routing-preference-section">
         <span className="routing-setup-label">Departure search</span>
-        <div className="routing-setup-source" role="group" aria-label="Departure search window">
+        <div className="studio-tabs routing-setup-source" role="group" aria-label="Departure search window">
           <button type="button" onClick={() => onRoutingDepartureWindowChange(0)} aria-pressed={routingDepartureWindowMinutes === 0}>Exact time</button>
           <button type="button" onClick={() => onRoutingDepartureWindowChange(20)} aria-pressed={routingDepartureWindowMinutes === 20}>Later departures</button>
         </div>
@@ -162,7 +170,7 @@ export function RoutingSetup(props: RoutingSetupProps) {
           <input id="pathfinder-long-walk" type="checkbox" role="switch" aria-label="Allow longer end-to-end walks" checked={routingAllowLongWalk} onChange={event => onRoutingAllowLongWalkChange(event.currentTarget.checked)} />
         </label>
       </div>
-      <details className="routing-setup-help"><summary>How these settings work</summary>
+      <details className="studio-disclosure routing-setup-help"><summary><span>How these settings work</span></summary>
         <p id="pathfinder-transfer-buffer-help">{transferLimitUnavailable ? 'Transfer buffers are available for routes without via points.' : 'The transfer buffer adds time before boarding your next service, after any transfer walk. Your first boarding is unaffected.'}</p>
         <p id="pathfinder-street-transfers-help">{routingAllowStreetTransfers ? 'Walking transfers include connections between separate stations or stops. Station paths and fare eligibility may remain unverified.' : 'Change services at the same stop or within one station. Walking to your first stop and from your last stop is still allowed; station paths may remain unverified.'}</p>
         <p>The access limit applies to walking to your first stop and from your last stop. {routingAllowLongWalk ? 'Transit may also be compared with a graph-verified walk beyond this limit.' : 'Walk-only results stay within this limit; transit is not replaced by a long walk.'}</p>

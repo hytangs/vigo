@@ -3,6 +3,7 @@ import {
   ArrowRight,
   CircleDot,
   Eraser,
+  GitCompareArrows,
   LoaderCircle,
   MapPin,
   Pencil,
@@ -223,7 +224,7 @@ const serviceEndOptions = [1080, 1200, 1320, 1440, 1500, 1560, 1680] as const
 const scenarioViewOptions = [
   ['baseline', 'Baseline'],
   ['scenario', 'Scenario'],
-  ['comparison', 'Time difference'],
+  ['comparison', 'Difference'],
 ] as const satisfies ReadonlyArray<readonly [ScenarioView, string]>
 
 function routeOptionLabel(route: RouteMetric) {
@@ -406,7 +407,7 @@ export function ReachMetricCards({
     <div className="reach-metric-grid" aria-label={`${surface === 'baseline' ? 'Baseline' : 'Scenario'} network reach metrics`}>
       <ResultMetric value={`${reachDecimal(areaKm2, 2)} km²`} label={`sampled area reached by ${cutoffMinutes} min`} />
       {analysis.request.mode !== 'drive' ? <ResultMetric value={stops === null ? 'Unavailable' : formatNumber(stops)} label={`stops reached by ${cutoffMinutes} min`} detail={stops === null ? 'Update Reach to compute this cutoff.' : undefined} /> : null}
-      <details className="reach-supporting-metrics"><summary>Network details</summary>
+      <details className="kit-inline-details reach-supporting-metrics"><summary>Network details</summary>
         <ResultMetric value={typeof network?.reachedEdgeLengthKm === 'number' && Number.isFinite(network.reachedEdgeLengthKm) ? `${reachDecimal(network.reachedEdgeLengthKm, 1)} km` : 'Unavailable'} label={`OSM streets · full ${analysis.summary.maximumCutoffMinutes} min window`} />
         <ResultMetric value={analysis.request.mode === 'drive' ? 'Road speeds' : `${walkBudgetKm} km`} label={analysis.request.mode === 'drive' ? 'driving estimate · no live traffic' : 'final-walk budget'} />
       </details>
@@ -441,7 +442,7 @@ export function ReachTransitStatusNotice({
     const laterReach = stops === 0 && fullWindow > cutoffMinutes && fullStops !== null && fullStops > 0
       ? ` Transit reaches ${formatNumber(fullStops)} ${fullStops === 1 ? 'stop' : 'stops'} within the full ${fullWindow}-minute computed window.`
       : ''
-    if (stops !== null && stops > 0) return <details className="reach-status-details"><summary>Transit timing</summary><p>{selected}{timing}</p></details>
+    if (stops !== null && stops > 0) return <details className="kit-inline-details reach-status-details"><summary>Transit timing</summary><p>{selected}{timing}</p></details>
     return (
       <p className="reach-inline-note" role="status" aria-live="polite">
         {selected}{laterReach}{timing}
@@ -903,30 +904,18 @@ export function AnalyzePanelView({
   }
 
   return (
-    <section className="sidebar-section reach-surface" aria-label="Reach analysis controls">
-      <form onSubmit={submit}>
-        <div className="reach-analysis-switch">
-          <div className="studio-tabs reach-mode-tabs" role="group" aria-label="Analyze mode">
-            <button
-              type="button"
-              className={classNames(mode === 'single' && 'is-active')}
-              aria-pressed={mode === 'single'}
-              onClick={() => onModeChange('single')}
-            >
-              <span>Reach</span>
-            </button>
-            <button
-              type="button"
-              className={classNames(mode === 'compare' && 'is-active')}
-              aria-pressed={mode === 'compare'}
-              onClick={() => onModeChange('compare')}
-            >
-              <span>Compare</span>
-            </button>
-          </div>
-
+    <section className="reach-surface" aria-label="Reach analysis controls">
+      <header className="inspector-head reach-analysis-switch">
+        <div className="studio-tabs reach-mode-tabs" role="group" aria-label="Analyze mode">
+          <button type="button" aria-pressed={mode === 'single'} onClick={() => onModeChange('single')}>
+            <Radar size={13} aria-hidden="true" /><span>Reach</span>
+          </button>
+          <button type="button" aria-pressed={mode === 'compare'} onClick={() => onModeChange('compare')}>
+            <GitCompareArrows size={13} aria-hidden="true" /><span>Compare</span>
+          </button>
         </div>
-
+      </header>
+      <form className="reach-form" onSubmit={submit}>
 
         {mode === 'compare' ? (
           <div className="reach-comparison-picker">
@@ -970,15 +959,15 @@ export function AnalyzePanelView({
           </div>
         ) : null}
 
-        <div className="reach-query-card">
+        <div className="reach-query-card kit-group">
           <div className={classNames('reach-origin-row', !origin && 'is-empty')}>
-            <span className="reach-origin-icon"><MapPin size={14} aria-hidden="true" /></span>
+            <span className="reach-origin-icon" aria-hidden="true" />
             <div>
               <span className="reach-section-kicker">Origin</span>
               <strong>{origin ? origin.label : onSetOrigin ? 'Click the map or search stops' : 'Choose a point on the map'}</strong>
             </div>
             {origin ? (
-              <button type="button" className="reach-origin-clear" onClick={onClearOrigin} aria-label="Clear origin" title="Clear origin"><X size={14} aria-hidden="true" /></button>
+              <button type="button" className="kit-icon-button reach-origin-clear" onClick={onClearOrigin} aria-label="Clear origin" title="Clear origin"><X size={14} aria-hidden="true" /></button>
             ) : null}
           </div>
           {onSetOrigin ? <AnalysisOriginPicker origin={origin} stops={stops} onSetOrigin={onSetOrigin} disabled={loading} /> : null}
@@ -1461,11 +1450,11 @@ export function AnalyzePanelView({
         <div className="reach-run-block">
           <button
             type={loading ? 'button' : 'submit'}
-            className="reach-run"
+            className={classNames('kit-button is-block reach-run', !loading && 'is-primary')}
             disabled={!loading && !canRun}
             onClick={loading ? onCancel : undefined}
           >
-            {loading ? <LoaderCircle size={15} /> : <Radar size={15} />}
+            {loading ? <LoaderCircle className="is-spinning" size={15} /> : <Radar size={15} />}
             {loading
               ? 'Cancel analysis'
               : mode === 'compare'
@@ -1573,7 +1562,7 @@ export function AnalyzePanelView({
               {serviceDecompositionError ? <p className="reach-inline-note is-error" role="alert">{serviceDecompositionError}</p> : null}
             </div>
           ) : null}
-          <details className="reach-method-record">
+          <details className="studio-disclosure reach-method-record">
             <summary>Comparison method and limits</summary>
             <dl>
               <div><dt>Snapshot</dt><dd>{comparisonRun.serviceDate} · {serviceTimeLabel(comparisonRun.departMinutes)} · one origin</dd></div>
@@ -1603,7 +1592,7 @@ export function AnalyzePanelView({
             {hasScenarioChanges ? <div className="reach-result-view">
               <div className="reach-render-mode-head">
                 <div>
-                  <strong>Network view</strong>
+                  <strong>View</strong>
                 </div>
               </div>
               <div className="studio-tabs reach-segmented is-view" role="group" aria-label="Network comparison view">
@@ -1654,7 +1643,7 @@ export function AnalyzePanelView({
             {reachDelta(scenarioDifference.areaKm2, 2)} km² · {scenarioDifference.transitStops === null
               ? 'stop difference unavailable at this cutoff' : `${reachDelta(scenarioDifference.transitStops)} reached stops`} from baseline
           </p> : null}
-          <details className="reach-method-record">
+          <details className="studio-disclosure reach-method-record">
             <summary>Method and limits</summary>
             <dl>
               <div><dt>Snapshot</dt><dd>{analysis.request.serviceDate} · {serviceTimeLabel(analysis.request.departMinutes)} · one origin</dd></div>

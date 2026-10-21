@@ -1,4 +1,6 @@
-import type { CSSProperties } from 'react'
+import { ChevronRight } from 'lucide-react'
+import type { CSSProperties, ReactNode } from 'react'
+import type { AgencyRoute } from '../agency/types'
 
 const modeLabels: Record<number, string> = {
   0: 'Tram', 1: 'Subway', 2: 'Rail', 3: 'Bus', 4: 'Ferry', 5: 'Cable car', 6: 'Gondola', 7: 'Funicular', 11: 'Trolleybus', 12: 'Monorail',
@@ -33,5 +35,29 @@ export function AgencyRouteBadge({ name, color, mode, showMode = false }: {
       <b>{name}</b>
       {showMode && mode !== undefined ? <small>{routeModeLabel(mode)}</small> : null}
     </span>
+  )
+}
+
+/**
+ * A route as one compact row: its sign, what it serves (or its mode when the
+ * sign already names it), and its current state underneath.
+ */
+export function AgencyRouteRow({ route, severity, detailClassName, onSelect, children }: {
+  route: Pick<AgencyRoute, 'id' | 'name' | 'longName' | 'color' | 'mode'>
+  severity?: string
+  detailClassName: string
+  onSelect: () => void
+  children: ReactNode
+}) {
+  const named = Boolean(route.longName && route.longName !== route.name)
+  return (
+    <button type="button" className="agency-route-row" data-route-id={route.id} data-severity={severity} onClick={onSelect}>
+      <span className="agency-route-row-head">
+        <AgencyRouteBadge name={route.name} color={route.color} />
+        <span className={named ? 'agency-route-row-title' : 'agency-route-row-title is-mode'}>{named ? route.longName : routeModeLabel(route.mode)}</span>
+      </span>
+      <span className={detailClassName}>{children}</span>
+      <ChevronRight size={14} aria-hidden="true" />
+    </button>
   )
 }

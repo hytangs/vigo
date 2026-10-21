@@ -14,6 +14,11 @@ rules to an existing owner instead of creating another `refresh`, `parity`, or
   tool panels float over a full-bleed map.
 - `primary-navigation.css` — the activity rail.
 - `features/*/*.css` — isolated feature styles, imported after the shared system.
+- `kit.css` — the V1 workspace kit: inspector head, segmented control, grouped
+  rows, fields, buttons, notices, stats and disclosures.
+- `network-workspace.css`, `route-workspace.css`, `reach-workspace.css` — each
+  workspace's composition of the kit. They are imported last and own their
+  selectors outright; do not restyle these classes in earlier files.
 
 Import order is intentional because the current theme refines the structural
 rules before feature-local styles take ownership. Do not reorder it without a
