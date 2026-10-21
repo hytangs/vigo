@@ -87,11 +87,13 @@ const queryFamilies = Object.freeze([
     interfaces: Object.freeze({ studio: supported, python: supported, cli: supported }),
     options: Object.freeze([
       'scheduled transit with walking access and egress',
+      'from an origin, or toward a destination by a deadline',
       'area contours or reached streets',
       'street sampling or coordinate cell centers',
       'scenario comparison',
     ]),
     modes: Object.freeze({ available: Object.freeze(['transit', 'walk']), unavailable: Object.freeze(['drive']) }),
+    time: Object.freeze({ available: Object.freeze(['depart_at', 'arrive_by']), unavailable: Object.freeze([]) }),
     note: 'Reach measures modeled network reach. It does not measure people, jobs, demand, or welfare.',
   }),
 ])

@@ -24,7 +24,7 @@ export const options = {
   mode: ['VALUE', 'transit (default), walk, or drive'],
   'data-mode': ['VALUE', 'scheduled (default, research) or realtime with a supplied snapshot'],
   time: ['HH:MM', 'Local service time, 00:00–29:59 (default: 08:00)'],
-  'time-preference': ['VALUE', 'depart (default) or arrive; Reach supports depart only'],
+  'time-preference': ['VALUE', 'depart (default) or arrive'],
   objective: ['VALUE', 'earliest_arrival'],
   'departure-window': ['MIN', 'Centered departure profile, ±0–30 integral minutes; Route only'],
   alternatives: ['N', 'Additional transit journeys, 0–9 (default: 0); Route only'],
@@ -102,8 +102,9 @@ export const commands = {
     usage: ['--city ./city --request reach.json --service-date YYYY-MM-DD [options]'],
     options: [...queryOptions.filter(name => name !== 'horizon'), 'cutoffs', 'extent-radius', 'raster-size', 'walk-speed', 'street-edges'],
     notes: ['Request: {"origin":"STOP_A","cutoffsMinutes":[15,30,45]}',
+      'Arrive-by: {"destination":"STOP_B","timePreference":"arrive_by","time":"08:30"} maps where trips leave from.',
       'Returns requested-grid and full-network rasters, contour lines, and reachable-area polygons.',
-      'Uses scheduled service, fixed departures, and transit with walking access. Departure windows are unsupported.'],
+      'Uses scheduled service and transit with walking access, in the vigo executable. Departure windows are unsupported.'],
   },
   stream: {
     summary: 'Run Route, Matrix, and Reach as NDJSON in one resident process.',
@@ -151,7 +152,7 @@ export function usage(version, command = '') {
       const label = `--${name}${placeholder ? ` ${placeholder}` : ''}`
       const explanation = name === 'output' && command === 'build' ? 'City output directory'
         : name === 'mode' ? 'transit (default), walk, or drive'
-          : name === 'time-preference' ? command === 'reach' ? 'depart (fixed departure)' : 'depart (default) or arrive'
+          : name === 'time-preference' ? command === 'reach' ? 'depart (default, from origin) or arrive (to destination)' : 'depart (default) or arrive'
             : description
       return `  ${label.padEnd(28)}${explanation}`
     }),

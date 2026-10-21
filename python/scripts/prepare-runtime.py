@@ -76,8 +76,10 @@ def third_party_notices(engine: Path, rust_target: str) -> str:
     cargo = shutil.which("cargo") or str(Path.home() / ".cargo/bin" / ("cargo.exe" if platform.system() == "Windows" else "cargo"))
     # A target build only fetches its own dependencies. Unfiltered metadata also
     # tries to read crates for other platforms, which breaks fresh offline builds.
+    # All features: the runtime ships both the Node addon and the `vigo` executable.
     metadata = json.loads(subprocess.check_output(
-        [cargo, "metadata", "--locked", "--offline", "--filter-platform", rust_target, "--format-version=1"],
+        [cargo, "metadata", "--locked", "--offline", "--all-features", "--filter-platform", rust_target,
+         "--format-version=1"],
         cwd=engine / "native/vigo-routing-kernel", text=True, timeout=60,
     ))
     for package in metadata["packages"]:
@@ -126,14 +128,18 @@ def main() -> None:
                     with source:
                         (staged / name).write_bytes(source.read())
         (staged / executable).chmod(0o755)
+        # Reach runs in the `vigo` executable, found beside vigo.mjs.
+        engine_executable = "vigo.exe" if platform.system() == "Windows" else "vigo"
         for source, name in (
             ("public/vigo.mjs", "vigo.mjs"),
             ("native/vigo-routing-kernel/vigo-routing-kernel.node", "vigo-routing-kernel.node"),
+            (f"native/vigo-routing-kernel/target/release/{engine_executable}", engine_executable),
             ("LICENSE", "ENGINE-LICENSE"), ("NOTICE", "ENGINE-NOTICE"),
             ("native/vigo-routing-kernel/vendor/cch/LICENSE", "CCH-LICENSE"),
             ("native/vigo-routing-kernel/vendor/cch/NOTICE", "CCH-NOTICE"),
         ):
             shutil.copyfile(engine / source, staged / name)
+        (staged / engine_executable).chmod(0o755)
         (staged / "THIRD-PARTY-NOTICES").write_text(third_party_notices(engine, rust_target), encoding="utf-8")
         # Execute the relocated payload, not the source checkout or system Node.
         import sys

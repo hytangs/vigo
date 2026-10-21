@@ -111,6 +111,37 @@ try {
   assert(reached(toB.surface.values) > 4 * reached(fromB.surface.values))
   assert(Math.abs(cellAt(toB.surface, [-77.05, 38.9]) - cellAt(fromA2.surface, [-77.03, 38.91])) < 0.5,
     'Arriving at B from A takes as long as departing A for B')
+
+  // The Node CLI sends the same request to this runtime, one-shot and resident.
+  const cli = (args, input) => {
+    const p = spawnSync(process.execPath, [path.join(root, 'public/vigo.mjs'), ...args],
+      { input, env: { ...process.env, VIGO_STANDALONE_PATH: binary }, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+    assert.equal(p.status, 0, p.stderr)
+    return p.stdout
+  }
+  const depart = { serviceDate, time: '07:55', origin: { stopId: 'A' }, maxWalkKm: 0.2, rasterSize: 48, extentRadiusKm: 2, cutoffsMinutes: [15, 30, 45] }
+  const arrive = { ...query, includeStreetEdges: false }
+  for (const request of [depart, arrive]) {
+    const native = spawnSync(binary, ['reach', '--city', city, '--request', '-'], { input: JSON.stringify(request), env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+    const expected = JSON.parse(native.stdout)
+    const actual = JSON.parse(cli(['reach', `--city=${city}`, '--request=-'], JSON.stringify(request)))
+    assert.deepEqual(actual.query, expected.query)
+    assert.deepEqual(actual.surface.valuesSeconds, expected.surface.valuesSeconds)
+    assert.deepEqual(actual.stops, expected.stops)
+  }
+  const streamed = cli(['stream', `--city=${city}`, '--stream-output=detailed'], [depart, arrive, depart]
+    .map((request, index) => JSON.stringify({ id: `reach-${index}`, kind: 'reach', ...request })).join('\n') + '\n')
+    .trim().split('\n').map(line => JSON.parse(line).trace)
+  assert.deepEqual(streamed.map(result => result.query.timePreference), ['depart_at', 'arrive_by', 'depart_at'])
+  assert.deepEqual(streamed[1].surface.values, run(city, 'reach', arrive).surface.values)
+  assert.equal(streamed[2].timing.openMs, 0, 'One resident runtime answers both directions')
+  // A planned stop that names a GTFS stop joins it rather than standing beside it.
+  const joined = JSON.parse(cli(['reach', `--city=${city}`, '--request=-'], JSON.stringify({ ...depart,
+    origin: { coordinate: [-77.0505, 38.9003] }, maxWalkKm: 0.5, scenario: { services: [{ operation: 'add', scheduleMode: 'frequency',
+      bidirectional: false, startMinutes: 475, endMinutes: 600, headwayMinutes: 5, segmentRuntimeMinutes: [5],
+      stops: [{ stopId: 'A', coordinate: [-77.05, 38.9] }, { stopId: 'B', coordinate: [-77.03, 38.91] }] }] } })))
+  assert(joined.stops.some(stop => stop.stop?.id === 'B'), 'The planned express reaches GTFS stop B')
+  assert.equal(joined.scenarioStops.find(stop => stop.name === 'stop-2')?.stop?.id, 'B')
   console.log(`Arrive-by Reach passed (${reach.stops.length} seeded stops, ${reached(toB.surface.values)} one-way cells toward B, ${reached(fromB.surface.values)} from B).`)
 } finally {
   fs.rmSync(directory, { recursive: true, force: true })

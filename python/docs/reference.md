@@ -260,7 +260,7 @@ school = city.reach(
 
 Each arrive-by value is the number of minutes between the latest departure from that place and the deadline, including any wait after an early arrival. The 30-minute contour encloses the places from which leaving 30 minutes before the deadline still arrives in time. Walking follows each street's permitted direction toward the destination. Transit and walking support arrive-by; a planned-service Scenario applies to transit arrive-by Reach as it does to depart-at Reach. A deadline earlier than the longest cutoff also searches the preceding service day, as arrive-by Route does.
 
-Choose one direction. `arrive_by` with an `origin`, a `destination` without `arrive_by`, and both `depart_at` and `arrive_by` raise `InvalidQuery`. Arrive-by Reach requires a runtime whose Reach capabilities include `arrive_by`; otherwise `supports()` reports `arrive_by_reach` and running raises `UnsupportedQuery` before execution. Depart-at requests are unchanged.
+Choose one direction. `arrive_by` with an `origin`, a `destination` without `arrive_by`, and both `depart_at` and `arrive_by` raise `InvalidQuery`. Both directions send one Engine request: the endpoint with `timePreference` `depart_at` or `arrive_by`. The Engine runs Reach in its `vigo` executable, which the bundled runtime includes. An older runtime whose Reach capabilities lack `arrive_by` makes `supports()` report `arrive_by_reach`, and running raises `UnsupportedQuery` before execution.
 
 Use the word Accessibility only when a separate analysis combines travel impedance with opportunities.
 

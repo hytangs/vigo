@@ -1194,19 +1194,15 @@ class City:
         )
         endpoint = query.destination if arrive else query.origin
         assert endpoint is not None, "_support requires the endpoint for this direction"
-        # Depart-at requests keep their 0.5 form; only arrive-by adds a preference.
-        place = (
-            {"timePreference": "arrive_by", "destination": _point_payload(endpoint)}
-            if arrive
-            else {"origin": _point_payload(endpoint)}
-        )
         request = {
             "mode": query.mode,
             "surfaceSampling": query.surface_sampling,
             "includeStreetEdges": query.include_street_edges,
             "time": clock,
             "maxWalkKm": query.max_walk_km,
-            **place,
+            # One request form for both directions, as in the Engine contract.
+            "timePreference": "arrive_by" if arrive else "depart_at",
+            "destination" if arrive else "origin": _point_payload(endpoint),
             "cutoffsMinutes": list(query.cutoffs_minutes),
             "extentRadiusKm": query.extent_radius_km,
             "rasterSize": query.raster_size,

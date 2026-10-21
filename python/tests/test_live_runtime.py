@@ -228,6 +228,8 @@ class LiveRuntimeTest(unittest.TestCase):
                     self.assertEqual(resident.value[field], one_shot["result"][field])
                 repeated = self.city.route("A", "B", mode=mode, waypoints=waypoints, **options)
                 self.assertEqual(repeated.timing["openMs"], 0)
+        # The first Reach opens the resident native runtime; the next reuses it.
+        self.city.reach("A", raster_size=48, extent_radius_km=2, **options)
         resident = self.city.reach("A", raster_size=48, extent_radius_km=2, **options)
         one_shot = _one_shot(self.city.runtime, self.city.path, "reach", {
             "origin": "A", "rasterSize": 48, "extentRadiusKm": 2,

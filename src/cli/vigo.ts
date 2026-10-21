@@ -39,7 +39,6 @@ import {
   prepareNationalGtfsNativeCoordinateAccess,
   prepareNationalGtfsStore,
   readNationalGtfsStoreMetadata,
-  routeNationalGtfsReach,
   routeNationalGtfsDepartureWindow,
   routeNationalGtfsOrderedSegment,
   addNationalGtfsFares,
@@ -65,7 +64,8 @@ import {
   routeOrderedRoutingSegments,
   validateOrderedRoutingPoints,
 } from '../server/ordered-route-composition.mjs'
-import { compileReachScenario, rasterAreas, rasterBounds, rasterContours } from '../server/reach.mjs'
+import { compileReachScenario, rasterAreas, rasterContours } from '../server/reach.mjs'
+import { closeNativeReach, nativePoint, nativeReachRange, nativeScenario, queryNativeReach } from './native-reach.mjs'
 import { hydrateScenarioRouteServices } from '../server/scenario-services.mjs'
 import { resolveServiceDay } from '../server/service-day.mjs'
 import type { ServiceDay } from '../domain'
@@ -803,7 +803,7 @@ async function runRouteStream(args: CliArguments) {
         }
         let result
         if (input.kind === 'route') result = await computeRouteRequest(requestArgs, input, paths, prepare)
-        else if (input.kind === 'reach') result = await computeReachRequest(requestArgs, input, paths, prepare)
+        else if (input.kind === 'reach') result = await computeReachRequest(requestArgs, input, paths)
         else {
           const options = analyticalRuntimeOptions(requestArgs, 'matrix', input)
           const openMs = await prepareMode(String(input.mode ?? 'transit'), options.serviceDate, options.serviceDay)
@@ -826,6 +826,7 @@ async function runRouteStream(args: CliArguments) {
     }
   } finally {
     disposeNationalGtfsStore(storePath)
+    closeNativeReach()
   }
 }
 
@@ -902,7 +903,7 @@ function validateAnalysisDataMode(options: ReturnType<typeof runtimeOptions>, co
 function analyticalRuntimeOptions(args: CliArguments, command: string, request: Record<string, unknown>) {
   const options = runtimeOptions(args, request)
   validateAnalysisDataMode(options, command, value(args, 'mode', String(request.mode ?? 'transit')), request)
-  if (options.timePreference !== 'depart' && command !== 'matrix') {
+  if (options.timePreference !== 'depart' && !['matrix', 'reach'].includes(command)) {
     throw new Error(`${command} supports fixed-departure routing only`)
   }
   if (options.departureWindowMinutes !== 0) {
@@ -1106,7 +1107,6 @@ function reachCutoffs(args: CliArguments, request: Record<string, unknown>) {
 async function computeReachRequest(
   args: CliArguments, request: Record<string, any>,
   paths: ReturnType<typeof resolveRuntimePaths>,
-  prepare: typeof prepareRuntime = prepareRuntime,
 ) {
   const { storePath, streetStorePath, city } = paths
   validateWheelchairRequest(city.accessibility?.profile, { ...request,
@@ -1124,10 +1124,20 @@ async function computeReachRequest(
     throw new Error('Unknown Reach extent; use --extent-radius or extentRadiusKm')
   }
   const options = analyticalRuntimeOptions(args, 'reach', request)
+  // Depart-at Reach spreads from an origin; arrive-by Reach gathers toward a
+  // destination. Both are one request form, answered by one runtime.
+  const arrive = options.timePreference === 'arrive'
+  if (request[arrive ? 'origin' : 'destination'] !== undefined) {
+    throw new Error(arrive ? 'Arrive-by Reach takes a destination, not an origin'
+      : 'Reach with a destination requires timePreference arrive_by')
+  }
   if (request.includeStreetEdges !== undefined && typeof request.includeStreetEdges !== 'boolean') {
     throw new Error('Reach includeStreetEdges must be a boolean')
   }
   const includeStreetEdges = args.has('street-edges') ? enabled(args, 'street-edges') : request.includeStreetEdges === true
+  if (request.includeNodes !== undefined && typeof request.includeNodes !== 'boolean') {
+    throw new Error('Reach includeNodes must be a boolean')
+  }
   const cutoffsMinutes = reachCutoffs(args, request)
   const radiusKm = boundedAnalyticalNumber(args, request, 'extent-radius', 'extentRadiusKm', 8, 1, 40)
   const rasterSize = boundedAnalyticalNumber(
@@ -1154,67 +1164,44 @@ async function computeReachRequest(
   const hydrated = hydrateScenarioRouteServices(storePath, { storageGeneration: city.revisionId }, {
     ...request, serviceDate: options.serviceDate, serviceDay: options.serviceDay,
   })
-  const { scenario, overlay } = compileReachScenario(hydrated.scenario)
-  const preparation = await prepare(
-    storePath,
-    streetStorePath,
-    options.serviceDate,
-    options.serviceDay,
-  )
+  const { scenario } = compileReachScenario(hydrated.scenario)
   const stopLookup = openStopLookup(storePath)
-  const origin = analyticalPoint(request.origin, 'Origin', stopLookup)
-  const bounds = rasterBounds(origin, radiusKm)
-  const queryStarted = performance.now()
-  const range = routeNationalGtfsReach(storePath, {
-    mode,
-    surfaceSampling: request.surfaceSampling,
-    routingDataMode: options.routingDataMode,
-    origin,
-    departMinutes: options.timeMinutes,
+  const place = arrive
+    ? analyticalPoint(request.destination, 'Destination', stopLookup)
+    : analyticalPoint(request.origin, 'Origin', stopLookup)
+  const surfaceSampling = mode === 'drive' ? 'cell-center' : request.surfaceSampling ?? 'street'
+  const plannedScenario = nativeScenario(scenario)
+  const { trace, openMs, computeMs } = await queryNativeReach(paths.cityPath, {
+    kind: 'reach',
+    [arrive ? 'destination' : 'origin']: nativePoint(place),
+    timePreference: arrive ? 'arrive_by' : 'depart_at',
     serviceDate: options.serviceDate,
-    serviceDay: options.serviceDay,
+    timeMinutes: options.timeMinutes,
+    routingDataMode: options.routingDataMode,
+    mode,
+    surfaceSampling,
     maxWalkKm: options.maxWalkKm,
-    maxTransfers: options.maxTransfers,
+    ...(options.maxTransfers !== undefined ? { maxTransfers: options.maxTransfers } : {}),
     walkSpeedKph,
-    radiusKm,
-    cutoffMinutes: cutoffsMinutes.at(-1),
-    excludedRouteIds: scenario.excludedRouteIds,
-    excludedTripIds: scenario.excludedTripIds,
-    ...(overlay ? { scenarioOverlay: overlay } : {}),
-    surface: {
-      bounds,
-      width: rasterSize,
-      height: rasterSize,
-      includeEdges: includeStreetEdges,
-    },
-  }, { streetStorePath })
-  const queryWallMs = performance.now() - queryStarted
-  if (
-    !range.surface
-    || range.surface.schemaVersion !== 'vigo.street.network-raster.v1'
-    || !range.surface.values
-    || range.surface.values.length !== rasterSize ** 2
-  ) {
-    throw new Error('VIGO returned an invalid Reach surface')
-  }
-  const contourStarted = performance.now()
-  const contours = rasterContours(
-    range.surface.values,
-    rasterSize,
-    rasterSize,
-    bounds,
     cutoffsMinutes,
-    'reach',
-  )
-  const fullValues = range.surface.fullValues
-  const fullBounds = range.surface.fullBounds
-  const fullContours = fullValues?.length === rasterSize ** 2 && Array.isArray(fullBounds)
-    ? rasterContours(fullValues, rasterSize, rasterSize, fullBounds, cutoffsMinutes, 'reach')
-    : undefined
-  const areas = rasterAreas(range.surface.values, rasterSize, rasterSize, bounds, cutoffsMinutes, 'reach')
-  const fullAreas = fullContours
-    ? rasterAreas(fullValues, rasterSize, rasterSize, fullBounds, cutoffsMinutes, 'reach')
-    : undefined
+    rasterSize,
+    extentRadiusKm: radiusKm,
+    includeStreetEdges,
+    // Node evidence is opt-in, as in the runtime: it multiplies the response size.
+    includeNodes: request.includeNodes === true,
+    // The CLI draws its own contours and areas from the surface.
+    reachFormat: 'surface',
+    arrayEncoding: 'base64',
+    ...(plannedScenario ? { scenario: plannedScenario } : {}),
+  })
+  const range = nativeReachRange(trace, plannedScenario)
+  if (range.surface.values.length !== rasterSize ** 2) throw new Error('VIGO returned an invalid Reach surface')
+  const { values, fullValues, fullBounds, bounds } = range.surface
+  const contourStarted = performance.now()
+  const contours = rasterContours(values, rasterSize, rasterSize, bounds, cutoffsMinutes, 'reach')
+  const fullContours = rasterContours(fullValues, rasterSize, rasterSize, fullBounds, cutoffsMinutes, 'reach')
+  const areas = rasterAreas(values, rasterSize, rasterSize, bounds, cutoffsMinutes, 'reach')
+  const fullAreas = rasterAreas(fullValues, rasterSize, rasterSize, fullBounds, cutoffsMinutes, 'reach')
   const contourMs = performance.now() - contourStarted
   return {
     schemaVersion: 'vigo.result.reach.v1',
@@ -1226,8 +1213,9 @@ async function computeReachRequest(
     query: {
       routingDataMode: options.routingDataMode,
       mode,
-      surfaceSampling: mode === 'drive' ? 'cell-center' : request.surfaceSampling ?? 'street',
-      origin,
+      surfaceSampling,
+      [arrive ? 'destination' : 'origin']: place,
+      timePreference: arrive ? 'arrive_by' : 'depart_at',
       timeMinutes: options.timeMinutes,
       serviceDate: options.serviceDate,
       serviceDay: options.serviceDay,
@@ -1242,19 +1230,15 @@ async function computeReachRequest(
     },
     stops: range.stops,
     scenarioStops: range.scenarioStops,
-    surface: {
-      ...range.surface,
-      values: Array.from(range.surface.values),
-      ...(fullValues ? { fullValues: Array.from(fullValues) } : {}),
-    },
+    surface: { ...range.surface, values: Array.from(values), fullValues: Array.from(fullValues) },
     contours,
     areas,
-    ...(fullContours ? { fullContours } : {}),
-    ...(fullAreas ? { fullAreas } : {}),
+    fullContours,
+    fullAreas,
     diagnostics: range.diagnostics,
     timing: {
-      openMs: preparation.elapsedMs,
-      computeMs: Number(queryWallMs.toFixed(3)),
+      openMs: Number(openMs.toFixed(3)),
+      computeMs: Number(computeMs.toFixed(3)),
       contourMs: Number(contourMs.toFixed(3)),
       endToEndMs: Number((performance.now() - cliStartedAt).toFixed(3)),
     },
@@ -1268,6 +1252,7 @@ async function runReach(args: CliArguments) {
     writeJsonResult(publicResult(await computeReachRequest(args, request, paths), request, args), value(args, 'output'), value(args, 'format', 'auto'))
   } finally {
     disposeNationalGtfsStore(paths.storePath)
+    closeNativeReach()
   }
 }
 

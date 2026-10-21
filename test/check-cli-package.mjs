@@ -25,10 +25,11 @@ for (const key of Object.keys(env)) if (key.startsWith('VIGO_')) delete env[key]
 try {
   const bytes = await fs.readFile(archive)
   assert.equal((await fs.readFile(`${archive}.sha256`, 'utf8')).split(' ')[0], digest(bytes))
-  // A generous regression budget: fail if assets or a runtime slip into the archive.
-  assert(bytes.length < 8 * 1024 * 1024, 'CLI ZIP exceeded the 8 MiB budget.')
+  // A generous regression budget: fail if assets or a Node runtime slip into the archive.
+  assert(bytes.length < 16 * 1024 * 1024, 'CLI ZIP exceeded the 16 MiB budget.')
   const zip = await JSZip.loadAsync(bytes, { checkCRC32: true })
-  const allowed = new Set(['vigo.mjs', 'vigo-routing-kernel.node', 'LICENSE', 'NOTICE',
+  const executable = process.platform === 'win32' ? 'vigo.exe' : 'vigo'
+  const allowed = new Set(['vigo.mjs', 'vigo-routing-kernel.node', executable, 'LICENSE', 'NOTICE',
     'CCH-LICENSE', 'CCH-NOTICE', 'THIRD-PARTY-NOTICES', 'README.md', 'manifest.json'])
   await fs.mkdir(runtime)
   const extracted = new Set()
@@ -50,7 +51,7 @@ try {
   assert.equal(manifest.architecture, process.arch)
   assert.equal(manifest.productVersion, metadata.version)
   assert.deepEqual(manifest.interfaces, ['cli', 'resident-ndjson'])
-  assert(manifest.excluded.includes('http'))
+  assert(manifest.excluded.includes('node-runtime'))
   assert.deepEqual(new Set(Object.keys(manifest.files)), new Set([...allowed].filter(file => file !== 'manifest.json')))
   for (const [file, expected] of Object.entries(manifest.files)) {
     const data = await fs.readFile(path.join(runtime, file))
@@ -58,7 +59,7 @@ try {
     assert.equal(digest(data), expected.sha256)
   }
   const audit = await auditPackageFiles(runtime, { forbiddenRoots: [root] })
-  assert(audit.bytes < 16 * 1024 * 1024, 'Extracted CLI exceeded the 16 MiB budget.')
+  assert(audit.bytes < 32 * 1024 * 1024, 'Extracted CLI exceeded the 32 MiB budget.')
   const cli = path.join(runtime, 'vigo.mjs')
   const options = { cwd: temporary, env, timeout: 60000, maxBuffer: 16 * 1024 * 1024 }
   const capabilities = JSON.parse((await run(node, [cli, 'capabilities'], options)).stdout)
