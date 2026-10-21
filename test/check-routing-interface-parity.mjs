@@ -88,9 +88,17 @@ function assertSameJourney(actual, expected, message) {
     legs: (plan?.legs ?? []).filter((leg) => !(leg.type === 'walk' && leg.durationMinutes === 0))
       .map(leg => [leg.type, leg.tripId ?? null, leg.fromStopId ?? null, leg.toStopId ?? null]),
   })
-  const clocks = plan => [plan?.departMinutes, plan?.arriveMinutes,
-    ...(plan?.legs ?? []).filter((leg) => !(leg.type === 'walk' && leg.durationMinutes === 0))
-      .flatMap(leg => [leg.startMinutes, leg.endMinutes])].map(finiteOrNull)
+  const clocks = plan => {
+    // A reverse street query may anchor its nonnegative clocks on the prior
+    // date. Compare dated instants, not unanchored minutes (a 1440-minute shift).
+    const date = plan?.diagnostics?.clockDate ?? plan?.diagnostics?.serviceDate ?? serviceDate
+    const offset = (Date.parse(date) - Date.parse(serviceDate)) / 60000
+    assert(Number.isFinite(offset), `Invalid journey clock date: ${date}`)
+    return [plan?.departMinutes, plan?.arriveMinutes,
+      ...(plan?.legs ?? []).filter((leg) => !(leg.type === 'walk' && leg.durationMinutes === 0))
+        .flatMap(leg => [leg.startMinutes, leg.endMinutes])]
+      .map(value => value == null ? null : finiteOrNull(value) + offset)
+  }
   assert.deepEqual(shape(actual), shape(expected), message)
   const [a, b] = [clocks(actual), clocks(expected)]
   assert(a.every((value, index) => value === b[index] || Math.abs(value - b[index]) <= 0.004),
