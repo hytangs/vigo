@@ -3,7 +3,7 @@ import type { RoutingPlan } from '../routingModel'
 import { routingPlanJourneyMinutes, routingPlanStartWaitMinutes, routingPlanTotalElapsedMinutes } from './routingPlan'
 import { reachResultDifference, reachResultMetrics, reachScenarioDifference } from './resultSummary'
 import {
-  scenarioImprovedPixels, scenarioWorsenedPixels, scenarioReachablePixels,
+  reachArrivesBy, reachPlace, scenarioImprovedPixels, scenarioWorsenedPixels, scenarioReachablePixels,
   type ReachResult,
 } from '../reach'
 
@@ -181,19 +181,22 @@ export function exportReachResults(entries: ReachExportEntry[], format: ResultEx
     selectedCutoffMinutes: cutoffMinutes, referenceFeedId: cityComparison ? reference.feedId : null, selectedSummary: selectedSummary(), entries,
   })
   if (format === 'csv') return save(csv([
-    ['name', 'feed_id', 'service_date', 'depart_minutes', 'origin_lon', 'origin_lat', 'sampling', 'cutoff_minutes', 'surface', 'reachable_cells', 'area_km2', 'transit_stops', 'faster_or_newly_reached_cells', 'slower_or_lost_cells', 'total_processing_ms', 'area_source', 'reference_feed_id', 'area_delta_km2', 'transit_stop_delta', 'mode', 'max_walk_km', 'walk_speed_kph', 'max_transfers', 'baseline_identity', 'scenario_id', 'reference_surface'],
+    ['name', 'feed_id', 'service_date', 'depart_minutes', 'origin_lon', 'origin_lat', 'sampling', 'cutoff_minutes', 'surface', 'reachable_cells', 'area_km2', 'transit_stops', 'faster_or_newly_reached_cells', 'slower_or_lost_cells', 'total_processing_ms', 'area_source', 'reference_feed_id', 'area_delta_km2', 'transit_stop_delta', 'mode', 'max_walk_km', 'walk_speed_kph', 'max_transfers', 'baseline_identity', 'scenario_id', 'reference_surface',
+      'time_preference', 'arrive_by_minutes', 'destination_lon', 'destination_lat'],
     ...entries.flatMap(({ name, feedId, result }) => reachSurfaces(entries).map(side => {
       const metrics = reachResultMetrics(result, side, cutoffMinutes)
       const difference = cityComparison ? reachResultDifference(reference.result, result, cutoffMinutes)
         : side === 'scenario' ? reachScenarioDifference(result, cutoffMinutes) : null
-      return [name, feedId, result.request.serviceDate, result.request.departMinutes,
-        ...result.request.origin.coordinate, result.request.surfaceSampling ?? 'street', cutoffMinutes, side,
+      const arriveBy = reachArrivesBy(result.request), place = reachPlace(result.request).coordinate
+      return [name, feedId, result.request.serviceDate, arriveBy ? '' : result.request.departMinutes,
+        ...(arriveBy ? ['', ''] : place), result.request.surfaceSampling ?? 'street', cutoffMinutes, side,
         metrics.reachableCells, metrics.areaKm2, metrics.transitStops,
         side === 'scenario' ? scenarioImprovedPixels(result, cutoffMinutes) : '',
         side === 'scenario' ? scenarioWorsenedPixels(result, cutoffMinutes) : '', metrics.totalProcessingMs,
         metrics.areaSource, cityComparison ? reference.feedId : '', difference?.areaKm2, difference?.transitStops,
         result.request.mode ?? 'transit', result.request.maxWalkKm, result.request.walkSpeedKph ?? 4.8,
-        result.request.maxTransfers, result.request.baselineIdentity, side === 'scenario' ? result.request.scenario.id : '', 'baseline']
+        result.request.maxTransfers, result.request.baselineIdentity, side === 'scenario' ? result.request.scenario.id : '', 'baseline',
+        arriveBy ? 'arrive_by' : 'depart_at', arriveBy ? result.request.departMinutes : '', ...(arriveBy ? place : ['', ''])]
     })),
   ]))
   if (!reachGeometryAvailable(entries, cutoffMinutes)) throw new Error('Update Reach to retain geometry for this cutoff, or save JSON or CSV.')
@@ -201,8 +204,13 @@ export function exportReachResults(entries: ReachExportEntry[], format: ResultEx
     reachSurfaces(entries).flatMap(surface => (result.surface.areas?.[surface]?.features ?? result.surface.contours?.[surface]?.features ?? [])
       .filter(feature => Number(feature.properties?.cutoffMinutes) === cutoffMinutes)
       .map(feature => ({ ...feature, properties: { ...feature.properties, name, feedId, surface,
-        serviceDate: result.request.serviceDate, departMinutes: result.request.departMinutes } })))) }
+        serviceDate: result.request.serviceDate, ...reachClockFields(result.request.timePreference, result.request.departMinutes) } })))) }
   return save(collection)
+}
+
+// An arrive-by Reach's clock is its arrival deadline, not a departure.
+function reachClockFields(timePreference: 'depart' | 'arrive' | undefined, minutes: number) {
+  return timePreference === 'arrive' ? { timePreference, arriveByMinutes: minutes } : { departMinutes: minutes }
 }
 
 export function reachExportEntries(analysis: ReachResult | null): ReachExportEntry[] {
@@ -228,7 +236,7 @@ export function exportComparison(run: ComparisonRun, selected: ReachResult | nul
   ]), identity, exportedAt)
   if (format === 'json') return file('compare', format, {
     schemaVersion: 'vigo.studio.compare-export.v1', exportedAt,
-    cutoffMinutes: run.cutoffMinutes, serviceDate: run.serviceDate, departMinutes: run.departMinutes,
+    cutoffMinutes: run.cutoffMinutes, serviceDate: run.serviceDate, ...reachClockFields(run.timePreference, run.departMinutes),
     reference: { id: run.reference.id, label: run.reference.label, kind: run.reference.kind, feedIds: run.reference.feedIds, areaKm2: run.reference.areaKm2, stops: run.reference.stops },
     variants: ranked.map(({ variant, stats, error }) => ({ id: variant.id, label: variant.label, kind: variant.kind, feedIds: variant.feedIds, stats, ...(error ? { error } : {}) })),
     selectedVariantId: run.selectedId,
@@ -240,7 +248,7 @@ export function exportComparison(run: ComparisonRun, selected: ReachResult | nul
     (selected.surface.areas?.[surface]?.features ?? [])
       .filter((feature) => Number(feature.properties?.cutoffMinutes) === run.cutoffMinutes)
       .map((feature) => ({ ...feature, properties: { ...feature.properties, name: surface === 'baseline' ? run.reference.label : label,
-        surface: surface === 'baseline' ? 'reference' : 'variant', serviceDate: run.serviceDate, departMinutes: run.departMinutes } }))) }
+        surface: surface === 'baseline' ? 'reference' : 'variant', serviceDate: run.serviceDate, ...reachClockFields(run.timePreference, run.departMinutes) } }))) }
   if (!collection.features.length) throw new Error('Update Compare to retain geometry for this cutoff, or save JSON or CSV.')
   return file('compare', format, collection, identity, exportedAt)
 }

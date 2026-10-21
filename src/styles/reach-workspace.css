@@ -23,6 +23,10 @@
 .reach-origin-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 2px; min-height: 46px; padding: 0 6px 0 6px; }
 .reach-origin-icon { justify-self: center; width: 10px; height: 10px; border: 2.5px solid var(--signal); border-radius: 50%; }
 .reach-origin-row.is-empty .reach-origin-icon { border-color: var(--text-4); }
+/* An arrive-by Reach is anchored at a destination, marked as Route marks one. */
+.reach-origin-row.is-destination .reach-origin-icon { border: 0; background: #5ec8ff; }
+.reach-origin-row.is-destination.is-empty .reach-origin-icon { background: var(--text-4); }
+.reach-time-preference { margin: 8px 10px 0; }
 .reach-origin-row > div { display: grid; gap: 1px; min-width: 0; padding: 0 4px; }
 .reach-origin-row strong { overflow: hidden; color: var(--text-1); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .reach-origin-row .reach-section-kicker { display: flex; gap: 6px; min-width: 0; font-weight: 400; }

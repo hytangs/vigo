@@ -37,7 +37,7 @@ import { readLocalBasemap, localBasemapBudgets } from './local-basemap-store.mjs
 import { networkSignatureSvg, networkSignatureVersion } from './network-signature.mjs'
 import { renderNativeLocalBasemapTile } from './native-routing-kernel.mjs'
 import { integralNumber } from './number-utils.mjs'
-import { compactReachResult, compileReachScenario, computeReachResult } from './reach.mjs'
+import { compactReachResult, compileReachScenario, computeReachResult, reachPlace } from './reach.mjs'
 import { readScenarioLibrary, scenarioLibraryFileName, writeScenarioLibrary } from './scenario-library.mjs'
 import { inspectRealtimeFeed } from './realtime-inspector.mjs'
 import { normalizeRoutingDataRequest } from './routing-data-mode.mjs'
@@ -3832,7 +3832,7 @@ async function runReach(projectId, body, signal, onProgress, onPreliminary) {
       }
     },
     buildPreliminaryStreetRaster: async (surfaceRequest) => nativeSurface(await queryNativeCity(reachSelection,
-      nativePreliminaryRequest(surfaceRequest, hydratedBody.origin, serviceContext.serviceDate, hydratedBody.departMinutes),
+      nativePreliminaryRequest(surfaceRequest, reachPlace(hydratedBody), serviceContext.serviceDate, hydratedBody.departMinutes),
       signal)),
     onProgress,
     onPreliminary,

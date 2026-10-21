@@ -43,13 +43,19 @@ export function reachHasServiceChanges(result: ReachResult) {
   return Boolean(scenario.serviceCount || scenario.excludedRouteCount || scenario.excludedTripCount || scenario.excludedPatternCount)
 }
 
-export function reachPointRouteRequest(source: ReachInspectionSource, destination: RoutingPoint, fallbackFeedId: string) {
+/**
+ * The journey that explains a clicked point: from the Reach origin to it, or
+ * for arrive-by from it to the Reach destination by the same deadline.
+ */
+export function reachPointRouteRequest(source: ReachInspectionSource, point: RoutingPoint, fallbackFeedId: string) {
   const request = source.result.request
+  const arriveBy = request.timePreference === 'arrive'
   return {
     ...(request.feedIds?.length ? { feedIds: request.feedIds } : { feedId: source.feedId ?? fallbackFeedId }),
-    origin: request.origin, destination,
-    mode: request.mode ?? 'transit', routingDataMode: 'scheduled', timePreference: 'depart',
-    departMinutes: request.departMinutes, serviceDate: request.serviceDate, serviceDay: request.serviceDay,
+    ...(arriveBy ? { origin: point, destination: request.destination } : { origin: request.origin, destination: point }),
+    mode: request.mode ?? 'transit', routingDataMode: 'scheduled', timePreference: arriveBy ? 'arrive' : 'depart',
+    departMinutes: request.departMinutes, ...(arriveBy ? { arriveMinutes: request.departMinutes } : {}),
+    serviceDate: request.serviceDate, serviceDay: request.serviceDay,
     maxWalkKm: request.maxWalkKm, maxTransfers: request.maxTransfers,
     allowServiceDateFallback: false, objective: 'earliest_arrival', departureWindowMinutes: 0,
     // Inspect destinations under the map's walking limit, including direct walks.

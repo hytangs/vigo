@@ -664,7 +664,7 @@ export function ensureLayers(map: MapLibreMap) {
       paint: {
         'circle-color': [
           'case',
-          ['==', ['get', 'zeroMinuteOrigin'], true],
+          ['==', ['get', 'zeroMinutePlace'], true],
           '#cde67c',
           ['==', ['get', 'pointKind'], 'waypoint'],
           '#f7b955',
@@ -687,7 +687,7 @@ export function ensureLayers(map: MapLibreMap) {
       paint: {
         'circle-color': [
           'case',
-          ['==', ['get', 'zeroMinuteOrigin'], true],
+          ['==', ['get', 'zeroMinutePlace'], true],
           '#cde67c',
           ['==', ['get', 'pointKind'], 'waypoint'],
           '#f7b955',
@@ -697,8 +697,8 @@ export function ensureLayers(map: MapLibreMap) {
         ] as ExpressionSpecification,
         'circle-radius': [
           'interpolate', ['linear'], ['zoom'],
-          7, ['case', ['==', ['get', 'zeroMinuteOrigin'], true], 5.5, 4.5],
-          13, ['case', ['==', ['get', 'zeroMinuteOrigin'], true], 8, 6.5],
+          7, ['case', ['==', ['get', 'zeroMinutePlace'], true], 5.5, 4.5],
+          13, ['case', ['==', ['get', 'zeroMinutePlace'], true], 8, 6.5],
         ] as ExpressionSpecification,
         'circle-stroke-color': '#08101b',
         'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 7, 2, 13, 3],

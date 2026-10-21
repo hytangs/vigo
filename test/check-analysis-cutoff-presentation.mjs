@@ -76,5 +76,53 @@ try {
   for (const text of ['Time between services', 'Service begins', 'Service ends', 'Add reverse service']) assert(frequencyPanel.includes(text))
   assert.match(panel({ ...change, kind: 'add-line' }), /<span>Time between services</, 'New lines still expose their departure schedule.')
   console.log('Scenario controls default to the original timetable, including saved drafts; explicit frequency mode exposes schedule settings.')
+
+  // Arrive-by: values are minutes before the deadline a traveler must leave.
+  const arriving = { ...result, request: { mode: 'transit', timePreference: 'arrive', departMinutes: 510 } }
+  assert.match(cards(arriving), /sampled area to leave ≤ 45 min before/)
+  assert.match(cards(arriving), /stops to board ≤ 45 min before/)
+  assert.doesNotMatch(cards(arriving), /reached by 45 min/)
+  const arrivingZero = { ...zeroAtCutoff, request: arriving.request }
+  assert.match(notice(arrivingZero), /0 transit stops reach the destination within the selected 45-minute cutoff/)
+  assert.match(notice(arrivingZero), /6,928 stops reach it within the full 90-minute computed window/)
+  const timed = (timePreference) => renderToStaticMarkup(createElement(AnalyzePanelView, {
+    mode: 'single', origin: { coordinate: [-71.06, 42.36], label: 'Downtown', source: 'map' }, serviceDate: '2026-07-20', departMinutes: 510,
+    timePreference, onTimePreferenceChange: () => {}, maxWalkKm: 1.2, walkSpeedKph: 4.8, cutoffMinutes: 45, renderMode: 'area',
+    cases: [], routes: [], stops: [], feeds: [], comparisonFeedIds: [], preparationTasks: [], loading: false,
+    routingStoreAvailable: true, streetGraphAvailable: true, onSetOrigin: () => {},
+  }))
+  const departPanel = timed('depart'), arrivePanel = timed('arrive')
+  assert.match(departPanel, /<button type="button" aria-pressed="true">Leave at<\/button><button type="button" aria-pressed="false">Arrive by<\/button>/)
+  assert.match(arrivePanel, /aria-pressed="false">Leave at<\/button><button type="button" aria-pressed="true">Arrive by</)
+  assert.match(departPanel, /Origin<span/)
+  assert.match(departPanel, /<span>Departs<\/span>/)
+  assert.match(arrivePanel, /reach-origin-row is-destination/)
+  assert.match(arrivePanel, /Destination<span/)
+  assert.match(arrivePanel, /<span>Deadline<\/span>/, 'An arrive-by clock is labelled as the deadline')
+  assert.match(arrivePanel, /Change destination/)
+  assert.match(arrivePanel, /First walk limit/, 'Arrive-by walks first, to transit')
+  assert.doesNotMatch(arrivePanel, /Final walk limit|Choose origin|Change origin/)
+  // A clicked point is explained by the arrive-by journey from it to the destination.
+  const { reachPointRouteRequest, reachInspectionSources } = await server.ssrLoadModule('/src/app/reachInspection.ts')
+  const { ReachPointInspector } = await server.ssrLoadModule('/src/components/ReachPointInspector.tsx')
+  const destination = { coordinate: [-71.06, 42.36], label: 'Park Street', source: 'stop', stopId: 'place-pktrm' }
+  const start = { coordinate: [-71.07, 42.35], label: 'Museum Rd', source: 'map', named: true }
+  const arriveResult = { ...result, request: { baselineIdentity: 'fixture', mode: 'transit', timePreference: 'arrive', destination, departMinutes: 540,
+    serviceDate: '2026-07-20', serviceDay: 'weekday', maxWalkKm: 1.2, walkSpeedKph: 4.8, cutoffsMinutes: [45], scenario: { id: 'baseline', name: 'Baseline', serviceCount: 0 } } }
+  const source = reachInspectionSources(arriveResult)[0]
+  const routeBody = reachPointRouteRequest(source, start, '__project__')
+  assert.deepEqual([routeBody.origin, routeBody.destination, routeBody.timePreference, routeBody.departMinutes, routeBody.arriveMinutes],
+    [start, destination, 'arrive', 540, 540], 'Arrive-by inspection routes from the point to the destination by the deadline')
+  const departSource = { ...source, result: { ...arriveResult, request: { ...arriveResult.request, timePreference: undefined, destination: undefined, origin: destination } } }
+  const departBody = reachPointRouteRequest(departSource, start, '__project__')
+  assert.deepEqual([departBody.origin, departBody.destination, departBody.timePreference, 'arriveMinutes' in departBody], [destination, start, 'depart', false])
+  const plan = { status: 'ready', travelMode: 'transit', timePreference: 'arrive', departMinutes: 517, arriveMinutes: 537, durationMinutes: 20,
+    legs: [], origin: start, destination, diagnostics: {} }
+  const inspector = renderToStaticMarkup(createElement(ReachPointInspector, { inspection: { point: start, source, plan, loading: false, error: '', close: () => {}, retry: () => {} } }))
+  assert.match(inspector, /aria-label="Travel time from selected point"/)
+  assert.match(inspector, /<span>Start<\/span>/)
+  assert.match(inspector, /<strong>23 min<\/strong>/, 'Elapsed time runs from leaving the point to the deadline')
+  assert.match(inspector, /Leave 08:37 · arrive by 09:00/)
+  console.log('Arrive-by Reach: Leave at / Arrive by toggle, destination and deadline labels, first-walk limit, minutes-before metrics, and point journeys passed.')
   console.log('Reach cutoff presentation: 45/90-minute scopes, scenario counts, later transit reach, exact custom cutoff and missing/preliminary evidence passed.')
 } finally { await server.close(); await rm(directory, { recursive: true, force: true }) }

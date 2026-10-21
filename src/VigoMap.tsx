@@ -601,9 +601,13 @@ export function VigoMap({
     [effectiveLayers.routes, preview, selectedRouteId, vehicleFrame],
   )
   const routingGeoJson = useMemo(() => routingLineFeatures(routingPlan), [routingPlan])
+  // Reach is anchored at its origin, or at an arrive-by Reach's destination
+  // (the only point before a result, whose clicked points then start journeys).
+  const reachPlace = !scenarioFocus ? null
+    : reachResult?.request.timePreference === 'arrive' || !routingOrigin ? 'destination' : 'origin'
   const routingPinsGeoJson = useMemo(
-    () => routingPinFeatures(routingOrigin, routingWaypoints, routingDestination, routingPlan, scenarioFocus),
-    [routingDestination, routingOrigin, routingPlan, routingWaypoints, scenarioFocus],
+    () => routingPinFeatures(routingOrigin, routingWaypoints, routingDestination, routingPlan, reachPlace),
+    [routingDestination, routingOrigin, routingPlan, routingWaypoints, reachPlace],
   )
   const scenarioSketchGeoJson = useMemo(
     () => scenarioSketchFeatures(scenarioSketchStops, scenarioSketchGeometry),

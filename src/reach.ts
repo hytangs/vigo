@@ -553,6 +553,8 @@ export type ReachTransitStatus = {
   detail: string
   requestedDepartureMinutes?: number
   windowEndMinutes?: number
+  requestedArrivalMinutes?: number
+  windowStartMinutes?: number
   earliestScheduledDepartureMinutes?: number | null
   waitMinutes?: number | null
   targetStops?: number
@@ -613,6 +615,14 @@ export function inflateReachResult(result: ReachResult): ReachResult {
   }
 }
 
+export type ReachPlace = {
+  id?: string
+  label: string
+  coordinate: LngLat
+  source: string
+  stopId?: string
+}
+
 export type ReachResult = {
   schemaVersion: 'vigo.result.reach.v1'
   request: {
@@ -620,13 +630,10 @@ export type ReachResult = {
     feedIds?: string[]
     mode?: 'walk' | 'transit' | 'drive'
     surfaceSampling?: 'street' | 'cell-center'
-    origin: {
-      id?: string
-      label: string
-      coordinate: LngLat
-      source: string
-      stopId?: string
-    }
+    /** Arrive-by Reach names a destination; `departMinutes` is then its arrival deadline. */
+    timePreference?: 'depart' | 'arrive'
+    origin?: ReachPlace
+    destination?: ReachPlace
     departMinutes: number
     serviceDate: string
     serviceDay: string
@@ -884,3 +891,10 @@ export function scenarioReachedAreaKm2(
     / (analysis.surface.raster.width * analysis.surface.raster.height)
   return scenarioReachablePixels(analysis, surface, cutoffMinutes) * pixelAreaKm2
 }
+
+/** Where a Reach is anchored: its origin, or an arrive-by Reach's destination. */
+export function reachPlace(request: ReachResult['request']): ReachPlace {
+  return (request.timePreference === 'arrive' ? request.destination : request.origin)!
+}
+
+export const reachArrivesBy = (request: ReachResult['request']) => request.timePreference === 'arrive'

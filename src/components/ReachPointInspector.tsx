@@ -17,27 +17,31 @@ export function ReachPointInspector({ inspection }: { inspection: ReturnType<typ
   const baseline = reachPointSample(result, point.coordinate, 'baseline')
   const scenario = reachHasServiceChanges(result) ? reachPointSample(result, point.coordinate, 'scenario') : null
   const cutoff = Math.max(...request.cutoffsMinutes)
-  const elapsed = plan?.status === 'ready' ? (plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes) - request.departMinutes : null
+  // Arrive-by explains a point by the journey from it, timed to the deadline.
+  const arriveBy = request.timePreference === 'arrive'
+  const arrival = plan?.status === 'ready' ? plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes : null
+  const elapsed = plan?.status === 'ready' ? arriveBy ? request.departMinutes - plan.departMinutes : arrival! - request.departMinutes : null
   const sampleLabel = (sample: typeof baseline) => sample.status === 'sampled' ? `≈ ${minutes(sample.minutes)}${sample.estimatedBlock ? ' · off-street estimate' : ''}`
     : sample.status === 'outside' ? 'Outside map extent' : 'No sampled street here'
   const unnamed = coordinateLabel.test(point.label.trim())
   const budget = Number(cutoff.toFixed(2))
-  return <aside className="reach-point-inspector" aria-label="Travel time to selected point">
+  return <aside className="reach-point-inspector" aria-label={arriveBy ? 'Travel time from selected point' : 'Travel time to selected point'}>
     <header>
       <div>
-        <span>Destination</span>
+        <span>{arriveBy ? 'Start' : 'Destination'}</span>
         <h2>{unnamed ? 'Dropped pin' : point.label}</h2>
         {unnamed || point.named ? <small>{point.coordinate[1].toFixed(5)}, {point.coordinate[0].toFixed(5)}</small> : null}
       </div>
-      <button type="button" className="icon-button" aria-label="Close destination" onClick={inspection.close}><X size={16} /></button>
+      <button type="button" className="icon-button" aria-label={arriveBy ? 'Close start point' : 'Close destination'} onClick={inspection.close}><X size={16} /></button>
     </header>
     <div className="reach-point-scroll">
       <div className="reach-point-time" role="status" aria-live="polite">
         {scenario ? <span>Scheduled journey</span> : null}
-        {loading ? <><strong>Checking journey…</strong><span>From {request.origin.label}</span></>
+        {loading ? <><strong>Checking journey…</strong><span>{arriveBy ? `To ${request.destination?.label}` : `From ${request.origin?.label}`}</span></>
           : elapsed !== null ? <>
             <strong>{minutes(elapsed)}</strong>
-            <span>Arrive {formatScheduleClock(plan!.arriveMinutes ?? plan!.departMinutes + plan!.durationMinutes)} · depart {formatScheduleClock(request.departMinutes)} · {request.serviceDate}</span>
+            <span>{arriveBy ? `Leave ${formatScheduleClock(plan!.departMinutes)} · arrive by ${formatScheduleClock(request.departMinutes)}`
+              : `Arrive ${formatScheduleClock(arrival!)} · depart ${formatScheduleClock(request.departMinutes)}`} · {request.serviceDate}</span>
             <em className="reach-point-budget" data-tone={elapsed > cutoff ? 'watch' : 'good'}>
               {elapsed > cutoff ? `${minutes(elapsed - cutoff)} beyond the ${budget} min budget` : `Within the ${budget} min budget`}
             </em>
@@ -47,7 +51,7 @@ export function ReachPointInspector({ inspection }: { inspection: ReturnType<typ
       <dl className="reach-point-estimates"><div><dt>{scenario ? 'Baseline map estimate' : 'Map estimate'}</dt><dd>{sampleLabel(baseline)}</dd></div>
         {scenario ? <div><dt>{request.scenario.name}</dt><dd>{sampleLabel(scenario)}</dd></div> : null}
       </dl>
-      {elapsed === null ? <p className="reach-point-context">{request.serviceDate} · depart {formatScheduleClock(request.departMinutes)}</p> : null}
+      {elapsed === null ? <p className="reach-point-context">{request.serviceDate} · {arriveBy ? 'arrive by' : 'depart'} {formatScheduleClock(request.departMinutes)}</p> : null}
       {baseline.status === 'sampled' && baseline.estimatedBlock || scenario?.status === 'sampled' && scenario.estimatedBlock
         ? <p className="reach-point-note">Shading between streets adds a walk of up to 100 m from the fastest nearby street. The journey checks your selected point separately.</p> : null}
       {scenario ? <p className="reach-point-note">The journey below uses scheduled service. Planned changes are included in the scenario map estimate.</p> : null}
@@ -56,7 +60,7 @@ export function ReachPointInspector({ inspection }: { inspection: ReturnType<typ
       {error ? <button type="button" className="button button-secondary" onClick={inspection.retry}>Try again</button> : null}
       {plan?.status === 'ready' ? <details className="reach-point-journey" key={`${source.id}:${point.coordinate.join(',')}`} open>
         <summary><span>Journey</span><ChevronRight size={15} aria-hidden="true" /></summary>
-        <RoutingItinerary plan={plan} destinationLabel={point.named ? point.label : undefined} />
+        <RoutingItinerary plan={plan} destinationLabel={point.named && !arriveBy ? point.label : undefined} />
       </details> : null}
     </div>
   </aside>

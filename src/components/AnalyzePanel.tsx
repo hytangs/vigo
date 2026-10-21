@@ -39,6 +39,7 @@ import {
   changeRenderMode,
   changeSurfaceSampling,
   changeReachTravelMode,
+  changeReachTimePreference,
   changeWalkSpeed,
   cityGrouping,
   clearScenarioSketch,
@@ -76,7 +77,7 @@ import { preparationState, type PreparationTask } from '../app/preparation'
 import { classNames, formatNumber, type RouteMetric, type StopMetric } from '../domain'
 import { gtfsDirectionLabel, gtfsPatternStops, gtfsPatternTimetable } from '../app/gtfsPresentation'
 import { scopedRouteServiceKey } from '../routeServices'
-import type { RoutingPoint } from '../routingModel'
+import type { RoutingPoint, RoutingTimePreference } from '../routingModel'
 import { ResultMetric } from './UiPrimitives'
 import { AnalysisOriginPicker } from './AnalysisOriginPicker'
 import { OperationProgress } from './OperationProgress'
@@ -89,6 +90,7 @@ import { maximumScenarios } from '../app/scenarioLibrary'
 import type { CityDataGroup } from '../app/cityDataGroups'
 import type { ScenarioSaveState } from '../app/useScenarioLibrary'
 import {
+  reachArrivesBy,
   reachBandColor,
   reachDifferenceCapMinutes,
   reachDisplayedBands,
@@ -128,7 +130,10 @@ type AnalyzePanelProps = {
   mode: AnalyzeMode
   origin: RoutingPoint | null
   serviceDate: string
+  /** The departure, or for arrive-by the arrival deadline. */
   departMinutes: number
+  timePreference?: RoutingTimePreference
+  onTimePreferenceChange?: (value: RoutingTimePreference) => void
   maxWalkKm: number
   maxTransfers?: number
   walkSpeedKph: number
@@ -283,6 +288,11 @@ function ReachSurfaceLegend({
   terminalWalkKm: number
 }) {
   const difference = view === 'comparison'
+  // Arrive-by values are the minutes before the deadline a traveler must leave.
+  const arriveBy = reachArrivesBy(analysis.request)
+  const timing = analysis.request.mode === 'drive'
+    ? arriveBy ? 'Driving time to the destination · road-speed estimates' : 'Driving time · road-speed estimates'
+    : arriveBy ? `Leave this many minutes before ${serviceTimeLabel(analysis.request.departMinutes)} · first walk ≤ ${terminalWalkKm} km` : ''
   if (!difference && renderMode === 'area') {
     const surface = view === 'scenario' ? 'scenario' : 'baseline'
     const bands = reachDisplayedBands(analysis, cutoffMinutes)
@@ -292,12 +302,12 @@ function ReachSurfaceLegend({
       <div className="reach-surface-legend" role="group" aria-label={`${surface === 'baseline' ? 'Baseline' : 'Scenario'} travel time bands`}>
         <div className="reach-surface-legend-head">
           <strong>{surface === 'baseline' ? 'Baseline' : 'Scenario'}</strong>
-          <small>{analysis.request.mode === 'drive' ? 'Driving time · road-speed estimates' : `Area reached by elapsed time · final walk ≤ ${terminalWalkKm} km`}</small>
+          <small>{timing || `Area reached by elapsed time · final walk ≤ ${terminalWalkKm} km`}</small>
         </div>
         <ol className="reach-band-list">
           {bands.map((band, index) => (
             <li key={band} style={{ '--reach-band': reachBandColor(bands, index), '--reach-band-share': `${areas[index] / largest * 100}%` } as CSSProperties}>
-              <span className="reach-band-label">≤ {band} min</span>
+              <span className="reach-band-label">≤ {band} min{arriveBy ? ' before' : ''}</span>
               <span className="reach-band-bar" aria-hidden="true" />
               <b>{reachDecimal(areas[index], areas[index] < 10 ? 1 : 0)} km²</b>
             </li>
@@ -314,7 +324,7 @@ function ReachSurfaceLegend({
     >
       <div className="reach-surface-legend-head">
         <strong>{difference ? 'Time difference' : view === 'baseline' ? 'Baseline' : 'Scenario'}</strong>
-        <small>{difference ? 'Green is faster · red is slower' : analysis.request.mode === 'drive' ? 'Driving time · road-speed estimates' : `Elapsed time · final walk ≤ ${terminalWalkKm} km`}</small>
+        <small>{difference ? 'Green is faster · red is slower' : timing || `Elapsed time · final walk ≤ ${terminalWalkKm} km`}</small>
       </div>
       <div
         className="reach-surface-legend-bar"
@@ -374,10 +384,11 @@ export function ReachMetricCards({
 }) {
   const areaKm2 = scenarioReachedAreaKm2(analysis, surface, cutoffMinutes)
   const stops = transitStopsForSelectedCutoff(analysis, surface, cutoffMinutes)
+  const arriveBy = reachArrivesBy(analysis.request)
   return (
     <div className="reach-metric-grid" aria-label={`${surface === 'baseline' ? 'Baseline' : 'Scenario'} network reach metrics`}>
-      <ResultMetric value={`${reachDecimal(areaKm2, 2)} km²`} label={`sampled area reached by ${cutoffMinutes} min`} />
-      {analysis.request.mode !== 'drive' ? <ResultMetric value={stops === null ? 'Unavailable' : formatNumber(stops)} label={`stops reached by ${cutoffMinutes} min`} detail={stops === null ? 'Update Reach to compute this cutoff.' : undefined} /> : null}
+      <ResultMetric value={`${reachDecimal(areaKm2, 2)} km²`} label={arriveBy ? `sampled area to leave ≤ ${cutoffMinutes} min before` : `sampled area reached by ${cutoffMinutes} min`} />
+      {analysis.request.mode !== 'drive' ? <ResultMetric value={stops === null ? 'Unavailable' : formatNumber(stops)} label={arriveBy ? `stops to board ≤ ${cutoffMinutes} min before` : `stops reached by ${cutoffMinutes} min`} detail={stops === null ? 'Update Reach to compute this cutoff.' : undefined} /> : null}
     </div>
   )
 }
@@ -402,12 +413,17 @@ export function ReachTransitStatusNotice({
   const timing = typeof earliest === 'number' && Number.isFinite(earliest)
     ? ` First scheduled service is at ${serviceTimeLabel(Number(earliest))}${typeof status.waitMinutes === 'number' && Number.isFinite(status.waitMinutes) ? ` (${Math.round(status.waitMinutes)} min after departure)` : ''}.`
     : ''
+  const arriveBy = reachArrivesBy(analysis.request)
   if (status.status === 'reached') {
     const selected = stops === null
       ? `Transit-stop counts are unavailable for the selected ${cutoffMinutes}-minute cutoff. Update Reach to compute this cutoff.`
-      : `${formatNumber(stops)} transit ${stops === 1 ? 'stop is' : 'stops are'} reachable within the selected ${cutoffMinutes}-minute cutoff.`
+      : arriveBy
+        ? `${formatNumber(stops)} transit ${stops === 1 ? 'stop reaches' : 'stops reach'} the destination within the selected ${cutoffMinutes}-minute cutoff.`
+        : `${formatNumber(stops)} transit ${stops === 1 ? 'stop is' : 'stops are'} reachable within the selected ${cutoffMinutes}-minute cutoff.`
     const laterReach = stops === 0 && fullWindow > cutoffMinutes && fullStops !== null && fullStops > 0
-      ? ` Transit reaches ${formatNumber(fullStops)} ${fullStops === 1 ? 'stop' : 'stops'} within the full ${fullWindow}-minute computed window.`
+      ? arriveBy
+        ? ` ${formatNumber(fullStops)} ${fullStops === 1 ? 'stop reaches' : 'stops reach'} it within the full ${fullWindow}-minute computed window.`
+        : ` Transit reaches ${formatNumber(fullStops)} ${fullStops === 1 ? 'stop' : 'stops'} within the full ${fullWindow}-minute computed window.`
       : ''
     if (stops !== null && stops > 0) return null
     return (
@@ -630,6 +646,8 @@ export function AnalyzePanelView({
   origin,
   serviceDate,
   departMinutes,
+  timePreference = 'depart',
+  onTimePreferenceChange,
   maxWalkKm,
   maxTransfers,
   walkSpeedKph,
@@ -717,6 +735,9 @@ export function AnalyzePanelView({
     route.id === activeIntervention?.routeId || route.patternId === activeIntervention?.routeId
   )), [activeIntervention?.routeId, routes])
   const hasScenarioChanges = travelMode !== 'drive' && interventions.length > 0
+  // An arrive-by Reach anchors at its destination and reads the clock as a deadline.
+  const arriveBy = timePreference === 'arrive'
+  const place = arriveBy ? 'destination' : 'origin'
   useEffect(() => {
     if (hasScenarioChanges && surfaceSampling === 'cell-center') onSurfaceSamplingChange?.('street')
   }, [hasScenarioChanges, travelMode, onTravelModeChange, surfaceSampling, onSurfaceSamplingChange])
@@ -762,10 +783,10 @@ export function AnalyzePanelView({
   const setupHint = !streetGraphAvailable || !(mode === 'compare' ? comparisonReady : routingStoreAvailable)
     ? [transitSetup, streetSetup].some((state) => state.status === 'paused')
       ? 'Task updates are paused. Open background tasks to reconnect.'
-      : dataPreparing ? 'Data is being prepared. You can choose the origin while it runs.'
+      : dataPreparing ? `Data is being prepared. You can choose the ${place} while it runs.`
         : mode === 'compare' && routingStoreAvailable && !comparisonReady ? 'Choose a scenario or timetable to compare above.'
           : 'Finish the data setup above, then run the analysis.'
-    : !origin ? onSetOrigin ? 'Search for a stop above or click the map.' : 'Click the map to choose an origin.'
+    : !origin ? onSetOrigin ? 'Search for a stop above or click the map.' : `Click the map to choose ${arriveBy ? 'a destination' : 'an origin'}.`
       : routeAnalysisLoading ? 'Loading the selected route’s timetable…'
         : roadInferencePending ? 'Finish the scenario road trace before running Reach.' : ''
   const routeOptions = useMemo(() => {
@@ -852,7 +873,7 @@ export function AnalyzePanelView({
             <GitCompareArrows size={13} aria-hidden="true" /><span>Compare</span>
           </button>
         </div>
-        <button type="button" className="kit-icon-button reach-new" onClick={onClearOrigin} disabled={!origin} aria-label="New Reach" title="Clear the origin and start a new Reach">
+        <button type="button" className="kit-icon-button reach-new" onClick={onClearOrigin} disabled={!origin} aria-label="New Reach" title={`Clear the ${place} and start a new Reach`}>
           <RotateCcw size={15} aria-hidden="true" />
         </button>
       </header>
@@ -901,17 +922,24 @@ export function AnalyzePanelView({
         ) : null}
 
         <div className="reach-query-card kit-group">
-          <div className={classNames('reach-origin-row', !origin && 'is-empty')}>
+          {onTimePreferenceChange ? <div className="studio-tabs reach-time-preference" role="group" aria-label="Reach time">
+            {(['depart', 'arrive'] as const).map((value) => (
+              <button key={value} type="button" aria-pressed={timePreference === value} onClick={() => onTimePreferenceChange(value)}>
+                {value === 'arrive' ? 'Arrive by' : 'Leave at'}
+              </button>
+            ))}
+          </div> : null}
+          <div className={classNames('reach-origin-row', !origin && 'is-empty', arriveBy && 'is-destination')}>
             <span className="reach-origin-icon" aria-hidden="true" />
             <div>
-              <span className="reach-section-kicker">Origin{origin?.coordinate ? <span className="reach-origin-coordinate">{origin.coordinate[1].toFixed(5)}, {origin.coordinate[0].toFixed(5)}</span> : null}</span>
+              <span className="reach-section-kicker">{arriveBy ? 'Destination' : 'Origin'}{origin?.coordinate ? <span className="reach-origin-coordinate">{origin.coordinate[1].toFixed(5)}, {origin.coordinate[0].toFixed(5)}</span> : null}</span>
               <strong>{origin ? origin.label : onSetOrigin ? 'Click the map or search stops' : 'Choose a point on the map'}</strong>
             </div>
             {origin ? (
-              <button type="button" className="kit-icon-button reach-origin-clear" onClick={onClearOrigin} aria-label="Clear origin" title="Clear origin"><X size={14} aria-hidden="true" /></button>
+              <button type="button" className="kit-icon-button reach-origin-clear" onClick={onClearOrigin} aria-label={`Clear ${place}`} title={`Clear ${place}`}><X size={14} aria-hidden="true" /></button>
             ) : null}
           </div>
-          {onSetOrigin ? <AnalysisOriginPicker origin={origin} stops={stops} onSetOrigin={onSetOrigin} disabled={loading} /> : null}
+          {onSetOrigin ? <AnalysisOriginPicker origin={origin} place={place} stops={stops} onSetOrigin={onSetOrigin} disabled={loading} /> : null}
 
           <div className="reach-query-fields">
             <label className="reach-field">
@@ -923,7 +951,7 @@ export function AnalyzePanelView({
               />
             </label>
             <label className="reach-field">
-              <span>Departs</span>
+              <span>{arriveBy ? 'Deadline' : 'Departs'}</span>
               <input
                 type="time"
                 value={`${String(Math.floor(departMinutes / 60) % 24).padStart(2, '0')}:${String(Math.round(departMinutes) % 60).padStart(2, '0')}`}
@@ -936,7 +964,7 @@ export function AnalyzePanelView({
           </div>
         </div>
 
-        <ReachSettings travelMode={travelMode} onTravelModeChange={mode === 'single' ? onTravelModeChange : undefined} cutoffMinutes={cutoffMinutes} maxWalkKm={maxWalkKm} walkSpeedKph={walkSpeedKph}
+        <ReachSettings travelMode={travelMode} onTravelModeChange={mode === 'single' ? onTravelModeChange : undefined} timePreference={timePreference} cutoffMinutes={cutoffMinutes} maxWalkKm={maxWalkKm} walkSpeedKph={walkSpeedKph}
           maxTransfers={maxTransfers} surfaceSampling={surfaceSampling} hasScenarioChanges={hasScenarioChanges}
           onCutoffChange={onCutoffChange} onMaxWalkKmChange={onMaxWalkKmChange} onWalkSpeedChange={onWalkSpeedChange}
           onMaxTransfersChange={onMaxTransfersChange} onSurfaceSamplingChange={onSurfaceSamplingChange} />
@@ -1421,7 +1449,7 @@ export function AnalyzePanelView({
           <div className="reach-results-heading">
             <div>
               <strong>Compare · {comparisonRun.cutoffMinutes} min</strong>
-              <small>Against {comparisonRun.reference.label} · {comparisonRun.serviceDate} · {serviceTimeLabel(comparisonRun.departMinutes)}</small>
+              <small>Against {comparisonRun.reference.label} · {comparisonRun.serviceDate} · {comparisonRun.timePreference === 'arrive' ? 'arrive by ' : ''}{serviceTimeLabel(comparisonRun.departMinutes)}</small>
             </div>
             <div className="reach-results-tools">
               <ReachRenderModePicker renderMode={renderMode} onRenderModeChange={onRenderModeChange} />
@@ -1513,7 +1541,7 @@ export function AnalyzePanelView({
           <div className="reach-results-heading">
             <div>
               <strong>{view === 'baseline' ? 'Baseline reach' : view === 'scenario' ? 'Scenario reach' : 'Travel-time change'}</strong>
-              <small>{analysis.request.serviceDate} · {serviceTimeLabel(analysis.request.departMinutes)}</small>
+              <small>{analysis.request.serviceDate} · {reachArrivesBy(analysis.request) ? 'arrive by ' : ''}{serviceTimeLabel(analysis.request.departMinutes)}</small>
             </div>
             <div className="reach-results-tools">
               {analysis.request.mode !== 'drive' ? <ReachRenderModePicker renderMode={renderMode} onRenderModeChange={onRenderModeChange} /> : null}
@@ -1577,6 +1605,7 @@ export const AnalyzePanel = memo(function AnalyzePanel() {
   const settings = useStore(analyze, (state) => ({
     analyzeMode: state.analyzeMode,
     analysisOrigin: state.analysisOrigin,
+    reachTimePreference: state.reachTimePreference,
     reachMaxWalkKm: state.reachMaxWalkKm,
     reachMaxTransfers: state.reachMaxTransfers,
     scenarioWalkSpeedKph: state.scenarioWalkSpeedKph,
@@ -1628,6 +1657,8 @@ export const AnalyzePanel = memo(function AnalyzePanel() {
       origin={settings.analysisOrigin}
       serviceDate={serviceDate}
       departMinutes={scheduleTimeMinutes}
+      timePreference={settings.reachTimePreference}
+      onTimePreferenceChange={changeReachTimePreference}
       maxWalkKm={settings.reachMaxWalkKm}
       maxTransfers={settings.reachMaxTransfers}
       walkSpeedKph={settings.scenarioWalkSpeedKph}
