@@ -276,6 +276,8 @@ export type RoutingPlan = {
     scannedRouteKeys?: string[]
     searchStats?: Record<string, unknown>
     timing?: Record<string, number | boolean>
+    /** Arrive-by "Earlier arrivals": the latest departure for each earlier deadline. */
+    arrivalWindow?: { deadlineMinutes: number; windowMinutes: number; stepMinutes: number; searches: number | null; coverage: string }
     departureWindow?: {
       centerMinutes: number
       beforeMinutes: number

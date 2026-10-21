@@ -58,3 +58,12 @@ The list groups services only when their ordered stops, verified ride geometry
 and access paths match. Each departure keeps its original itinerary and times.
 Different corridors remain separate. Redundant changes onto a vehicle already
 offered directly are hidden when they offer no arrival or walking benefit.
+
+With **Arrive by**, Route options offers **Exact time** or **Earlier arrivals**.
+Earlier arrivals searches each deadline in the 20 minutes before the requested
+arrival and lists up to five distinct journeys, each the latest departure for
+some deadline, plus a walk when one is possible. The latest departure leads.
+A deadline close to midnight is searched on the preceding service day, and
+Studio shows those times on the day you asked for, so a daylight-saving change
+does not shift them; journeys that would leave before that day are not listed.
+Choosing Arrive by opens that preceding day's timetable while you pick points.

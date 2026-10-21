@@ -53,7 +53,8 @@ export function RoutingSetup(props: RoutingSetupProps) {
   const buffer = transferLimitUnavailable ? 0 : routingMinimumTransferBufferMinutes
   const scenario = routingNetwork?.scenarios.find(item => item.id === routingNetwork.selectedId)
   const searchSummary = departNow || routingTimePreference === 'depart'
-    ? routingDepartureWindowMinutes ? 'Later departures' : 'Exact time' : 'Arrive by'
+    ? routingDepartureWindowMinutes ? 'Later departures' : 'Exact time'
+    : routingDepartureWindowMinutes ? 'Earlier arrivals' : 'Arrive by'
   const summary = [routingWheelchair ? 'Wheelchair' : '', searchSummary, `${routingMaxWalkKm.toFixed(1)} km access`,
     maxTransfers === undefined ? '' : `≤${maxTransfers} transfers`,
     routingAllowStreetTransfers === false ? 'No street transfers' : '', buffer > 0 ? `${buffer} min buffer` : ''].filter(Boolean).join(' · ')
@@ -138,7 +139,13 @@ export function RoutingSetup(props: RoutingSetupProps) {
           <button type="button" onClick={() => onRoutingDepartureWindowChange(0)} aria-pressed={routingDepartureWindowMinutes === 0}>Exact time</button>
           <button type="button" onClick={() => onRoutingDepartureWindowChange(20)} aria-pressed={routingDepartureWindowMinutes === 20}>Later departures</button>
         </div>
-      </div> : null}
+      </div> : <div className="routing-preference-section">
+        <span className="routing-setup-label">Arrival search</span>
+        <div className="studio-tabs routing-setup-source" role="group" aria-label="Arrival search window">
+          <button type="button" onClick={() => onRoutingDepartureWindowChange(0)} aria-pressed={routingDepartureWindowMinutes === 0}>Exact time</button>
+          <button type="button" onClick={() => onRoutingDepartureWindowChange(20)} aria-pressed={routingDepartureWindowMinutes === 20}>Earlier arrivals</button>
+        </div>
+      </div>}
       <div className="routing-preference-section">
         <div className="routing-setup-columns">
           <label className="routing-setup-select" htmlFor="pathfinder-max-transfers"><span>Maximum transfers</span>
