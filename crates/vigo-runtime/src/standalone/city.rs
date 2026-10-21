@@ -331,6 +331,7 @@ pub struct City {
     /// Trace and detailed results keep the complete endpoint access evidence;
     /// public results publish only its counts and timings.
     pub(crate) full_access_evidence: bool,
+    pub(crate) indexed_matrix_journeys: bool,
     pub(crate) timetable_blocks: Option<TimetableBlockPool>,
     pub(crate) speed: f64,
     pub(crate) padding: f64,
@@ -711,6 +712,7 @@ impl City {
             live_request: None,
             query_start_date: None,
             full_access_evidence: false,
+            indexed_matrix_journeys: false,
             timetable_blocks: Some(Default::default()),
             speed,
             padding,

@@ -15,6 +15,8 @@ import packageJson from '../../package.json'
 import { CliUsageError, parseArguments, validateInvocation, value, values, enabled } from './arguments.mjs'
 import { publicResult, publicResultJson, presentationRequest, normalizePublicPoint, publicError, streamLineArgs } from './presentation.mjs'
 import { commands, usage } from './commands.mjs'
+import { runStreamWorkers } from './stream-workers.mjs'
+import { memoryCapacityBytes } from '../server/runtime/resource-limits.mjs'
 import { handleOutputErrors, readJsonObject, writeJsonResult, writeOutputFile } from './io.mjs'
 import { assertMatrixSize } from '../server/matrix-size.mjs'
 import { validateArrivalBuffer } from '../server/arrival-reserve.mjs'
@@ -696,9 +698,15 @@ async function writeNdjson(value: unknown, request?: Record<string, unknown>, ar
 }
 
 async function runRouteStream(args: CliArguments) {
+  const workers = Number(value(args, 'workers', '1'))
+  if (!Number.isInteger(workers) || workers < 1 || workers > 4) throw new Error('--workers must be an integer from 1 to 4')
+  const capacity = Math.max(1, Math.min(4, Math.floor(os.availableParallelism() / 2), Math.floor(memoryCapacityBytes / (6 * 1024 ** 3))))
+  const effectiveWorkers = Math.min(workers, capacity)
+  if (effectiveWorkers !== workers) process.stderr.write(`Using ${effectiveWorkers} stream worker(s) within CPU and memory limits.\n`)
   const streamOutput = value(args, 'stream-output', 'public')
   if (!['public', 'detailed'].includes(streamOutput)) throw new Error('stream-output must be public or detailed')
   const paths = resolveRuntimePaths(args)
+  if (effectiveWorkers > 1) return runStreamWorkers(args, effectiveWorkers)
   const { storePath } = paths
   const stopLookup = openStopLookup(storePath)
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity, terminal: false })
@@ -864,6 +872,19 @@ function matrixOrigins(
   })
 }
 
+function analyticalJourney(raw: Record<string, any>) {
+  const rounded = (value: number) => Number(value.toFixed(3))
+  const { departureMinutes, arrivalMinutes, legs, ...rest } = raw
+  return { ...rest, departMinutes: rounded(departureMinutes), arriveMinutes: rounded(arrivalMinutes),
+    ...Object.fromEntries(['durationMinutes', 'walkMinutes', 'rideMinutes', 'waitMinutes']
+      .filter(key => typeof raw[key] === 'number').map(key => [key, rounded(raw[key])])),
+    legs: legs.map((leg: Record<string, any>) => {
+      const { kind, departureMinutes, arrivalMinutes, ...fields } = leg
+      return { ...fields, type: kind, startMinutes: rounded(departureMinutes),
+        endMinutes: rounded(arrivalMinutes), durationMinutes: rounded(leg.durationMinutes) }
+    }) }
+}
+
 async function computePreparedMatrix(
   args: CliArguments,
   request: Record<string, unknown>,
@@ -932,18 +953,24 @@ async function computePreparedMatrix(
     if (request[key] !== undefined) nativeRequest[key] = request[key]
   }
   if (options.routingDataMode === 'realtime' && mode === 'drive') nativeRequest.traffic = request.traffic
+  const detailed = value(args, 'stream-output') === 'detailed' || value(args, 'diagnostics', String(request.diagnostics ?? '')) === 'trace'
+  // The legacy analytical contract contains every timed leg, without Studio
+  // presentation records. Geometry or an explicit full format opts into them.
+  const compactJourneys = detailed && request.includeJourneys === true
+    && request.includeGeometry !== true && request.journeyFormat !== 'full'
+  if (request.journeyFormat !== undefined) nativeRequest.journeyFormat = request.journeyFormat
+  else if (compactJourneys) nativeRequest.journeyFormat = 'compact'
   const { trace, openMs } = await queryNativeCity(paths.cityPath, nativeRequest)
   // Public Matrix output consumes native arrays directly. Only the explicit
   // legacy detailed stream needs flat rows and Studio journey adaptation.
-  const detailed = value(args, 'stream-output') === 'detailed' || value(args, 'diagnostics', String(request.diagnostics ?? '')) === 'trace'
   const matrix = { diagnostics: trace.diagnostics, rows: detailed ? origins.flatMap((origin, i) => destinations.map((destination, j) => {
     const duration = trace.durationsMinutes[i][j]
     const ready = Number.isFinite(duration) && duration >= 0
     const rawJourney = trace.journeys?.[i]?.[j]
-    const journey = rawJourney ? studioRouteResponse({ ...rawJourney, serviceDate: trace.serviceDate,
+    const journey = rawJourney ? compactJourneys ? analyticalJourney(rawJourney) : studioRouteResponse({ ...rawJourney, serviceDate: trace.serviceDate,
       status: 'ready', mode: rawJourney.mode ?? mode },
-      { origin: origin.point, destination: destination.point, serviceDate: options.serviceDate,
-        timePreference: options.timePreference }).choices[0] : undefined
+      { ...nativeRequest, origin: origin.point, destination: destination.point,
+        departMinutes: options.timeMinutes, serviceDay: options.serviceDay }).choices[0] : undefined
     return { originIndex: i, destinationIndex: j, originId: origin.id, destinationId: destination.id,
       status: ready ? 'ready' : 'blocked', durationMinutes: ready ? duration : null,
       departMinutes: ready ? (options.timePreference === 'arrive' ? options.timeMinutes - duration : options.timeMinutes) : null,
@@ -1173,7 +1200,6 @@ async function runReach(args: CliArguments) {
     writeJsonResult(publicResult(await computeReachRequest(args, request, paths), request, args), value(args, 'output'), value(args, 'format', 'auto'))
   } finally {
     disposeNationalGtfsStore(paths.storePath)
-    closeNativeCity()
     closeNativeCity()
   }
 }

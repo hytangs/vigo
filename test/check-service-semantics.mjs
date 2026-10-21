@@ -118,6 +118,16 @@ try {
       includeJourneys: true
     })
     assert.deepEqual(matrix.durationsSeconds, [[expected]])
+    const compact = await run({ ...base, kind: 'matrix', origins: [base.origin],
+      destinations: [base.destination], origin: undefined, destination: undefined,
+      includeJourneys: true, includeGeometry: false, journeyFormat: 'compact' })
+    assert.deepEqual(compact.durationsSeconds, matrix.durationsSeconds)
+    if (variant.startsWith('headway')) {
+      const ride = compact.trace.journeys[0][0].legs.find(leg => leg.headwayEstimate)
+      assert.deepEqual(ride.headwayEstimate, { headwaySeconds: 600,
+        waitingAssumption: 'half_headway', expectedWaitSeconds: 300 })
+    }
+
     const reach = await run({
       kind: 'reach',
       origin: base.origin,

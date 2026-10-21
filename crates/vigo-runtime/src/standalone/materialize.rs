@@ -324,6 +324,15 @@ impl City {
                         v["tripId"] = json!(t.trip_ids[trip as usize]);
                         v["boardSequence"] = json!(leg.board_sequence);
                         v["alightSequence"] = json!(leg.alight_sequence);
+                        if let Some(headway) = t.kernel.headway_seconds(
+                            trip, leg.departure, leg.board_sequence.unwrap_or(0.),
+                        ) {
+                            v["headwayEstimate"] = json!({"headwaySeconds": headway,
+                                "waitingAssumption": "half_headway", "expectedWaitSeconds": headway.div_ceil(2)});
+                        }
+                        if t.realtime_trips.binary_search(&trip).is_ok() {
+                            v["realtimeTrip"] = json!(true);
+                        }
                     }
                     v
                 })

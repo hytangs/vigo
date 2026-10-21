@@ -167,7 +167,30 @@ class StreamProcess {
     } else if (!response?.trace || typeof response.trace !== 'object') {
       entry.reject(new NativeCityUnavailableError('The VIGO runtime returned no detailed Result.'))
     } else {
-      entry.resolve(response.trace)
+      const trace = response.trace
+      if (trace.journeyIndices !== undefined) {
+        const table = trace.journeyTable
+        if (!Array.isArray(table) || !Array.isArray(trace.journeyIndices)
+          || trace.journeyIndices.length !== trace.originCount) {
+          entry.reject(new Error('Invalid native indexed Matrix journeys'))
+          return
+        }
+        try {
+          trace.journeys = trace.journeyIndices.map(row => {
+            if (!Array.isArray(row) || row.length !== trace.destinationCount) throw new Error('Invalid native Matrix journey row')
+            return row.map(index => {
+              if (!Number.isSafeInteger(index) || index < 0 || index >= table.length) throw new Error('Invalid native Matrix journey index')
+              return table[index]
+            })
+          })
+          delete trace.journeyTable
+          delete trace.journeyIndices
+        } catch (error) {
+          entry.reject(error)
+          return
+        }
+      }
+      entry.resolve(trace)
     }
   }
 

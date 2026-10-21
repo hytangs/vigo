@@ -442,6 +442,39 @@ try {
   assert.deepEqual(uncachedMatrix.rows.map(row => row.destinationId), ['near', 'same', 'duplicate'])
   assert.equal(uncachedMatrix.rows[1].durationMinutes, 0)
 
+  const analyticalRequest = { kind: 'matrix', origins: ['A', 'A'], destinations: ['B'],
+    includeJourneys: true, includeGeometry: false, requireTransitRide: true, time: '07:55' }
+  const analyticalResults = execFileSync(executable, [...prefix, 'stream', '--stream-output=detailed',
+    `--city=${cityPath}`, '--service-date=2026-07-15'], { encoding: 'utf8',
+    input: [analyticalRequest, { ...analyticalRequest, journeyFormat: 'full' }].map(JSON.stringify).join('\n')+'\n'
+  }).trim().split('\n').map(line => JSON.parse(line).trace)
+  const [lean, display] = analyticalResults.map(result => result.rows[0].journey)
+  assert(lean.legs.some(leg => leg.type === 'ride'))
+  assert.equal(lean.diagnostics, undefined, 'Analytical journeys do not repeat Studio diagnostics per cell')
+  assert(lean.legs.filter(leg => leg.type === 'ride').every(leg => leg.boardSequence !== undefined))
+  for (const key of ['departMinutes', 'arriveMinutes', 'durationMinutes', 'transfers', 'walkMinutes', 'rideMinutes', 'waitMinutes']) {
+    assert.equal(lean[key], display[key], key)
+  }
+  const legClocks = journey => journey.legs.map(leg => [leg.type, leg.fromStopId ?? null,
+    leg.toStopId ?? null, leg.tripId ?? null, leg.startMinutes, leg.endMinutes])
+  assert.deepEqual(legClocks(lean), legClocks(display))
+
+  // Worker scheduling must preserve ordered responses, errors and full journeys.
+  const workerInput = [
+    { kind: 'matrix', origins: [{ id: 'a', point: 'A' }, { id: 'copy', point: 'A' }],
+      destinations: [{ id: 'b', point: 'B' }], includeJourneys: true, time: '07:55', maxWalkKm: 0.2 },
+    { id: 'bad', kind: 'matrix', origins: [], destinations: ['B'] },
+    { id: 'last', kind: 'route', origin: 'A', destination: 'B', time: '07:55', maxWalkKm: 0.2 },
+  ].map(JSON.stringify).join('\n') + '\n'
+  const workerResults = [1, 2].map(workers => execFileSync(executable,
+    [...prefix, 'stream', `--workers=${workers}`, `--city=${cityPath}`, '--service-date=2026-07-15'],
+    { input: workerInput, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 }).trim().split('\n').map(JSON.parse))
+  const semantic = result => JSON.parse(JSON.stringify(result, (key, value) =>
+    ['timing', 'diagnostics', 'generatedAt', 'createdAt', 'computeUs', 'requestId'].includes(key) ? undefined : value))
+  assert.deepEqual(workerResults[1].map(semantic), workerResults[0].map(semantic))
+  assert.deepEqual(workerResults[1].map(result => result.sequence), [1, 2, 3])
+  assert.deepEqual(workerResults[1].map(result => result.id), [undefined, 'bad', 'last'])
+
   // A separate process releases native memory maps before Windows fixture cleanup.
   execFileSync(process.execPath, [
     path.join(root, 'test', 'helpers', 'assert-cli-matrix-parity.mjs'),

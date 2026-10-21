@@ -33,6 +33,7 @@ try {
     for (const command of publicCliCommands) assert(result.stdout.includes(`vigo ${command}`))
     assert(!result.stdout.includes('_route-stream'))
   }
+  for (const workers of ['0', '5', '1.5', 'no']) fails(['stream', '--city=missing', `--workers=${workers}`], /workers must be an integer from 1 to 4/u)
   assert.equal(invoke(['-V']).stdout, invoke(['--version']).stdout)
   for (const command of publicCliCommands) {
     const help = invoke([command, '--help'])

@@ -192,9 +192,11 @@ impl City {
             .and(request["serviceDate"].as_str())
             .map(str::to_owned);
         self.full_access_evidence = detailed || request["diagnostics"] == "trace";
+        self.indexed_matrix_journeys = detailed;
         let execution = self.execute(command, &query);
         self.query_start_date = None;
         self.full_access_evidence = false;
+        self.indexed_matrix_journeys = false;
         let release_memory = previous_preparations != self.timetable_preparations
             || previous_evictions != self.timetable_cache.evictions
             || matches!(command, "reach" | "isochrone" | "matrix");
@@ -1478,7 +1480,9 @@ impl City {
             result.times = cells.iter().map(|&i| result.times[i]).collect();
             durations = cells.iter().map(|&i| durations[i]).collect();
         }
-        if let (Some(cells), Some(rows)) = (&cells, &mut journeys) {
+        if let (Some(cells), Some(rows)) = (&cells, &mut journeys)
+            && !self.indexed_matrix_journeys
+        {
             let mut uses = vec![0usize; rows.len()];
             for &i in cells {
                 uses[i] += 1;
@@ -1526,6 +1530,15 @@ impl City {
         }
         // Moving Values into rows avoids cloning every leg twice (once for
         // chunking and once through json!'s borrowed serializer).
+        if self.indexed_matrix_journeys
+            && let (Some(cells), Some(rows)) = (&cells, &mut journeys)
+        {
+            // Keep the already materialized unique cells across the internal
+            // stream boundary. The public projection remains fully expanded.
+            output["journeyTable"] = Value::Array(std::mem::take(rows));
+            output["journeyIndices"] = json!(cells.chunks(destinations.len()).collect::<Vec<_>>());
+            return Ok(output);
+        }
         output["journeys"] = journeys.map_or(Value::Null, |journeys| {
             let mut values = journeys.into_iter();
             Value::Array(
