@@ -28,7 +28,7 @@ A **Scenario** changes the service one query sees, such as a new line or a remov
 | Interface | Best for | What it needs |
 | --- | --- | --- |
 | **Engine** (`vigo`) | Queries, resident streams, and the HTTP API | One native executable; no Node, Python, or network access |
-| **Compiler** (`vigo.mjs`) | Building Cities and scenario collections; it can also query them | Node.js 24.18 or newer and its bundled native kernel |
+| **Compiler** (`vigo.mjs`) | Building Cities and scenario collections; it can also query them | Node.js 24.18 or newer, its bundled native kernel, and the native executable for queries |
 | **Studio** | Inspecting service, planning journeys, and exploring Reach and scenarios | The desktop application and its own project library |
 | **Python** (`import vigo`) | Studies, batches, notebooks, and journey tables | A platform wheel with a headless engine |
 
@@ -615,7 +615,7 @@ Stop IDs are exact GTFS identifiers. Coordinate points are `[longitude, latitude
 
 Transit Route and Matrix compare a direct OSM walk by default, so a short coordinate trip can return walking when it arrives sooner. Set `requireTransitRide: true` to require at least one boarding, or select Walk mode to request walking alone. `maxWalkKm` limits each access and egress walk. Set `allowLongWalk: false` to apply the same limit to a direct walking alternative; otherwise `maxStreetKm` bounds the complete walk. Explicit Walk mode always uses `maxStreetKm`, regardless of `allowLongWalk`.
 
-`horizonMinutes` sets the timetable search horizon (default 480, range 1–2880). For depart-at transit, boarding and alighting must happen at or before this boundary, including in alternative journeys; the final walk can finish after it. The horizon is therefore not a hard limit on door-to-door duration: comparisons with a total-duration cap must check the final arrival separately.
+`horizonMinutes` sets the timetable search horizon (default 480, range 1–2880). For depart-at transit, boarding and alighting must happen at or before this boundary, including in alternative journeys; the final walk can finish after it. The horizon is therefore not a hard limit on door-to-door duration: comparisons with a total-duration cap must check the final arrival separately. Explicit Walk and Drive routes use `maxStreetKm` rather than the transit horizon; Walk also ignores the transit-only `allowLongWalk` restriction.
 
 `allowStreetTransfers` (default `true`) controls walking connections between separate stops or stations. Turn it off to change vehicles only at the same stop or between members of one station, as identified by the GTFS station hierarchy. The engine removes cross-station walking edges before searching, including for arrive-by, realtime, and departure-window searches; access to the first stop and egress from the last remain available. Studio exposes this as **Route options → Allow walks between stations or stops**. It does not certify station-interior paths or free-transfer eligibility.
 

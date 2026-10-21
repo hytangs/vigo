@@ -8,6 +8,7 @@ import path from 'node:path'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 import { standaloneBinary as binary } from './helpers/standalone-runtime.mjs'
+import { prepareNationalGtfsRoutingContext, disposeNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
 import { decodeRoutingSnapshot, encodeRoutingSnapshot } from '../src/server/routing-snapshot.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -25,7 +26,10 @@ let checked = 0
 try {
   const inputs = await writeCliFixtureInputs(directory)
   execFileSync(process.execPath, ['public/vigo.mjs', 'build', `--gtfs=${inputs.gtfsPath}`, `--osm=${inputs.osmPath}`, `--output=${city}`], { cwd: root, env, stdio: ['ignore', 'ignore', 'pipe'] })
-  execFileSync(process.execPath, ['public/vigo.mjs', 'stream', `--city=${city}`, `--service-date=${base.serviceDate}`], { cwd: root, env, input: `${JSON.stringify(base)}\n`, stdio: ['pipe', 'ignore', 'pipe'] })
+  // Explicitly prepare the compatibility snapshot. Querying a City is read-only.
+  const storePath = path.join(city, 'routing', 'project.sqlite')
+  prepareNationalGtfsRoutingContext(storePath, { serviceDate: base.serviceDate, serviceDay: 'weekday' })
+  disposeNationalGtfsStore(storePath)
   const routing = path.join(city, 'routing')
   const snapshots = fs.readdirSync(routing).filter(n => n.includes('.active-service-kernel.')).map(n => path.join(routing, n))
   assert(snapshots.length > 0)
