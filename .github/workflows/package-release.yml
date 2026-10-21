@@ -21,7 +21,7 @@ jobs:
         run: |
           test "$GITHUB_REF_TYPE" = tag
           node --input-type=module -e 'import fs from "node:fs"; const version=JSON.parse(fs.readFileSync("package.json")).version; if (process.env.GITHUB_REF_NAME !== `v${version}`) throw new Error("Release tag must match package version")'
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -42,7 +42,7 @@ jobs:
       - name: Archive Studio
         id: studio
         run: npm run archive:studio
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: release-${{ matrix.os }}
           path: |
@@ -54,7 +54,7 @@ jobs:
             ${{ steps.studio.outputs.archive-path }}.sha256
           compression-level: 0
           if-no-files-found: error
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         if: matrix.os == 'ubuntu-24.04'
         with:
           name: release-documentation

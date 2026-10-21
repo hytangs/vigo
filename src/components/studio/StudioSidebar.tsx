@@ -59,13 +59,13 @@ export const StudioRail = memo(function StudioRail({ hasActiveData }: { hasActiv
 })
 
 /** Keep the rail mounted while switching workspace panels and Settings. */
-export const VigoSidebar = memo(function VigoSidebar() {
+export const VigoSidebar = memo(function VigoSidebar({ hasCityData }: { hasCityData: boolean }) {
   countRender('VigoSidebar')
   const activeRouteTool = useStore(shell, (state) => state.activeRouteTool)
   const hasActiveData = useStudio(hasActiveOperationsData)
   return (
     <aside className="app-sidebar" aria-label="City navigation">
-      <StudioRail hasActiveData={hasActiveData} />
+      <StudioRail hasActiveData={hasCityData} />
       {activeRouteTool === 'data' || activeRouteTool === 'agency' ? null : <section className={classNames('sidebar-panel', `is-${activeRouteTool}`)} aria-label="City panel" data-map-occluder>
         {!hasActiveData ? (
           <div className="sidebar-empty-note">

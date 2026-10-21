@@ -54,6 +54,9 @@ try {
     ['unknown-turnstile', { barrier: 'full-height_turnstile' }, true],
     ['public-gate', { barrier: 'gate', access: 'yes' }, false],
     ['conditional', { foot: 'yes', 'foot:conditional': 'no @ (Mo-Fr)' }, true],
+    ['redundant-open-conditional', { foot: 'permissive', 'foot:conditional': 'yes @ (Mo-Su 08:00-17:00)' }, false],
+    ['general-conditional-foot-override', { foot: 'yes', 'access:conditional': 'no @ (01:00-06:00)' }, false],
+    ['conditional-only-permission', { foot: 'no', 'foot:conditional': 'yes @ (Mo-Su 08:00-17:00)' }, true],
   ]) {
     const pbfPath = path.join(folder, `${dense}-${name}.pbf`), outputPath = `${pbfPath}.sqlite`
     await fs.writeFile(pbfPath, fixture(dense, tags))
@@ -100,5 +103,18 @@ try {
   assert.equal(nationalOsmWayWalkable({ highway: 'footway', foot: 'use_sidepath' }), false)
   assert.equal(nationalOsmWayWalkable({ highway: 'footway', opening_hours: '24/7' }), true)
   assert.equal(nationalOsmWayWalkable({ highway: 'footway', opening_hours: 'Mo-Fr 08:00-17:00' }), false)
+  for (const [tags, allowed] of [
+    [{ foot: 'permissive', 'foot:conditional': 'yes @ (Mo-Fr 09:00-17:00; Sa-Su 08:00-17:00)' }, true],
+    [{ foot: 'yes', 'foot:conditional': 'yes @ (Mo-Fr); permissive @ (Sa-Su)' }, true],
+    [{ foot: 'yes', 'foot:conditional': 'yes @ (Mo-Fr); no @ (Sa-Su)' }, false],
+    [{ foot: 'yes', 'foot:conditional': 'yes @ (Mo-Fr); private @ (Sa-Su)' }, false],
+    [{ foot: 'yes', 'foot:conditional': 'yes @ (' }, false],
+    [{ 'foot:conditional': 'yes @ (Mo-Su 08:00-17:00)' }, false],
+    [{ access: 'yes', 'access:conditional': 'permissive @ (Mo-Fr)' }, true],
+    [{ access: 'private', 'access:conditional': 'yes @ (Mo-Fr)' }, false],
+    [{ foot: 'yes', 'access:conditional': 'no @ (Mo-Fr)', 'foot:conditional': 'no @ (Sa-Su)' }, false],
+    [{ foot: 'yes', 'oneway:foot:conditional': 'yes @ (Mo-Fr)' }, false],
+    [{ foot: 'yes', 'foot:conditional': 'yes @ (Mo-Fr)', opening_hours: '08:00-17:00' }, false],
+  ]) assert.equal(nationalOsmWayWalkable({ highway: 'service', ...tags }), allowed, JSON.stringify(tags))
   console.log('OSM node access passed: regular/dense tags, signed IDs, barriers, overrides, conditional access and malformed tags.')
 } finally { await fs.rm(folder, { recursive: true, force: true }) }

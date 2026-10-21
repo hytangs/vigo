@@ -1,8 +1,13 @@
-/* Fares stay with the itinerary: a quiet disclosure with published prices. */
+/* Publish prices without implying that every vehicle change is another charge. */
 .routing-fares { margin-top: 8px; color: var(--text-3); font-size: var(--type-sm); line-height: 1.45; }
-.routing-fares > div { margin: 0 0 8px 20px; }
-.routing-fares > div > strong { display: block; color: var(--text-1); font-weight: 500; }
-.routing-fares p { margin: 2px 0; }
-.routing-fares > p { margin: 0 0 8px 20px; }
-.routing-fares small { display: block; color: var(--text-4); font-size: var(--type-xs); }
+.routing-fares > .routing-fare-group { margin: 12px 0 12px 20px; }
+.routing-fare-price { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; color: var(--text-1); }
+.routing-fare-price > strong { font-weight: 600; }
+.routing-fares p { margin: 4px 0; }
+.routing-fares > .routing-fare-note { margin: 4px 0 12px 20px; }
+.routing-fare-options { margin-top: 4px; }
+.routing-fare-products { margin: 8px 0 8px 16px; }
+.routing-fare-products > strong { color: var(--text-2); font-weight: 500; }
+.routing-fare-sources { margin-left: 20px; }
+.routing-fares small { display: block; color: var(--text-3); font-size: var(--type-xs); }
 .routing-fares a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }

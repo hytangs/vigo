@@ -51,7 +51,7 @@ export default function App() {
       <RuntimeAlert />
 
       <div className="shell-body">
-        {page === 'projects' ? null : <VigoSidebar />}
+        {page === 'projects' ? null : <VigoSidebar hasCityData={layout.cityData} />}
 
         <div className="app-frame">
           {layout.storageRecovery && !settingsOpen ? <LibraryRecovery />

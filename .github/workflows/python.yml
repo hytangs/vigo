@@ -7,6 +7,9 @@ on:
     paths:
       - 'python/**'
       - 'native/**'
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'src/**'
       - 'scripts/**'
       - 'test/**'
@@ -21,6 +24,9 @@ on:
     paths:
       - 'python/**'
       - 'native/**'
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - 'src/**'
       - 'scripts/**'
       - 'test/**'
@@ -55,7 +61,7 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install test tools
@@ -92,10 +98,10 @@ jobs:
         os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14, windows-2022]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version-file: .nvmrc
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: "3.12"
       - name: Verify release engine identity and version
@@ -127,7 +133,7 @@ jobs:
         run: python -m pytest tests/test_live_runtime.py -q
       - name: Verify isolated wheel with no Node on PATH
         run: python scripts/check-wheel.py dist --require-bundled
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: wheel-${{ matrix.os }}
           path: python/dist/*.whl
@@ -142,12 +148,12 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
           python-version: "3.12"
       - run: python -m pip install build twine
       - run: python -m build --sdist
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           pattern: wheel-*
           merge-multiple: true

@@ -537,6 +537,10 @@
 .journey-leg-evidence { color: var(--text-3); font-size: var(--type-sm); }
 .journey-leg-evidence > p { margin: 4px 0 0; line-height: 1.45; }
 
+.journey-stops > ol { display: grid; gap: 6px; margin: 8px 0 0; padding-left: 18px; color: var(--text-2); }
+.journey-stops > ol > li { padding-left: 3px; overflow-wrap: anywhere; }
+.journey-stops > ol > li::marker { color: var(--text-3); }
+
 .journey-shared-services button {
   display: flex;
   flex-wrap: wrap;

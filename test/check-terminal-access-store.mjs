@@ -10,6 +10,7 @@ import { buildTerminalAccessStore, authorizedEndpointNodeWalkable } from '../src
 
 assert.equal(authorizedEndpointNodeWalkable({ barrier: 'gate' }), true)
 assert.equal(authorizedEndpointNodeWalkable({ barrier: 'gate', access: 'private' }), true)
+assert.equal(authorizedEndpointNodeWalkable({ barrier: 'gate', access: 'destination' }), true)
 for (const tags of [{ foot: 'no' }, { access: 'no' }, { barrier: 'gate', locked: 'yes' },
   { barrier: 'gate', foot: 'yes', locked: 'yes' }, { barrier: 'wall' }, { barrier: 'wall', foot: 'yes' },
   { barrier: 'gate', 'locked:conditional': 'yes @ (sunset-sunrise)' },
@@ -59,6 +60,7 @@ try {
   for (const [name, tags, expected, nodeId = 5, directions = { 'foot:forward': 'private' }] of [
     ['unqualified-gate', { barrier: 'gate' }, 'ready'],
     ['private-gate', { barrier: 'gate', access: 'private' }, 'ready'],
+    ['destination-gate', { barrier: 'gate', access: 'destination' }, 'ready'],
     ['pedestrian-private', { foot: 'private' }, 'ready'],
     ['pedestrian-prohibited', { foot: 'no' }, 'blocked'],
     ['gate-prohibited', { barrier: 'gate', access: 'no' }, 'blocked'],

@@ -21,6 +21,8 @@ This manual is also part of the searchable, offline [VIGO guide](../guide.html),
 
 A collection serves several transit scenarios against one immutable street graph. Prepare it with `node public/vigo.mjs build-scenarios --spec scenarios.source.json --output scenario-set`, then point `vigo serve --city scenario-set` or `vigo stream --city scenario-set` at the result. Each request selects a `scenarioId`; omission selects `defaultScenario`. The one-shot CLI also accepts `--scenario ID`.
 
+For populations authorized to enter their own homes and destinations on mapped private roads, set `"privateAccess": "endpoints"` in the scenario source specification. Every member then receives an endpoint-only access overlay; private streets cannot become public through shortcuts. Endpoint overlays use each member's transit anchors, so these collections currently retain separate street directories. The default `"public"` policy keeps the shared street directory. This does not enlarge coordinate snapping or invent paths for unmapped endpoints. Wheelchair collections require public access.
+
 For wheelchair routing, add `"wheelchair": true` to the source specification or pass `build-scenarios --wheelchair`. Every member and the shared street graph then use `wheelchair-strict-v1`; unknown accessibility is excluded. Wheelchair collections require `streetModes: "walk"`. Conflicting CLI/spec values and non-boolean specification values are rejected before compilation. Use a separate regular collection when both profiles are needed.
 
 ```json

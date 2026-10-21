@@ -130,6 +130,7 @@ export type RoutingLeg = {
   distanceKm: number
   stopCount: number
   stopIds?: string[]
+  intermediateStops?: Array<{ stopId: string; name: string }>
   coordinates: LngLat[]
   bridgedUntimedGapCount?: number
   sourceEqualTime?: boolean

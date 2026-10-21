@@ -118,7 +118,7 @@ window.checkStores = async () => {
   await new Promise(resolve => { window.coordinateSearchCaptured = resolve; window.coordinateSearchScreenshot = true })
   const ride = { type:'ride', travelMode:'transit', fromName:'Science Park', toName:'Park St',
     fromStopId:'O', toStopId:'B', startMinutes:480, endMinutes:490, durationMinutes:10,
-    distanceKm:1.4, stopCount:2, stopIds:['O','A','B'], routeId:'F', routeShortName:'Green F',
+    distanceKm:1.4, stopCount:2, stopIds:['O','A','B'], intermediateStops:[{stopId:'A',name:'North Station'}], routeId:'F', routeShortName:'Green F',
     tripId:'F-1', routeColor:'008000', coordinates:[[11,41],[11.01,41.01]], geometrySource:'gtfs_shape' }
   const primary = { id:'shared-primary', status:'ready', travelMode:'transit', timePreference:'depart',
     title:'Green F', detail:'Fixture journey', departMinutes:480, arriveMinutes:490, durationMinutes:10,
@@ -141,8 +141,10 @@ window.checkStores = async () => {
   await until(() => document.querySelector('.journey-shared-services button'), 'Shared service missing from the detailed itinerary')
   flushSync(() => document.querySelector('.journey-shared-services summary').click())
   check(document.querySelector('.journey-shared-services button').textContent.includes('Green E'), 'Shared service label missing')
-  check(document.querySelector('.journey-combined-frequency')?.textContent.includes('5 departures at 4 distinct times'), 'Active departure count missing')
-  check(document.querySelector('.journey-combined-frequency')?.textContent.includes('Mean gap 3.3 min (range 2.0–6.0 min)'), 'Observed headway and variability missing')
+  check(document.querySelector('.journey-shared-services summary')?.textContent === '5 departures', 'Plain departure count missing')
+  check(!/distinct times|Mean gap/.test(document.querySelector('.journey-itinerary').textContent), 'Technical frequency wording remains')
+  flushSync(() => document.querySelector('.journey-stops summary').click())
+  check(document.querySelector('.journey-stops').open && document.querySelector('.journey-stops li')?.textContent === 'North Station', 'Intermediate stop cannot be expanded')
   await pause(250)
   await new Promise(resolve => { window.sharedServicesCaptured = resolve; window.sharedServicesScreenshot = true })
   flushSync(() => document.querySelector('.journey-shared-services button').click())

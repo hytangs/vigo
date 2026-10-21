@@ -90,6 +90,7 @@
     "test/check-packaged-studio.mjs"
   ],
   "check:studio-runtime": [
+    "test/check-journey-stops.mjs",
     "test/check-city-refresh.mjs",
     "test/check-preparation-ownership.mjs",
     "test/check-network-workspace-runtime.mjs",
