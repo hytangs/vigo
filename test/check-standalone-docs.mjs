@@ -65,12 +65,15 @@ try {
     const request = JSON.parse(match[2])
     const result = execute(match[1], request)
     if (match[1] === 'route') assert.equal(result.status, 'ready')
+    if (match[1] === 'route' && request.scenario) {
+      assert(result.legs.some(leg => leg.scenarioService?.serviceId === 'express'), 'The documented scenario route rides its planned service.')
+    }
     if (match[1] === 'matrix') assert.equal(result.durationsMinutes.length, request.origins.length)
     if (match[1] === 'reach') assert.equal(result.surface.values.length, request.rasterSize ** 2)
     examples.push({ command: match[1], request, result })
     checks++
   }
-  assert.equal(examples.length, 13, 'Update documented example coverage deliberately')
+  assert.equal(examples.length, 14, 'Update documented example coverage deliberately')
   assert.equal(examples.find(e => e.request.alternatives)?.result.alternativeSearch?.status, 'complete')
   assert.equal(examples.find(e => e.request.sharedLegs)?.result.sharedLegAlternatives?.coverage, 'single_leg_substitutions')
   assert.equal(examples[0].result.arrivalMinutes, 510)

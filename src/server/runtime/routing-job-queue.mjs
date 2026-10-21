@@ -1,7 +1,7 @@
 // Prioritize point queries (including departure windows) among query jobs. Preparation
 // and unknown operations are ordering barriers; analytical work gets a turn
 // after at most four bypasses. Running native work is never interrupted here.
-const pointOperations = new Set(['route', 'street-route', 'window'])
+const pointOperations = new Set(['route', 'street-route'])
 const queryOperations = new Set([...pointOperations, 'street-route-batch'])
 export const maximumPointBypasses = 4
 

@@ -23,6 +23,8 @@ export interface AccessReport {
   code: string;
   coordinate: Coordinate;
   maximumWalkMeters: number;
+  /** With `street_access_unverified`: the nearest stop serving the role. */
+  nearestStop?: NearestStop;
   probeWalkMeters?: number;
   /** `origin` or `destination`. */
   role: string;
@@ -599,6 +601,17 @@ export interface Meta {
 }
 
 export type Mode = "transit" | "walk" | "drive";
+
+/**
+ * A stop near an endpoint whose street access was not verified.
+ */
+export interface NearestStop {
+  /** `straight_line`: proximity, not walking distance. */
+  distanceKind: string;
+  distanceKm: number;
+  id: string;
+  name: string;
+}
 
 /**
  * A code for programs and a message for people.

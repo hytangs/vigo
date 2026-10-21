@@ -508,8 +508,8 @@ class NationalRouteWorkerClient {
           ? path.resolve(String(job.request.streetStorePath))
           : ''
       }
-      if (job.operation === 'route' || job.operation === 'window') {
-        const plan = job.operation === 'window' ? message.result?.plan : message.result
+      if (job.operation === 'route') {
+        const plan = message.result
         const planDiagnostics = plan?.diagnostics ?? {}
         const activeServiceKernel = planDiagnostics.searchStats?.activeServiceKernel
         this.lastRouteContext = {

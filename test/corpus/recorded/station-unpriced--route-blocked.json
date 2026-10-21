@@ -31,9 +31,15 @@
       },
       "origin": {
         "candidateCount": 0,
-        "code": "none_within_walk_budget",
+        "code": "street_access_unverified",
         "coordinate": [-77.0405,38.90475],
         "maximumWalkMeters": 1200,
+        "nearestStop": {
+          "distanceKind": "straight_line",
+          "distanceKm": 0.136,
+          "id": "Y",
+          "name": "Platform"
+        },
         "probeWalkMeters": 2400,
         "role": "origin"
       }

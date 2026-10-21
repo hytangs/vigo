@@ -2,6 +2,7 @@ mod columns;
 pub use columns::TimetableBlockPool;
 type SourceU32 = columns::Column<u32>;
 type SourceU8 = columns::Column<u8>;
+type SourceColumn<T> = columns::Column<T>;
 use crate::types::*;
 use std::collections::HashMap;
 use std::time::Instant;

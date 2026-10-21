@@ -776,7 +776,37 @@ Street evidence is `surface.edges` with schema `vigo.standalone.street-edges.v2`
 
 ## 10. Scenarios
 
-Test service changes by applying a scenario to a Reach query. Each scenario lasts for that request; it leaves the City and later requests unchanged.
+Test service changes by applying a scenario to a Reach or transit Route query. Each scenario lasts for that request; it leaves the City and later requests unchanged.
+
+A Route scenario routes on a view of the scheduled timetable with the excluded trips removed and the planned services added as trips. Planned stops on City stops (`stopId`) are those stops; other planned stops are new, joined to the network by walks within the City's stop-transfer radius and reachable from endpoints within `maxWalkKm`. Planned stops, routes and trips belong to the feed `scenario-<hash>` of that scenario: a planned route's ID is its service `id`, and its name is the service `name`. The detailed trace also marks planned rides with `scenarioService` and names the `scenario`. A Route scenario accepts `services` and the exclusions, not `overlay`, and uses scheduled data. Repeated requests with the same scenario reuse its view.
+
+```json query=route
+{
+  "origin": {"stopId": "A"},
+  "destination": {"stopId": "B"},
+  "serviceDate": "2026-07-15",
+  "time": "07:55",
+  "maxWalkKm": 0.2,
+  "requireTransitRide": true,
+  "scenario": {
+    "id": "express",
+    "name": "Express",
+    "services": [{
+      "id": "express",
+      "name": "Express",
+      "operation": "add",
+      "scheduleMode": "frequency",
+      "stops": [{"stopId": "A"}, {"stopId": "B"}],
+      "bidirectional": false,
+      "startMinutes": 475,
+      "endMinutes": 600,
+      "headwayMinutes": 5,
+      "timeModel": "preserve-scheduled",
+      "segmentRuntimeMinutes": [5]
+    }]
+  }
+}
+```
 
 A scenario object accepts `id`, `name`, optional matching `cityRevision`, `excludedTripIds`, `excludedRouteIds`, `services`, or `overlay`. Use exact active City identifiers. An exclusion only affects matching scheduled trips.
 

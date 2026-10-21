@@ -281,6 +281,20 @@ pub struct AccessReport {
     pub probe_walk_meters: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suggested_walk_meters: Option<Number>,
+    /// With `street_access_unverified`: the nearest stop serving the role.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nearest_stop: Option<NearestStop>,
+}
+
+/// A stop near an endpoint whose street access was not verified.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NearestStop {
+    pub id: String,
+    pub name: String,
+    pub distance_km: Number,
+    /// `straight_line`: proximity, not walking distance.
+    pub distance_kind: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]

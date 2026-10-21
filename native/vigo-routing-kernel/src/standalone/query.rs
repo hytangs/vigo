@@ -523,7 +523,8 @@ impl City {
                 evidence: None,
             });
         }
-        self.street_candidates(point, role, opt, self.padding, self.overhead)
+        let candidates = self.street_candidates(point, role, opt, self.padding, self.overhead)?;
+        self.with_scenario_access(point, opt, candidates)
     }
     pub(super) fn access_status(
         &mut self,
@@ -715,6 +716,7 @@ impl City {
                 self.candidates(destination, "destination", opt)?,
             ));
         }
+        let (origin_point, destination_point) = (origin.clone(), destination.clone());
         // Both roles are independent and share the native kernel's bounded
         // two-thread executor, just like the Node coordinate entry point.
         let r = self.street.route_endpoints(EndpointRouteInput {
@@ -774,7 +776,10 @@ impl City {
             linked_stations: r.destination_linked_stations,
             cch_accelerated: r.destination_cch_accelerated,
         })?;
-        Ok((origin, destination))
+        Ok((
+            self.with_scenario_access(&origin_point, opt, origin)?,
+            self.with_scenario_access(&destination_point, opt, destination)?,
+        ))
     }
     pub(crate) fn matrix_input(
         origins: &[Candidates],
@@ -834,6 +839,11 @@ impl City {
         (unique, indices)
     }
     pub fn route(&mut self, q: &Value) -> Result<Value> {
+        if q.get("scenario")
+            .is_some_and(|scenario| !scenario.is_null())
+        {
+            return self.scenario_route(q);
+        }
         let mut result = if super::window::requested(q) {
             self.route_journeys(q)?
         } else {
@@ -1820,6 +1830,7 @@ fn validate_request(command: &str, q: &Value, polling: bool, live: bool) -> Resu
             "windowChoices",
             "expandedWalkKm",
             "includeEarliestTransit",
+            "scenario",
         ],
         "matrix" => &[
             "origins",

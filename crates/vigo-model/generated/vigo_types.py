@@ -291,6 +291,18 @@ MatrixCapabilities = TypedDict(
 
 Mode = Literal["transit", "walk", "drive"]
 
+# A stop near an endpoint whose street access was not verified.
+NearestStop = TypedDict(
+    "NearestStop",
+    {
+        # `straight_line`: proximity, not walking distance.
+        "distanceKind": str,
+        "distanceKm": float,
+        "id": str,
+        "name": str,
+    },
+)
+
 # A code for programs and a message for people.
 Notice = TypedDict(
     "Notice",
@@ -557,6 +569,8 @@ AccessReport = TypedDict(
         "code": str,
         "coordinate": Coordinate,
         "maximumWalkMeters": int,
+        # With `street_access_unverified`: the nearest stop serving the role.
+        "nearestStop": NotRequired[NearestStop],
         "probeWalkMeters": NotRequired[int],
         # `origin` or `destination`.
         "role": str,

@@ -1,7 +1,6 @@
 import crypto from 'node:crypto'
 import { parentPort } from 'node:worker_threads'
 import { haversineKm } from './geometry-utils.mjs'
-import { routeAlternativeRequest, selectStudioJourneyChoices } from './native-routing-kernel.mjs'
 import { compactStudioRoutingPlan } from './studio-route-response.mjs'
 
 const workerInstance = crypto.randomUUID()
@@ -80,36 +79,6 @@ function compactStreetRouteBatchResult(result) {
     ...(Number.isFinite(result.totalDistanceKm) ? { totalDistanceKm: result.totalDistanceKm } : {}),
     ...(Number.isFinite(result.totalDurationMinutes) ? { totalDurationMinutes: result.totalDurationMinutes } : {}),
   }
-}
-
-function earliestTransitEvidenceFromPlans(plans) {
-  let earliest = null
-  for (const plan of Array.isArray(plans) ? plans : []) {
-    if (plan?.status !== 'ready' || plan?.travelMode !== 'transit') continue
-    const firstRide = plan.legs?.find((leg) => leg.type === 'ride')
-    const firstBoardingMinutes = Number(firstRide?.startMinutes)
-    const arriveMinutes = Number(plan.arriveMinutes)
-    if (!firstRide || !Number.isFinite(firstBoardingMinutes) || !Number.isFinite(arriveMinutes)) continue
-    const candidate = {
-      status: 'ready',
-      departMinutes: Number(plan.departMinutes),
-      firstBoardingMinutes,
-      arriveMinutes,
-      routeShortName: firstRide.routeShortName || firstRide.routeId || undefined,
-      transfers: Number(plan.transfers ?? 0),
-    }
-    if (
-      !earliest
-      || candidate.firstBoardingMinutes < earliest.firstBoardingMinutes
-      || candidate.firstBoardingMinutes === earliest.firstBoardingMinutes
-        && (candidate.arriveMinutes < earliest.arriveMinutes
-          || candidate.arriveMinutes === earliest.arriveMinutes
-            && candidate.transfers < earliest.transfers)
-    ) {
-      earliest = candidate
-    }
-  }
-  return earliest
 }
 
 function clamp(value, minimum, maximum) {
@@ -229,11 +198,6 @@ function compactWorkerResult(operation, result) {
     || operation === 'street-route'
   ) return compactStudioRoutingPlan(result)
   if (operation === 'street-route-batch') return compactStreetRouteBatchResult(result)
-  if (operation === 'window') {
-    const choices = result.choices.map(compactStudioRoutingPlan)
-    return { ...result, choices,
-      plan: choices.find(plan => plan.id === result.plan.id) ?? compactStudioRoutingPlan(result.plan) }
-  }
   return result
 }
 
@@ -404,30 +368,6 @@ parentPort.on('message', async (message) => {
         osmStopTransfers,
         derivedArtifacts,
         nativeCoordinateAccess: routing.nativeCoordinateAccess ?? null,
-      }
-    } else if (operation === 'window') {
-      const { routeNationalGtfsDepartureWindow, routeNationalGtfsOrderedSegment, routeNationalGtfsStoreWithAlternatives, addNationalGtfsFares } = await loadGtfsModule()
-      const routed = request.__orderedSegment
-        ? routeNationalGtfsOrderedSegment(storePath, request)
-        : routeNationalGtfsDepartureWindow(storePath, request)
-      // Keep the departure-window optimum and tradeoffs. Also ask the Rust
-      // ranked search for bounded feasible departures at the requested clock.
-      // Unlike Pareto filtering, these may be slower but use another service.
-      if (request.includeRankedAlternatives === true && !request.__orderedSegment && request.timePreference !== 'arrive') {
-        const rankedRequest = { ...request, departureWindowMinutes: 0, alternatives: 9,
-          alternativeRanking: 'ranked', alternativeSlackMinutes: 15 }
-        const ranked = routeNationalGtfsStoreWithAlternatives(storePath, rankedRequest,
-          { ...routeAlternativeRequest(rankedRequest), limit: 64 })
-        routed.choices = selectStudioJourneyChoices([routed.plan, ...routed.choices,
-          ...ranked.choices.map(plan => ({ ...plan, recommended: false, choiceLabel: 'Another route' }))])
-      }
-      const earliestTransit = earliestTransitEvidenceFromPlans(routed.profile?.plans)
-      const { plans: _samplePlans, ...profile } = routed.profile
-      result = {
-        plan: addNationalGtfsFares(storePath, routed.plan),
-        choices: routed.choices.map(plan => addNationalGtfsFares(storePath, plan)),
-        profile,
-        ...(earliestTransit ? { earliestTransit } : {}),
       }
     } else if (operation === 'route') {
       const { routeNationalGtfsStore, addNationalGtfsFares } = await loadGtfsModule()

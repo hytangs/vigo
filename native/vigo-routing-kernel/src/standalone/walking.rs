@@ -135,11 +135,42 @@ impl City {
                 }
                 return Ok(value);
             }
+            let target = ids[1 - role].as_ref().ok_or("Missing access stop")?;
+            // A new planned stop is reached by its own street walk.
+            if self
+                .scenario_view
+                .as_ref()
+                .is_some_and(|view| view.stops.contains_key(target))
+            {
+                let [from, to] = [coordinates[0], coordinates[1]];
+                let path = self.street.route_path(StreetPathInput {
+                    origin_lon: from[0],
+                    origin_lat: from[1],
+                    destination_lon: to[0],
+                    destination_lat: to[1],
+                    maximum_distance_m: opt.walk_m,
+                    maximum_points: crate::PUBLIC_WALK_POINTS,
+                })?;
+                value["streetPathVerified"] = json!(path.found);
+                value["geometrySource"] = json!(if path.found { "osm" } else { "straight_line" });
+                value["distanceMeters"] = json!(if path.found {
+                    path.distance_m
+                } else {
+                    haversine(from, to)
+                });
+                if geometry {
+                    value["coordinates"] = if path.found {
+                        json!(path.coordinates.chunks(2).collect::<Vec<_>>())
+                    } else {
+                        json!([from, to])
+                    };
+                }
+                return Ok(value);
+            }
             let evidence = access[role]
                 .evidence
                 .as_ref()
                 .ok_or("Missing coordinate access evidence")?;
-            let target = ids[1 - role].as_ref().ok_or("Missing access stop")?;
             let index = evidence
                 .member_indices
                 .iter()

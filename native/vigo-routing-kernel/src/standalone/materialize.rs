@@ -364,6 +364,13 @@ impl City {
                     }
                 };
                 v["route"] = route.clone();
+                if let Some(service) = self
+                    .scenario_view
+                    .as_ref()
+                    .and_then(|view| view.services.get(route_id))
+                {
+                    v["scenarioService"] = service.clone();
+                }
                 let details = if let Some(value) = cache
                     .as_ref()
                     .and_then(|c| c.trip_details.get(trip_id))

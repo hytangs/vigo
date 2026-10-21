@@ -4,6 +4,7 @@
 //! transfer index. The scheduled arrays are borrowed and never edited, and
 //! original trip indices survive, so journeys reconstruct exactly as before.
 use super::preparation::departure_index;
+use super::{TimetableKernel, TimetableKernelInput};
 use crate::types::*;
 
 const MAX_ADDED_STOPS: u32 = 4_096;
@@ -370,6 +371,128 @@ pub fn compile_scenario_timetable(
     })
 }
 
+/// A planned scenario on a resident timetable: the trips it removes, the
+/// stops it adds after the resident ones, its stop patterns and runs, and the
+/// walking links of its new stops. Fields mean what they mean in
+/// [`ScenarioTimetableInput`].
+pub struct ScenarioPlan {
+    pub added_stop_count: u32,
+    pub canceled: U8Buffer,
+    pub pattern_offsets: U32Buffer,
+    pub pattern_stops: U32Buffer,
+    pub pattern_departure_offsets: U32Buffer,
+    pub pattern_arrival_offsets: U32Buffer,
+    pub pattern_can_board: U8Buffer,
+    pub pattern_can_alight: U8Buffer,
+    pub run_start_seconds: U32Buffer,
+    pub run_end_seconds: U32Buffer,
+    pub run_headway_seconds: U32Buffer,
+    pub added_transfer_from: U32Buffer,
+    pub added_transfer_to: U32Buffer,
+    pub added_transfer_duration: U32Buffer,
+}
+
+/// A scenario view and, for each trip it appends, its pattern and first
+/// departure (appended trips follow the resident ones).
+pub struct ScenarioView {
+    pub kernel: TimetableKernel,
+    pub added_trip_patterns: U32Buffer,
+    pub added_trip_departures: U32Buffer,
+}
+
+fn column<T: Copy>(column: &super::SourceColumn<T>) -> Buffer<T> {
+    let view = column.view();
+    (0..column.len())
+        .map(|index| view[index])
+        .collect::<Vec<_>>()
+        .into()
+}
+
+impl TimetableKernel {
+    /// The timetable `plan` routes on, derived from this resident one. Its
+    /// stops, trips and transfers keep their indices; this one is unchanged.
+    pub fn scenario_view(&self, plan: ScenarioPlan) -> Result<ScenarioView> {
+        let compiled = compile_scenario_timetable(ScenarioTimetableInput {
+            stop_count: self.stop_count as u32,
+            added_stop_count: plan.added_stop_count,
+            departure_seconds: column(&self.departure_seconds),
+            arrival_seconds: column(&self.arrival_seconds),
+            from_stop: column(&self.from_stop),
+            to_stop: column(&self.to_stop),
+            sequence: column(&self.sequence),
+            segment_run: column(&self.segment_run),
+            continuity_break: column(&self.continuity_break),
+            can_board: column(&self.can_board),
+            can_alight: column(&self.can_alight),
+            trip_start: column(&self.trip_start),
+            canceled: plan.canceled,
+            transfer_offset: self.transfer_offset.clone().into(),
+            transfer_to: self
+                .transfer_edges
+                .iter()
+                .map(|edge| edge.stop() as u32)
+                .collect::<Vec<_>>()
+                .into(),
+            transfer_duration: self
+                .transfer_edges
+                .iter()
+                .map(|edge| edge.duration())
+                .collect::<Vec<_>>()
+                .into(),
+            forbidden_same_stop: self.forbidden_same_stop.to_vec().into(),
+            same_stop_transfer_minimum: Some(self.same_stop_transfer_minimum.clone().into()),
+            pattern_offsets: plan.pattern_offsets,
+            pattern_stops: plan.pattern_stops,
+            pattern_departure_offsets: plan.pattern_departure_offsets,
+            pattern_arrival_offsets: plan.pattern_arrival_offsets,
+            pattern_can_board: plan.pattern_can_board,
+            pattern_can_alight: plan.pattern_can_alight,
+            run_start_seconds: plan.run_start_seconds,
+            run_end_seconds: plan.run_end_seconds,
+            run_headway_seconds: plan.run_headway_seconds,
+            added_transfer_from: plan.added_transfer_from,
+            added_transfer_to: plan.added_transfer_to,
+            added_transfer_duration: plan.added_transfer_duration,
+        })?;
+        let added_trip_patterns = compiled.added_trip_patterns.clone();
+        let added_trip_departures = compiled.added_trip_departures.clone();
+        Ok(ScenarioView {
+            kernel: compiled_kernel(compiled, self.minimum_transfer_buffer_seconds)?,
+            added_trip_patterns,
+            added_trip_departures,
+        })
+    }
+}
+
+fn compiled_kernel(
+    compiled: ScenarioTimetableResult,
+    minimum_transfer_buffer_seconds: u32,
+) -> Result<TimetableKernel> {
+    TimetableKernel::new(TimetableKernelInput {
+        stop_count: compiled.stop_count,
+        run_count: compiled.run_count,
+        departure_seconds: compiled.departure_seconds,
+        arrival_seconds: compiled.arrival_seconds,
+        from_stop: compiled.from_stop,
+        to_stop: compiled.to_stop,
+        sequence: compiled.sequence,
+        segment_trip: compiled.segment_trip,
+        segment_run: compiled.segment_run,
+        continuity_break: compiled.continuity_break,
+        can_board: compiled.can_board,
+        can_alight: compiled.can_alight,
+        trip_start: compiled.trip_start,
+        departure_offset: compiled.departure_offset,
+        departure_order: compiled.departure_order,
+        transfer_offset: compiled.transfer_offset,
+        transfer_to: compiled.transfer_to,
+        transfer_duration: compiled.transfer_duration,
+        forbidden_same_stop: compiled.forbidden_same_stop,
+        same_stop_transfer_minimum: compiled.same_stop_transfer_minimum,
+        minimum_transfer_buffer_seconds: Some(minimum_transfer_buffer_seconds),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -457,6 +580,74 @@ mod tests {
         assert_eq!(
             result.same_stop_transfer_minimum.unwrap().to_vec(),
             vec![0, 30, 0, 0]
+        );
+    }
+
+    #[test]
+    fn derives_a_scenario_view_from_the_resident_kernel() {
+        let mut resident = input();
+        resident.added_stop_count = 0;
+        resident.canceled = u8s(&[0, 0]);
+        resident.pattern_offsets = u32s(&[0]);
+        for column in [
+            &mut resident.pattern_stops,
+            &mut resident.pattern_departure_offsets,
+            &mut resident.pattern_arrival_offsets,
+            &mut resident.run_start_seconds,
+            &mut resident.run_end_seconds,
+            &mut resident.run_headway_seconds,
+            &mut resident.added_transfer_from,
+            &mut resident.added_transfer_to,
+            &mut resident.added_transfer_duration,
+        ] {
+            *column = u32s(&[]);
+        }
+        resident.pattern_can_board = u8s(&[]);
+        resident.pattern_can_alight = u8s(&[]);
+        let base = compiled_kernel(compile_scenario_timetable(resident).unwrap(), 45).unwrap();
+        let plan = input();
+        let view = base
+            .scenario_view(ScenarioPlan {
+                added_stop_count: plan.added_stop_count,
+                canceled: plan.canceled,
+                pattern_offsets: plan.pattern_offsets,
+                pattern_stops: plan.pattern_stops,
+                pattern_departure_offsets: plan.pattern_departure_offsets,
+                pattern_arrival_offsets: plan.pattern_arrival_offsets,
+                pattern_can_board: plan.pattern_can_board,
+                pattern_can_alight: plan.pattern_can_alight,
+                run_start_seconds: plan.run_start_seconds,
+                run_end_seconds: plan.run_end_seconds,
+                run_headway_seconds: plan.run_headway_seconds,
+                added_transfer_from: plan.added_transfer_from,
+                added_transfer_to: plan.added_transfer_to,
+                added_transfer_duration: plan.added_transfer_duration,
+            })
+            .unwrap();
+        // The same timetable as compiling the scenario from source columns.
+        let expected = compile_scenario_timetable(input()).unwrap();
+        let kernel = &view.kernel;
+        assert_eq!(kernel.stop_count, 4);
+        assert_eq!(
+            column(&kernel.departure_seconds).to_vec(),
+            expected.departure_seconds.to_vec()
+        );
+        assert_eq!(
+            column(&kernel.arrival_seconds).to_vec(),
+            expected.arrival_seconds.to_vec()
+        );
+        assert_eq!(column(&kernel.to_stop).to_vec(), expected.to_stop.to_vec());
+        assert_eq!(
+            column(&kernel.trip_start).to_vec(),
+            expected.trip_start.to_vec()
+        );
+        assert_eq!(view.added_trip_departures.to_vec(), vec![600, 1_200, 1_800]);
+        assert_eq!(kernel.minimum_transfer_buffer_seconds, 45);
+        // The resident kernel is unchanged.
+        assert_eq!(base.stop_count, 3);
+        assert_eq!(
+            column(&base.departure_seconds).to_vec(),
+            vec![100, 200, 1_000, 1_100]
         );
     }
 

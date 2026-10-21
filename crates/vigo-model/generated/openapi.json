@@ -62,6 +62,10 @@
             "format": "int64",
             "type": "integer"
           },
+          "nearestStop": {
+            "$ref": "#/components/schemas/NearestStop",
+            "description": "With `street_access_unverified`: the nearest stop serving the role."
+          },
           "probeWalkMeters": {
             "format": "int64",
             "type": "integer"
@@ -1927,6 +1931,31 @@
           "drive"
         ],
         "type": "string"
+      },
+      "NearestStop": {
+        "description": "A stop near an endpoint whose street access was not verified.",
+        "properties": {
+          "distanceKind": {
+            "description": "`straight_line`: proximity, not walking distance.",
+            "type": "string"
+          },
+          "distanceKm": {
+            "type": "number"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "distanceKm",
+          "distanceKind"
+        ],
+        "type": "object"
       },
       "Notice": {
         "description": "A code for programs and a message for people.",

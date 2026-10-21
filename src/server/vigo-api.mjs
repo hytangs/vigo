@@ -1,4 +1,3 @@
-import { withStudioWalkingAlternatives } from './studio-walking-alternatives.mjs'
 import { wheelchairDescription } from './wheelchair-policy.mjs'
 import { studioWheelchairAvailability, studioWheelchairSelection } from './studio-wheelchair.mjs'
 import { routingResultStatus } from './gtfs/route-results.mjs'
@@ -7,7 +6,7 @@ import packageJson from '../../package.json' with { type: 'json' }
 import { NationalRouteWorkerPool, makeAbortError, maxNationalRouteWorkerStores } from './runtime/route-worker-pool.mjs'
 import { NativeCityUnavailableError, NativeQueryError, NativeRuntime, nativeLayout } from './runtime/native-runtime.mjs'
 import { nativeRouteRequest, onServiceDate, studioBlockedResponse, studioRouteResponse } from './studio-route-plans.mjs'
-import { nativePreliminaryRequest, nativeReachRangeRequest, nativeSurface, studioReachRange } from './studio-reach-ranges.mjs'
+import { nativePreliminaryRequest, nativeReachRangeRequest, nativeSurface, plannedService, studioReachRange } from './studio-reach-ranges.mjs'
 import { currentStreetStoreStorageIdentity, routingSemanticsFromMetadata } from './gtfs/store-metadata.mjs'
 
 import crypto from 'node:crypto'
@@ -38,12 +37,7 @@ import { readLocalBasemap, localBasemapBudgets } from './local-basemap-store.mjs
 import { networkSignatureSvg, networkSignatureVersion } from './network-signature.mjs'
 import { renderNativeLocalBasemapTile } from './native-routing-kernel.mjs'
 import { integralNumber } from './number-utils.mjs'
-import {
-  composeOrderedRoutingFailure,
-  routeOrderedRoutingSegments,
-  validateOrderedRoutingPoints,
-} from './ordered-route-composition.mjs'
-import { compactReachResult, compileRouteScenario, computeReachResult } from './reach.mjs'
+import { compactReachResult, compileReachScenario, computeReachResult } from './reach.mjs'
 import { readScenarioLibrary, scenarioLibraryFileName, writeScenarioLibrary } from './scenario-library.mjs'
 import { inspectRealtimeFeed } from './realtime-inspector.mjs'
 import { normalizeRoutingDataRequest } from './routing-data-mode.mjs'
@@ -53,7 +47,6 @@ import { hydrateScenarioRouteServices } from './scenario-services.mjs'
 import { resolveServiceDay, serviceDayForDate } from './service-day.mjs'
 import { buildServiceEdgeDecomposition } from './service-decomposition.mjs'
 import { createStreetPreparationManager } from './street-preparation.mjs'
-import { compactStudioRoutingResponse } from './studio-route-response.mjs'
 import { allocateProjectTransportAtlasBudgets, compactTransportPreview, projectTransportAtlasBudgets } from './transport-atlas.mjs'
 import { bundleNetworkScope, createTransitNetworkTiles, transitNetworkCatalog } from './transit-network-tiles.mjs'
 
@@ -3088,6 +3081,7 @@ async function nativeRouteSelection(projectId, project, body) {
     storePath: selection.storePath,
     streetPath,
     feed: selection.feed,
+    feedIds: selection.feedIds,
     sourceScopes: selection.sourceScopes,
   }
 }
@@ -3137,364 +3131,6 @@ function resolveStoreDepartNow(storePath, body) {
   return resolveDepartNowRequest(body, readNationalGtfsStoreMetadata(storePath).agencyTimezones)
 }
 
-// Scenario routes: a saved scenario's planned services, cancelled trips and new
-// stops need a derived timetable that the native runtime does not build yet.
-// Until it does, these requests (and only these) keep the JavaScript route
-// orchestration below; every other Route runs natively.
-async function dispatchLazyNationalTransitRoute(
-  storePath,
-  streetStorePath,
-  routeRequest,
-  windowMinutes,
-  signal,
-  collectOrderedChoices = false,
-) {
-  const exactCoverageUnavailable = Boolean(
-    streetStorePath
-    && routeRequest.requireCompleteServiceCoverage === true
-    && routeRequest.allowServiceDateFallback !== true
-    && routingDateOutsideCompleteCoverage(
-      await cachedNationalRoutingServiceCoverage(storePath),
-      routeRequest.serviceDate,
-    ),
-  )
-  const admissionOperation = !streetStorePath
-    ? null
-    : exactCoverageUnavailable
-      ? 'prepare-street'
-      : 'prepare-transfers'
-  const preparedContext = {
-    serviceDate: routeRequest.serviceDate,
-    serviceDay: routeRequest.serviceDay,
-    allowServiceDateFallback: routeRequest.allowServiceDateFallback,
-    requireCompleteServiceCoverage: routeRequest.requireCompleteServiceCoverage,
-    streetStorePath,
-  }
-  let admissionReady = admissionOperation === null
-    || nationalRouteWorkerPool.isPrepared(storePath, preparedContext)
-    || nationalRouteWorkerPool.isAdmissionPrepared(storePath, admissionOperation, streetStorePath)
-  let workerRestartRetried = false
-  let derivedArtifactRepairRetried = false
-  while (true) {
-    try {
-      if (!admissionReady) {
-        if (admissionOperation === 'prepare-transfers') {
-          await nationalRouteWorkerPool.prepareRoutingAccess(storePath, {
-            reason: 'route-dispatch',
-            signal,
-            context: preparedContext,
-          })
-        } else {
-          await nationalRouteWorkerPool.dispatch(
-            storePath,
-            admissionOperation,
-            { streetStorePath },
-            signal,
-          )
-        }
-        admissionReady = true
-      }
-      return await nationalRouteWorkerPool.dispatch(
-        storePath,
-        windowMinutes || collectOrderedChoices ? 'window' : 'route',
-        routeRequest,
-        signal,
-      )
-    } catch (error) {
-      if (
-        !workerRestartRetried
-        && error?.code === 'VIGO_ROUTE_WORKER_RESTARTED'
-        && !signal?.aborted
-      ) {
-        workerRestartRetried = true
-        admissionReady = admissionOperation === null
-        continue
-      }
-      if (
-        !derivedArtifactRepairRetried
-        && error?.code === 'resident_timetable_kernel_required'
-        && error?.activeServiceKernel?.reason === 'topology_unavailable'
-        && !signal?.aborted
-      ) {
-        derivedArtifactRepairRetried = true
-        await nationalRouteWorkerPool.dispatch(
-          storePath,
-          'prepare-derived',
-          {},
-          signal,
-        )
-        continue
-      }
-      throw error
-    }
-  }
-}
-
-function earliestTransitEvidenceFromPlan(plan) {
-  if (plan?.status !== 'ready' || plan?.travelMode !== 'transit') return null
-  const firstRide = plan.legs?.find((leg) => leg.type === 'ride')
-  if (!firstRide) return null
-  const firstBoardingMinutes = Number(firstRide.startMinutes)
-  const arriveMinutes = Number(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)
-  if (!Number.isFinite(firstBoardingMinutes) || !Number.isFinite(arriveMinutes)) return null
-  return {
-    status: 'ready',
-    departMinutes: Number(plan.departMinutes),
-    firstBoardingMinutes,
-    arriveMinutes,
-    routeShortName: firstRide.routeShortName || firstRide.routeId || undefined,
-    transfers: Number(plan.transfers ?? 0),
-  }
-}
-
-function earliestTransitEvidenceFromResponse(response) {
-  if (response?.earliestTransit?.status === 'ready') return response.earliestTransit
-  const candidates = [
-    response?.plan,
-    ...(Array.isArray(response?.choices) ? response.choices : []),
-  ]
-    .map(earliestTransitEvidenceFromPlan)
-    .filter(Boolean)
-  if (!candidates.length) return null
-  candidates.sort((left, right) => (
-    left.firstBoardingMinutes - right.firstBoardingMinutes
-      || left.arriveMinutes - right.arriveMinutes
-      || left.transfers - right.transfers
-  ))
-  return candidates[0]
-}
-
-async function earliestTransitEvidence(
-  storePath,
-  streetPath,
-  routeRequest,
-  windowMinutes,
-  responseResult,
-  signal,
-) {
-  const existing = earliestTransitEvidenceFromResponse(responseResult)
-  if (existing) return existing
-  try {
-    const probeRequest = {
-      ...routeRequest,
-      departureWindowMinutes: windowMinutes,
-      __disableDirectWalkDominance: true,
-    }
-    const probe = await dispatchLazyNationalTransitRoute(
-      storePath,
-      streetPath,
-      probeRequest,
-      windowMinutes,
-      signal,
-    )
-    const probedResponse = windowMinutes
-      ? { plan: probe.plan, choices: probe.choices }
-      : { plan: probe }
-    const evidence = earliestTransitEvidenceFromResponse(probedResponse)
-    return evidence ?? {
-      status: 'none',
-      detail: 'No scheduled transit option was found in the selected search window.',
-    }
-  } catch (error) {
-    if (signal?.aborted) throw error
-    return {
-      status: 'unavailable',
-      detail: error instanceof Error ? error.message : 'The earliest-transit check was unavailable.',
-    }
-  }
-}
-
-// One transit segment of a scenario route (walk and drive routes are native).
-async function runSingleNationalRoute(projectId, body, signal, options = {}) {
-  body = normalizeRoutingDataRequest(body)
-  const project = await readProjectMetadata(projectId)
-  const mode = 'transit'
-  const wheelchair = studioWheelchairSelection(projectMetaDir(projectId), project, body)
-  const selection = wheelchair || await requireCaseRoutingStore(projectId, project, body)
-  const storePath = selection.storePath
-  if (selection.feedIds) body = { ...body, sourceScopes: selection.sourceScopes }
-  body = resolveStoreDepartNow(storePath, body)
-  const serviceContext = nationalRequestServiceContext(body)
-  body = normalizeRoutingPointIdentities(storePath, body,
-    selection.feed?.id ?? (project.feeds.length === 1 ? project.feeds[0].id : ''))
-  const streetPath = wheelchair?.streetPath ?? (project.osmStreetIndex?.status === 'ready' && await exists(streetStoreFile(projectId))
-    ? streetStoreFile(projectId)
-    : undefined)
-  const exactStopEndpoints = Boolean(
-    String(body?.origin?.stopId ?? '').trim()
-    && String(body?.destination?.stopId ?? '').trim(),
-  )
-  if (!wheelchair && streetPath && project.osmStreetIndex?.cch?.ready !== true) {
-    const error = new Error(
-      'The saved OSM street index is from an older or incomplete build. Rebuild the OpenStreetMap street index before routing between map points.',
-    )
-    error.statusCode = 409
-    error.code = 'street_index_stale'
-    error.routingStatus = 'stale'
-    throw error
-  }
-  if (!exactStopEndpoints && !streetPath) {
-    const error = new Error(
-      'Map-point transit routing requires a ready pedestrian accelerator. Rebuild the OpenStreetMap street index.',
-    )
-    error.statusCode = 409
-    throw error
-  }
-  const transitStreetPath = streetPath
-  const windowMinutes = body?.timePreference === 'arrive'
-    ? 0
-    : integralRoutingMinute(body?.departureWindowMinutes, 'departureWindowMinutes', 0)
-  if (windowMinutes > 30) {
-    const error = new Error('departureWindowMinutes must be an integral minute in [0, 30].')
-    error.statusCode = 400
-    error.code = 'invalid_departure_window'
-    throw error
-  }
-  const centerMinutes = options.allowSubMinuteTimes
-    ? Number(body.departMinutes)
-    : integralRoutingMinute(body?.departMinutes, 'departMinutes')
-  if (Object.hasOwn(body ?? {}, 'routingPreference')) {
-    const error = new Error('routingPreference is not a public option; use objective')
-    error.statusCode = 400
-    error.code = 'invalid_objective'
-    throw error
-  }
-  const objective = String(body?.objective ?? 'earliest_arrival')
-  if (objective !== 'earliest_arrival') {
-    const error = new Error('objective must be earliest_arrival')
-    error.statusCode = 400
-    error.code = 'invalid_objective'
-    throw error
-  }
-  const routingPreference = 'fastest'
-  const requireTransitRide = options.requireTransitRide === true
-  // A scenario route runs on the scheduled timetable with the scenario's
-  // removed trips canceled and its planned services added.
-  let scenarioPlan = null
-  if (body?.scenario) {
-    assertCaseRouteSources(body.scenario, selection.feedIds, Boolean(selection.sourceScopes))
-    const storeIdentity = await nationalRouteArtifactIdentity(storePath)
-    const hydrated = hydrateScenarioRouteServices(storePath, storeIdentity, { ...body, ...serviceContext })
-    scenarioPlan = compileRouteScenario(hydrated.scenario)
-  }
-  const publicRoutingBody = Object.fromEntries(
-    Object.entries(body ?? {}).filter(([key]) => !key.startsWith('__') && key !== 'scenario'),
-  )
-  if (scenarioPlan) Object.assign(publicRoutingBody, { scenarioPlan, routingDataMode: 'scheduled' })
-  const routeRequest = windowMinutes
-    ? {
-      ...publicRoutingBody,
-      ...serviceContext,
-      mode,
-      objective,
-      routingPreference,
-      departMinutes: centerMinutes,
-      departureWindowMinutes: windowMinutes,
-      streetStorePath: transitStreetPath,
-      requireCompleteServiceCoverage: true,
-      ...(requireTransitRide ? { __disableDirectWalkDominance: true } : {}),
-      ...(options.allowSubMinuteTimes ? { __allowSubMinuteTimes: true } : {}),
-      }
-    : {
-        ...publicRoutingBody,
-        ...serviceContext,
-        mode,
-        objective,
-        routingPreference,
-        streetStorePath: transitStreetPath,
-        requireCompleteServiceCoverage: true,
-        ...(requireTransitRide ? { __disableDirectWalkDominance: true } : {}),
-        ...(options.allowSubMinuteTimes ? { __allowSubMinuteTimes: true } : {}),
-      }
-  if (options.orderedSegment) routeRequest.__orderedSegment = true
-
-  // Exact complete-coverage failure is decidable from the routing store alone.
-  // Let the route core construct that blocked response without first building
-  // a street/stop transfer frontier that cannot be used. Every admissible
-  // transit request still admits the identical transfer graph before routing.
-  let responseResult
-  const routed = await dispatchLazyNationalTransitRoute(
-    storePath,
-    transitStreetPath,
-    routeRequest,
-    windowMinutes,
-    signal,
-    options.orderedSegment === true,
-  )
-  if (!windowMinutes && !options.orderedSegment) {
-    responseResult = { plan: routed, choices: [routed] }
-  } else {
-    const { plans: _samplePlans, ...window } = routed.profile
-    responseResult = {
-      plan: routed.plan,
-      choices: routed.choices,
-      window,
-      ...(routed.earliestTransit ? { earliestTransit: routed.earliestTransit } : {}),
-    }
-  }
-  if (body?.includeEarliestTransit === true) {
-    responseResult = {
-      ...responseResult,
-      earliestTransit: await earliestTransitEvidence(
-        storePath,
-        transitStreetPath,
-        routeRequest,
-        windowMinutes,
-        responseResult,
-        signal,
-      ),
-    }
-  }
-  return responseResult
-}
-
-// runNationalRoute has validated the request.
-async function runScenarioNationalRoute(projectId, body, signal) {
-  if (body?.wheelchair) studioWheelchairSelection(projectMetaDir(projectId), await readProjectMetadata(projectId), body)
-  const waypoints = Array.isArray(body?.waypoints) ? body.waypoints : []
-  if (!waypoints.length) return withStudioWalkingAlternatives(body, request => runSingleNationalRoute(projectId, request, signal), signal)
-
-  if (body?.departNow !== undefined && body.departNow !== false) {
-    const project = await readProjectMetadata(projectId)
-    const { storePath } = await requireRoutingStore(projectId, project, String(body?.feedId ?? ''))
-    body = resolveStoreDepartNow(storePath, body)
-  }
-
-  const points = validateOrderedRoutingPoints(body?.origin, waypoints, body?.destination)
-  const { waypoints: _waypoints, ...baseRequest } = body
-  const orderedRequest = { ...baseRequest, mode: 'transit' }
-  const routed = await routeOrderedRoutingSegments(
-    points,
-    orderedRequest,
-    async (segmentRequest, segmentIndex) => {
-      const response = await runSingleNationalRoute(
-        projectId,
-        segmentRequest,
-        signal,
-        {
-          orderedSegment: true,
-          allowSubMinuteTimes: orderedRequest.timePreference === 'arrive'
-            ? segmentIndex < points.length - 2
-            : segmentIndex > 0,
-        },
-      )
-      if (signal?.aborted) throw makeAbortError()
-      return response
-    },
-  )
-  if (routed.failedIndex >= 0) {
-    const plan = composeOrderedRoutingFailure(
-      routed.failedPlan,
-      routed.failedIndex,
-      points,
-      routed.componentPlans,
-    )
-    return { plan, choices: [plan] }
-  }
-
-  return { plan: routed.choices[0], choices: routed.choices }
-}
-
 async function runNationalRoute(projectId, body, signal) {
   body = normalizeRoutingDataRequest(body)
   if (body?.sharedLegs !== undefined && typeof body.sharedLegs !== 'boolean') {
@@ -3523,17 +3159,18 @@ async function runNationalRoute(projectId, body, signal) {
     const arrive = body.timePreference === 'arrive'
     integralRoutingMinute(arrive ? body.arriveMinutes ?? body.departMinutes : body.departMinutes, arrive ? 'arriveMinutes' : 'departMinutes')
   }
-  if (body?.scenario && !['walk', 'drive'].includes(body?.mode)) {
-    return compactStudioRoutingResponse(await runScenarioNationalRoute(projectId, body, signal))
-  }
   const project = await readProjectMetadata(projectId)
   const selection = await nativeRouteSelection(projectId, project, body)
   const serviceContext = body.departNow === true ? {} : nationalRequestServiceContext(body)
-  const studioBody = { ...body, ...serviceContext, departureWindowMinutes: windowMinutes }
+  // A scenario changes scheduled transit service.
+  const planned = body.scenario && !['walk', 'drive'].includes(body.mode)
+  const studioBody = { ...body, ...serviceContext, departureWindowMinutes: windowMinutes,
+    ...(planned ? { routingDataMode: 'scheduled', realtimeSnapshot: undefined } : {}) }
   const pointed = normalizeRoutingPointIdentities(selection.storePath, studioBody,
     selection.feed?.id ?? (project.feeds.length === 1 ? project.feeds[0].id : ''))
   const context = nativeStoreContext(selection.storePath, selection.streetPath)
-  const request = nativeRouteRequest(pointed, { sourceScopes: selection.sourceScopes, wheelchair: selection.wheelchair })
+  const request = nativeRouteRequest(pointed, { sourceScopes: selection.sourceScopes, wheelchair: selection.wheelchair,
+    scenario: planned ? await nativeRouteScenario(selection, pointed) : undefined })
   let trace
   try {
     trace = await queryNativeCity(selection, request, signal)
@@ -3549,6 +3186,24 @@ async function runNationalRoute(projectId, body, signal) {
     return studioRouteResponse(trace, trace.serviceDate ? { ...pointed, serviceDate: trace.serviceDate } : pointed, context)
   }
   return studioRouteResponse(onServiceDate(trace, pointed.serviceDate), pointed, context)
+}
+
+/**
+ * A saved Studio scenario as a public Route scenario: its replacements
+ * resolved to the trips and routes they remove, and its services, with kept
+ * trips hydrated from the timetable, as planned services the runtime compiles.
+ */
+async function nativeRouteScenario(selection, body) {
+  assertCaseRouteSources(body.scenario, selection.feedIds, Boolean(selection.sourceScopes))
+  const storeIdentity = await nationalRouteArtifactIdentity(selection.storePath)
+  const { scenario } = compileReachScenario(hydrateScenarioRouteServices(selection.storePath, storeIdentity, body).scenario)
+  return {
+    id: scenario.id,
+    name: scenario.name,
+    excludedRouteIds: scenario.excludedRouteIds,
+    excludedTripIds: scenario.excludedTripIds,
+    services: scenario.services.map(plannedService),
+  }
 }
 
 async function runScenarioRoadGeometry(projectId, body, signal) {

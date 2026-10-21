@@ -9,6 +9,28 @@ pub(crate) struct Overlay {
     pub input: TimetableOverlayManyQueryInput,
     pub stops: Vec<(String, [f64; 2])>,
 }
+/// Planned services compiled to stop patterns, one per run: a frequency
+/// window or one kept trip. Offsets are seconds after the run's departure.
+#[derive(Default)]
+pub(crate) struct Planned {
+    pub points: Vec<Point>,
+    pub ids: Vec<String>,
+    pub labels: Vec<String>,
+    pub direction_offsets: Vec<u32>,
+    pub direction_stops: Vec<u32>,
+    pub departures: Vec<f64>,
+    pub arrivals: Vec<f64>,
+    pub board: Vec<u8>,
+    pub alight: Vec<u8>,
+    pub starts: Vec<f64>,
+    pub ends: Vec<f64>,
+    pub headways: Vec<f64>,
+    /// Each run's service and whether it runs the service in reverse.
+    pub run_services: Vec<usize>,
+    pub run_inbound: Vec<bool>,
+    /// Resident trips a replacement removes.
+    pub excluded_trips: Vec<u32>,
+}
 impl City {
     pub(crate) fn scenario(
         &mut self,
@@ -17,6 +39,110 @@ impl City {
         origin: &Point,
         opt: &Options,
     ) -> Result<Overlay> {
+        let Planned {
+            points,
+            ids,
+            direction_offsets,
+            direction_stops,
+            departures,
+            arrivals,
+            board,
+            alight,
+            starts,
+            ends,
+            headways,
+            excluded_trips,
+            ..
+        } = self.planned(scenario)?;
+        base.excluded_trips.extend(excluded_trips);
+        let n = self.timetable.as_ref().unwrap().stop_ids.len();
+        let m = points.len();
+        let mut transfers: Vec<HashMap<u32, u32>> = vec![HashMap::new(); n + m];
+        let mut origin_coordinates = origin.coordinate.to_vec();
+        let mut all_coordinates: Vec<f64> = points.iter().flat_map(|p| p.coordinate).collect();
+        origin_coordinates.append(&mut all_coordinates);
+        let walk = self.street.route_street_matrix(StreetMatrixInput {
+            origin_coordinates,
+            destination_coordinates: points.iter().flat_map(|p| p.coordinate).collect(),
+            maximum_distance_m: opt.walk_m,
+            disable_cache: Some(opt.disable_cache),
+        })?;
+        let mut base_stops = vec![];
+        for (i, point) in points.iter().enumerate() {
+            base_stops.push(
+                point
+                    .stop
+                    .as_ref()
+                    .and_then(|id| self.timetable.as_ref().unwrap().index.get(id))
+                    .map(|&v| v as i32)
+                    .unwrap_or(-1),
+            );
+            let outbound = self.street_candidates(point, "origin", opt, 1., 0.)?;
+            let inbound = self.street_candidates(point, "destination", opt, 1., 0.)?;
+            for (stop, duration) in outbound.stops.iter().zip(&outbound.seconds) {
+                transfers[n + i].insert(*stop, duration.ceil() as u32);
+            }
+            for (stop, duration) in inbound.stops.iter().zip(&inbound.seconds) {
+                transfers[*stop as usize].insert((n + i) as u32, duration.ceil() as u32);
+            }
+            if base_stops[i] >= 0 {
+                let stop = base_stops[i] as u32;
+                transfers[n + i].insert(stop, 0);
+                transfers[stop as usize].insert((n + i) as u32, 0);
+            }
+            if walk.distances_m[i].is_finite() {
+                base.origin_stops.push((n + i) as u32);
+                base.origin_walk_seconds.push(
+                    (walk.distances_m[i] / opt.walk_speed.unwrap_or(self.speed)
+                        * 3.6
+                        * self.padding
+                        + self.overhead)
+                        .ceil(),
+                );
+            }
+            for j in 0..m {
+                let distance = walk.distances_m[(i + 1) * m + j];
+                if i != j && distance.is_finite() {
+                    transfers[n + i].insert(
+                        (n + j) as u32,
+                        (distance / opt.walk_speed.unwrap_or(self.speed) * 3.6).ceil() as u32,
+                    );
+                }
+            }
+            base.destination_stops.push((n + i) as u32);
+            base.destination_walk_seconds.push(0.);
+            base.destination_offsets
+                .push(base.destination_stops.len() as u32);
+        }
+        base.allow_post_ride_transfers = Some(vec![false; n + m]);
+        let mut offsets = vec![0];
+        let mut to = vec![];
+        let mut seconds = vec![];
+        for edges in transfers {
+            let mut edges: Vec<_> = edges.into_iter().collect();
+            edges.sort();
+            for (target, duration) in edges {
+                to.push(target);
+                seconds.push(duration);
+            }
+            offsets.push(to.len() as u32);
+        }
+        let mut v = serde_json::to_value(base)?;
+        let extra = json!({"overlayStopCount":m,"overlayBaseStops":base_stops,"directionOffsets":direction_offsets,"directionStops":direction_stops,"directionStopOffsetsSeconds":departures,"directionArrivalOffsetsSeconds":arrivals,"directionCanBoard":board,"directionCanAlight":alight,"serviceStartSeconds":starts,"serviceEndSeconds":ends,"serviceHeadwaySeconds":headways,"supplementalTransferOffsets":offsets,"supplementalTransferTo":to,"supplementalTransferDuration":seconds});
+        for (k, value) in extra.as_object().unwrap() {
+            v[k] = value.clone();
+        }
+        Ok(Overlay {
+            input: serde_json::from_value(v)?,
+            stops: ids
+                .into_iter()
+                .zip(points.into_iter().map(|p| p.coordinate))
+                .collect(),
+        })
+    }
+
+    /// Compile `scenario.services` against the active timetable.
+    pub(crate) fn planned(&mut self, scenario: &Value) -> Result<Planned> {
         let services = scenario["services"]
             .as_array()
             .ok_or("scenario.services must be an array")?;
@@ -35,6 +161,10 @@ impl City {
         let mut starts = vec![];
         let mut ends = vec![];
         let mut headways = vec![];
+        let mut labels = vec![];
+        let mut run_services = vec![];
+        let mut run_inbound = vec![];
+        let mut excluded_trips = vec![];
         for (service_index, s) in services.iter().enumerate() {
             for key in s
                 .as_object()
@@ -94,6 +224,14 @@ impl City {
                             .map(str::to_owned)
                             .unwrap_or(format!("scenario:{service_index}:{i}")),
                     );
+                    labels.push(
+                        stop["label"]
+                            .as_str()
+                            .or(stop["name"].as_str())
+                            .filter(|label| !label.is_empty())
+                            .map(str::to_owned)
+                            .unwrap_or(format!("Planned stop {}", n + 1)),
+                    );
                     n
                 };
                 indexes.push(index);
@@ -120,7 +258,7 @@ impl City {
                             .iter()
                             .position(|v| v == id)
                             .ok_or("Replacement trip is not active on the service date")?;
-                        base.excluded_trips.push(index as u32);
+                        excluded_trips.push(index as u32);
                     }
                 } else if preserve == "frequency" {
                     let route = s["sourceRouteId"]
@@ -136,7 +274,7 @@ impl City {
                     if selected.is_empty() {
                         return fail("Replacement route has no active trips");
                     }
-                    base.excluded_trips.extend(selected);
+                    excluded_trips.extend(selected);
                 }
             }
             let mut add_direction = |indexes: &[u32],
@@ -146,7 +284,8 @@ impl City {
                                      a: Vec<u8>,
                                      start: f64,
                                      end: f64,
-                                     headway: f64|
+                                     headway: f64,
+                                     inbound: bool|
              -> Result<()> {
                 if [dep.len(), arr.len(), b.len(), a.len()]
                     .iter()
@@ -165,6 +304,8 @@ impl City {
                 starts.push(start);
                 ends.push(end);
                 headways.push(headway);
+                run_services.push(service_index);
+                run_inbound.push(inbound);
                 Ok(())
             };
             if preserve == "preserve-trips" {
@@ -178,7 +319,7 @@ impl City {
                     let arr = vec_f64(&trip["arrivalOffsetsSeconds"])?;
                     let b = permissions(trip.get("canBoard"), indexes.len())?;
                     let a = permissions(trip.get("canAlight"), indexes.len())?;
-                    add_direction(&indexes, dep, arr, b, a, start, start, 1.)?;
+                    add_direction(&indexes, dep, arr, b, a, start, start, 1., false)?;
                 }
             } else if preserve == "frequency" {
                 let speed = number(s, "averageSpeedKph", 22., 1., 300.)?;
@@ -263,6 +404,7 @@ impl City {
                     start,
                     end,
                     headway,
+                    false,
                 )?;
                 if flag(s, "bidirectional", true)? {
                     let reverse = offsets(true);
@@ -276,6 +418,7 @@ impl City {
                         start,
                         end,
                         headway,
+                        true,
                     )?;
                 }
             } else {
@@ -285,89 +428,22 @@ impl City {
                 return fail("Planned timetable exceeds one million stop events");
             }
         }
-        let n = self.timetable.as_ref().unwrap().stop_ids.len();
-        let m = points.len();
-        let mut transfers: Vec<HashMap<u32, u32>> = vec![HashMap::new(); n + m];
-        let mut origin_coordinates = origin.coordinate.to_vec();
-        let mut all_coordinates: Vec<f64> = points.iter().flat_map(|p| p.coordinate).collect();
-        origin_coordinates.append(&mut all_coordinates);
-        let walk = self.street.route_street_matrix(StreetMatrixInput {
-            origin_coordinates,
-            destination_coordinates: points.iter().flat_map(|p| p.coordinate).collect(),
-            maximum_distance_m: opt.walk_m,
-            disable_cache: Some(opt.disable_cache),
-        })?;
-        let mut base_stops = vec![];
-        for (i, point) in points.iter().enumerate() {
-            base_stops.push(
-                point
-                    .stop
-                    .as_ref()
-                    .and_then(|id| self.timetable.as_ref().unwrap().index.get(id))
-                    .map(|&v| v as i32)
-                    .unwrap_or(-1),
-            );
-            let outbound = self.street_candidates(point, "origin", opt, 1., 0.)?;
-            let inbound = self.street_candidates(point, "destination", opt, 1., 0.)?;
-            for (stop, duration) in outbound.stops.iter().zip(&outbound.seconds) {
-                transfers[n + i].insert(*stop, duration.ceil() as u32);
-            }
-            for (stop, duration) in inbound.stops.iter().zip(&inbound.seconds) {
-                transfers[*stop as usize].insert((n + i) as u32, duration.ceil() as u32);
-            }
-            if base_stops[i] >= 0 {
-                let stop = base_stops[i] as u32;
-                transfers[n + i].insert(stop, 0);
-                transfers[stop as usize].insert((n + i) as u32, 0);
-            }
-            if walk.distances_m[i].is_finite() {
-                base.origin_stops.push((n + i) as u32);
-                base.origin_walk_seconds.push(
-                    (walk.distances_m[i] / opt.walk_speed.unwrap_or(self.speed)
-                        * 3.6
-                        * self.padding
-                        + self.overhead)
-                        .ceil(),
-                );
-            }
-            for j in 0..m {
-                let distance = walk.distances_m[(i + 1) * m + j];
-                if i != j && distance.is_finite() {
-                    transfers[n + i].insert(
-                        (n + j) as u32,
-                        (distance / opt.walk_speed.unwrap_or(self.speed) * 3.6).ceil() as u32,
-                    );
-                }
-            }
-            base.destination_stops.push((n + i) as u32);
-            base.destination_walk_seconds.push(0.);
-            base.destination_offsets
-                .push(base.destination_stops.len() as u32);
-        }
-        base.allow_post_ride_transfers = Some(vec![false; n + m]);
-        let mut offsets = vec![0];
-        let mut to = vec![];
-        let mut seconds = vec![];
-        for edges in transfers {
-            let mut edges: Vec<_> = edges.into_iter().collect();
-            edges.sort();
-            for (target, duration) in edges {
-                to.push(target);
-                seconds.push(duration);
-            }
-            offsets.push(to.len() as u32);
-        }
-        let mut v = serde_json::to_value(base)?;
-        let extra = json!({"overlayStopCount":m,"overlayBaseStops":base_stops,"directionOffsets":direction_offsets,"directionStops":direction_stops,"directionStopOffsetsSeconds":departures,"directionArrivalOffsetsSeconds":arrivals,"directionCanBoard":board,"directionCanAlight":alight,"serviceStartSeconds":starts,"serviceEndSeconds":ends,"serviceHeadwaySeconds":headways,"supplementalTransferOffsets":offsets,"supplementalTransferTo":to,"supplementalTransferDuration":seconds});
-        for (k, value) in extra.as_object().unwrap() {
-            v[k] = value.clone();
-        }
-        Ok(Overlay {
-            input: serde_json::from_value(v)?,
-            stops: ids
-                .into_iter()
-                .zip(points.into_iter().map(|p| p.coordinate))
-                .collect(),
+        Ok(Planned {
+            points,
+            ids,
+            labels,
+            direction_offsets,
+            direction_stops,
+            departures,
+            arrivals,
+            board,
+            alight,
+            starts,
+            ends,
+            headways,
+            run_services,
+            run_inbound,
+            excluded_trips,
         })
     }
 }

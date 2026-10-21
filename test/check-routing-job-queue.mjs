@@ -9,7 +9,7 @@ function order(operations) {
   return result
 }
 assert.deepEqual(order(['street-route-batch', 'route', 'street-route', 'street-route-batch']), [1, 2, 0, 3])
-assert.deepEqual(order(['street-route-batch', 'window', 'street-route-batch', 'route']), [1, 3, 0, 2])
+assert.deepEqual(order(['street-route-batch', 'street-route', 'street-route-batch', 'route']), [1, 3, 0, 2])
 assert.deepEqual(order(['street-route-batch', 'prepare', 'route']), [0, 1, 2])
 assert.deepEqual(order(['street-route-batch', 'unknown', 'route']), [0, 1, 2])
 assert.deepEqual(order(['prepare', 'street-route-batch', 'route']), [0, 2, 1])
@@ -40,7 +40,7 @@ const timeout = setTimeout(() => { console.error('Routing queue test timed out')
 try {
   submit('street-route-batch', 'active', { gate: gate.buffer })
   submit('street-route-batch', 'batch')
-  for (let i = 1; i <= 6; i += 1) submit(i % 2 ? 'route' : 'window', `point${i}`)
+  for (let i = 1; i <= 6; i += 1) submit(i % 2 ? 'route' : 'street-route', `point${i}`)
   const cancel = new AbortController()
   const cancelled = assert.rejects(submit('route', 'cancelled', {}, cancel.signal), { name: 'AbortError' })
   pending.pop() // The rejection is consumed by assert.rejects.

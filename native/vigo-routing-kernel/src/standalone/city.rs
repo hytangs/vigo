@@ -301,6 +301,11 @@ pub struct City {
     pub(crate) drive: Option<Drive>,
     pub(crate) polling_enabled: bool,
     pub(crate) timetable: Option<Timetable>,
+    /// What the active scenario view adds: new stops and planned services.
+    pub(crate) scenario_view: Option<Arc<super::scenario_route::ScenarioPresentation>>,
+    pub(crate) scenario_views: HashMap<String, Arc<super::scenario_route::ScenarioPresentation>>,
+    /// A scenario Route keeps its view for the whole request.
+    pub(crate) pinned_timetable: bool,
     pub(crate) timetable_cache: super::timetable_cache::TimetableCache,
     pub(crate) query_workspace: Option<crate::timetable::TimetableQueryWorkspace>,
     pub(crate) timetable_preparations: u64,
@@ -657,6 +662,9 @@ impl City {
             drive: None,
             polling_enabled: false,
             timetable: None,
+            scenario_view: None,
+            scenario_views: HashMap::new(),
+            pinned_timetable: false,
             timetable_cache: super::timetable_cache::TimetableCache::from_env()?,
             query_workspace: None,
             timetable_preparations: 0,
@@ -704,6 +712,7 @@ impl City {
         self.stop_index
             .get(id)
             .map(|&i| &self.stops[i])
+            .or_else(|| self.scenario_view.as_ref()?.stops.get(id))
             .ok_or_else(|| format!("Unknown stopId: {id}").into())
     }
     fn calendar(&self) -> Result<&super::calendar::CalendarIndex> {
@@ -966,8 +975,14 @@ impl City {
         Ok((selected.len() < available.len()).then_some(selected))
     }
     pub(crate) fn activate(&mut self, request: &Value) -> Result<()> {
+        if self.pinned_timetable {
+            return Ok(());
+        }
         let started = std::time::Instant::now();
         let result = self.activate_inner(request);
+        if result.is_ok() {
+            self.scenario_view = None;
+        }
         self.timetable_activation_ms += started.elapsed().as_secs_f64() * 1000.;
         result
     }
@@ -1309,7 +1324,7 @@ impl City {
         }
         Ok(self.route_types.get_or_init(|| Arc::new(types)).clone())
     }
-    fn retire_timetable(&mut self) {
+    pub(super) fn retire_timetable(&mut self) {
         if let Some(mut timetable) = self.timetable.take() {
             let workspace = timetable.kernel.take_query_workspace();
             if self.query_workspace.is_none() {
@@ -1327,7 +1342,7 @@ impl City {
             }
         }
     }
-    fn install_query_workspace(&mut self) {
+    pub(super) fn install_query_workspace(&mut self) {
         if let Some(pool) = &mut self.timetable_blocks {
             // Keep the first-date hot path contiguous. Sharing starts only
             // when another date is retained and may reuse these columns.
