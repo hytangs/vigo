@@ -13,7 +13,7 @@ use rusqlite::{Connection, OpenFlags, params};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::f64::consts::PI;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::SystemTime;
 
 const SCHEMA_VERSION: &str = "vigo.local-basemap.v1";
@@ -85,6 +85,7 @@ enum StoredGeometry {
 /// import) is detected by its modification time and length.
 struct StorePool {
     identity: (SystemTime, u64),
+    generation: Arc<()>,
     connections: Vec<Connection>,
 }
 
@@ -99,21 +100,26 @@ fn store_identity(path: &str) -> Result<(SystemTime, u64), String> {
     ))
 }
 
-fn checkout(path: &str) -> Result<(Connection, (SystemTime, u64)), String> {
+fn checkout(path: &str) -> Result<(Connection, Arc<()>), String> {
     let identity = store_identity(path)?;
-    if let Ok(mut pools) = STORE_POOLS.lock() {
-        match pools.get_mut(path) {
-            Some(pool) if pool.identity == identity => {
-                if let Some(connection) = pool.connections.pop() {
-                    return Ok((connection, identity));
-                }
-            }
-            Some(_) => {
-                pools.remove(path);
-            }
-            None => {}
+    let generation = {
+        let mut pools = STORE_POOLS.lock().map_err(|error| error.to_string())?;
+        if pools
+            .get(path)
+            .is_some_and(|pool| pool.identity != identity)
+        {
+            pools.remove(path);
         }
-    }
+        let pool = pools.entry(path.to_string()).or_insert_with(|| StorePool {
+            identity,
+            generation: Arc::new(()),
+            connections: Vec::new(),
+        });
+        if let Some(connection) = pool.connections.pop() {
+            return Ok((connection, Arc::clone(&pool.generation)));
+        }
+        Arc::clone(&pool.generation)
+    };
     let connection = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -122,18 +128,25 @@ fn checkout(path: &str) -> Result<(Connection, (SystemTime, u64)), String> {
     connection
         .execute_batch("PRAGMA query_only=ON; PRAGMA cache_size=-4096; PRAGMA temp_store=MEMORY;")
         .map_err(|error| error.to_string())?;
-    Ok((connection, identity))
+    Ok((connection, generation))
 }
 
-fn checkin(path: &str, identity: (SystemTime, u64), connection: Connection) {
+fn checkin(path: &str, generation: Arc<()>, connection: Connection) {
+    if let Ok(mut pools) = STORE_POOLS.lock()
+        && let Some(pool) = pools.get_mut(path)
+        && Arc::ptr_eq(&pool.generation, &generation)
+        && pool.connections.len() < POOLED_CONNECTIONS
+    {
+        pool.connections.push(connection);
+    }
+}
+
+/// Release idle readers before replacing or deleting a street store. In-flight
+/// tiles from the retired generation close their readers instead of caching them.
+#[cfg(any(feature = "node", test))]
+pub fn dispose_local_basemap_store(path: &str) {
     if let Ok(mut pools) = STORE_POOLS.lock() {
-        let pool = pools.entry(path.to_string()).or_insert_with(|| StorePool {
-            identity,
-            connections: Vec::new(),
-        });
-        if pool.identity == identity && pool.connections.len() < POOLED_CONNECTIONS {
-            pool.connections.push(connection);
-        }
+        pools.remove(path);
     }
 }
 
@@ -1052,9 +1065,9 @@ pub fn local_basemap_tile(path: &str, z: u32, x: u32, y: u32) -> Result<Vec<u8>,
             "Tile {z}/{x}/{y} is outside the Web Mercator pyramid."
         ));
     }
-    let (connection, identity) = checkout(path)?;
+    let (connection, generation) = checkout(path)?;
     let result = render(&connection, z, x, y);
-    checkin(path, identity, connection);
+    checkin(path, generation, connection);
     result
 }
 
@@ -1083,6 +1096,11 @@ pub(crate) mod node {
         fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
             Ok(output.into())
         }
+    }
+
+    #[napi]
+    pub fn dispose_local_basemap_store(store_path: String) {
+        super::dispose_local_basemap_store(&store_path);
     }
 
     /// Render one offline basemap tile on the libuv pool.
@@ -1238,7 +1256,15 @@ mod tests {
         let inland = tile_kinds(&local_basemap_tile(store, 14, 8190, 8191).unwrap());
         assert!(!inland.contains(&"ocean".to_string()), "{inland:?}");
         assert!(local_basemap_tile(store, 3, 9, 0).is_err());
-        let _ = std::fs::remove_file(&path);
+        let (retired, old_generation) = checkout(store).unwrap();
+        dispose_local_basemap_store(store);
+        let (current, generation) = checkout(store).unwrap();
+        checkin(store, old_generation, retired);
+        assert!(STORE_POOLS.lock().unwrap()[store].connections.is_empty());
+        checkin(store, generation, current);
+        assert_eq!(STORE_POOLS.lock().unwrap()[store].connections.len(), 1);
+        dispose_local_basemap_store(store);
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]

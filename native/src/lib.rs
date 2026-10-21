@@ -96,7 +96,9 @@ mod route_materialization;
 pub use route_materialization::{ShapeGeometry, ShapeGeometrySource, stable_key_suffix};
 // Addon exports defined in crate-private modules.
 #[cfg(feature = "node")]
-pub use basemap_tiles::node::{LocalBasemapTileTask, local_basemap_tile};
+pub use basemap_tiles::node::{
+    LocalBasemapTileTask, dispose_local_basemap_store, local_basemap_tile,
+};
 #[cfg(feature = "node")]
 pub use fares::node::{
     FareEventDayResult, NativeFareCatalog, fare_currency_scales, native_fare_event_day,

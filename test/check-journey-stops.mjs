@@ -96,7 +96,7 @@ const paymentOpen=await w.webContents.executeJavaScript(\`document.querySelector
 if(!paymentOpen)throw Error('Payment details cannot be expanded');
 app.exit(0)}catch(error){console.error(error);app.exit(1)}});`)
   const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE
-  const child = spawn(electronPath, [main], { env, stdio: 'inherit' })
+  const child = spawn(electronPath, [...(process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : []), main], { env, stdio: 'inherit' })
   const timeout = setTimeout(() => child.kill(), 30000)
   try { assert.equal(await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve) }), 0) }
   finally { clearTimeout(timeout) }

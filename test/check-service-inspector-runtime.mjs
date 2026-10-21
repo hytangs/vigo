@@ -26,7 +26,7 @@ for(const [width,height,appearance,expanded] of [[1440,900,'dark',false],[1440,9
 console.log(await w.webContents.executeJavaScript('window.finishInspector()'));app.exit(0)}catch(e){console.error(e);app.exit(1)}});`)
 try {
  const env={...process.env}; delete env.ELECTRON_RUN_AS_NODE
- const child=spawn(electronPath,[...(process.platform==='linux'&&process.env.CI?['--no-sandbox']:[]),main],{env,stdio:'inherit'})
+ const child=spawn(electronPath,[...(process.platform==='darwin'?[]:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']),...(process.platform==='linux'&&process.env.CI?['--no-sandbox']:[]),main],{env,stdio:'inherit'})
  const timeout=setTimeout(()=>child.kill(),45000)
  try{const code=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',resolve)});if(code!==0)throw Error(`Service inspector fixture exited ${code}`)}finally{clearTimeout(timeout)}
 }finally{await server.close();await Promise.all(['vite-cache','profile'].map(n=>fs.rm(path.join(directory,n),{recursive:true,force:true})))}
