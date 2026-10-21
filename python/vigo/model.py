@@ -125,8 +125,11 @@ class Matrix:
 
 @dataclass(frozen=True, slots=True)
 class Reach:
-    origin: Point
-    depart_at: str | dt.time | dt.datetime = "08:00"
+    """Where an origin reaches by ``depart_at``, or where a ``destination``
+    is reached from by the ``arrive_by`` deadline."""
+
+    origin: Point | None = None
+    depart_at: str | dt.time | dt.datetime | None = None
     service_date: str | dt.date | None = None
     cutoffs_minutes: Sequence[float] = (15, 30, 45, 60)
     max_walk_km: float = 1.2
@@ -136,6 +139,8 @@ class Reach:
     mode: str = "transit"
     surface_sampling: str = "street"
     include_street_edges: bool = False
+    destination: Point | None = None
+    arrive_by: str | dt.time | dt.datetime | None = None
 
 
 Query = Route | Matrix | Reach
@@ -813,7 +818,7 @@ class City:
     ) -> Result:
         return self.run(Matrix(origins, destinations, **options))
 
-    def reach(self, origin: Point, **options: Any) -> Result:
+    def reach(self, origin: Point | None = None, **options: Any) -> Result:
         return self.run(Reach(origin, **options))
 
     @overload
@@ -856,9 +861,28 @@ class City:
                 raise InvalidQuery("surface_sampling must be street or cell-center")
             if type(query.include_street_edges) is not bool:
                 raise InvalidQuery("include_street_edges must be boolean")
-            modes = self._query_capability("reach").get("modes", {}).get("available", ())
+            # Depart-at Reach spreads from an origin; arrive-by Reach gathers
+            # toward a destination, as in the Engine's request contract.
+            if query.depart_at is not None and query.arrive_by is not None:
+                raise InvalidQuery("choose depart_at or arrive_by, not both")
+            if query.arrive_by is not None:
+                if query.origin is not None:
+                    raise InvalidQuery("Arrive-by Reach takes a destination, not an origin")
+                if query.destination is None:
+                    raise InvalidQuery("Arrive-by Reach requires a destination")
+            elif query.destination is not None:
+                raise InvalidQuery("Reach with a destination requires arrive_by")
+            elif query.origin is None:
+                raise InvalidQuery("Reach requires an origin, or a destination with arrive_by")
+            capability = self._query_capability("reach")
+            modes = capability.get("modes", {}).get("available", ())
             if query.mode == "walk" and "walk" not in modes:
                 return Support(False, "walk_reach", ("runtime with walking Reach support",))
+            if (
+                query.arrive_by is not None
+                and "arrive_by" not in capability.get("time", {}).get("available", ())
+            ):
+                return Support(False, "arrive_by_reach", ("depart_at",))
         if isinstance(query, (Route, Matrix)):
             if type(query.disable_cache) is not bool:
                 raise InvalidQuery("disable_cache must be boolean")
@@ -1163,14 +1187,26 @@ class City:
 
     def _reach(self, query: Reach, scenario: Scenario | None) -> Result:
         started = time.perf_counter()
-        clock, service_date = _clock(query.depart_at, query.service_date)
+        arrive = query.arrive_by is not None
+        selected_time = query.arrive_by if arrive else query.depart_at
+        clock, service_date = _clock(
+            "08:00" if selected_time is None else selected_time, query.service_date
+        )
+        endpoint = query.destination if arrive else query.origin
+        assert endpoint is not None, "_support requires the endpoint for this direction"
+        # Depart-at requests keep their 0.5 form; only arrive-by adds a preference.
+        place = (
+            {"timePreference": "arrive_by", "destination": _point_payload(endpoint)}
+            if arrive
+            else {"origin": _point_payload(endpoint)}
+        )
         request = {
             "mode": query.mode,
             "surfaceSampling": query.surface_sampling,
             "includeStreetEdges": query.include_street_edges,
             "time": clock,
             "maxWalkKm": query.max_walk_km,
-            "origin": _point_payload(query.origin),
+            **place,
             "cutoffsMinutes": list(query.cutoffs_minutes),
             "extentRadiusKm": query.extent_radius_km,
             "rasterSize": query.raster_size,
@@ -1288,7 +1324,7 @@ class Scenario:
     ) -> Result:
         return self.run(Matrix(origins, destinations, **options))
 
-    def reach(self, origin: Point, **options: Any) -> Result:
+    def reach(self, origin: Point | None = None, **options: Any) -> Result:
         return self.run(Reach(origin, **options))
 
     @overload

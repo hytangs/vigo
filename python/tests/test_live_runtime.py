@@ -336,6 +336,32 @@ class LiveRuntimeTest(unittest.TestCase):
                         self.assertAlmostEqual(route.value[field], journey[field], delta=0.003)
                     self.assertTrue(journey["legs"])
 
+    def test_arrive_by_reach_gathers_toward_a_destination(self) -> None:
+        options = {"service_date": "2026-07-15", "max_walk_km": 0.2, "raster_size": 48,
+                   "extent_radius_km": 2, "cutoffs_minutes": (15, 30, 45)}
+        query = vigo.Reach(destination="B", arrive_by="08:30", **options)
+        support = self.city.supports(query)
+        if not support.supported:
+            self.assertEqual(support.reason, "arrive_by_reach")
+            with self.assertRaises(vigo.UnsupportedQuery):
+                self.city.run(query)
+            self.skipTest("runtime does not advertise arrive-by Reach")
+        for mode in ("transit", "walk"):
+            with self.subTest(mode=mode):
+                result = self.city.run(vigo.Reach(destination="B", arrive_by="08:30", mode=mode, **options))
+                self.assertEqual(result.status, "ready")
+                self.assertEqual(result.query["timePreference"], "arrive_by")
+                self.assertNotIn("origin", result.query)
+                self.assertEqual(len(result.value["values"]), 48 * 48)
+                one_shot = _one_shot(self.city.runtime, self.city.path, "reach", {
+                    "destination": "B", "timePreference": "arrive_by", "mode": mode,
+                    "rasterSize": 48, "extentRadiusKm": 2, "cutoffsMinutes": [15, 30, 45],
+                }, ["--service-date=2026-07-15", "--time=08:30", "--max-walk=0.2"], 30)
+                for field in ("values", "width", "height", "bounds"):
+                    self.assertEqual(result.value[field], one_shot["surface"][field])
+        with self.assertRaises(vigo.InvalidQuery):
+            self.city.reach("A", arrive_by="08:30", **options)
+
     def test_reach_replacement_and_compare(self) -> None:
         options = {
             "depart_at": "07:55",

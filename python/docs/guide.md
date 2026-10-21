@@ -189,6 +189,8 @@ to the deadline, including destination waiting.
 
 Compute where the represented network can travel within stated time limits. A Reach Result may be viewed as contours or reached streets.
 
+Depart-at Reach spreads from an origin. Arrive-by Reach gathers toward a destination: it maps where a traveler can leave from and still arrive by a deadline, such as the homes that can reach a school by 08:30.
+
 Reach is not Accessibility. Accessibility requires opportunities such as jobs, population, schools, or healthcare in addition to travel impedance.
 
 ### Result
@@ -365,7 +367,7 @@ with vigo.open("./boston") as city:
     print(difference.value)
 ```
 
-Reach's radius bounds the computed area; increasing it changes the analysis, not just the map zoom. Keep the grid, date, time, walking assumptions, and origin aligned. Compare checks grid compatibility but does not establish that all study assumptions match. Report newly reachable and no-longer-reachable cells beside duration changes among comparable cells. Reach alone does not measure jobs, people, or other opportunities.
+Reach's radius bounds the computed area; increasing it changes the analysis, not just the map zoom. Keep the grid, date, time, direction, walking assumptions, and origin or destination aligned. Compare checks grid compatibility but does not establish that all study assumptions match. Report newly reachable and no-longer-reachable cells beside duration changes among comparable cells. Reach alone does not measure jobs, people, or other opportunities.
 
 ### Run independent queries concurrently
 
@@ -485,7 +487,7 @@ Equal-objective Matrix journeys can differ from Route in which tied path they ch
 
 ### Reach
 
-`value` contains the travel-time surface; `to_geojson()` returns contours. The grid size and bounds belong to the computation. `extent_radius_km` limits the area computed around the origin, and `raster_size` controls its resolution. A contour is a representation of this model, not a guarantee that every location inside a polygon has identical access.
+`value` contains the travel-time surface; `to_geojson()` returns contours. The grid size and bounds belong to the computation. `extent_radius_km` limits the area computed around the origin, or the destination for arrive-by Reach, and `raster_size` controls its resolution. An arrive-by value is the time between the latest departure from that place and the deadline, so it includes any wait after an early arrival. `query` records `destination` and `timePreference: "arrive_by"` in place of `origin`. A contour is a representation of this model, not a guarantee that every location inside a polygon has identical access.
 
 Reach measures travel impedance. An accessibility measure additionally needs opportunity data and an aggregation rule, such as counting jobs below a travel-time threshold. Keep those external inputs and assumptions separate from the Reach Result.
 
@@ -804,7 +806,7 @@ For Matrix, inspect each row even when the Result itself is ready. Do not retry 
 | A query times out | Use `vigo.open(..., timeout=...)` for query limits. Build timeout and `Job.wait(timeout=...)` control different operations. |
 | `job.wait()` times out but work continues | The wait timed out; it did not cancel the running Query. `cancel()` only cancels queued work. |
 | Arrive-by Matrix duration is longer than the journey | The row measures to the deadline; the nested journey can arrive earlier. |
-| Reach comparisons reject two maps | Their computation grids must have identical bounds and dimensions. Match origin, extent, and raster size. |
+| Reach comparisons reject two maps | Their computation grids must have identical bounds and dimensions. Match origin or destination, extent, and raster size. |
 | A comparison reports fewer pairs than expected | Matrix comparison includes matched IDs only. Check unique IDs, stable endpoint meanings, and pair coverage. |
 
 Keep runtime preparation, computation, Python call duration, and export time separate. The [runtime guide](#measure-the-complete-operation) describes these boundaries.

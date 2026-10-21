@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Add arrive-by Reach: `city.reach(destination=..., arrive_by="08:30", ...)` maps where a destination can be reached from by a deadline. It requires a runtime whose Reach capabilities include `arrive_by`; otherwise `supports()` reports `arrive_by_reach`. An origin with `arrive_by`, or a destination without it, raises `InvalidQuery`, as the engine does.
+- `Reach.origin` and `Reach.depart_at` now default to `None`; a Reach with neither time still departs at 08:00, and depart-at requests are unchanged.
+
 ## 0.5.2
 
 - Replace the four single-cell notebooks with one runnable walkthrough, `examples/walkthrough.ipynb`: it opens or builds a City and covers Route (arrive-by and alternatives), Matrix with blocked pairs, journey and leg tables, Reach, a Scenario comparison, parallel and outcome-keeping batches, and a reproducible study record. Rewrite the README around installation, a first journey, and reading Results correctly.
