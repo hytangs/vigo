@@ -52,6 +52,7 @@ export type RouteState = {
   routingMode: RoutingTravelMode
   routingDataMode: RoutingDataMode
   routingDepartureWindowMinutes: RoutingDepartureWindowMinutes
+  routingWalkLimitExplicit: boolean
   routingMaxWalkKm: number
   routingMaxTransfers: number | undefined
   routingAllowLongWalk: boolean
@@ -83,6 +84,7 @@ const initialRouteState = (): RouteState => ({
   routingDataMode: readRoutingDataModePreference(),
   routingDepartureWindowMinutes: 20,
   routingMaxWalkKm: 1.2,
+  routingWalkLimitExplicit: false,
   routingMaxTransfers: undefined,
   routingAllowLongWalk: true,
   routingAllowStreetTransfers: true,
@@ -278,7 +280,7 @@ export function changeRoutingDepartureWindow(routingDepartureWindowMinutes: Rout
 }
 
 export function changeRoutingMaxWalkKm(km: number) {
-  route.set({ routingMaxWalkKm: Math.max(0.2, Math.min(5, km)), selectedRoutingPlanId: '' })
+  route.set({ routingWalkLimitExplicit: true, routingMaxWalkKm: Math.max(0.2, Math.min(5, km)), selectedRoutingPlanId: '' })
 }
 
 export const setRoutingMaxTransfers = (routingMaxTransfers: number | undefined) => route.set({ routingMaxTransfers })

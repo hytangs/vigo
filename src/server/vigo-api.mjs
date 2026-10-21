@@ -1,3 +1,4 @@
+import { withStudioWalkingAlternatives } from './studio-walking-alternatives.mjs'
 import { wheelchairDescription } from './wheelchair-policy.mjs'
 import { studioWheelchairAvailability, studioWheelchairSelection } from './studio-wheelchair.mjs'
 import { routingResultStatus } from './gtfs/route-results.mjs'
@@ -3357,7 +3358,7 @@ async function runNationalRoute(projectId, body, signal) {
     throw error
   }
   const waypoints = Array.isArray(body?.waypoints) ? body.waypoints : []
-  if (!waypoints.length) return runSingleNationalRoute(projectId, body, signal)
+  if (!waypoints.length) return withStudioWalkingAlternatives(body, request => runSingleNationalRoute(projectId, request, signal), signal)
 
   if (body?.departNow !== undefined && body.departNow !== false) {
     const project = await readProjectMetadata(projectId)

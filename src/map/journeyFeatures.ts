@@ -75,6 +75,7 @@ export function routingLineFeatures(plan: RoutingPlan | null | undefined): Featu
         legType: leg.type,
         travelMode: leg.travelMode ?? '',
         walkSource: leg.walkSource ?? '',
+        approximateWalk: leg.type === 'walk' && (leg.geometrySource === 'stop_coordinate_fallback' || leg.stationAccessStatus === 'unverified' || leg.streetPathVerified === false),
         routeShortName: leg.routeShortName ?? '',
         routeColor: mapColor(leg.routeColor, '#7ddfe8'),
         durationMinutes: leg.durationMinutes,

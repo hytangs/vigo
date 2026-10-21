@@ -1,5 +1,6 @@
+import { ImportJobAction } from '../ImportJobAction'
 import { quietMapLabel } from './presentation'
-import { Activity, ChevronDown, Download, FileArchive, Navigation2, Radio, RefreshCw, TableProperties, XCircle } from 'lucide-react'
+import { Activity, ChevronDown, Download, FileArchive, Navigation2, Radio, TableProperties } from 'lucide-react'
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { requestDesktopGtfsFile, requestDesktopOsmFile } from '../../app/desktopBridge'
 import { getTableProfiles, hasOperationsData } from '../../app/projectState'
@@ -70,9 +71,7 @@ export function ImportPanel(props: CityImportProps & { library?: (chooseGtfs: ()
     </button>}
     {isImporting || gtfsFailed || gtfsError ? <div className="city-import-status" role="status">
       <span>{gtfsError || importMessage || (isImporting ? 'Preparing timetable…' : 'Timetable preparation did not finish.')}</span>
-      <button type="button" className="import-job-action" onClick={isImporting ? onCancelGtfs : gtfsError ? chooseGtfs : onRetryGtfs}>
-        {isImporting ? <XCircle size={14} /> : <RefreshCw size={14} />}{isImporting ? 'Cancel' : gtfsError ? 'Choose file' : 'Retry'}
-      </button>
+      <ImportJobAction running={isImporting} label={isImporting ? 'Cancel timetable preparation' : gtfsError ? 'Choose file' : 'Retry'} onClick={isImporting ? onCancelGtfs : gtfsError ? chooseGtfs : onRetryGtfs} />
     </div> : null}
     <section className="city-shared-data" aria-label="Shared City data">
       <div className={classNames('osm-import-strip', osmStreetReady && 'has-osm')}>
@@ -101,9 +100,7 @@ export function ImportPanel(props: CityImportProps & { library?: (chooseGtfs: ()
         </small>
       </div>
       {isOsmImporting || osmFailed || osmError ? <div className="city-import-status" role="status"><span>{osmError || osmStreetMessage || 'Preparing street network…'}</span>
-        <button type="button" className="import-job-action" onClick={isOsmImporting ? onCancelOsm : osmError ? chooseOsm : onRetryOsm}>
-          {isOsmImporting ? <XCircle size={14} /> : <RefreshCw size={14} />}{isOsmImporting ? 'Cancel' : osmError ? 'Choose file' : 'Retry'}
-        </button>
+        <ImportJobAction running={isOsmImporting} label={isOsmImporting ? 'Cancel street preparation' : osmError ? 'Choose file' : 'Retry'} onClick={isOsmImporting ? onCancelOsm : osmError ? chooseOsm : onRetryOsm} />
       </div> : null}
       <details className="city-live-disclosure">
         <summary><Radio size={19} aria-hidden="true" /><span>Live updates</span><small className={liveAttention ? 'city-data-warning' : undefined}>{liveLabel}</small><ChevronDown size={16} /></summary>

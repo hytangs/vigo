@@ -197,6 +197,7 @@ export type RoutingPlan = {
     sourceEqualTimeRideCount?: number
     sourceEqualTimeConnectionCount?: number
     routingHorizonMinutes?: number
+    expandedWalkingLimitKm?: number
     walkingNetwork: RoutingWalkSource
     walkingSpeedKph: number
     osmWalkEdges?: number

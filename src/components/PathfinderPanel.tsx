@@ -296,6 +296,7 @@ export function PathfinderRouteList({
                     ? `${formatRoutingMinutes(totalElapsedMinutes)} from the requested departure, including ${formatRoutingMinutes(startWaitMinutes)} before leaving; ${formatRoutingMinutes(journeyMinutes)} travelling`
                     : 'Time from leaving to arriving'}>{formatRoutingMinutes(totalElapsedMinutes)} total</b>
                 </span>
+                {plan.diagnostics.expandedWalkingLimitKm ? <span className="pathfinder-route-rationale">More walking allowed · up to {plan.diagnostics.expandedWalkingLimitKm} km at each end</span> : null}
                 {plan.legs.length ? <JourneyLegStrip plan={plan} /> : null}
                 {departures.length > 1 ? <strong className="pathfinder-group-services">{serviceNames}</strong> : null}
                 <span className="pathfinder-route-rationale">

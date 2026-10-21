@@ -422,6 +422,7 @@ export function ensureLayers(map: MapLibreMap) {
         'line-color': '#0d8bd9',
         'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.4, 13, 2.6],
         'line-opacity': 0.94,
+        'line-dasharray': ['case', ['==', ['get', 'approximateWalk'], true], ['literal', [2, 2]], ['literal', [1, 0]]] as ExpressionSpecification,
       },
       layout: { 'line-cap': 'round', 'line-join': 'round' },
     })

@@ -47,6 +47,7 @@ type UseNationalRoutingOptions = {
   timePreference: RoutingTimePreference
   serviceDay: ServiceDay
   serviceDate: string
+  autoExpandWalking?: boolean
   maxWalkKm: number
   maxTransfers?: number
   allowLongWalk: boolean
@@ -88,6 +89,7 @@ export function useNationalRouting({
   serviceDay,
   serviceDate,
   maxWalkKm,
+  autoExpandWalking = false,
   maxTransfers,
   allowLongWalk,
   allowStreetTransfers,
@@ -150,6 +152,7 @@ export function useNationalRouting({
     allowServiceDateFallback: false,
     requireTransitRide: mode === 'transit' ? false : undefined,
     maxWalkKm,
+    autoExpandWalking,
     maxTransfers: mode === 'transit' && waypoints.length ? undefined : maxTransfers,
     allowLongWalk,
     allowStreetTransfers,
@@ -162,7 +165,7 @@ export function useNationalRouting({
     maxStreetKm: mode === 'drive' ? 750 : 50,
     departureWindowMinutes: streetMode ? 0 : departureWindowMinutes,
     departureWindowDirection: !streetMode && departureWindowMinutes > 0 ? 'forward' : undefined,
-  } }), [wheelchair, allowLongWalk, allowStreetTransfers, minimumTransferBufferMinutes, departNow, departureWindowMinutes, destination, feedId, maxWalkKm, maxTransfers, mode, runRevision, origin, projectId, requestDepartMinutes, requestServiceDate, requestServiceDay, requestTimePreference, routeScenario, routingDataMode, storeKey, streetKey, streetMode, waypoints])
+  } }), [autoExpandWalking, wheelchair, allowLongWalk, allowStreetTransfers, minimumTransferBufferMinutes, departNow, departureWindowMinutes, destination, feedId, maxWalkKm, maxTransfers, mode, runRevision, origin, projectId, requestDepartMinutes, requestServiceDate, requestServiceDay, requestTimePreference, routeScenario, routingDataMode, storeKey, streetKey, streetMode, waypoints])
   const completedRequest = useRef<typeof request | null>(null)
 
   const reset = useCallback(() => {
