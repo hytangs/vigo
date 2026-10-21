@@ -796,6 +796,30 @@ For map display, Reach accepts `reachFormat: "map"`. It returns the full reached
 
 Street evidence is `surface.edges` with schema `vigo.standalone.street-edges.v2`, encoding `indexed-json`. It retains partial directed intervals, with coordinates and times decoded as shown under [Reach output](#decode-directed-street-evidence). This encoding differs from Studio's binary edge bundles.
 
+### All-day Reach
+
+The Rust CLI and native HTTP Reach endpoint accept `allDay` as a temporal extension of the existing query. It samples scheduled depart-at transit every **five minutes**. The default window is `[0, 1440)` service-day minutes (288 samples); a shorter window can be supplied. No separate engine or job service is required.
+
+```json
+{
+  "kind": "reach",
+  "origin": {"stopId": "B"},
+  "serviceDate": "2026-07-15",
+  "allDay": {"startMinutes": 0, "endMinutes": 1440},
+  "cutoffsMinutes": [15, 30, 45],
+  "maxWalkKm": 0.5,
+  "rasterSize": 48,
+  "extentRadiusKm": 2,
+  "reachFormat": "surface"
+}
+```
+
+Save this request and run `vigo reach --city city --request all-day.json`, or send it as a line to the native `stream` command. Do not specify `time` or `timeMinutes`. This initial mode supports street sampling, scheduled transit and depart-at queries only; scenarios, live state, arrive-by, cell-center sampling, polygons and per-sample output are excluded. It is not yet exposed in Studio or the Node compiler CLI.
+
+The result keeps `schema: "vigo.reach.v1"`. `allDay.sampleCount` is the denominator; the row-major `surface` contains `reachableSamples`, `meanReachableDurationSeconds` (null when never reachable), and `reachableSamplesByCutoff` (one row per `cutoffsSeconds` entry). Divide a cutoff count by the sample count for the fraction of sampled departures reaching that cell within that cutoff. Means include only samples reachable within the maximum cutoff: unreachable samples are **not zero**, and a low conditional mean does not imply reliable all-day access. There is no single `valuesSeconds` raster or requested departure time for the aggregate.
+
+Walking indexes and cached origin access are shared in one resident City. Each sample runs the existing Reach search and street propagation; only one sample raster and online accumulators are retained, so aggregation memory does not grow with the number of times sampled. Changed transit seeds are not assumed safe for cross-time street-label reuse. Five-minute sampling estimates service-day reachability, not continuous-time guarantees or counts of jobs/population. Opportunity-weighted accessibility remains a separate downstream calculation.
+
 ## 10. Scenarios
 
 Test service changes by applying a scenario to a Reach or transit Route query. Each scenario lasts for that request; it leaves the City and later requests unchanged.

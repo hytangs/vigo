@@ -8124,11 +8124,32 @@
       "ReachRequest": {
         "type": "object",
         "properties": {
+          "allDay": {
+            "type": "object",
+            "properties": {
+              "startMinutes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1439,
+                "default": 0
+              },
+              "endMinutes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1440,
+                "default": 1440
+              }
+            },
+            "required": [],
+            "additionalProperties": false,
+            "description": "Scheduled depart-at transit, street sampling, five-minute steps, end exclusive. Omit time/timeMinutes. Online aggregation; surface output only."
+          },
           "reachFormat": {
             "type": "string",
             "enum": [
               "full",
-              "map"
+              "map",
+              "surface"
             ],
             "default": "full"
           },
@@ -8322,12 +8343,21 @@
             "oneOf": [
               {
                 "required": [
-                  "time"
+                  "allDay"
                 ]
               },
               {
-                "required": [
-                  "timeMinutes"
+                "oneOf": [
+                  {
+                    "required": [
+                      "time"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "timeMinutes"
+                    ]
+                  }
                 ]
               }
             ]
@@ -10191,15 +10221,57 @@
                   ],
                   "minimum": 0
                 }
+              },
+              "reachableSamples": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 288
+                }
+              },
+              "meanReachableDurationSeconds": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0
+                }
+              },
+              "reachableSamplesByCutoff": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 288
+                  }
+                }
               }
             },
             "required": [
               "width",
               "height",
-              "bounds",
-              "valuesSeconds"
+              "bounds"
             ],
-            "additionalProperties": true
+            "additionalProperties": true,
+            "oneOf": [
+              {
+                "required": [
+                  "valuesSeconds"
+                ]
+              },
+              {
+                "required": [
+                  "reachableSamples",
+                  "meanReachableDurationSeconds",
+                  "reachableSamplesByCutoff"
+                ]
+              }
+            ]
           },
           "fullSurface": {
             "type": "object",
@@ -10229,15 +10301,57 @@
                   ],
                   "minimum": 0
                 }
+              },
+              "reachableSamples": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 288
+                }
+              },
+              "meanReachableDurationSeconds": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "minimum": 0
+                }
+              },
+              "reachableSamplesByCutoff": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 288
+                  }
+                }
               }
             },
             "required": [
               "width",
               "height",
-              "bounds",
-              "valuesSeconds"
+              "bounds"
             ],
-            "additionalProperties": true
+            "additionalProperties": true,
+            "oneOf": [
+              {
+                "required": [
+                  "valuesSeconds"
+                ]
+              },
+              {
+                "required": [
+                  "reachableSamples",
+                  "meanReachableDurationSeconds",
+                  "reachableSamplesByCutoff"
+                ]
+              }
+            ]
           },
           "bounds": {
             "type": "array",

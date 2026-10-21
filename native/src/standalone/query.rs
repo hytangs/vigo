@@ -141,6 +141,17 @@ impl City {
         self.execute_output(command, request, true)
     }
     fn execute_output(&mut self, command: &str, request: &Value, detailed: bool) -> Result<Value> {
+        if request.get("allDay").is_some() {
+            if !matches!(command, "reach" | "isochrone") {
+                return fail("allDay applies only to Reach");
+            }
+            let result = self.reach_all_day(request, detailed);
+            if let Ok(output) = &result {
+                super::memory::record_output(command, &Value::Null, output);
+            }
+            super::release_preparation_memory();
+            return result;
+        }
         let now = super::clock::depart_now(self, request)?;
         let request = now.as_ref().unwrap_or(request);
         crate::presentation::validate(request)?;

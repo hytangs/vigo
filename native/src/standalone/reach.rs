@@ -10,6 +10,179 @@ use std::collections::{HashMap, HashSet};
 type PolygonRenderer = fn(&[f64], usize, usize, &[f64], &[f64]) -> Value;
 
 impl City {
+    /// Temporal extension of Reach. Keep one raster plus online accumulators;
+    /// resident street indexes and endpoint access survive between samples.
+    pub(super) fn reach_all_day(&mut self, request: &Value, detailed: bool) -> Result<Value> {
+        let started = std::time::Instant::now();
+        crate::presentation::validate(request)?;
+        let window = request["allDay"]
+            .as_object()
+            .ok_or("allDay must be an object")?;
+        for key in window.keys() {
+            if !["startMinutes", "endMinutes"].contains(&key.as_str()) {
+                return fail(format!("Unknown allDay option: {key}"));
+            }
+        }
+        let start = number(&request["allDay"], "startMinutes", 0., 0., 1439.)?;
+        let end = number(&request["allDay"], "endMinutes", 1440., 1., 1440.)?;
+        if start.fract() != 0. || end.fract() != 0. || start >= end {
+            return fail(
+                "allDay requires integer minutes with 0 <= startMinutes < endMinutes <= 1440",
+            );
+        }
+        if request["mode"].as_str().unwrap_or("transit") != "transit"
+            || !matches!(
+                request["timePreference"].as_str(),
+                None | Some("depart" | "depart_at")
+            )
+            || request["surfaceSampling"]
+                .as_str()
+                .is_some_and(|v| v != "street")
+            || request
+                .get("routingDataMode")
+                .or_else(|| request.get("dataMode"))
+                .is_some_and(|v| v != "scheduled")
+        {
+            return fail("allDay supports scheduled depart-at transit Reach with street sampling");
+        }
+        for key in [
+            "time",
+            "timeMinutes",
+            "departNow",
+            "scenario",
+            "surfaceReuse",
+            "realtimeSnapshot",
+            "traffic",
+        ] {
+            if request.get(key).is_some() {
+                return fail(format!("{key} does not apply to allDay Reach"));
+            }
+        }
+        if request["disableCache"] == true
+            || request["includeNodes"] == true
+            || request["includeStreetEdges"] == true
+            || request.get("arrayEncoding").is_some()
+            || request["reachFormat"]
+                .as_str()
+                .is_some_and(|v| v != "surface")
+        {
+            return fail(
+                "allDay requires cached surface output without node/edge evidence or array encoding",
+            );
+        }
+        let mut query = request.clone();
+        crate::presentation::normalize_points(&mut query)?;
+        let object = query
+            .as_object_mut()
+            .ok_or("Reach request must be an object")?;
+        for key in ["allDay", "diagnostics", "includeLimitations"] {
+            object.remove(key);
+        }
+        query["reachFormat"] = json!("surface");
+        // Preserve supplied types and aliases for the ordinary validator.
+        // Inserting routingDataMode beside dataMode would create a conflict.
+        if query.get("mode").is_none() {
+            query["mode"] = json!("transit");
+        }
+        if query.get("routingDataMode").is_none() && query.get("dataMode").is_none() {
+            query["routingDataMode"] = json!("scheduled");
+        }
+        let mut counts: Vec<u32> = vec![];
+        let mut sums: Vec<f64> = vec![];
+        let mut cutoff_counts: Vec<Vec<u32>> = vec![];
+        let mut cutoffs: Vec<f64> = vec![];
+        let mut template = Value::Null;
+        let mut samples = 0u32;
+        for minute in (start as u32..end as u32).step_by(5) {
+            query["timeMinutes"] = json!(minute);
+            // Execute the same single-time Reach implementation. Unlike the
+            // public wrapper, do not format or trim resident memory each time.
+            let raw = self.execute("reach", &query)?;
+            let values = raw["surface"]["values"]
+                .as_array()
+                .ok_or("Missing Reach raster")?;
+            if samples == 0 {
+                counts.resize(values.len(), 0);
+                sums.resize(values.len(), 0.);
+                cutoffs = raw["cutoffsMinutes"]
+                    .as_array()
+                    .ok_or("Missing cutoffs")?
+                    .iter()
+                    .map(|v| v.as_f64().ok_or("Invalid cutoff"))
+                    .collect::<std::result::Result<_, _>>()?;
+                cutoff_counts = vec![vec![0; values.len()]; cutoffs.len()];
+                template = json!({"kind":"reach", "runtime":"rust", "cityRevision":raw["cityRevision"],
+                    "serviceDate":query["serviceDate"], "origin":query["origin"],
+                    "cutoffsMinutes":cutoffs, "surface":{"width":raw["surface"]["width"],
+                    "height":raw["surface"]["height"], "bounds":raw["surface"]["bounds"]}});
+            }
+            if values.len() != counts.len()
+                || raw["surface"]["bounds"] != template["surface"]["bounds"]
+            {
+                return fail("Reach grid changed during allDay aggregation");
+            }
+            for (i, value) in values.iter().enumerate() {
+                if let Some(minutes) = value.as_f64().filter(|v| v.is_finite() && *v >= 0.) {
+                    counts[i] += 1;
+                    sums[i] += minutes * 60.;
+                    for (cutoff, row) in cutoffs.iter().zip(&mut cutoff_counts) {
+                        if minutes <= *cutoff {
+                            row[i] += 1;
+                        }
+                    }
+                }
+            }
+            samples += 1;
+        }
+        let means: Vec<Value> = sums
+            .iter()
+            .zip(&counts)
+            .map(|(sum, count)| {
+                if *count == 0 {
+                    Value::Null
+                } else {
+                    json!(sum / f64::from(*count))
+                }
+            })
+            .collect();
+        // Do not expose the incomplete formatting template as a trace.
+        let mut projection = request.clone();
+        if request["diagnostics"] == "trace" {
+            projection["diagnostics"] = json!("profile");
+        }
+        let mut result = crate::presentation::format("reach", &projection, &template);
+        result["query"]
+            .as_object_mut()
+            .unwrap()
+            .remove("requestedTime");
+        result["query"]["allDay"] = json!({"startMinutes":start,"endMinutes":end,"stepMinutes":5});
+        result["surface"]
+            .as_object_mut()
+            .unwrap()
+            .remove("valuesSeconds");
+        result["surface"]["reachableSamples"] = json!(counts);
+        result["surface"]["meanReachableDurationSeconds"] = json!(means);
+        result["surface"]["reachableSamplesByCutoff"] = json!(cutoff_counts);
+        result["allDay"] = json!({"sampleCount":samples,"stepMinutes":5,"endExclusive":true,
+            "aggregation":"online", "meanCondition":"reachable_within_maximum_cutoff",
+            "walkingPreparation":"shared_resident_graph_and_endpoint_cache"});
+        result["meta"]["computeUs"] = json!(started.elapsed().as_micros() as u64);
+        if !self.metadata["accessibility"].is_null() {
+            result["accessibility"] = self.metadata["accessibility"].clone();
+        }
+        if request["includeLimitations"] == true {
+            result["warnings"] = self.metadata["routingLimitations"].clone();
+        }
+        if request["diagnostics"] == "trace" {
+            result["trace"] = result.clone();
+        }
+        if detailed {
+            Ok(json!({"schema":"vigo.stream.detail.v1","status":"ok","trace":result}))
+        } else {
+            Ok(result)
+        }
+    }
+
     fn reach_grid_values(
         &mut self,
         q: &Value,

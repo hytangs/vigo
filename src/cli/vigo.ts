@@ -1026,6 +1026,9 @@ async function computeReachRequest(
   args: CliArguments, request: Record<string, any>,
   paths: ReturnType<typeof resolveRuntimePaths>,
 ) {
+  if (Object.hasOwn(request, 'allDay')) {
+    throw new Error('allDay Reach currently requires the Rust vigo executable or native HTTP endpoint.')
+  }
   const { storePath, streetStorePath, city } = paths
   validateWheelchairRequest(city.accessibility?.profile, { ...request,
     mode: value(args, 'mode', String(request.mode ?? 'transit')),
