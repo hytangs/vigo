@@ -40,7 +40,7 @@ const env = { PATH: '', NODE_PATH: '', RAYON_NUM_THREADS: '2' }
 const capabilities = JSON.parse(execFileSync(binary, ['capabilities'], { env, encoding: 'utf8' }))
 const operations = schemas.NativeRequest.oneOf.map(s => s.properties.operation.const)
 assert.deepEqual(operations.sort(), [...capabilities.nativeOperations].sort())
-const source = fs.readFileSync(path.join(root, 'native/src/standalone/transport.rs'), 'utf8')
+const source = fs.readFileSync(path.join(root, 'crates/vigo-runtime/src/standalone/transport.rs'), 'utf8')
 const flags = [...source.match(/let known = \[([\s\S]*?)\];/)[1].matchAll(/"([^"]+)"/g)].map(m => m[1])
 for (const flag of flags) assert(manual.includes(`--${flag}`), `Undocumented CLI flag ${flag}`)
 for (const method of ['route', 'matrix', 'reach', 'isochrone', 'compare', 'native']) assert(spec.paths[`/v1/${method}`]?.post)

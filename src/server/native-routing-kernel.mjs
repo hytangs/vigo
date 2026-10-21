@@ -12,8 +12,8 @@ const moduleDirectory = path.dirname(fileURLToPath(import.meta.url))
 const nativeKernelCandidates = [...new Set([
   String(process.env.VIGO_NATIVE_ROUTING_KERNEL ?? '').trim(),
   path.join(moduleDirectory, 'vigo-routing-kernel.node'),
-  path.resolve(moduleDirectory, '..', 'native', 'vigo-routing-kernel.node'),
-  path.resolve(moduleDirectory, '..', '..', 'native', 'vigo-routing-kernel.node'),
+  path.resolve(moduleDirectory, '..', 'crates', 'vigo-runtime', 'vigo-routing-kernel.node'),
+  path.resolve(moduleDirectory, '..', '..', 'crates', 'vigo-runtime', 'vigo-routing-kernel.node'),
 ].filter(Boolean))]
 const nativeKernelCache = new Map()
 const nativeTimetableKernelCache = new WeakMap()

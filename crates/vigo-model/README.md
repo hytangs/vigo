@@ -1,6 +1,6 @@
 # vigo-model
 
-The public VIGO contract in Rust: every request the engine accepts and every Result it returns, as typed structs with their JSON Schema. Milestone M0 of the VIGO 1.0 architecture RFC (`rfcs/0001-vigo-1-architecture.md` on `vigo-v1-dev`).
+The public VIGO contract in Rust: every request the engine accepts and every Result it returns, as typed structs with their JSON Schema.
 
 The types describe VIGO 0.5.2 exactly. Reading a recorded Result into them and writing it back produces the same JSON, number forms included. The engine does not use this crate yet; that starts in M1.
 

@@ -96,7 +96,8 @@ export function nativeRouteRequest(body, context = {}) {
 function boardingSummary(legs) {
   const rides = legs.filter(leg => leg.type === 'ride')
   const labels = rides.map(leg => String(leg.routeShortName || leg.routeId || '').trim()).filter(Boolean)
-  return { boardings: rides.length, transfers: Math.max(0, rides.length - 1), title: labels.join(' -> ') }
+  const boardings = rides.filter(leg => leg.inSeatSeconds == null).length
+  return { boardings, transfers: Math.max(0, boardings - 1), title: labels.join(' -> ') }
 }
 
 // Walks between two rides: an interchange, or a change between vehicles of one line.
@@ -184,6 +185,7 @@ function studioLeg(leg, index, count, body) {
     routeShortName: route.shortName || route.longName || leg.routeId, routeColor: route.color || undefined,
     tripId: leg.tripId, directionId: leg.directionId ?? undefined,
     headsign: leg.headsign ?? undefined,
+    ...(leg.inSeatSeconds != null ? { inSeatSeconds: leg.inSeatSeconds } : {}),
     ...shared, stopIds: leg.stopIds, stopCount: leg.stopCount,
     ...(leg.intermediateStops ? { intermediateStops: leg.intermediateStops } : {}),
     ...(leg.shapeId ? { shapeId: leg.shapeId } : {}),
@@ -353,7 +355,7 @@ function transitPlan(raw, trace, body, context, substitute = false) {
   const legs = transferSemantics(raw.legs.map((leg, index) => studioLeg(leg, index, raw.legs.length, body)))
   const rides = legs.filter(leg => leg.type === 'ride')
   const walkMinutes = minutes(legs.filter(leg => leg.type === 'walk').reduce((sum, leg) => sum + leg.durationMinutes, 0))
-  const rideMinutes = minutes(rides.reduce((sum, leg) => sum + leg.durationMinutes, 0))
+  const rideMinutes = minutes(rides.reduce((sum, leg) => sum + leg.durationMinutes + (leg.inSeatSeconds ?? 0) / 60, 0))
   const departMinutes = Number(raw.departureMinutes)
   // The journey starts at its exact departure clock, as the plan does.
   if (Math.abs(legs[0].startMinutes - departMinutes) < 0.001) legs[0] = { ...legs[0], startMinutes: departMinutes }

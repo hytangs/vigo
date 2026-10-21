@@ -42,6 +42,9 @@ impl City {
         buffer: u32,
         complete_service_coverage: bool,
     ) -> Result<Timetable> {
+        if super::linked_trips::present(&self.db)? {
+            return fail("Linked trips require source preparation");
+        }
         let mut sorted: Vec<_> = services.iter().map(String::as_str).collect();
         // Array.sort in the City compiler compares UTF-16 code units.
         sorted.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
@@ -133,6 +136,7 @@ impl City {
             .map(|(i, s)| (s.clone(), i as u32))
             .collect();
         Ok(Timetable {
+            links: Default::default(),
             kernel,
             index: index.into(),
             stop_ids: saved.stop_ids.into(),

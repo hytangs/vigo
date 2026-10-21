@@ -22,6 +22,11 @@ export function createRoutingStoreSchema(db) {
     CREATE TABLE calendar(service_id TEXT PRIMARY KEY, monday INTEGER, tuesday INTEGER, wednesday INTEGER, thursday INTEGER, friday INTEGER, saturday INTEGER, sunday INTEGER, start_date INTEGER, end_date INTEGER);
     CREATE TABLE calendar_dates(service_id TEXT NOT NULL, date INTEGER NOT NULL, exception_type INTEGER NOT NULL, PRIMARY KEY(service_id, date));
     CREATE TABLE transfers(from_stop_id TEXT NOT NULL, to_stop_id TEXT NOT NULL, transfer_type INTEGER, min_transfer_time INTEGER, PRIMARY KEY(from_stop_id, to_stop_id));
+    CREATE TABLE trip_links(
+      from_trip_id TEXT NOT NULL, to_trip_id TEXT NOT NULL,
+      transfer_type INTEGER NOT NULL CHECK(transfer_type IN (4,5)),
+      PRIMARY KEY(from_trip_id,to_trip_id)
+    ) WITHOUT ROWID;
     CREATE TABLE transfer_provenance(
       from_stop_id TEXT NOT NULL,
       to_stop_id TEXT NOT NULL,
@@ -54,6 +59,11 @@ export function createRoutingStoreSchema(db) {
 
 export function assertNoBrokenGtfsReferences(db) {
   const checks = [
+    ...['from_trip_id', 'to_trip_id'].map(field => ({
+      query: `SELECT l.${field} AS owner_id,l.${field} AS referenced_id
+        FROM trip_links l LEFT JOIN trips t ON t.trip_id=l.${field} WHERE t.trip_id IS NULL LIMIT 1`,
+      relation: `trip_links.${field} -> trips.trip_id`,
+    })),
     {
       query: `
         SELECT trips.trip_id AS owner_id, trips.route_id AS referenced_id

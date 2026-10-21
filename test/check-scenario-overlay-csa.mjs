@@ -8,7 +8,7 @@ const require = createRequire(import.meta.url)
 const repositoryRoot = path.resolve(import.meta.dirname, '..')
 const { TimetableKernel } = require(path.join(
   repositoryRoot,
-  'native',
+  'crates', 'vigo-runtime',
   'vigo-routing-kernel.node',
 ))
 

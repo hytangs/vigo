@@ -9,6 +9,7 @@ mod encoding;
 mod fare_store;
 mod health;
 mod http;
+mod linked_trips;
 mod materialize;
 pub(crate) mod memory;
 mod ordered;

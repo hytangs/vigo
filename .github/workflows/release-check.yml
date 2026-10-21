@@ -1,4 +1,4 @@
-name: Release package verification
+name: Release
 
 on:
   push:
@@ -24,6 +24,7 @@ permissions:
 
 jobs:
   deployment:
+    needs: build
     uses: ./.github/workflows/deployment-check.yml
 
   build:
@@ -40,12 +41,24 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            rust-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-
+      - run: npm run build:cli-runtime
+      - name: Reuse this job's compiled runtime
+        shell: bash
+        run: echo "VIGO_USE_BUILT_RUNTIME=1" >> "$GITHUB_ENV"
       - run: npm run check:release
       - run: npm run check:rust-workspace
-      - run: cargo test --manifest-path native/Cargo.toml
-      - run: cargo clippy --release --all-targets --manifest-path native/Cargo.toml -- -D warnings
-      - run: cargo test --no-default-features --features standalone --manifest-path native/Cargo.toml
-      - run: cargo clippy --all-targets --no-default-features --features standalone --manifest-path native/Cargo.toml -- -D warnings
+        if: matrix.os == 'ubuntu-24.04'
+      - run: cargo test --no-default-features --features standalone --manifest-path crates/vigo-runtime/Cargo.toml
+      - run: cargo clippy --all-targets --no-default-features --features standalone --manifest-path crates/vigo-runtime/Cargo.toml -- -D warnings
       - run: npm run check:corpus
       - run: npm run check:standalone
         env:
@@ -56,7 +69,7 @@ jobs:
       - run: python test/check-standalone-package.py
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
-          name: rust-${{ matrix.os }}
+          name: release-rust-${{ matrix.os }}
           path: |
             release/rust/*.tar.gz
             release/rust/*.tar.gz.sha256
@@ -70,7 +83,7 @@ jobs:
             sleep 2
           done
           exit 1
-      - run: npm run build
+      - run: npm run build:studio-assets
       - run: xvfb-run -a npm run check:studio-runtime
         if: runner.os == 'Linux'
       - run: npm run check:studio-runtime
@@ -79,9 +92,18 @@ jobs:
         id: cli
         run: npm run package:cli
       - run: npm run check:cli-package
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - run: python -m pip install './python[progress,speed]' pytest
+      - run: node python/scripts/prepare-integration.mjs
+      - name: Check Python against the already built engine
+        run: python -m pytest python/tests/test_live_runtime.py -q
+        env:
+          VIGO_RUNTIME: ${{ github.workspace }}/public/vigo.mjs
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
-          name: cli-${{ matrix.os }}
+          name: release-cli-${{ matrix.os }}
           path: |
             ${{ steps.cli.outputs.archive-path }}
             ${{ steps.cli.outputs.archive-path }}.sha256
@@ -89,15 +111,56 @@ jobs:
           if-no-files-found: error
       - name: Build, verify, and archive Studio
         id: package
-        run: npm run release:studio
+        run: npm run check:icons && npm run package:studio && npm run check:packaged && npm run archive:studio
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
-          name: studio-${{ matrix.os }}
+          name: release-studio-${{ matrix.os }}
           path: |
             ${{ steps.package.outputs.archive-path }}
             ${{ steps.package.outputs.archive-path }}.sha256
           compression-level: 0
           if-no-files-found: error
+      - name: Save runtime for downstream checks
+        shell: bash
+        run: |
+          mkdir -p temp
+          tar -czf temp/runtime.tar.gz crates/vigo-runtime/vigo-routing-kernel.node target/release/vigo* public/vigo.mjs
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: runtime-${{ matrix.os }}
+          path: temp/runtime.tar.gz
+          retention-days: 1
+      - run: node test/check-city-portability.mjs --write temp/portable-city.zip
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: city-${{ matrix.os }}
+          path: temp/portable-city.zip
+          retention-days: 1
+
+  portability:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: runtime-${{ matrix.os }}
+          path: temp
+      - run: tar -xzf temp/runtime.tar.gz
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          pattern: city-*
+          path: temp/foreign-cities
+      - run: node test/check-city-portability.mjs --read temp/foreign-cities
 
   docs:
     runs-on: ubuntu-24.04
@@ -110,14 +173,14 @@ jobs:
       - run: python3 scripts/build-standalone-docs.py --check
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
-          name: documentation
+          name: release-documentation
           path: |
             docs/guide.html
             docs/standalone-openapi.json
           if-no-files-found: error
 
   attest:
-    needs: [build, docs, deployment]
+    needs: [build, docs, deployment, portability]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -127,6 +190,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
+          pattern: release-*
           path: release
           merge-multiple: true
       - name: Stage immutable revision assets

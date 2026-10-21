@@ -40,7 +40,7 @@ export async function engineNotices(root, rustTarget) {
   const cargo = process.env.VIGO_CARGO || path.join(os.homedir(), '.cargo', 'bin', process.platform === 'win32' ? 'cargo.exe' : 'cargo')
   // All features: packages ship both the Node addon and the `vigo` executable.
   const result = await run(cargo, ['metadata', '--locked', '--offline', '--all-features', '--filter-platform', rustTarget, '--format-version=1'], {
-    cwd: path.join(root, 'native'), timeout: 60000, maxBuffer: 16 * 1024 * 1024,
+    cwd: path.join(root, 'crates/vigo-runtime'), timeout: 60000, maxBuffer: 16 * 1024 * 1024,
   })
   const metadata = JSON.parse(result.stdout)
   for (const entry of metadata.packages.sort((a, b) => `${a.name}:${a.version}`.localeCompare(`${b.name}:${b.version}`))) {

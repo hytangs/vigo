@@ -77,7 +77,7 @@ fn main() {
     if env::var_os("CARGO_FEATURE_NODE").is_none() {
         return;
     }
-    let root = Path::new("..");
+    let root = Path::new("../..");
     let mut sources = vec![(
         "vigo_route::timetable",
         root.join("crates/vigo-route/src/timetable.rs"),

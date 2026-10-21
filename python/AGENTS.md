@@ -1,6 +1,6 @@
 # Python package boundary
 
-This directory owns the independently versioned `vigo` Python distribution. Run Python checks from this directory; keep its dependencies, wheel metadata and release notes here. Engine computation belongs in the repository root's native/ and src/ code, not in Python.
+This directory owns the independently versioned `vigo` Python distribution. Run Python checks from this directory; keep its dependencies, wheel metadata and release notes here. Engine computation belongs in the repository root's crates/vigo-runtime/ and src/ code, not in Python.
 
 Source wheels must remain installable without Node, Rust or the Studio build. Bundled wheels use an explicitly staged runtime from the same repository revision. Keep the public Python API and existing runtime-selection behavior stable unless the task explicitly changes them.
 

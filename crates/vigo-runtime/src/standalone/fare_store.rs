@@ -98,7 +98,17 @@ impl City {
         let Some(legs) = plan.get_mut("legs").and_then(Value::as_array_mut) else {
             return;
         };
+        // Existing fare catalogs quote individual boardings, not linked-trip
+        // fare-leg joins. Do not quote a second fare or promise a free transfer.
+        let linked = legs.iter().any(|leg| leg.get("inSeatSeconds").is_some());
         for leg in legs.iter_mut().filter(|leg| leg["kind"] == "ride") {
+            if linked {
+                leg["fare"] = unavailable(
+                    "linked_trip_fare",
+                    "The fare catalog cannot price this through journey.",
+                );
+                continue;
+            }
             let fare = self.ride_fare(leg, service_date);
             leg["fare"] = fare;
         }

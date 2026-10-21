@@ -8,7 +8,7 @@ import { disposeNationalGtfsStore, routeNationalGtfsStore, routeNationalGtfsMatr
 import { routeNationalStreetStore, routeNationalStreetMatrix } from '../src/server/national-osm-store.mjs'
 import { recoverNativeArriveByBoundary } from '../src/server/gtfs/arrive-by-reconstruction.mjs'
 
-const { TimetableKernel } = createRequire(import.meta.url)('../native/vigo-routing-kernel.node')
+const { TimetableKernel } = createRequire(import.meta.url)('../crates/vigo-runtime/vigo-routing-kernel.node')
 const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-arrive-boundary-'))
 const storePath = path.join(folder, 'routing.sqlite'), schedulePath = path.join(folder, 'schedule.json')
 const point = (stopId, coordinate) => ({ source: 'stop', stopId: `boundary\u001f${stopId}`, label: stopId, coordinate })

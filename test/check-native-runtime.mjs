@@ -16,8 +16,8 @@ const locations = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-runtime-layout-'))
 try {
   const binary = process.platform === 'win32' ? 'vigo.exe' : 'vigo'
   for (const [modulePath, executablePath] of [
-    ['src/server/runtime', 'native/target/release'],
-    ['public', 'native/target/release'],
+    ['src/server/runtime', 'target/release'],
+    ['public', 'target/release'],
     ['cli', 'cli'],
     ['app/server/runtime', 'app/server'],
   ]) {

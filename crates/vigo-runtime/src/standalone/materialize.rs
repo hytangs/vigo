@@ -8,7 +8,7 @@ use std::collections::{HashMap, VecDeque};
 
 #[derive(Debug, Eq, Hash, PartialEq)]
 enum LegKey {
-    Ride(u32, Option<u32>, Option<u32>, u64, u64),
+    Ride(u32, Option<u32>, Option<u32>, u64, u64, Option<u64>),
     Walk(Option<u32>, Option<u32>, u64, [usize; 2]),
 }
 
@@ -30,6 +30,7 @@ impl MatrixMaterializationCache {
                 leg.to_stop,
                 leg.board_sequence.unwrap_or(f64::NAN).to_bits(),
                 leg.alight_sequence.unwrap_or(f64::NAN).to_bits(),
+                leg.in_seat_seconds.map(f64::to_bits),
             )
         } else {
             // Candidate identity retains the exact selected entrance/pathway
@@ -224,7 +225,37 @@ impl City {
             } else {
                 None
             };
-            if let Some(shortcut) = shortcut {
+            if let Some(parts) = leg.trip.and_then(|trip| t.links.get(&trip)) {
+                let legs = expanded.get_or_insert_with(|| journey.legs[..i].to_vec());
+                let board = leg.board_sequence.ok_or("Missing linked-trip boarding")?;
+                let alight = leg.alight_sequence.ok_or("Missing linked-trip alighting")?;
+                let mut previous_arrival = None;
+                for part in parts {
+                    let selected: Vec<_> = (0..part.sequences.len())
+                        .filter(|&j| {
+                            let seq = f64::from(part.first) + j as f64;
+                            seq >= board && seq <= alight
+                        })
+                        .collect();
+                    let (Some(&first), Some(&last)) = (selected.first(), selected.last()) else {
+                        continue;
+                    };
+                    let departure = f64::from(part.departures[first]);
+                    let arrival = f64::from(part.arrivals[last]);
+                    legs.push(TimetableMatrixLeg {
+                        kind: "ride".into(),
+                        trip: Some(part.trip),
+                        board_sequence: Some(f64::from(part.sequences[first])),
+                        alight_sequence: Some(f64::from(part.sequences[last])),
+                        from_stop: Some(part.from[first]),
+                        to_stop: Some(part.to[last]),
+                        departure,
+                        arrival,
+                        in_seat_seconds: previous_arrival.map(|previous| departure - previous),
+                    });
+                    previous_arrival = Some(arrival);
+                }
+            } else if let Some(shortcut) = shortcut {
                 let legs = expanded.get_or_insert_with(|| journey.legs[..i].to_vec());
                 let mut clock = leg.departure;
                 for step in &shortcut.steps {
@@ -271,6 +302,7 @@ impl City {
             "rideMinutes": journey.ride_seconds / 60.,
             "waitMinutes": journey.waiting_seconds / 60.,
             "transfers": journey.boardings.saturating_sub(1),
+            "boardings": journey.boardings,
         });
         value["legs"] = Value::Array(
             journey
@@ -286,6 +318,9 @@ impl City {
                         "durationMinutes": (leg.arrival - leg.departure) / 60.,
                     });
                     if let Some(trip) = leg.trip {
+                        if let Some(seconds) = leg.in_seat_seconds {
+                            v["inSeatSeconds"] = json!(seconds);
+                        }
                         v["tripId"] = json!(t.trip_ids[trip as usize]);
                         v["boardSequence"] = json!(leg.board_sequence);
                         v["alightSequence"] = json!(leg.alight_sequence);
@@ -530,6 +565,7 @@ mod tests {
         };
         let (origin, a, b) = (candidate(), candidate(), candidate());
         let mut leg = TimetableMatrixLeg {
+            in_seat_seconds: None,
             kind: "walk".into(),
             from_stop: None,
             to_stop: None,
@@ -564,7 +600,10 @@ mod tests {
     fn matrix_evidence_is_bounded_and_does_not_survive_requests() {
         let mut cache = MatrixMaterializationCache::default();
         for i in 0..5000 {
-            cache.insert(LegKey::Ride(i, None, None, 0, 0), &json!({"source":"GTFS"}));
+            cache.insert(
+                LegKey::Ride(i, None, None, 0, 0, None),
+                &json!({"source":"GTFS"}),
+            );
         }
         assert_eq!(cache.entries.len(), 4096);
         assert!(cache.bytes <= 16 * 1024 * 1024);
@@ -572,7 +611,7 @@ mod tests {
         assert!(empty.entries.is_empty());
         let mut cache = MatrixMaterializationCache::default();
         cache.insert(
-            LegKey::Ride(0, None, None, 0, 0),
+            LegKey::Ride(0, None, None, 0, 0, None),
             &json!("x".repeat(16 * 1024 * 1024)),
         );
         assert!(cache.entries.is_empty());
@@ -587,15 +626,15 @@ mod tests {
         let metadata_bytes = cache.bytes;
         cache.insert_trip_details("trip", &details);
         assert_eq!(cache.bytes, metadata_bytes);
-        cache.insert(LegKey::Ride(0, None, None, 0, 0), &Value::Null);
+        cache.insert(LegKey::Ride(0, None, None, 0, 0, None), &Value::Null);
         let both_bytes = cache.bytes;
-        cache.insert(LegKey::Ride(0, None, None, 0, 0), &Value::Null);
+        cache.insert(LegKey::Ride(0, None, None, 0, 0, None), &Value::Null);
         assert_eq!(cache.bytes, both_bytes);
         assert!(both_bytes > metadata_bytes);
         // Neither store can bypass the budget consumed by the other.
         let oversized = json!("x".repeat(MatrixMaterializationCache::MAX_BYTES - both_bytes));
         cache.insert_trip_details("large", &oversized);
-        cache.insert(LegKey::Ride(1, None, None, 0, 0), &oversized);
+        cache.insert(LegKey::Ride(1, None, None, 0, 0, None), &oversized);
         assert_eq!(cache.trip_details.len(), 1);
         assert_eq!(cache.entries.len(), 1);
         assert_eq!(cache.bytes, both_bytes);

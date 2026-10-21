@@ -26,7 +26,7 @@ Use the [native operation reference](../guides/rust-standalone.md#18-native-oper
 
 ## DriveMatrixInput
 
-Source: `native/src/exact_routing.rs`.
+Source: `crates/vigo-runtime/src/exact_routing.rs`.
 
 | JSON field | Rust / JSON type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -43,7 +43,7 @@ Source: `native/src/exact_routing.rs`.
 
 ## DriveMatrixResult
 
-Source: `native/src/exact_routing.rs`.
+Source: `crates/vigo-runtime/src/exact_routing.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
@@ -63,7 +63,7 @@ Source: `native/src/exact_routing.rs`.
 
 ## DriveQueryInput
 
-Source: `native/src/exact_routing.rs`.
+Source: `crates/vigo-runtime/src/exact_routing.rs`.
 
 | JSON field | Rust / JSON type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -78,7 +78,7 @@ Source: `native/src/exact_routing.rs`.
 
 ## DriveQueryResult
 
-Source: `native/src/exact_routing.rs`.
+Source: `crates/vigo-runtime/src/exact_routing.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
@@ -111,7 +111,7 @@ Source: `native/src/exact_routing.rs`.
 
 ## DriveTrafficInput
 
-Source: `native/src/exact_routing.rs`.
+Source: `crates/vigo-runtime/src/exact_routing.rs`.
 
 | JSON field | Rust / JSON type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -121,7 +121,7 @@ Source: `native/src/exact_routing.rs`.
 
 ## EndpointRoleInput
 
-Source: `native/src/lib.rs`.
+Source: `crates/vigo-runtime/src/lib.rs`.
 
 | JSON field | Rust / JSON type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -136,7 +136,7 @@ Source: `native/src/lib.rs`.
 
 ## EndpointRoleResult
 
-Source: `native/src/lib.rs`.
+Source: `crates/vigo-runtime/src/lib.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
@@ -164,7 +164,7 @@ Source: `native/src/lib.rs`.
 
 ## EndpointRouteInput
 
-Source: `native/src/lib.rs`.
+Source: `crates/vigo-runtime/src/lib.rs`.
 
 | JSON field | Rust / JSON type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -180,7 +180,7 @@ Source: `native/src/lib.rs`.
 
 ## EndpointRouteResult
 
-Source: `native/src/lib.rs`.
+Source: `crates/vigo-runtime/src/lib.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
@@ -293,7 +293,7 @@ Source: `crates/vigo-route/src/timetable/realtime.rs`.
 
 ## StreetMatrixInput
 
-Source: `native/src/lib.rs`.
+Source: `crates/vigo-runtime/src/lib.rs`.
 
 | JSON field | Rust / JSON type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -304,7 +304,7 @@ Source: `native/src/lib.rs`.
 
 ## StreetMatrixResult
 
-Source: `native/src/lib.rs`.
+Source: `crates/vigo-runtime/src/lib.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
@@ -319,7 +319,7 @@ Source: `native/src/lib.rs`.
 
 ## StreetPathInput
 
-Source: `native/src/lib.rs`.
+Source: `crates/vigo-runtime/src/lib.rs`.
 
 | JSON field | Rust / JSON type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -332,7 +332,7 @@ Source: `native/src/lib.rs`.
 
 ## StreetPathResult
 
-Source: `native/src/lib.rs`.
+Source: `crates/vigo-runtime/src/lib.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
@@ -350,7 +350,7 @@ Source: `native/src/lib.rs`.
 
 ## StreetSurfaceEdge
 
-Source: `native/src/street_analysis.rs`.
+Source: `crates/vigo-runtime/src/street_analysis.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
@@ -365,7 +365,7 @@ Source: `native/src/street_analysis.rs`.
 
 ## StreetSurfaceInput
 
-Source: `native/src/street_analysis.rs`.
+Source: `crates/vigo-runtime/src/street_analysis.rs`.
 
 | JSON field | Rust / JSON type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -390,7 +390,7 @@ Source: `native/src/street_analysis.rs`.
 
 ## StreetSurfaceNode
 
-Source: `native/src/street_analysis.rs`.
+Source: `crates/vigo-runtime/src/street_analysis.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
@@ -401,7 +401,7 @@ Source: `native/src/street_analysis.rs`.
 
 ## StreetSurfaceResult
 
-Source: `native/src/street_analysis.rs`.
+Source: `crates/vigo-runtime/src/street_analysis.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
@@ -440,7 +440,7 @@ Source: `native/src/street_analysis.rs`.
 
 ## TimedConnectorInput
 
-Source: `native/src/street_analysis.rs`.
+Source: `crates/vigo-runtime/src/street_analysis.rs`.
 
 | JSON field | Rust / JSON type | Required | Meaning |
 | --- | --- | --- | --- |
@@ -456,7 +456,7 @@ Source: `native/src/street_analysis.rs`.
 
 ## TimedConnectorResult
 
-Source: `native/src/street_analysis.rs`.
+Source: `crates/vigo-runtime/src/street_analysis.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
@@ -616,6 +616,7 @@ Source: `crates/vigo-route/src/timetable/journeys.rs`.
 
 | JSON field | Rust / JSON type | Present | Meaning |
 | --- | --- | --- | --- |
+| `inSeatSeconds` | `Option<f64>` | Always | Time spent aboard between source trips; absent for a new boarding. |
 | `kind` | `String` | Always | — |
 | `fromStop` | `Option<u32>` | Always | — |
 | `toStop` | `Option<u32>` | Always | — |

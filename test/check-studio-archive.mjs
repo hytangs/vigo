@@ -61,7 +61,7 @@ try {
   assert.equal(readFileSync(outputFile, 'utf8'), '')
 
   const workflow = readFileSync(path.join(repositoryRoot, '.github/workflows/release-check.yml'), 'utf8')
-  assert.match(workflow, /id: package\s+run: npm run release:studio/u)
+  assert.match(workflow, /id: package\s+run: npm run check:icons && npm run package:studio && npm run check:packaged && npm run archive:studio/u)
   assert.match(workflow, /path: \|\s+\$\{\{ steps\.package\.outputs\.archive-path \}\}\s+\$\{\{ steps\.package\.outputs\.archive-path \}\}\.sha256/u)
   console.log(`Studio archive creation, replacement, and upload path passed on ${process.platform}:${process.arch}.`)
 } finally {

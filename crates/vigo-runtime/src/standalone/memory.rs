@@ -128,6 +128,7 @@ fields!(
 );
 fields!(
     Timetable,
+    links,
     stop_ids,
     index,
     trip_ids,
@@ -239,3 +240,12 @@ mod tests {
         );
     }
 }
+
+fields!(
+    super::linked_trips::Part,
+    sequences,
+    departures,
+    arrivals,
+    from,
+    to
+);

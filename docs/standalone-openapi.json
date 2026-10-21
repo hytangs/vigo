@@ -2258,6 +2258,20 @@
       "TimetableMatrixLeg": {
         "type": "object",
         "properties": {
+          "inSeatSeconds": {
+            "anyOf": [
+              {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Time spent aboard between source trips; absent for a new boarding."
+          },
           "kind": {
             "type": "string"
           },
@@ -2338,6 +2352,7 @@
           }
         },
         "required": [
+          "inSeatSeconds",
           "kind",
           "fromStop",
           "toStop",
@@ -3975,7 +3990,7 @@
           "role"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/src/lib.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-runtime/src/lib.rs. Native semantic validation also applies."
       },
       "EndpointRoleResult": {
         "type": "object",
@@ -4143,7 +4158,7 @@
           "cchAccelerated"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/src/lib.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-runtime/src/lib.rs. Native semantic validation also applies."
       },
       "EndpointRouteInput": {
         "type": "object",
@@ -4221,7 +4236,7 @@
           "maximumWalkM"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/src/lib.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-runtime/src/lib.rs. Native semantic validation also applies."
       },
       "EndpointRouteResult": {
         "type": "object",
@@ -4538,7 +4553,7 @@
           "destinationCchAccelerated"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/src/lib.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-runtime/src/lib.rs. Native semantic validation also applies."
       },
       "StreetPathInput": {
         "type": "object",
@@ -4579,7 +4594,7 @@
           "maximumPoints"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/src/lib.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-runtime/src/lib.rs. Native semantic validation also applies."
       },
       "StreetPathResult": {
         "type": "object",
@@ -4661,7 +4676,7 @@
           "cchAccelerated"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/src/lib.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-runtime/src/lib.rs. Native semantic validation also applies."
       },
       "StreetMatrixInput": {
         "type": "object",
@@ -4702,7 +4717,7 @@
           "maximumDistanceM"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/src/lib.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-runtime/src/lib.rs. Native semantic validation also applies."
       },
       "StreetMatrixResult": {
         "type": "object",
@@ -4762,7 +4777,7 @@
           "algorithm"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/src/lib.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-runtime/src/lib.rs. Native semantic validation also applies."
       },
       "StreetSurfaceInput": {
         "type": "object",
@@ -4907,7 +4922,7 @@
           "expandBoundsToReachedEdges"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/src/street_analysis.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-runtime/src/street_analysis.rs. Native semantic validation also applies."
       },
       "StreetSurfaceResult": {
         "type": "object",
@@ -5242,7 +5257,7 @@
           "edgeEvidenceTransitArrivals"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/src/street_analysis.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-runtime/src/street_analysis.rs. Native semantic validation also applies."
       },
       "StreetSurfaceNode": {
         "type": "object",
@@ -5281,7 +5296,7 @@
           "walkDistanceM"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/src/street_analysis.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-runtime/src/street_analysis.rs. Native semantic validation also applies."
       },
       "StreetSurfaceEdge": {
         "type": "object",
@@ -5353,7 +5368,7 @@
           "transitArrivalMinutes"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/src/street_analysis.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-runtime/src/street_analysis.rs. Native semantic validation also applies."
       },
       "TimedConnectorInput": {
         "type": "object",
@@ -5424,7 +5439,7 @@
           "includeTargetMatrix"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/src/street_analysis.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-runtime/src/street_analysis.rs. Native semantic validation also applies."
       },
       "TimedConnectorResult": {
         "type": "object",
@@ -5561,7 +5576,7 @@
           "queryNs"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/src/street_analysis.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-runtime/src/street_analysis.rs. Native semantic validation also applies."
       },
       "DriveQueryInput": {
         "type": "object",
@@ -5649,7 +5664,7 @@
           "maximumDistanceMeters"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/src/exact_routing.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-runtime/src/exact_routing.rs. Native semantic validation also applies."
       },
       "DriveTrafficInput": {
         "type": "object",
@@ -5925,7 +5940,7 @@
           "algorithm"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/src/exact_routing.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-runtime/src/exact_routing.rs. Native semantic validation also applies."
       },
       "DriveMatrixInput": {
         "type": "object",
@@ -6032,7 +6047,7 @@
           "maximumDistanceMeters"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/src/exact_routing.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-runtime/src/exact_routing.rs. Native semantic validation also applies."
       },
       "DriveMatrixResult": {
         "type": "object",
@@ -6129,7 +6144,7 @@
           "algorithm"
         ],
         "additionalProperties": true,
-        "description": "Generated from native/src/exact_routing.rs. Native semantic validation also applies."
+        "description": "Generated from crates/vigo-runtime/src/exact_routing.rs. Native semantic validation also applies."
       },
       "RealtimeTimetableInput": {
         "type": "object",
@@ -10848,6 +10863,26 @@
             "items": {
               "type": "object"
             }
+          },
+          "continuation": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "stay_aboard"
+                ]
+              },
+              "durationSeconds": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "type",
+              "durationSeconds"
+            ],
+            "additionalProperties": false
           },
           "alerts": {
             "type": "array",

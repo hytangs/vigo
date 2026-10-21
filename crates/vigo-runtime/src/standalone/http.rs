@@ -961,7 +961,7 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
         if ["/", "/docs", "/docs/"].contains(&path) {
             return Ok(Response::Static(
                 "text/html; charset=utf-8",
-                include_bytes!("../../../docs/guide.html"),
+                include_bytes!("../../../../docs/guide.html"),
             ));
         }
         if [
@@ -974,7 +974,7 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
         {
             return Ok(Response::Static(
                 "application/json; charset=utf-8",
-                include_bytes!("../../../docs/standalone-openapi.json"),
+                include_bytes!("../../../../docs/standalone-openapi.json"),
             ));
         }
     }

@@ -19,6 +19,13 @@ assert(dockerfile.includes(`FROM rust:${toolchain}-slim-bookworm@sha256:`), 'The
 const baseImages = dockerfile.match(/^FROM .+$/gm) ?? []
 assert.equal(baseImages.length, 2)
 assert(baseImages.every(line => /@sha256:[a-f0-9]{64}(?: AS \w+)?$/.test(line)), 'Both base images must be pinned by manifest digest')
+const releaseDockerfile = fs.readFileSync(path.join(root, 'deploy/Dockerfile.release'), 'utf8')
+assert.match(releaseDockerfile, /^FROM ubuntu:24\.04@sha256:[a-f0-9]{64}$/m)
+assert(!/^RUN /m.test(releaseDockerfile), 'Release images must consume verified binaries without rebuilding')
+for (const directive of ['USER ', 'ENV ', 'EXPOSE ', 'HEALTHCHECK ', 'ENTRYPOINT ', 'CMD ']) {
+  assert.equal(releaseDockerfile.split('\n').find(line => line.startsWith(directive)),
+    dockerfile.split('\n').find(line => line.startsWith(directive)), 'Source and release containers share runtime policy')
+}
 fs.mkdirSync(path.join(root, 'temp'), { recursive: true })
 const directory = fs.mkdtempSync(path.join(root, 'temp/deployment-'))
 const project = `vigo-check-${process.pid}-${crypto.randomBytes(3).toString('hex')}`

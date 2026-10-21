@@ -21,7 +21,7 @@ class RuntimeLicenseTests(unittest.TestCase):
     def test_notices_follow_target_and_retain_transitive_dependencies(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             engine = Path(temporary)
-            kernel = engine / "native"
+            kernel = engine / "crates" / "vigo-runtime"
             kernel.mkdir(parents=True)
 
             def crate(name: str, dependencies: str = "") -> None:

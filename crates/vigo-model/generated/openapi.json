@@ -1202,6 +1202,29 @@
         ],
         "type": "object"
       },
+      "InSeatContinuation": {
+        "description": "An explicit GTFS continuation from the preceding transit leg.",
+        "properties": {
+          "durationSeconds": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": {
+            "$ref": "#/components/schemas/InSeatContinuationType"
+          }
+        },
+        "required": [
+          "type",
+          "durationSeconds"
+        ],
+        "type": "object"
+      },
+      "InSeatContinuationType": {
+        "enum": [
+          "stay_aboard"
+        ],
+        "type": "string"
+      },
       "InfoResult": {
         "description": "A loaded City: identity, sources, size and limits.",
         "properties": {
@@ -4193,6 +4216,9 @@
               "string",
               "null"
             ]
+          },
+          "continuation": {
+            "$ref": "#/components/schemas/InSeatContinuation"
           },
           "departureTime": {
             "type": [

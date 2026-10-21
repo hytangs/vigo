@@ -17,7 +17,7 @@ spec.loader.exec_module(package)
 with tempfile.TemporaryDirectory() as folder:
     root = Path(folder)
     (root / ".gitignore").write_bytes((package.ROOT / ".gitignore").read_bytes())
-    crate = root / "native"
+    crate = root / "crates" / "vigo-runtime"
     crate.mkdir(parents=True)
     source = crate / "lib.rs"
     source.write_text("original source")
@@ -39,7 +39,7 @@ with tempfile.TemporaryDirectory() as folder:
         docs.write_text("changed embedded documentation")
         assert package.source_fingerprint(run) != baseline
         docs.write_text("original embedded documentation")
-        for relative in ("crates/vigo-route/src/lib.rs", "Cargo.toml", "Cargo.lock"):
+        for relative in ("crates/vigo-route/src/lib.rs", "vendor/cch/src/lib.rs", "Cargo.toml", "Cargo.lock"):
             added = root / relative
             added.parent.mkdir(parents=True, exist_ok=True)
             added.write_text("new workspace compiler input")

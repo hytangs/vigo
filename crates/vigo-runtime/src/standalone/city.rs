@@ -142,6 +142,7 @@ pub(crate) struct Stop {
 }
 pub(crate) struct Timetable {
     pub kernel: TimetableKernel,
+    pub links: super::linked_trips::Links,
     pub stop_ids: Arc<[String]>,
     pub index: Arc<HashMap<String, u32>>,
     pub trip_ids: Arc<[String]>,
@@ -1190,7 +1191,7 @@ impl City {
         let mut source_reused = false;
         let mut realtime_trips: Arc<[u32]> = Arc::new([]);
         let mut alerts = None;
-        let (source, names, realtime) = if let Some(source_key) = source_key {
+        let (mut source, mut names, realtime) = if let Some(source_key) = source_key {
             let base = match self.timetable_cache.source(&source_key) {
                 Some(base) => {
                     source_reused = true;
@@ -1244,6 +1245,7 @@ impl City {
             let ScheduleSource { arrays, names, .. } = ScheduleSource::new(String::new(), read);
             (arrays, names, Value::Null)
         };
+        let links = super::linked_trips::compile(&self.db, &mut source, &mut names)?;
         let source_ms = source_started.elapsed().as_secs_f64() * 1000.;
         let index_started = std::time::Instant::now();
         // Sources normally use exactly the City's stops; a source that adds a
@@ -1329,6 +1331,7 @@ impl City {
             "indexMs":index_ms,"kernelMs":kernel_started.elapsed().as_secs_f64()*1000.});
         self.timetable = Some(Timetable {
             kernel,
+            links,
             stop_ids: names.stop_ids,
             index: transfers.index.clone(),
             trip_ids: names.trip_ids,

@@ -628,6 +628,7 @@ fn reconstruct(
             walking += end - start
         }
         legs.push(TimetableMatrixLeg {
+            in_seat_seconds: None,
             kind: if ride { "ride" } else { "walk" }.into(),
             from_stop: (chain.from[i] >= 0).then_some(chain.from[i] as u32),
             to_stop: (chain.to[i] >= 0).then_some(chain.to[i] as u32),
@@ -644,6 +645,7 @@ fn reconstruct(
         return Err("Certified point egress disagrees with arrival".into());
     }
     legs.push(TimetableMatrixLeg {
+        in_seat_seconds: None,
         kind: "walk".into(),
         from_stop: Some(input.destination_stops[chain.destination]),
         to_stop: None,

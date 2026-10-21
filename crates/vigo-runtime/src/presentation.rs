@@ -145,6 +145,9 @@ fn leg(v: &mut Value, geometry: bool) -> Value {
         out["serviceDate"] = v["serviceDate"].clone();
         out["directionId"] = v["directionId"].clone();
         out["headsign"] = v["headsign"].clone();
+        if let Some(seconds) = v.get("inSeatSeconds") {
+            out["continuation"] = json!({"type":"stay_aboard", "durationSeconds":seconds});
+        }
         out["tripShortName"] = v["tripShortName"].clone();
         out["route"]["shortName"] = pick(&v["route"], &["shortName"]).clone();
         out["route"]["longName"] = pick(&v["route"], &["longName"]).clone();
@@ -299,7 +302,11 @@ fn journey(v: &mut Value, geometry: bool) -> Value {
     let boardings = v["boardings"]
         .as_f64()
         .map(|n| n as u64)
-        .unwrap_or_else(|| legs.iter().filter(|l| l["type"] == "transit").count() as u64);
+        .unwrap_or_else(|| {
+            legs.iter()
+                .filter(|l| l["type"] == "transit" && l["continuation"].is_null())
+                .count() as u64
+        });
     let mut out = json!({"departureTime":clock(&departure),"arrivalTime":clock(&arrival),
         "durationSeconds":arrival.as_i64().unwrap()-departure.as_i64().unwrap(),
         "walkingSeconds":seconds(v,&["walkingSeconds"],&["walkMinutes"]),
@@ -318,7 +325,13 @@ fn journey(v: &mut Value, geometry: bool) -> Value {
         let duration = l["durationSeconds"].as_i64().unwrap_or(0);
         match l["type"].as_str() {
             Some("walk") => walking += duration,
-            Some("transit") => riding += duration,
+            Some("transit") => {
+                riding += duration
+                    + l["continuation"]["durationSeconds"]
+                        .as_f64()
+                        .unwrap_or(0.)
+                        .round() as i64
+            }
             Some("drive") => driving += duration,
             _ => (),
         }

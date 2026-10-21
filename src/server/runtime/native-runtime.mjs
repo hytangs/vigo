@@ -35,8 +35,8 @@ export function nativeExecutable(environment = process.env, directory = moduleDi
     path.join(directory, executableName),
     path.join(directory, '..', executableName),
     path.join(directory, '..', 'server', executableName),
-    path.resolve(directory, '..', 'native', 'target', 'release', executableName),
-    path.resolve(directory, '..', '..', '..', 'native', 'target', 'release', executableName),
+    path.resolve(directory, '..', 'target', 'release', executableName),
+    path.resolve(directory, '..', '..', '..', 'target', 'release', executableName),
   ]
   for (const candidate of candidates) {
     try {

@@ -442,6 +442,9 @@ class VigoPythonTest(unittest.TestCase):
             self.assertTrue(route.query["disableCache"])
             matrix = city.matrix(["A"], ["B"], service_date="2026-09-04", disable_cache=True)
             self.assertTrue(matrix.query["disableCache"])
+            self.assertNotIn("walkSpeedKph", matrix.query)
+            walking = city.matrix(["A"], ["B"], mode="walk", walk_speed_kph=5.0, service_date="2026-09-04")
+            self.assertEqual(walking.query["walkSpeedKph"], 5.0)
             with self.assertRaises(vigo.InvalidQuery):
                 city.route("A", "B", disable_cache="true")
             with patch.dict(city.runtime.capabilities, {"queries": []}):

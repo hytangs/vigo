@@ -131,7 +131,7 @@ async function createRoutingFixture() {
     'runtime-snapshots-v1',
   )
   disposeNationalOsmStore(streetStorePath)
-  assert.equal(prepareNationalOsmNativeStore(streetStorePath).ready, true)
+  assert.equal(prepareNationalOsmNativeStore(streetStorePath, { prepareCch: true }).ready, true)
 }
 
 function request(overrides = {}) {
@@ -316,9 +316,9 @@ try {
     includePreliminary: false, includeStreetEdges: false, scenario: { services: [replacement] } })
   assert.equal(unchangedReach.result.surface.raster.scenario, unchangedReach.result.surface.raster.baseline,
     'An unchanged branch replacement must preserve the actual Reach surface, including through the API hydration boundary.')
-  // Studio serves the prepared City, whose street-certified transfers include
-  // the 380 m A-B walk: one transfer already reaches X (and B by a second ride).
-  for (const [maxTransfers, stopCount] of [[0, 2], [1, 4], [2, 4], [0, 2]]) {
+  // This hand-built fixture has no compiled A-B street transfer. Its three
+  // rides reach A, then B, then X; agree with the independent stop checks above.
+  for (const [maxTransfers, stopCount] of [[0, 2], [1, 3], [2, 4], [0, 2]]) {
     const capped = await endpoint('reach', { ...boundaryRequest, maxTransfers, cutoffsMinutes: [40], rasterSize: 48,
       includePreliminary: false, includeStreetEdges: false, scenario: { services: [replacement] } })
     assert.equal(capped.result.request.maxTransfers, maxTransfers)
@@ -550,7 +550,7 @@ try {
   )
 
   const native = createRequire(import.meta.url)(
-    path.join(repositoryRoot, 'native', 'vigo-routing-kernel.node'),
+    path.join(repositoryRoot, 'crates', 'vigo-runtime', 'vigo-routing-kernel.node'),
   )
   assert.equal(native.RegionalTopologyKernel, undefined)
   assert.equal(native.RegionalTimetableKernel, undefined)
@@ -561,7 +561,7 @@ try {
     'src/server/native-routing-kernel.mjs',
     'src/server/national-route-worker.mjs',
     'src/server/reach.mjs',
-    'native/src/exact_routing.rs',
+    'crates/vigo-runtime/src/exact_routing.rs',
   ]
   for (const file of sourceFiles) {
     const source = fs.readFileSync(path.join(repositoryRoot, file), 'utf8')

@@ -171,7 +171,7 @@ TYPE_FIELD_NOTES = {
 
 def native_contracts():
     structs = {}
-    sources = list((ROOT / 'native/src').rglob('*.rs'))
+    sources = list((ROOT / 'crates/vigo-runtime/src').rglob('*.rs'))
     for crate in ('vigo-route', 'vigo-format', 'vigo-prepare'):
         sources.extend((ROOT / 'crates' / crate / 'src').rglob('*.rs'))
     for path in sorted(sources):
@@ -387,6 +387,7 @@ def specification(native):
     schemas['PublicEndpoint'] = obj({'stop':ref('PublicIdentifier'),'name':text(),'coordinate':ref('Coordinate')},strict=False)
     schemas['PublicLeg'] = obj({'type':text('walk','transit','drive'),'from':ref('PublicEndpoint'),'to':ref('PublicEndpoint'),
         'departureTime':text(),'arrivalTime':text(),'durationSeconds':seconds,'distanceMeters':seconds,'quality':{'type':'object'},'trip':ref('PublicIdentifier'),'service':ref('PublicIdentifier'),'serviceDate':text(),'headsign':nullable(text()),'directionId':nullable(text()),'intermediateStops':array({'type':'object'}),
+        'continuation':obj({'type':text('stay_aboard'),'durationSeconds':number(0)},['type','durationSeconds']),
         'alerts':{**array(obj({'id':text(),'effect':text(),'cause':{},'severity':{},'header':text(),'description':text(),'url':text()},['effect'],strict=False)),'description':'Realtime Service Alerts active during the ride for its trip, route or stops.'},
         'geometry':obj({'type':{'const':'LineString'},'coordinates':array(ref('Coordinate'))},['type','coordinates'])},
         ['type','from','to','departureTime','arrivalTime','durationSeconds','quality'],strict=False)

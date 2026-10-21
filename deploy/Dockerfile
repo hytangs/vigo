@@ -6,16 +6,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 \
 WORKDIR /source
 COPY rust-toolchain.toml Cargo.toml Cargo.lock ./
 COPY crates ./crates
-COPY native/Cargo.toml native/Cargo.lock ./native/
-COPY native/vendor ./native/vendor
-COPY native/build.rs ./native/
-COPY native/src ./native/src
+COPY vendor ./vendor
 COPY docs/guide.html docs/standalone-openapi.json ./docs/
 COPY scripts/package-standalone.py ./scripts/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/source/native/target \
-    cargo build --manifest-path native/Cargo.toml --locked --release --no-default-features --features standalone --bin vigo \
-    && cp native/target/release/vigo /vigo \
+    --mount=type=cache,target=/source/target \
+    cargo build --manifest-path crates/vigo-runtime/Cargo.toml --locked --release --no-default-features --features standalone --bin vigo \
+    && cp target/release/vigo /vigo \
     && python3 scripts/package-standalone.py --notices-only /THIRD-PARTY-NOTICES.txt
 
 # glibc supports returning freed query/preparation memory to the operating system.

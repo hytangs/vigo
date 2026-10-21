@@ -155,6 +155,9 @@ impl TimetableKernel {
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimetableMatrixLeg {
+    /// Time spent aboard between source trips; absent for a new boarding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub in_seat_seconds: Option<f64>,
     pub kind: String,
     pub from_stop: Option<u32>,
     pub to_stop: Option<u32>,
@@ -192,6 +195,7 @@ struct Step {
 impl From<Step> for TimetableMatrixLeg {
     fn from(step: Step) -> Self {
         Self {
+            in_seat_seconds: None,
             kind: if step.ride { "ride" } else { "walk" }.to_owned(),
             from_stop: step.from_stop,
             to_stop: step.to_stop,

@@ -80,7 +80,7 @@ def third_party_notices(engine: Path, rust_target: str) -> str:
     metadata = json.loads(subprocess.check_output(
         [cargo, "metadata", "--locked", "--offline", "--all-features", "--filter-platform", rust_target,
          "--format-version=1"],
-        cwd=engine / "native", text=True, timeout=60,
+        cwd=engine / "crates" / "vigo-runtime", text=True, timeout=60,
     ))
     for package in metadata["packages"]:
         if package["name"] != "vigo-routing-kernel":
@@ -132,11 +132,11 @@ def main() -> None:
         engine_executable = "vigo.exe" if platform.system() == "Windows" else "vigo"
         for source, name in (
             ("public/vigo.mjs", "vigo.mjs"),
-            ("native/vigo-routing-kernel.node", "vigo-routing-kernel.node"),
-            (f"native/target/release/{engine_executable}", engine_executable),
+            ("crates/vigo-runtime/vigo-routing-kernel.node", "vigo-routing-kernel.node"),
+            (f"target/release/{engine_executable}", engine_executable),
             ("LICENSE", "ENGINE-LICENSE"), ("NOTICE", "ENGINE-NOTICE"),
-            ("native/vendor/cch/LICENSE", "CCH-LICENSE"),
-            ("native/vendor/cch/NOTICE", "CCH-NOTICE"),
+            ("vendor/cch/LICENSE", "CCH-LICENSE"),
+            ("vendor/cch/NOTICE", "CCH-NOTICE"),
         ):
             shutil.copyfile(engine / source, staged / name)
         (staged / engine_executable).chmod(0o755)

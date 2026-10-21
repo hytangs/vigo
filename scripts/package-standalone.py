@@ -13,13 +13,13 @@ import tarfile
 import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
-CRATE = ROOT / "native"
+CRATE = ROOT / "crates" / "vigo-runtime"
 
 
 def source_fingerprint(run):
     digest = hashlib.sha256()
     inputs = run(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--",
-                  "native", "crates", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "docs/guide.html", "docs/standalone-openapi.json"], capture_output=True).stdout
+                  "crates", "vendor", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "docs/guide.html", "docs/standalone-openapi.json"], capture_output=True).stdout
     for relative in sorted(set(inputs.split(b"\0")) - {b""}):
         file = ROOT / os.fsdecode(relative)
         if file.is_file():
@@ -78,11 +78,12 @@ def main():
         for generator in ("build-standalone-docs.py", "build-docs.py"):
             run([os.environ.get("VIGO_PYTHON") or os.sys.executable, str(ROOT / "scripts" / generator), "--check"], stdout=subprocess.DEVNULL)
         source_hash = source_fingerprint(run)
-        run([cargo, "build", *common, "--release", "--bin", "vigo", "--target", target], env=env)
+        if os.environ.get("VIGO_USE_BUILT_RUNTIME") != "1":
+            run([cargo, "build", *common, "--release", "--bin", "vigo", *(["--target", target] if args.target else [])], env=env)
     metadata = json.loads(run([cargo, "metadata", *common, "--offline", "--filter-platform", target, "--format-version", "1"], capture_output=True, encoding="utf-8").stdout)
     packages = {p["id"]: p for p in metadata["packages"]}
     graph = {n["id"]: n for n in metadata["resolve"]["nodes"]}
-    root = metadata["resolve"]["root"]
+    root = next(p["id"] for p in metadata["packages"] if p["name"] == "vigo-routing-kernel")
     selected, pending = set(), [root]
     while pending:
         item = pending.pop()
@@ -107,7 +108,7 @@ def main():
     destination = release / name
     release.mkdir(parents=True, exist_ok=True)
     executable = "vigo.exe" if "windows" in target else "vigo"
-    binary = Path(metadata["target_directory"]) / target / "release" / executable
+    binary = Path(metadata["target_directory"]) / (target if args.target else "") / "release" / executable
     archive = release / f"{name}.tar.gz"
     embedded_docs = {name: (ROOT / "docs" / name).read_bytes()
                      for name in ("guide.html", "standalone-openapi.json")}

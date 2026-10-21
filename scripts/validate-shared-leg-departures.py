@@ -32,7 +32,7 @@ def main():
     parser.add_argument("--time", default="08:00")
     parser.add_argument("--routes", required=True, help="Comma-separated source route IDs expected on this segment")
     parser.add_argument("--samples", type=int, default=50)
-    parser.add_argument("--binary", default="native/target/release/vigo")
+    parser.add_argument("--binary", default="target/release/vigo")
     parser.add_argument("--node", default="node")
     args = parser.parse_args()
     if args.samples < 1:

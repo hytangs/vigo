@@ -87,6 +87,8 @@ pub struct TransitLeg {
     pub headsign: Option<String>,
     pub trip_short_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continuation: Option<InSeatContinuation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intermediate_stops: Option<Vec<IntermediateStop>>,
     pub quality: TransitQuality,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -274,4 +276,18 @@ pub struct UnavailableFare {
     /// Such as `missing_catalog`, `no_rule` or `invalid_data`.
     pub code: String,
     pub reason: String,
+}
+
+/// An explicit GTFS continuation from the preceding transit leg.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InSeatContinuation {
+    #[serde(rename = "type")]
+    pub kind: InSeatContinuationType,
+    pub duration_seconds: f64,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub enum InSeatContinuationType {
+    #[serde(rename = "stay_aboard")]
+    StayAboard,
 }

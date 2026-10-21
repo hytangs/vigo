@@ -17,10 +17,9 @@ __pycache__/
 .vite/
 temp/
 tsconfig.tsbuildinfo
-native/target/
-native/vendor/*/target/
-native/*.node
-native/*.node.*.tmp
+vendor/*/target/
+crates/vigo-runtime/*.node
+crates/vigo-runtime/*.node.*.tmp
 
 # Unified generated web and CLI output
 public/assets/

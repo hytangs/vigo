@@ -97,7 +97,7 @@ try {
   zip.file('calendar_dates.txt', 'service_id,date,exception_type\nWKD,20260704,2\nWKD,20260705,1\n')
   zip.file('stop_times.txt', 'trip_id,arrival_time,departure_time,stop_id,stop_sequence,pickup_type,drop_off_type\nT1,08:10:00,08:10:00,X,2,1,0\nT1,08:00:00,08:00:00,A,1,0,1\nT2,08:30:00,08:30:00,B,2,0,0\nT2,08:15:00,08:15:00,X,1,0,0\nF,09:00:00,09:00:00,A,1,0,0\nF,09:10:00,09:10:00,X,2,0,0\nI,10:00:00,10:00:00,A,1,0,0\nI,10:10:00,10:10:00,X,2,0,0\n')
   zip.file('frequencies.txt', 'trip_id,start_time,end_time,headway_secs,exact_times\nF,09:00:00,09:30:00,600,1\nI,10:00:00,11:00:00,600,0\n')
-  zip.file('transfers.txt', 'from_stop_id,to_stop_id,transfer_type,min_transfer_time,from_route_id\nX,B,2,90,  \nB,A,3,0,\nA,X,2,60,R1\n')
+  zip.file('transfers.txt', 'from_stop_id,to_stop_id,transfer_type,min_transfer_time,from_route_id,from_trip_id,to_trip_id\nX,B,2,90,  ,,\nB,A,3,0,,,\nA,X,2,60,R1,,\nX,X,4,,,T1,T2\n')
   zip.file('pathways.txt', 'pathway_id,from_stop_id,to_stop_id,pathway_mode,is_bidirectional,length,traversal_time\np,E,X,1,1,45,\nq,A,X,1,0,100,80\n')
   await fs.writeFile(inputs.gtfsPath, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))
   const validStops = await zip.file('stops.txt').async('string')

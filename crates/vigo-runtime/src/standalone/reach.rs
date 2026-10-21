@@ -425,10 +425,20 @@ impl City {
             )?;
         } else if mode == "transit" {
             self.activate(q)?;
+            let source_scenario = q.get("scenario").filter(|s| !s.is_null());
+            let linked_view = !self.timetable.as_ref().unwrap().links.is_empty()
+                && source_scenario.is_some_and(|s| s.get("overlay").is_none());
+            if linked_view {
+                if q["routingDataMode"] == "realtime" || q["dataMode"] == "realtime" {
+                    return fail("Scenario Reach uses the scheduled timetable");
+                }
+                self.install_scenario(source_scenario.unwrap())?;
+                self.apply_transfer_buffer(q)?;
+            }
             let a = self.candidates(&place, "origin", &opt)?;
             let t = self.timetable.as_ref().unwrap();
             let n = t.stop_ids.len();
-            let scenario = q.get("scenario");
+            let scenario = source_scenario.filter(|_| !linked_view);
             let mut excluded = HashSet::new();
             if let Some(s) = scenario {
                 for (field, ids) in [
@@ -621,10 +631,19 @@ impl City {
                 seeds.extend(coordinate);
                 durations.push(duration);
                 seed_members.push(if i < n {
-                    members
-                        .get(&id)
-                        .copied()
-                        .ok_or("Missing Reach egress access member")?
+                    if linked_view
+                        && self
+                            .scenario_view
+                            .as_ref()
+                            .is_some_and(|view| view.stops.contains_key(&id))
+                    {
+                        -1
+                    } else {
+                        members
+                            .get(&id)
+                            .copied()
+                            .ok_or("Missing Reach egress access member")?
+                    }
                 } else {
                     *overlay_members
                         .get(i - n)
@@ -804,12 +823,17 @@ impl City {
             return fail("Arrive-by scenario Reach uses the scheduled timetable");
         }
         self.activate(q)?;
-        if planned {
+        let linked_view = scenario.is_some() && !self.timetable.as_ref().unwrap().links.is_empty();
+        if linked_view && (q["routingDataMode"] == "realtime" || q["dataMode"] == "realtime") {
+            return fail("Scenario Reach uses the scheduled timetable");
+        }
+        if planned || linked_view {
             self.install_scenario(scenario.unwrap())?;
             self.apply_transfer_buffer(q)?;
             self.pinned_timetable = true;
         }
-        let searched = self.latest_boardings(scenario, destination, opt, maximum);
+        let searched =
+            self.latest_boardings(scenario.filter(|_| !linked_view), destination, opt, maximum);
         self.pinned_timetable = false;
         let (latest, mut transit) = searched?;
         let t = self.timetable.as_ref().unwrap();

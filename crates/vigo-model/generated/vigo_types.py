@@ -250,6 +250,8 @@ Identifier = TypedDict(
     },
 )
 
+InSeatContinuationType = Literal["stay_aboard"]
+
 JourneyFormat = Literal["full"] | Literal["compact"]
 
 LegAlert = TypedDict(
@@ -660,6 +662,15 @@ ErrorResult = TypedDict(
         "schema": Literal["vigo.error.v1"],
         "sequence": NotRequired[int],
         "status": ErrorStatus,
+    },
+)
+
+# An explicit GTFS continuation from the preceding transit leg.
+InSeatContinuation = TypedDict(
+    "InSeatContinuation",
+    {
+        "durationSeconds": float,
+        "type": InSeatContinuationType,
     },
 )
 
@@ -1204,6 +1215,7 @@ TransitLeg = TypedDict(
         # Service Alerts active during the ride for its trip, route or stops.
         "alerts": NotRequired[list[LegAlert]],
         "arrivalTime": str | None,
+        "continuation": NotRequired[InSeatContinuation],
         "departureTime": str | None,
         "directionId": str | None,
         # Length of the returned line, boarding to alighting stop.

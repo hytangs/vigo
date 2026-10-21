@@ -98,7 +98,7 @@ npm run build:cli-runtime
 npm run build:standalone
 ```
 
-`build:cli-runtime` produces the compiler, `public/vigo.mjs`, and its native kernel. `build:standalone` produces the engine at `native/target/release/vigo`. `npm run build` additionally compiles Studio, and `npm run studio` opens it.
+`build:cli-runtime` produces the compiler, `public/vigo.mjs`, and its native kernel. `build:standalone` produces the engine at `target/release/vigo`. `npm run build` additionally compiles Studio, and `npm run studio` opens it.
 
 ### Name the commands
 
@@ -109,7 +109,7 @@ alias vigo="/absolute/path/to/vigo"
 alias vigo-build='node "/absolute/path/to/vigo.mjs"'
 ```
 
-From a source checkout, point them at `native/target/release/vigo` and `public/vigo.mjs`. On Windows, use `.\vigo.exe` and `node .\vigo.mjs`, or define your own functions. Both commands accept `--name value` and `--name=value` and reject unknown options.
+From a source checkout, point them at `target/release/vigo` and `public/vigo.mjs`. On Windows, use `.\vigo.exe` and `node .\vigo.mjs`, or define your own functions. Both commands accept `--name value` and `--name=value` and reject unknown options.
 
 ### Studio and Python
 
@@ -1060,7 +1060,7 @@ VIGO models the City revision and query it is given. It does not certify real-wo
 
 - Support is limited to the source features listed in [GTFS support](developer.md#gtfs-support-matrix). Unsupported or malformed features are reported during the build.
 - Missing published shapes do not prevent timetable routing but limit map geometry.
-- Block-based in-seat continuation is not inferred.
+- Explicit GTFS in-seat links at a shared terminal keep passengers aboard across trip changes. Route, Matrix and Reach count one boarding and preserve onboard layovers. Studio shows “Stay aboard.” Block-based continuation is not inferred, and missing feed links are not guessed. Existing Cities must be rebuilt if their importer discarded those links.
 
 ### Transit Route and Matrix
 

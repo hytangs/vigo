@@ -379,6 +379,16 @@ export interface Identifier {
 }
 
 /**
+ * An explicit GTFS continuation from the preceding transit leg.
+ */
+export interface InSeatContinuation {
+  durationSeconds: number;
+  type: InSeatContinuationType;
+}
+
+export type InSeatContinuationType = "stay_aboard";
+
+/**
  * A loaded City: identity, sources, size and limits.
  */
 export interface InfoResult {
@@ -1325,6 +1335,7 @@ export interface TransitLeg {
   /** Service Alerts active during the ride for its trip, route or stops. */
   alerts?: LegAlert[];
   arrivalTime: string | null;
+  continuation?: InSeatContinuation;
   departureTime: string | null;
   directionId: string | null;
   /** Length of the returned line, boarding to alighting stop. */

@@ -88,6 +88,15 @@ impl City {
             let mut seen = HashSet::new();
             let mut departures = vec![];
             for candidate in result.options.into_iter().chain(result.departures) {
+                // Through runs reuse existing vehicle departures; counting
+                // them again would inflate single-leg service frequency.
+                if self
+                    .timetable
+                    .as_ref()
+                    .is_some_and(|t| t.links.contains_key(&candidate.trip))
+                {
+                    continue;
+                }
                 if !seen.insert(key(&candidate)) {
                     continue;
                 }

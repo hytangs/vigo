@@ -1016,8 +1016,8 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
   const prefix = scope ? `${scope}\u001f` : ''
   const streamTable = (entry, onRow, options) => streamGtfsZipCsv(archive, entry, prefix
     ? (row) => {
-        for (const field of ['stop_id', 'route_id', 'trip_id', 'service_id', 'shape_id', 'from_stop_id', 'to_stop_id']) {
-          if (row[field] !== undefined) row[field] = prefix + row[field]
+        for (const field of ['stop_id', 'route_id', 'trip_id', 'service_id', 'shape_id', 'from_stop_id', 'to_stop_id', 'from_trip_id', 'to_trip_id', 'from_route_id', 'to_route_id']) {
+          if (String(row[field] ?? '').trim()) row[field] = prefix + row[field]
         }
         if (row.parent_station) row.parent_station = prefix + row.parent_station
         return onRow(row)
@@ -1261,13 +1261,12 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
           requiredGtfsEnum(row.exception_type, [1, 2], 'exception_type', context),
         ]
       })
+    const insertTripLink = db.prepare('INSERT INTO trip_links VALUES(?,?,?)')
     await importTable('transfers.txt', 0.27,
       'INSERT OR REPLACE INTO transfers VALUES(?,?,?,?)',
       (row) => {
         const routeSpecific = Boolean(String(row.from_route_id ?? '').trim() || String(row.to_route_id ?? '').trim())
         const tripSpecific = Boolean(String(row.from_trip_id ?? '').trim() || String(row.to_trip_id ?? '').trim())
-        if (routeSpecific) featureInventory.routeSpecificTransferCount += 1
-        if (tripSpecific) featureInventory.tripSpecificTransferCount += 1
         const transferContext = `${row.from_stop_id || '(missing from_stop_id)'} -> ${row.to_stop_id || '(missing to_stop_id)'}`
         const transferType = requiredGtfsEnum(row.transfer_type, [0, 1, 2, 3, 4, 5], 'transfer_type', transferContext, 0)
         const minimumTransferTimeText = String(row.min_transfer_time ?? '').trim()
@@ -1276,7 +1275,16 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
           throw new Error(`Invalid GTFS min_transfer_time for ${transferContext}: ${minimumTransferTimeText || '(missing)'}.`)
         }
         if (transferType === 1) featureInventory.timedTransferCount += 1
-        if (transferType === 4 || transferType === 5) featureInventory.inSeatTransferCount += 1
+        if (transferType === 4 || transferType === 5) {
+          featureInventory.inSeatTransferCount += 1
+          if (!String(row.from_trip_id ?? '').trim() || !String(row.to_trip_id ?? '').trim()) {
+            throw new Error('GTFS linked trips require both from_trip_id and to_trip_id.')
+          }
+          insertTripLink.run(row.from_trip_id, row.to_trip_id, transferType)
+          return null
+        }
+        if (routeSpecific) featureInventory.routeSpecificTransferCount += 1
+        if (tripSpecific) featureInventory.tripSpecificTransferCount += 1
         if (routeSpecific || tripSpecific || [1, 4, 5].includes(transferType)) {
           featureInventory.excludedTransferCount += 1
           return null
@@ -1502,8 +1510,11 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
       'Fixed-stop service is retained, but continuous pickup or drop-off between scheduled stops is not represented by the point-to-point router.')
     limitFeature('scoped_transfer_rules', featureInventory.routeSpecificTransferCount + featureInventory.tripSpecificTransferCount,
       'Route- or trip-scoped transfer rows are retained in the source inventory but excluded from the generic stop-pair transfer graph.')
-    limitFeature('in_seat_transfer_rules', featureInventory.inSeatTransferCount,
-      'In-seat linked-trip continuations are not modeled by the supported scheduled routing core.')
+    const linkedStopGaps = db.prepare(`SELECT COUNT(*) AS n FROM trip_links l WHERE transfer_type=4 AND
+      (SELECT to_stop_id FROM connections WHERE trip_id=l.from_trip_id ORDER BY stop_sequence DESC LIMIT 1)
+      <> (SELECT from_stop_id FROM connections WHERE trip_id=l.to_trip_id ORDER BY stop_sequence LIMIT 1)`).get().n
+    limitFeature('in_seat_stop_gap', linkedStopGaps,
+      'Explicit in-seat links between different terminal stops are retained but not routed; onboard movement between those stops has no timed connection.')
     limitFeature('block_interlining', featureInventory.blockTripCount,
       'block_id is retained as an operational limitation; VIGO does not infer passenger in-seat continuation from it.')
     limitFeature('timed_transfer_guarantee', featureInventory.timedTransferCount,
@@ -1820,6 +1831,10 @@ export async function mergeNationalGtfsStores({ stores, outputPath, onProgress, 
           FROM ${alias}.sqlite_master
           WHERE type='table' AND name='connection_permissions'
         `).get()?.ready === 1
+        if (db.prepare(`SELECT 1 FROM ${alias}.sqlite_master WHERE type='table' AND name='trip_links'`).get()) {
+          db.exec(`INSERT INTO trip_links SELECT ${prefixSql} || from_trip_id,
+            ${prefixSql} || to_trip_id, transfer_type FROM ${alias}.trip_links`)
+        }
         if (hasConnectionPermissions) {
           db.exec(`
             INSERT INTO connection_permissions

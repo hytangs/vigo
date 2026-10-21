@@ -22,6 +22,20 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: npm run build:cli-runtime
-      - run: docker build -f deploy/Dockerfile -t vigo-engine-check .
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: runtime-${{ matrix.os }}
+          path: temp
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: release-rust-${{ matrix.os }}
+          path: temp/rust
+      - name: Restore verified runtime and licenses
+        shell: bash
+        run: |
+          tar -xzf temp/runtime.tar.gz
+          mkdir -p temp/container
+          tar -xzf temp/rust/*.tar.gz -C temp/container --strip-components=1
+
+      - run: docker build -f deploy/Dockerfile.release -t vigo-engine-check .
       - run: npm run check:deployment -- --image vigo-engine-check

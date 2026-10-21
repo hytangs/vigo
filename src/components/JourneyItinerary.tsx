@@ -63,14 +63,14 @@ export function RoutingItinerary({ plan, destinationLabel }: { plan: RoutingPlan
     {plan.diagnostics.expandedWalkingLimitKm ? <p className="journey-start-wait">More walking allowed · up to {plan.diagnostics.expandedWalkingLimitKm} km at each end</p> : null}
     <ol className="journey-timeline">
       {plan.legs.map((leg, index) => {
-        const wait = Math.max(0, leg.startMinutes - previousEnd)
+        const wait = leg.inSeatSeconds != null ? 0 : Math.max(0, leg.startMinutes - previousEnd)
         previousEnd = leg.endMinutes
         const ride = leg.type === 'ride'
         const frequency = plan.sharedLegAlternatives?.frequencies?.find(f => f.legIndex === index)
         const sharedOptions = plan.sharedLegAlternatives?.options.filter(option => option.legIndex === index) ?? []
         const previousLeg = plan.legs[index - 1]
         const immediateVehicleChange = ride && previousLeg?.type === 'ride'
-          && previousLeg.tripId !== leg.tripId && wait === 0
+          && previousLeg.tripId !== leg.tripId && wait === 0 && leg.inSeatSeconds == null
         const transfer = isSameStationTransfer(leg)
         const kind = ride ? 'ride' : leg.type === 'drive' ? 'drive' : transfer ? 'transfer' : 'walk'
         const color = routingLegColor(leg)
@@ -89,6 +89,7 @@ export function RoutingItinerary({ plan, destinationLabel }: { plan: RoutingPlan
           <strong className="journey-place">{index === 0 ? journeyPlace(leg.fromName, plan.origin.label && !coordinateLabel.test(plan.origin.label) ? plan.origin.label : 'Start')
             : via !== undefined ? <>{viaLabel}{/^Via stop \d+$/.test(viaLabel) ? null : <span className="journey-via-tag">Via {via + 1}</span>}</> : leg.fromName}</strong>
           <div className="journey-leg-body">
+            {leg.inSeatSeconds != null ? <p className="journey-wait">Stay aboard{leg.inSeatSeconds > 0 ? ` · ${formatRoutingMinutes(leg.inSeatSeconds / 60)} onboard layover` : ''}</p> : null}
             {wait > 0 ? <p className="journey-wait"><Clock3 size={12} aria-hidden="true" />{formatRoutingMinutes(wait)} wait at {leg.fromName}</p> : null}
             {immediateVehicleChange ? <p className="journey-caution">No time between vehicles</p> : null}
             {transfer && (leg.geometrySource === 'stop_coordinate_fallback' || leg.stationAccessStatus === 'unverified') ? <p className="journey-leg-meta">Station connection · map line approximate</p> : null}

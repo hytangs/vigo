@@ -6,9 +6,11 @@ fn number(v: &Value, name: &str) -> f64 {
 }
 pub(super) fn boardings(v: &Value) -> f64 {
     v["boardings"].as_f64().unwrap_or_else(|| {
-        v["legs"]
-            .as_array()
-            .map_or(0, |a| a.iter().filter(|l| l["kind"] == "ride").count()) as f64
+        v["legs"].as_array().map_or(0, |a| {
+            a.iter()
+                .filter(|l| l["kind"] == "ride" && l["inSeatSeconds"].is_null())
+                .count()
+        }) as f64
     })
 }
 pub(super) fn walking(v: &Value) -> f64 {

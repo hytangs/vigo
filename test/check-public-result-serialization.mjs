@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { serializePublicResult, formatPublicResult } from '../src/server/native-routing-kernel.mjs'
 import { publicResultJson } from '../src/cli/presentation.mjs'
-const binding = createRequire(import.meta.url)('../native/vigo-routing-kernel.node')
+const binding = createRequire(import.meta.url)('../crates/vigo-runtime/vigo-routing-kernel.node')
 const plan = { status: 'ready', travelMode: 'transit', departMinutes: 480, arriveMinutes: 482,
   durationMinutes: 2, walkMinutes: 0, waitMinutes: 0, rideMinutes: 2,
   legs: [{ type: 'ride', startMinutes: 480, endMinutes: 482, fromStopId: 'feed\u001fA', toStopId: 'feed\u001fB',

@@ -116,7 +116,7 @@ try {
   assert.deepEqual(witness(later), witness(after))
   assert.equal(later.diagnostics.realtimeRouting.snapshotId, after.diagnostics.realtimeRouting.snapshotId,
     'An unchanged fresh snapshot must keep a stable compiled identity after the source clock crossing')
-  console.log(`Realtime past-prefix check passed (${pairs} native/literal comparisons, prefix boarding exclusion, and future-header cache crossing).`)
+  console.log(`Realtime past-prefix check passed (${pairs} crates/vigo-runtime/literal comparisons, prefix boarding exclusion, and future-header cache crossing).`)
 } finally {
   for (const store of stores) disposeNationalGtfsStore(store)
   await fs.rm(folder, { recursive: true, force: true })

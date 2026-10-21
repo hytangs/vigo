@@ -8738,7 +8738,7 @@ pub fn render_public_text(input: String) -> Result<Option<String>> {
 
 // Keep the vendored scratch regression tests in the supported native test suite.
 #[cfg(test)]
-#[path = "../vendor/cch/src/paged.rs"]
+#[path = "../../../vendor/cch/src/paged.rs"]
 mod paged_scratch_tests;
 
 #[cfg(all(feature = "standalone", not(feature = "node")))]

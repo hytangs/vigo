@@ -109,6 +109,7 @@ export type RoutingLeg = {
   routeFeatureId?: string
   routeId?: string
   routeType?: number
+  inSeatSeconds?: number
   routeShortName?: string
   routeColor?: string
   tripId?: string

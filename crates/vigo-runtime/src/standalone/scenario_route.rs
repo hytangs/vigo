@@ -142,6 +142,7 @@ impl City {
                 *flag = 1;
             }
         }
+        let links = t.links.clone();
         let mut stop_index = vec![];
         let mut appended = vec![];
         if let Some(planned) = &planned {
@@ -159,6 +160,19 @@ impl City {
                 }
             }
         }
+        let mut canceled_spans = Vec::new();
+        for (&logical, parts) in &t.links {
+            canceled[logical as usize] = 0;
+            for part in parts {
+                if canceled[part.trip as usize] != 0 {
+                    canceled_spans.extend([
+                        logical,
+                        part.first,
+                        part.first + part.sequences.len() as u32 - 1,
+                    ]);
+                }
+            }
+        }
         let (stop_ids, trip_ids, route_ids, trip_dates) = (
             t.stop_ids.clone(),
             t.trip_ids.clone(),
@@ -167,7 +181,10 @@ impl City {
         );
         let (index, complete, coverage_end) =
             (t.index.clone(), t.complete_service_coverage, t.coverage_end);
-        let empty = super::scenario::Planned::default();
+        let empty = super::scenario::Planned {
+            direction_offsets: vec![0],
+            ..Default::default()
+        };
         let planned = planned.unwrap_or(empty);
         let (from, to, duration) = self.new_stop_links(&planned, &appended, n)?;
         let seconds = |values: &[f64]| -> Vec<u32> {
@@ -176,6 +193,7 @@ impl City {
         let plan = ScenarioPlan {
             added_stop_count: appended.len() as u32,
             canceled: canceled.into(),
+            canceled_spans: Some(canceled_spans.into()),
             pattern_offsets: planned.direction_offsets.clone().into(),
             pattern_stops: planned
                 .direction_stops
@@ -280,6 +298,7 @@ impl City {
         }
         Ok((
             Timetable {
+                links,
                 kernel: view.kernel,
                 stop_ids: stop_ids.into(),
                 index: Arc::new(index),

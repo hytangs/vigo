@@ -94,7 +94,7 @@ function enumerateDeparture(trips, origin, destination, deadline, count, minimum
 async function checkAccuracy(directory) {
   const seeds = Number(process.env.VIGO_ACCURACY_SEEDS ?? 8)
   assert(Number.isInteger(seeds) && seeds >= 1 && seeds <= 100)
-  const binding = createRequire(import.meta.url)('../native/vigo-routing-kernel.node')
+  const binding = createRequire(import.meta.url)('../crates/vigo-runtime/vigo-routing-kernel.node')
   const counts = { streetDistances: 0, driveDurations: 0, unreachableDriveCells: 0, driveWitnesses: 0, blockedDriveQueries: 0, transitDepart: 0, transitArrive: 0, transitMatrix: 0, exhaustiveMatrixCells: 0, transitWitnesses: 0, calendarChecks: 0, blockedTransit: 0 }
   for (let iteration = 0; iteration < seeds; iteration += 1) {
     const seed = 20260904 + iteration
