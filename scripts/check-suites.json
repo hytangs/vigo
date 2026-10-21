@@ -16,8 +16,7 @@
     "test/check-place-names.mjs",
     "test/check-place-names-backfill.mjs",
     "test/check-place-name-queue.mjs",
-    "test/check-routing-search-locations.mjs",
-    "test/check-place-name-runtime.mjs"
+    "test/check-routing-search-locations.mjs"
   ],
   "check:osm-pbf": [
     "test/check-osm-pbf-safety.mjs",
@@ -90,6 +89,7 @@
     "test/check-packaged-studio.mjs"
   ],
   "check:studio-runtime": [
+    "test/check-place-name-runtime.mjs",
     "test/check-journey-stops.mjs",
     "test/check-city-refresh.mjs",
     "test/check-preparation-ownership.mjs",
