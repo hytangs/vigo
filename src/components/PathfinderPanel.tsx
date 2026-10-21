@@ -190,13 +190,16 @@ export function PathfinderRouteList({
             const timeTradeoff = plan.timePreference === 'arrive'
               ? earlierMinutes > 0.01 ? `leave ${timeDifference(earlierMinutes)} earlier` : 'same departure'
               : laterMinutes > 0.01 ? `arrive ${timeDifference(laterMinutes)} later` : 'same arrival'
-            const tradeoffText = plan === fastest ? '' : [
+            const gains = [
               plan.travelMode === 'walk' ? 'walk only' : '',
               fewerTransfers > 0 ? `${fewerTransfers} fewer transfer${fewerTransfers === 1 ? '' : 's'}` : '',
               lessWalking >= 1 ? `${lessWalking}m less walking` : '',
               plan.timePreference === 'depart' && earlierMinutes <= -1 ? `leave ${timeDifference(-earlierMinutes)} later` : '',
-              timeTradeoff,
-            ].filter(Boolean).join(' · ')
+            ].filter(Boolean)
+            // A journey that ties the best one at the shown minutes leads the list with it.
+            const leads = plan === fastest || (!gains.length
+              && Math.abs(plan.timePreference === 'arrive' ? earlierMinutes : laterMinutes) < 0.5)
+            const tradeoffText = leads ? '' : [...gains, timeTradeoff].join(' · ')
             const tradeoff = tradeoffText.charAt(0).toUpperCase() + tradeoffText.slice(1)
             const routeSequence = plan.legs.length ? ''
               : plan.travelMode === 'walk' ? 'Walk only' : routingPlanRouteSequence(plan) || plan.detail
@@ -223,7 +226,7 @@ export function PathfinderRouteList({
                 {plan.legs.length ? <JourneyLegStrip plan={plan} showBar={false} /> : null}
                 {services.length > 1 ? <strong className="pathfinder-group-services">{services.join(' or ')}</strong> : null}
                 <span className="pathfinder-route-footer">
-                  <strong className="pathfinder-route-rationale">{plan === fastest ? `${plan.travelMode === 'walk' ? 'Walk only · ' : ''}${plan.timePreference === 'arrive' ? 'Latest departure' : 'Earliest arrival'}` : tradeoff || plan.choiceLabel || 'Another route'}</strong>
+                  <strong className="pathfinder-route-rationale">{leads ? `${plan.travelMode === 'walk' ? 'Walk only · ' : ''}${plan.timePreference === 'arrive' ? 'Latest departure' : 'Earliest arrival'}` : tradeoff || plan.choiceLabel || 'Another route'}</strong>
                   <span className="pathfinder-route-metrics" aria-hidden="true">
                     {plan.travelMode === 'transit' ? <span><b>{plan.transfers}</b><small>transfer{plan.transfers === 1 ? '' : 's'}</small></span> : null}
                     <span><b>{formatRoutingMinutes(plan.walkMinutes)}</b><small>{plan.travelMode === 'drive' ? 'access' : 'walk'}</small></span>
@@ -284,6 +287,7 @@ export type SidebarPathfinderBoxProps = {
   routingAllowLongWalk: boolean
   routingAllowStreetTransfers: boolean
   routingWheelchair?: boolean
+  routingWheelchairAvailable?: boolean
   onRoutingWheelchairChange?: (enabled: boolean) => void
   routingMinimumTransferBufferMinutes: number
   routingActivity: RoutingActivity
@@ -334,7 +338,7 @@ export function SidebarPathfinderBox({
   routingMaxTransfers,
   routingAllowLongWalk,
   routingAllowStreetTransfers,
-  routingWheelchair, onRoutingWheelchairChange,
+  routingWheelchair, routingWheelchairAvailable, onRoutingWheelchairChange,
   routingMinimumTransferBufferMinutes,
   routingActivity,
   routingAlternativesLoading,
@@ -471,7 +475,7 @@ export function SidebarPathfinderBox({
           <RoutingSetup {...{
             routingMode, routingNetwork, routingDataMode, routingTimePreference, routingServiceDate,
             routingServiceCoverage, routingServiceDateAvailability, scheduleTimeMinutes, routingWaypoints,
-            routingWheelchair, onRoutingWheelchairChange,
+            routingWheelchair, routingWheelchairAvailable, onRoutingWheelchairChange,
             routingDepartureWindowMinutes, routingMaxTransfers, routingMinimumTransferBufferMinutes,
             routingMaxWalkKm, routingAllowStreetTransfers, routingAllowLongWalk,
             onRoutingDataModeChange, onRoutingTimePreferenceChange, onRoutingServiceDateChange,

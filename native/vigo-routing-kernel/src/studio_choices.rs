@@ -127,6 +127,20 @@ fn selected_indices(plans: &[Value], limit: usize) -> Vec<usize> {
     });
     let mut trips = HashSet::new();
     candidates.retain(|&i| trips.insert(identity(&plans[i], false)));
+    // Journeys on the same lines that read the same in Studio's minutes are one
+    // choice. The exact primary witness is the one kept.
+    let shown_identity = |plan: &Value| {
+        let lines: Vec<_> = rides(plan)
+            .iter()
+            .map(|leg| leg["routeId"].clone())
+            .collect();
+        serde_json::json!([lines, shown_burden(plan)]).to_string()
+    };
+    let mut shown = HashSet::new();
+    if candidates.contains(&0) {
+        shown.insert(shown_identity(&plans[0]));
+    }
+    candidates.retain(|&i| i == 0 || shown.insert(shown_identity(&plans[i])));
     let mut families = HashSet::new();
     let mut selected = Vec::new();
     // Distinct line/boarding/alighting combinations get slots before repeated
@@ -232,5 +246,13 @@ mod tests {
             selected_indices(&[first, later, early, next], 10),
             vec![0, 1, 3]
         );
+    }
+    #[test]
+    fn collapses_journeys_that_read_the_same() {
+        let first = plan("first", "70", 526, &["a"], false);
+        let mut twin = plan("twin", "70", 526, &["b"], false);
+        twin["arriveMinutes"] = json!(526.17);
+        let other_line = plan("other", "47", 526, &["c"], false);
+        assert_eq!(selected_indices(&[first, twin, other_line], 10), vec![0, 2]);
     }
 }

@@ -1,4 +1,4 @@
-import { ChevronDown, Clock3, SlidersHorizontal } from 'lucide-react'
+import { Accessibility, ChevronDown, Clock3, SlidersHorizontal } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { classNames } from '../domain'
 import { routingTimeOptions } from '../app/uiOptions'
@@ -8,7 +8,7 @@ import type { SidebarPathfinderBoxProps } from './PathfinderPanel'
 type RoutingSetupProps = Pick<SidebarPathfinderBoxProps,
   'routingMode' | 'routingNetwork' | 'routingDataMode' | 'routingTimePreference' | 'routingServiceDate'
   | 'routingServiceCoverage' | 'routingServiceDateAvailability' | 'scheduleTimeMinutes' | 'routingWaypoints'
-  | 'routingWheelchair' | 'onRoutingWheelchairChange'
+  | 'routingWheelchair' | 'routingWheelchairAvailable' | 'onRoutingWheelchairChange'
   | 'routingDepartureWindowMinutes' | 'routingMaxTransfers' | 'routingMinimumTransferBufferMinutes'
   | 'routingMaxWalkKm' | 'routingAllowStreetTransfers' | 'routingAllowLongWalk'
   | 'onRoutingDataModeChange' | 'onRoutingTimePreferenceChange' | 'onRoutingServiceDateChange'
@@ -22,7 +22,7 @@ type RoutingSetupProps = Pick<SidebarPathfinderBoxProps,
 /** One settings surface. Tabs only change presentation; routing state stays with the caller. */
 export function RoutingSetup(props: RoutingSetupProps) {
   const {
-    routingWheelchair = false, onRoutingWheelchairChange,
+    routingWheelchair = false, routingWheelchairAvailable = false, onRoutingWheelchairChange,
     routingMode, routingNetwork, routingDataMode, routingTimePreference, routingServiceDate,
     routingServiceCoverage, routingServiceDateAvailability, scheduleTimeMinutes, routingWaypoints,
     routingDepartureWindowMinutes, routingMaxTransfers, routingMinimumTransferBufferMinutes,
@@ -45,8 +45,9 @@ export function RoutingSetup(props: RoutingSetupProps) {
   const departNow = transit && routingDataMode === 'realtime'
   const realtimeAvailable = !routingNetwork?.selectedId
   const realtimeUnavailableReason = routingNetwork?.selectedId ? 'Scenarios run on the published timetable.' : undefined
-  // Accessibility is prepared from the published timetable; live service has no accessibility data.
-  const wheelchairShown = Boolean(onRoutingWheelchairChange) && !departNow
+  // Wheelchair networks are prepared from the published timetable; live service carries no accessibility data.
+  const wheelchairReason = !routingWheelchairAvailable ? 'No prepared wheelchair network for this selection'
+    : departNow ? 'Wheelchair routing uses the published timetable' : ''
   const transferLimitUnavailable = routingWaypoints.length > 0
   const maxTransfers = transferLimitUnavailable ? undefined : routingMaxTransfers
   const buffer = transferLimitUnavailable ? 0 : routingMinimumTransferBufferMinutes
@@ -84,6 +85,9 @@ export function RoutingSetup(props: RoutingSetupProps) {
       </div>
       {routingNetwork.error ? <p role="alert">{routingNetwork.error}</p> : null}
     </div> : <span className="routing-setup-title"><SlidersHorizontal size={14} aria-hidden="true" />Journey settings</span>}
+      {onRoutingWheelchairChange ? <button type="button" className="kit-icon-button routing-wheelchair" aria-pressed={routingWheelchair}
+        disabled={Boolean(wheelchairReason)} aria-label="Wheelchair routing" title={wheelchairReason || 'Wheelchair routing'}
+        onClick={() => onRoutingWheelchairChange(!routingWheelchair)}><Accessibility size={15} aria-hidden="true" /></button> : null}
       <button type="button" className="routing-setup-fold" aria-expanded={!collapsed} aria-controls={`${id}-content`}
         aria-label={collapsed ? 'Expand journey settings' : 'Collapse journey settings'}
         title={collapsed ? 'Expand journey settings' : 'Collapse journey settings'} onClick={() => setCollapsed(value => !value)}>
@@ -92,13 +96,6 @@ export function RoutingSetup(props: RoutingSetupProps) {
     </header>
 
     <div id={`${id}-content`} hidden={collapsed}>
-    {wheelchairShown ? <div className="routing-accessibility">
-      <label className="routing-setup-toggle">
-        <span><strong>Wheelchair routing</strong><small>Only vehicles and paths marked accessible</small></span>
-        <input type="checkbox" role="switch" aria-label="Wheelchair routing" checked={routingWheelchair}
-          onChange={event => onRoutingWheelchairChange?.(event.currentTarget.checked)} />
-      </label>
-    </div> : null}
     {transit ? <div className="routing-setup-tabs" role="tablist" aria-label="Journey settings">
       {(['when', 'preferences'] as const).map(value => <button key={value} type="button" role="tab"
         id={`${id}-${value}-tab`} aria-controls={`${id}-${value}-panel`} aria-selected={activeTab === value}

@@ -519,15 +519,6 @@ export const basemapLabels: Record<Basemap, string> = {
   terrain: 'Detailed map',
 }
 
-export const basemapShortLabels: Record<Basemap, string> = {
-  none: 'None',
-  offline: 'Local',
-  minimal: 'Light',
-  streets: 'OSM',
-  dark: 'Dark',
-  terrain: 'Detailed',
-}
-
 export const basemapDescriptions: Record<Basemap, string> = {
   none: 'Show only your network and routes.',
   offline: 'Roads and water from this City. Works offline.',
@@ -535,14 +526,6 @@ export const basemapDescriptions: Record<Basemap, string> = {
   streets: 'Street detail from OpenStreetMap. Requires internet.',
   dark: 'A dark backdrop from OpenFreeMap. Requires internet.',
   terrain: 'More place detail from OpenFreeMap. Requires internet.',
-}
-
-export const networkLensLabels: Record<NetworkLens, string> = {
-  network: 'Network',
-  shape: 'Shape',
-  service: 'Service',
-  transfer: 'Transfers',
-  risk: 'Risk',
 }
 
 export const initialLayers: LayerState = {

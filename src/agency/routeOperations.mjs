@@ -269,7 +269,7 @@ export function routeOperations(context, snapshot, { routeId, includeTrips = fal
     }
   }
   for (const vehicle of vehicles) vehicle.patternId ??= topology.byTrip.get(vehicle.tripId) ?? null
-  return { routeId, name: resolved.short_name || resolved.long_name || rawId(routeId), color: /^[0-9a-f]{6}$/i.test(resolved.color) ? `#${resolved.color}` : 'var(--vigo-lime-strong)',
+  return { routeId, name: resolved.short_name || resolved.long_name || rawId(routeId), color: /^[0-9a-f]{6}$/i.test(resolved.color) ? `#${resolved.color}` : 'var(--signal-text)',
     serviceDate: coverage.serviceDate, serviceDates, timezone: context.timezone, generatedAt: new Date(now * 1000).toISOString(), observedAt: snapshot?.fetchedAt ?? null,
     ...(includeTrips ? routeTripTimetable(context, snapshot, routeId, serviceDate || coverage.serviceDate, tripId, now, policy, added, feeds) : {}),
     patterns, vehicles, warnings: coverage.valid ? [] : [coverage.message] }

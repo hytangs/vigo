@@ -42,7 +42,7 @@ function Fixture() {
   const props = { isImporting: false, isOsmImporting: false, osmStreetReady: true, importMessage: '', osmStreetMessage: '', realtimeSnapshot: null, realtimeMessage: '', realtimeRequest: null,
     isRealtimeLoading: false, onFiles: noop, onOsmFiles: noop, onNationalGtfsPath: noop, onNationalOsmPath: noop, onConnectRealtime: noop, onDisconnectRealtime: noop, onCancelGtfs: noop, onRetryGtfs: noop, onCancelOsm: noop, onRetryOsm: noop }
   return <main className={`app-shell appearance-${appearance} accent-graphite page-project view-data`}>
-    <header className="topbar" style={{ padding: '12px 24px', margin: 0, display: 'flex', alignItems: 'center' }}><b>VIGO Studio</b><span style={{ marginLeft: 12, color: 'var(--text-muted)' }}>City data</span></header>
+    <header className="topbar" style={{ padding: '12px 24px', margin: 0, display: 'flex', alignItems: 'center' }}><b>VIGO Studio</b><span style={{ marginLeft: 12, color: 'var(--text-3)' }}>City data</span></header>
     <div className="app-frame" style={{ overflow: 'auto', display: 'block' }}><CityPanel
       section="feeds" projectId={project.id} projectName={project.name} projectRegion="" feedCount={3} routeCount={0} stopCount={0} appearance={appearance}
       basemap="minimal" localBasemapAvailable runtimeConfig={null} health={null} busy={false} error="" projects={[project]}

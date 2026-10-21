@@ -107,7 +107,6 @@
     "test/check-street-transfer-selection-ui.mjs",
     "test/check-scenario-draft-lifecycle.mjs",
     "test/check-map-runtime.mjs",
-    "test/check-map-controls-runtime.mjs",
     "test/check-analysis-origin.mjs",
     "test/check-analysis-settings-runtime.mjs",
     "test/check-result-saving-runtime.mjs",

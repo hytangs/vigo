@@ -17,7 +17,7 @@
   border: 1px solid transparent;
   border-radius: 7px;
   background: transparent;
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 11px;
   white-space: nowrap;
   cursor: pointer;
@@ -26,7 +26,7 @@
 .background-tasks-trigger b {
   min-width: 17px;
   border-radius: 4px;
-  background: var(--active-surface);
+  background: var(--signal-soft);
   text-align: center;
 }
 
@@ -38,11 +38,11 @@
   max-height: min(480px, calc(100dvh - 80px));
   overflow: auto;
   padding: 16px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-2);
   border-radius: 10px;
-  background: var(--panel-strong);
-  color: var(--text-strong);
-  box-shadow: var(--shadow-soft);
+  background: var(--ink-3);
+  color: var(--text-1);
+  box-shadow: var(--elev-1);
   font-size: 12px;
 }
 
@@ -60,16 +60,16 @@
 
 .background-tasks-panel button {
   padding: 6px 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-2);
   border-radius: 5px;
-  background: var(--panel);
-  color: var(--text-strong);
+  background: var(--ink-2);
+  color: var(--text-1);
   cursor: pointer;
 }
 
 .background-tasks-panel p {
   margin: 8px 0;
-  color: var(--text-muted);
+  color: var(--text-3);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -82,7 +82,7 @@
 
 .background-task {
   padding: 0;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line-2);
 }
 
 .background-task-heading strong {
@@ -93,13 +93,13 @@
 
 .background-task-heading > span {
   font-size: 10px;
-  color: var(--text-muted);
+  color: var(--text-3);
 }
 
 .background-task small {
   display: block;
   margin-top: 5px;
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 11px;
   line-height: 1.5;
   overflow-wrap: anywhere;
@@ -110,36 +110,36 @@
   width: 100%;
   height: 5px;
   margin: 8px 0;
-  accent-color: var(--accent);
+  accent-color: var(--signal-text);
 }
 
 .background-task.is-complete .background-task-heading > svg {
-  color: var(--text-muted);
+  color: var(--text-3);
 }
 
 .background-task.is-failed .background-task-heading > svg {
-  color: var(--danger, #c24135);
+  color: var(--alert);
 }
 
 .background-tasks-panel .background-tasks-data {
   width: 100%;
   background: transparent;
   border-color: transparent;
-  color: var(--text-muted);
+  color: var(--text-3);
   text-align: left;
   padding: 8px 0 0;
 }
-.background-tasks-trigger:hover, .background-tasks-trigger[aria-expanded="true"] { background: var(--hover-surface); color: var(--text-strong); }
-.background-tasks-panel header button { display: grid; place-items: center; border: 0; background: transparent; color: var(--text-muted); padding: 5px; }
+.background-tasks-trigger:hover, .background-tasks-trigger[aria-expanded="true"] { background: var(--ink-4); color: var(--text-1); }
+.background-tasks-panel header button { display: grid; place-items: center; border: 0; background: transparent; color: var(--text-3); padding: 5px; }
 .background-tasks-panel .background-tasks-summary { margin: 4px 0 14px; font-size: 11px; }
 .background-task-heading { min-height: 44px; padding: 10px 0; cursor: pointer; list-style: none; }
 .background-task-heading::-webkit-details-marker { display: none; }
 .background-task-heading > svg { flex-shrink: 0; }
 .background-task-heading strong { font-weight: 500; }
-.background-task-heading::after { content: '›'; color: var(--text-muted); transform: rotate(0); transition: transform .15s ease; }
+.background-task-heading::after { content: '›'; color: var(--text-3); transform: rotate(0); transition: transform .15s ease; }
 .background-task details[open] > summary::after { transform: rotate(90deg); }
 .background-task-details { padding: 0 0 12px 24px; }
-.background-tasks :is(button, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.background-tasks :is(button, summary):focus-visible { outline: 2px solid var(--signal-text); outline-offset: 3px; }
 @media (prefers-reduced-motion: reduce) { .background-task-heading::after { transition: none; } }
 
 .task-spinner {
@@ -170,14 +170,14 @@
   align-items: center;
   gap: 14px;
   padding: 6px 10px;
-  border-bottom: 1px solid var(--topbar-border, var(--border-strong));
-  background: var(--topbar-bg, var(--panel-strong));
+  border-bottom: 1px solid var(--line-1);
+  background: var(--ink-1);
   box-shadow: none;
   backdrop-filter: none;
 }
 
 .topbar-brand {
-  color: var(--text-strong);
+  color: var(--text-1);
 }
 
 .topbar-mark-button {
@@ -185,7 +185,7 @@
 }
 
 .topbar-brand span {
-  color: var(--text-muted);
+  color: var(--text-3);
   font-weight: 860;
 }
 
@@ -204,10 +204,10 @@
   display: grid;
   gap: 0;
   padding: 0;
-  border-right: 1px solid var(--border-strong);
+  border-right: 1px solid var(--line-3);
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--panel-strong) 88%, transparent), color-mix(in srgb, var(--panel) 96%, transparent));
-  box-shadow: var(--shadow-soft);
+    linear-gradient(180deg, color-mix(in srgb, var(--ink-3) 88%, transparent), color-mix(in srgb, var(--ink-2) 96%, transparent));
+  box-shadow: var(--elev-1);
   backdrop-filter: blur(18px) saturate(1.05);
   overflow: hidden;
 }
@@ -216,14 +216,14 @@
   display: grid;
   gap: 5px;
   padding: 10px;
-  border: 1px dashed var(--border-strong);
+  border: 1px dashed var(--line-3);
   border-radius: 8px;
-  color: var(--text-muted);
-  background: color-mix(in srgb, var(--panel-strong) 30%, transparent);
+  color: var(--text-3);
+  background: color-mix(in srgb, var(--ink-3) 30%, transparent);
 }
 
 .sidebar-empty-note strong {
-  color: var(--text-strong);
+  color: var(--text-1);
   font-size: 0.78rem;
   font-weight: 900;
 }
@@ -258,18 +258,18 @@
   height: 28px;
   display: inline-grid;
   place-items: center;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-2);
   border-radius: 6px;
-  color: var(--text-muted);
-  background: color-mix(in srgb, var(--panel) 70%, transparent);
+  color: var(--text-3);
+  background: color-mix(in srgb, var(--ink-2) 70%, transparent);
   cursor: pointer;
 }
 
 .icon-button:hover,
 .icon-button.is-active {
-  color: var(--text-strong);
-  border-color: color-mix(in srgb, var(--accent) 52%, var(--border-strong));
-  background: color-mix(in srgb, var(--accent) 13%, var(--panel-strong));
+  color: var(--text-1);
+  border-color: color-mix(in srgb, var(--signal-text) 52%, var(--line-3));
+  background: color-mix(in srgb, var(--signal-text) 13%, var(--ink-3));
 }
 
 .icon-button:disabled {
@@ -435,7 +435,7 @@
   display: grid;
   gap: 0;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--panel-strong) 84%, transparent);
+  background: color-mix(in srgb, var(--ink-3) 84%, transparent);
 }
 
 .empty-intake .import-panel .panel-heading {
@@ -507,7 +507,7 @@
   position: relative;
   z-index: 1;
   display: grid;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--line-3);
 }
 
 .project-dialog header {
@@ -520,7 +520,7 @@
 
 .project-dialog header span,
 .project-dialog label span {
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.68rem;
   font-weight: 760;
 }
@@ -528,7 +528,7 @@
 .project-dialog header h2 {
   min-width: 0;
   margin: 0;
-  color: var(--text-strong);
+  color: var(--text-1);
 }
 
 .project-dialog header button {
@@ -538,10 +538,10 @@
   height: 30px;
   display: grid;
   place-items: center;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-2);
   border-radius: 7px;
-  color: var(--text-muted);
-  background: color-mix(in srgb, var(--panel-soft) 64%, transparent);
+  color: var(--text-3);
+  background: color-mix(in srgb, var(--ink-4) 64%, transparent);
   cursor: pointer;
 }
 
@@ -555,22 +555,22 @@
   width: 100%;
   min-width: 0;
   height: 38px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-2);
   border-radius: 7px;
-  color: var(--text-strong);
-  background: color-mix(in srgb, var(--panel-soft) 64%, transparent);
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--ink-4) 64%, transparent);
   padding: 0 10px;
   font: 780 0.82rem/1.2 "IBM Plex Sans", Inter, system-ui, sans-serif;
 }
 
 .project-dialog input:focus {
-  outline: 2px solid color-mix(in srgb, var(--accent-2) 42%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--signal-text) 42%, transparent);
   outline-offset: 1px;
 }
 
 .project-dialog-error {
   margin: 0;
-  color: var(--danger);
+  color: var(--alert);
   font-size: 0.72rem;
   font-weight: 760;
 }
@@ -587,8 +587,8 @@
 }
 
 .project-dialog-secondary {
-  border: 1px solid var(--border);
-  color: var(--text-soft);
+  border: 1px solid var(--line-2);
+  color: var(--text-2);
   background: transparent;
 }
 
@@ -612,7 +612,7 @@
   gap: 13px;
   border-radius: 14px;
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--panel-strong) 97%, #03070b), color-mix(in srgb, var(--panel) 98%, #03070b));
+    linear-gradient(180deg, color-mix(in srgb, var(--ink-3) 97%, #03070b), color-mix(in srgb, var(--ink-2) 98%, #03070b));
 }
 
 .setup-dialog header h2 {
@@ -624,11 +624,11 @@
   min-width: 0;
   display: grid;
   gap: 10px;
-  border: 1px solid color-mix(in srgb, var(--accent-2) 22%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--signal-text) 22%, var(--line-2));
   border-radius: 10px;
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--accent-2) 11%, transparent), transparent 58%),
-    color-mix(in srgb, var(--panel-soft) 78%, transparent);
+    linear-gradient(135deg, color-mix(in srgb, var(--signal-text) 11%, transparent), transparent 58%),
+    color-mix(in srgb, var(--ink-4) 78%, transparent);
 }
 
 .setup-hero {
@@ -638,7 +638,7 @@
 }
 
 .setup-hero svg {
-  color: var(--accent);
+  color: var(--signal-text);
 }
 
 .setup-hero span,
@@ -650,14 +650,14 @@
 
 .setup-hero strong,
 .setup-offline-card strong {
-  color: var(--text-strong);
+  color: var(--text-1);
   font-weight: 880;
 }
 
 .setup-hero small,
 .setup-dialog label small,
 .setup-offline-card small {
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.66rem;
   font-weight: 730;
   line-height: 1.45;
@@ -683,17 +683,17 @@
 }
 
 .setup-basemap-choice > span {
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.66rem;
   font-weight: 790;
 }
 
 .setup-basemap-choice select {
   min-height: 34px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-2);
   border-radius: 7px;
-  color: var(--text-strong);
-  background: var(--panel);
+  color: var(--text-1);
+  background: var(--ink-2);
   font: inherit;
   font-size: 0.7rem;
   font-weight: 680;
@@ -706,33 +706,33 @@
   gap: 7px;
   margin: 0;
   padding: 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-2);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--panel-soft) 58%, transparent);
+  background: color-mix(in srgb, var(--ink-4) 58%, transparent);
 }
 
 .setup-choice-grid legend {
   padding: 0 4px;
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.66rem;
   font-weight: 790;
 }
 
 .setup-choice-grid button {
   min-height: 30px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-2);
   border-radius: 7px;
-  color: var(--text-soft);
-  background: color-mix(in srgb, var(--panel-strong) 62%, transparent);
+  color: var(--text-2);
+  background: color-mix(in srgb, var(--ink-3) 62%, transparent);
   cursor: pointer;
   font-size: 0.68rem;
   font-weight: 840;
 }
 
 .setup-choice-grid button.is-selected {
-  border-color: color-mix(in srgb, var(--accent) 52%, var(--border-strong));
-  color: var(--text-strong);
-  background: color-mix(in srgb, var(--accent) 14%, var(--panel-strong));
+  border-color: color-mix(in srgb, var(--signal-text) 52%, var(--line-3));
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--signal-text) 14%, var(--ink-3));
 }
 
 .setup-choice-grid button[class*="accent-dot"]::before {
@@ -742,7 +742,7 @@
   display: inline-block;
   margin-right: 6px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--signal-text);
 }
 
 .setup-choice-grid button.accent-dot-blue::before {
@@ -773,22 +773,22 @@
   align-items: center;
   gap: 5px;
   padding: 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-2);
   border-radius: 8px;
-  color: var(--text-muted);
-  background: color-mix(in srgb, var(--panel-strong) 46%, transparent);
+  color: var(--text-3);
+  background: color-mix(in srgb, var(--ink-3) 46%, transparent);
   font-size: 0.62rem;
   font-weight: 820;
 }
 
 .setup-status-grid span.is-ok {
-  color: var(--text-strong);
-  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+  color: var(--text-1);
+  border-color: color-mix(in srgb, var(--signal-text) 30%, var(--line-2));
 }
 
 .setup-status-grid svg {
   flex: 0 0 auto;
-  color: var(--accent);
+  color: var(--signal-text);
 }
 
 @media (max-width: 760px) {
@@ -806,7 +806,7 @@
 
 .feed-table-panel .panel-heading h2 + p {
   margin: 3px 0 0;
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.58rem;
   font-weight: 620;
 }
@@ -825,9 +825,9 @@
   gap: 10px;
   align-items: center;
   padding: 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-2);
   border-radius: 7px;
-  background: color-mix(in srgb, var(--panel-soft) 62%, transparent);
+  background: color-mix(in srgb, var(--ink-4) 62%, transparent);
 }
 
 .feed-table-row.is-missing {
@@ -835,8 +835,8 @@
 }
 
 .feed-table-row.is-tides {
-  border-color: color-mix(in srgb, var(--accent-2) 34%, var(--border));
-  background: color-mix(in srgb, var(--accent-2) 7%, var(--panel-soft));
+  border-color: color-mix(in srgb, var(--signal-text) 34%, var(--line-2));
+  background: color-mix(in srgb, var(--signal-text) 7%, var(--ink-4));
 }
 
 .feed-table-row > span {
@@ -854,19 +854,19 @@
 }
 
 .feed-table-row strong {
-  color: var(--text-strong);
+  color: var(--text-1);
   font-size: 0.72rem;
   font-weight: 870;
 }
 
 .feed-table-row small {
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.58rem;
   font-weight: 760;
 }
 
 .feed-table-row b {
-  color: var(--text-strong);
+  color: var(--text-1);
   font-size: 0.7rem;
   font-weight: 900;
 }
@@ -880,10 +880,10 @@
 
 .feed-table-status em {
   padding: 2px 5px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-2);
   border-radius: 999px;
-  color: var(--text-muted);
-  background: color-mix(in srgb, var(--panel-strong) 72%, transparent);
+  color: var(--text-3);
+  background: color-mix(in srgb, var(--ink-3) 72%, transparent);
   font-size: 0.49rem;
   font-style: normal;
   font-weight: 780;
@@ -892,8 +892,8 @@
 }
 
 .feed-table-row:not(.is-missing) .feed-table-status em {
-  color: var(--success);
-  border-color: color-mix(in srgb, var(--success) 28%, var(--border));
+  color: var(--good);
+  border-color: color-mix(in srgb, var(--good) 28%, var(--line-2));
 }
 
 .tides-signal-strip {
@@ -903,10 +903,10 @@
   gap: 7px;
   margin: 0 8px 8px;
   padding: 8px;
-  border: 1px solid color-mix(in srgb, var(--accent-2) 34%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--signal-text) 34%, var(--line-2));
   border-radius: 7px;
-  color: var(--text-strong);
-  background: color-mix(in srgb, var(--accent-2) 9%, var(--panel-soft));
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--signal-text) 9%, var(--ink-4));
   font-size: 0.64rem;
   font-weight: 820;
 }
@@ -923,10 +923,10 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-2);
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--panel-strong) 76%, transparent), var(--panel));
-  box-shadow: var(--shadow-soft);
+    linear-gradient(180deg, color-mix(in srgb, var(--ink-3) 76%, transparent), var(--ink-2));
+  box-shadow: var(--elev-1);
 }
 
 .panel-heading {
@@ -934,12 +934,12 @@
   justify-content: space-between;
   gap: 10px;
   padding: 10px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line-2);
 }
 
 .panel-heading h2 {
   margin: 0;
-  color: var(--text-strong);
+  color: var(--text-1);
   font-weight: 850;
   letter-spacing: 0;
 }
@@ -955,7 +955,7 @@
 .eyebrow {
   display: block;
   margin-bottom: 3px;
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.62rem;
   font-weight: 900;
   letter-spacing: 0.12em;
@@ -980,18 +980,18 @@
   gap: 12px;
   margin: 8px;
   padding: 13px;
-  border: 1px dashed color-mix(in srgb, var(--accent) 44%, var(--border-strong));
+  border: 1px dashed color-mix(in srgb, var(--signal-text) 44%, var(--line-3));
   border-radius: 7px;
-  color: var(--text-soft);
+  color: var(--text-2);
   background:
     linear-gradient(135deg, rgba(53, 208, 161, 0.1), rgba(109, 168, 255, 0.05)),
-    color-mix(in srgb, var(--panel-strong) 52%, transparent);
+    color-mix(in srgb, var(--ink-3) 52%, transparent);
   cursor: pointer;
 }
 
 .drop-zone.is-working {
   border-style: solid;
-  color: var(--accent);
+  color: var(--signal-text);
 }
 
 .drop-zone strong,
@@ -1007,29 +1007,29 @@
   gap: 5px;
   min-height: 28px;
   padding: 0 8px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--line-3);
   border-radius: 5px;
-  color: var(--text-soft);
-  background: color-mix(in srgb, var(--panel-strong) 72%, transparent);
+  color: var(--text-2);
+  background: color-mix(in srgb, var(--ink-3) 72%, transparent);
   font-size: 0.66rem;
   font-weight: 850;
   cursor: pointer;
 }
 
 .import-job-action:hover {
-  color: var(--text-strong);
-  border-color: var(--accent);
+  color: var(--text-1);
+  border-color: var(--signal-text);
 }
 
 .drop-zone strong {
-  color: var(--text-strong);
+  color: var(--text-1);
   font-size: 0.9rem;
   font-weight: 900;
 }
 
 .drop-zone span {
   margin-top: 4px;
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.72rem;
   font-weight: 730;
   line-height: 1.35;
@@ -1050,10 +1050,10 @@
   align-items: center;
   gap: 8px;
   padding: 0 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-2);
   border-radius: 6px;
-  color: var(--text);
-  background: color-mix(in srgb, var(--panel-strong) 50%, transparent);
+  color: var(--text-2);
+  background: color-mix(in srgb, var(--ink-3) 50%, transparent);
   cursor: pointer;
 }
 
@@ -1076,22 +1076,22 @@
 }
 
 .osm-import-strip > button strong {
-  color: var(--text-strong);
+  color: var(--text-1);
   font-size: 0.76rem;
   font-weight: 880;
 }
 
 .osm-import-strip > button small {
   margin-top: 2px;
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.64rem;
   font-weight: 760;
 }
 
 .osm-import-strip.has-osm > button {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
-  background: color-mix(in srgb, var(--accent) 8%, var(--panel-strong));
+  color: var(--signal-text);
+  border-color: color-mix(in srgb, var(--signal-text) 34%, var(--line-2));
+  background: color-mix(in srgb, var(--signal-text) 8%, var(--ink-3));
 }
 
 /* Live feed setup and connection status. */
@@ -1099,9 +1099,9 @@
   min-width: 0;
   margin: 4px 8px 8px;
   padding: 14px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-2);
   border-radius: 8px;
-  background: var(--panel-strong);
+  background: var(--ink-3);
 }
 
 .realtime-heading,
@@ -1121,17 +1121,17 @@
 }
 
 .realtime-heading strong {
-  color: var(--text-strong);
+  color: var(--text-1);
   font-size: 0.86rem;
 }
 
 .realtime-heading svg {
-  color: var(--text-muted);
+  color: var(--text-3);
 }
 
 .realtime-status {
   gap: 5px;
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.66rem;
 }
 
@@ -1143,17 +1143,17 @@
 }
 
 .realtime-status.is-connected {
-  color: var(--success);
+  color: var(--good);
 }
 
 .realtime-status.needs-attention,
 .realtime-warning {
-  color: var(--warn);
+  color: var(--watch);
 }
 
 .realtime-description {
   margin: 7px 0 14px;
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.71rem;
   line-height: 1.5;
 }
@@ -1161,11 +1161,11 @@
 .realtime-connection {
   margin-bottom: 14px;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line-2);
 }
 
 .realtime-connection > strong {
-  color: var(--text-strong);
+  color: var(--text-1);
   font-size: 0.75rem;
   overflow-wrap: anywhere;
 }
@@ -1184,13 +1184,13 @@
 }
 
 .realtime-counts dt {
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.66rem;
 }
 
 .realtime-counts dd {
   margin: 0;
-  color: var(--text-strong);
+  color: var(--text-1);
   font-size: 1.16rem;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
@@ -1204,16 +1204,16 @@
 
 .realtime-preset {
   margin-bottom: 12px;
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.68rem;
 }
 
 .realtime-preset button {
   padding: 5px 9px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-2);
   border-radius: 5px;
-  background: var(--panel);
-  color: var(--text);
+  background: var(--ink-2);
+  color: var(--text-2);
   font: inherit;
   cursor: pointer;
 }
@@ -1231,7 +1231,7 @@
   display: grid;
   min-width: 0;
   gap: 5px;
-  color: var(--text);
+  color: var(--text-2);
   font-size: 0.71rem;
 }
 
@@ -1241,10 +1241,10 @@
   min-width: 0;
   height: 34px;
   padding: 0 9px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-2);
   border-radius: 5px;
-  background: var(--panel);
-  color: var(--text);
+  background: var(--ink-2);
+  color: var(--text-2);
   font: inherit;
   font-size: 0.68rem;
 }
@@ -1255,10 +1255,10 @@
   gap: 7px;
   margin-top: 12px;
   padding: 9px;
-  border: 1px solid color-mix(in srgb, var(--danger) 25%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--alert) 25%, var(--line-2));
   border-radius: 5px;
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 5%, var(--panel));
+  color: var(--alert);
+  background: color-mix(in srgb, var(--alert) 5%, var(--ink-2));
   font-size: 0.7rem;
   line-height: 1.5;
   overflow-wrap: anywhere;
@@ -1271,7 +1271,7 @@
 
 .realtime-error p {
   margin: 5px 0 0;
-  color: var(--text-muted);
+  color: var(--text-3);
 }
 
 .realtime-actions {

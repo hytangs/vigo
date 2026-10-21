@@ -95,7 +95,7 @@ export function AgencyRouteLine({ projectId, routeId, selectedStopId = '', showS
     return <button className="agency-line-station" aria-pressed={selectedStop === stop.id} aria-label={`Arrivals at ${stop.name}`} onClick={() => selectStop(stop.id)}>{marker ? <i aria-hidden="true" /> : null}<span>{stop.name}</span><ChevronRight size={14} aria-hidden="true" /></button>
   }
 
-  return <><section className="agency-line-view" aria-label="Bidirectional route line view" style={{ '--line-color': data?.color || 'var(--vigo-lime-strong)' } as CSSProperties}>
+  return <><section className="agency-line-view" aria-label="Bidirectional route line view" style={{ '--line-color': data?.color || 'var(--signal-text)' } as CSSProperties}>
     {!routeId ? <div className="agency-empty"><Route size={25} /><h2>See a route in both directions</h2><p>Choose a route in Live to see its stops and reported vehicles.</p></div> : !data && error ? <p className="agency-error" role="alert">{error}</p> : !data ? <p className="agency-caption" role="status">Reading the route’s stop patterns…</p> : <>
       <div className="agency-line-intro"><strong>Stops & vehicles</strong><p>Select a stop for arrivals or a vehicle for its reported position.</p></div>
       {error ? <p className="agency-error" role="alert">{error}</p> : null}

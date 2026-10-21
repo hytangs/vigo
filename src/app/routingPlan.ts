@@ -30,48 +30,6 @@ export type RoutingActivity = {
   detail: string
 }
 
-type RoutingPlanRuntime = {
-  engineMs?: number
-  totalMs?: number
-  label: string
-  title: string
-}
-
-function finiteRuntimeMs(value: unknown) {
-  if ((typeof value !== 'number' && typeof value !== 'string')
-    || (typeof value === 'string' && !value.trim())) return undefined
-  const number = Number(value)
-  return Number.isFinite(number) && number >= 0 ? number : undefined
-}
-
-function formatRuntimeMs(value: number) {
-  if (value < 0.1) return '<0.1 ms'
-  if (value < 10) return `${value.toFixed(1)} ms`
-  return `${Math.round(value)} ms`
-}
-
-export function routingPlanRuntime(plan: RoutingPlan): RoutingPlanRuntime | null {
-  const searchStats = plan.diagnostics.searchStats
-  const totalMs = finiteRuntimeMs(searchStats?.queryMs)
-  const engineMs = finiteRuntimeMs(searchStats?.engineQueryMs)
-  if (totalMs === undefined && engineMs === undefined) return null
-  if (engineMs !== undefined && totalMs !== undefined) {
-    return {
-      engineMs,
-      totalMs,
-      label: `${formatRuntimeMs(engineMs)} engine · ${formatRuntimeMs(totalMs)} total`,
-      title: `Exact route search: ${engineMs} ms engine; ${totalMs} ms including access and materialization.`,
-    }
-  }
-  const runtimeMs = totalMs ?? engineMs!
-  return {
-    engineMs,
-    totalMs,
-    label: `${formatRuntimeMs(runtimeMs)} route`,
-    title: `Exact route search: ${runtimeMs} ms.`,
-  }
-}
-
 function padCalendarPart(value: number) {
   return String(value).padStart(2, '0')
 }
@@ -422,15 +380,6 @@ export function routingPlanStartWaitMinutes(plan: RoutingPlan) {
   )
   if (!Number.isFinite(requestedDepartMinutes)) return 0
   return Math.max(0, plan.departMinutes - requestedDepartMinutes)
-}
-
-/** All waiting attributable to this result, including the initial wait after
- * the user's requested departure and waits between itinerary legs. */
-export function routingPlanTotalWaitMinutes(plan: RoutingPlan) {
-  const inJourneyWaitMinutes = Number.isFinite(plan.waitMinutes)
-    ? Math.max(0, plan.waitMinutes)
-    : 0
-  return routingPlanStartWaitMinutes(plan) + inJourneyWaitMinutes
 }
 
 /** Door-to-door elapsed time from the user's requested depart-at time. */

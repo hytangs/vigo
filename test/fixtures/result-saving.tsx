@@ -110,7 +110,7 @@ function Fixture() {
               onRun={() => {}} onRunComparison={() => {}} onRunServiceDecomposition={() => {}} />}
         </section>
       </aside>
-      <section className="app-frame" style={{ position: 'relative', minWidth: 0, background: 'var(--panel-soft)' }}>
+      <section className="app-frame" style={{ position: 'relative', minWidth: 0, background: 'var(--ink-4)' }}>
         {mode === 'journey' ? <RoutingDetailPanel plan={plans.find(entry => entry.id === selected)} onClose={() => {}} /> : null}
       </section>
     </div></div>

@@ -37,8 +37,6 @@ body,
   --radius-md: 10px;
   --radius-lg: 16px;
   --radius-pill: 999px;
-  --control-radius: var(--radius-sm);
-  --pq-radius: var(--radius-sm);
 
   --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-emphasis: cubic-bezier(0.16, 1, 0.3, 1);
@@ -46,14 +44,13 @@ body,
   --duration-slow: 280ms;
 
   --rail-width: 48px;
-  --pq-rail-width: var(--rail-width);
   --panel-width: clamp(336px, 25vw, 368px);
   --workbench-sidebar: calc(var(--rail-width) + var(--panel-width));
-  --pq-sidebar-width: var(--panel-width);
+  --sidebar-width: var(--panel-width);
   --routing-detail-width: clamp(300px, 24vw, 360px);
   --stage-gutter: 10px;
   --topbar-height: 44px;
-  --pq-control-height: 34px;
+  --button-h: 34px;
   --control-h: 28px;
   --row-h: 34px;
   --panel-pad: 12px;
@@ -134,47 +131,10 @@ body,
   color-scheme: light;
 }
 
-/* Legacy aliases: every pre-V1 component reads these names. */
+/* The shell's base text and surface. */
 .app-shell,
 .app-shell.appearance-dark,
 .app-shell.appearance-light {
-  --vigo-ink: var(--text-1);
-  --vigo-lime: var(--signal);
-  --vigo-lime-strong: var(--signal-text);
-  --surface-bg: var(--ink-1);
-  --panel: var(--ink-2);
-  --panel-strong: var(--ink-3);
-  --panel-soft: var(--ink-4);
-  --border: var(--line-2);
-  --border-strong: var(--line-3);
-  --text-strong: var(--text-1);
-  --text: var(--text-2);
-  --text-soft: var(--text-2);
-  --text-muted: var(--text-3);
-  --text-faint: var(--text-4);
-  --accent: var(--signal-text);
-  --accent-2: var(--signal-text);
-  --success: var(--good);
-  --warn: var(--watch);
-  --danger: var(--alert);
-  --shadow-soft: var(--elev-1);
-  --shadow-lg: var(--elev-3);
-  --shadow-color: rgba(0, 0, 0, 0.4);
-  --pq-focus: var(--signal-text);
-  --pq-surface-raised: var(--ink-3);
-  --pq-surface-hover: var(--ink-4);
-  --topbar-bg: var(--ink-1);
-  --topbar-border: var(--line-1);
-  --topbar-control-hover: var(--ink-4);
-  --control-surface: var(--ink-3);
-  --control-surface-strong: var(--ink-4);
-  --hover-surface: var(--ink-4);
-  --active-surface: var(--signal-soft);
-  --map-surface: var(--ink-0);
-  --map-control-surface: var(--material-strong);
-  --primary-surface: var(--signal);
-  --primary-surface-hover: var(--signal-strong);
-  --primary-ink: var(--signal-ink);
   color: var(--text-2);
   background: var(--ink-1);
   font-family: var(--font-ui);

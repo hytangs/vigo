@@ -31,8 +31,8 @@ not in `theme.css`.
 New rules use the canonical tokens: `--ink-*` surfaces, `--line-*` hairlines,
 `--text-*` text, `--signal*` for the single interface accent, `--good`,
 `--watch` and `--alert` for service states, `--material*` and `--elev-*` for
-floating surfaces, and the type, radius and motion scales. Pre-V1 names such as
-`--panel`, `--border` and `--text-muted` are aliases kept for existing rules.
+floating surfaces, and the type, radius and motion scales. Every rule uses these
+names directly; there are no legacy aliases.
 Color in map layers comes from transit data; interface chrome stays neutral.
 The reasoning is recorded in the
 [Studio V1 design](../../docs/reference/studio-v1-design.md).

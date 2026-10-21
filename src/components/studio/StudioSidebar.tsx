@@ -128,7 +128,8 @@ function SidebarRouteBox() {
       routingAllowLongWalk={settings.routingAllowLongWalk}
       routingAllowStreetTransfers={settings.routingAllowStreetTransfers}
       routingWheelchair={showWheelchair && settings.routingWheelchair}
-      onRoutingWheelchairChange={showWheelchair ? setRoutingWheelchair : undefined}
+      routingWheelchairAvailable={showWheelchair}
+      onRoutingWheelchairChange={setRoutingWheelchair}
       routingMinimumTransferBufferMinutes={settings.routingMinimumTransferBufferMinutes}
       routingActivity={activity}
       routingAlternativesLoading={engine.alternativesLoading}

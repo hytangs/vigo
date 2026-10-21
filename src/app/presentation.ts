@@ -32,12 +32,6 @@ export function routingLegTextColor(color: string) {
   return 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.179 ? '#0b0f12' : '#ffffff'
 }
 
-function formatDistanceKm(distanceKm: number) {
-  if (!Number.isFinite(distanceKm) || distanceKm <= 0) return '0 m'
-  if (distanceKm < 1) return `${Math.round(distanceKm * 1000)} m`
-  return `${distanceKm.toFixed(distanceKm >= 10 ? 0 : 1)} km`
-}
-
 export function formatBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -72,44 +66,6 @@ export function routingLegPrimaryLabel(leg: RoutingPlan['legs'][number]) {
   return leg.walkSource === 'osm' ? 'Walk' : leg.walkSource === 'transfer' ? 'Transfer' : 'Walk'
 }
 
-export function routingLegDetail(leg: RoutingPlan['legs'][number]) {
-  if (leg.stationAccessStatus === 'unverified') {
-    return `${formatRoutingMinutes(leg.durationMinutes)} walk`
-  }
-  if (leg.transferSource === 'parent_station_fallback') {
-    return `${formatRoutingMinutes(leg.durationMinutes)} station connection · assumed transfer time`
-  }
-  if (leg.type === 'ride') {
-    const scheduleDetail = leg.stopCount > 0
-      ? `${leg.stopCount} scheduled stop${leg.stopCount === 1 ? '' : 's'}`
-      : 'Scheduled ride'
-    const timingDetail = leg.sourceEqualTime === true
-      ? leg.sourceTimestampQuality === 'equal-whole-minute'
-        ? 'published in the same minute; sub-minute runtime not distinguished'
-        : 'published with equal stop timestamps; runtime not distinguished'
-      : ''
-    const geometryDetail = shapedRideGeometry(leg.geometrySource)
-      ? ''
-      : 'map line inferred from stops'
-    return [scheduleDetail, timingDetail, geometryDetail].filter(Boolean).join(' · ')
-  }
-  if (leg.type === 'drive') {
-    return `${formatDistanceKm(leg.distanceKm)} drive · OSM free-flow street route`
-  }
-
-  if (isSameStationTransfer(leg)) {
-    const connection = leg.transferAction === 'same-route-change'
-      ? 'new vehicle on the same public line'
-      : leg.transferAction === 'platform-change'
-        ? 'platform change'
-        : 'station connection'
-    return `${formatRoutingMinutes(leg.durationMinutes)} ${connection} · same station`
-  }
-
-  const source = leg.walkSource === 'transfer' ? 'station transfer' : 'OSM street route'
-  return `${formatDistanceKm(leg.distanceKm)} walk · ${source}`
-}
-
 export function routingPlanRouteSequence(plan: RoutingPlan) {
   const rideLabels = plan.legs
     .filter((leg) => leg.type === 'ride')
@@ -133,29 +89,4 @@ export function routingPlanRouteSequence(plan: RoutingPlan) {
 export function routingDataModeLabel(plan: RoutingPlan) {
   const mode = plan.diagnostics?.routingDataMode ?? plan.diagnostics?.routingDataProvenance?.mode
   return mode === 'scheduled' ? 'Scheduled' : mode === 'realtime' ? 'Realtime' : ''
-}
-
-export function routingRealtimeDetail(plan: RoutingPlan) {
-  const modeLabel = routingDataModeLabel(plan)
-  if (modeLabel === 'Scheduled') return `${modeLabel} · Published timetable`
-  const realtime = plan.diagnostics?.realtimeRouting
-  const rides = plan.legs.filter(leg => leg.type === 'ride')
-  const predicted = rides.filter(leg => leg.scheduleMode === 'realtime-adjusted').length
-  const applied = (realtime?.appliedTrips ?? 0) + (realtime?.canceledTrips ?? 0)
-  let detail = predicted
-    ? predicted === rides.length ? 'Live predictions' : 'Live predictions and scheduled times'
-    : realtime?.canceledTrips && applied > 0
-      ? 'Live cancellations applied; journey times scheduled'
-      : applied > 0
-        ? 'Realtime updates applied; journey times scheduled'
-        : realtime?.status === 'stale_fallback'
-          ? 'Scheduled times; realtime snapshot stale or invalid'
-          : 'Scheduled times; no realtime updates applied'
-  const coverage = realtime?.coverage
-  if (coverage && coverage.inputUpdates > 0) {
-    detail += ` · ${coverage.appliedUpdates} of ${coverage.inputUpdates} supplied updates used`
-    if (coverage.rejectedUpdates > 0) detail += `; ${coverage.rejectedUpdates} excluded`
-    if (coverage.prunedUpdates > 0) detail += `; ${coverage.prunedUpdates} omitted`
-  }
-  return modeLabel ? `${modeLabel} · ${detail}` : detail
 }

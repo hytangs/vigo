@@ -21,20 +21,20 @@
 /* Dedicated map-free data and preference surface. */
 
 .app-shell.page-project.view-data:not(.project-empty) .shell-body {
-  grid-template-columns: var(--pq-rail-width) minmax(0, 1fr);
+  grid-template-columns: var(--rail-width) minmax(0, 1fr);
 }
 
 .app-shell.view-data .app-sidebar {
-  width: var(--pq-rail-width);
-  grid-template-columns: var(--pq-rail-width);
-  border-right: 1px solid var(--border);
+  width: var(--rail-width);
+  grid-template-columns: var(--rail-width);
+  border-right: 1px solid var(--line-2);
 }
 
 .app-shell.view-data .app-frame {
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  background: var(--surface-bg);
+  background: var(--ink-1);
 }
 
 .city-surface {
@@ -51,7 +51,7 @@
   justify-content: space-between;
   gap: 32px;
   padding-bottom: 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line-2);
 }
 
 .city-surface-title {
@@ -65,7 +65,7 @@
 
 .city-surface-title h1 {
   margin-top: 6px;
-  color: var(--text-strong);
+  color: var(--text-1);
   font-size: clamp(1.55rem, 2.4vw, 2.1rem);
   font-weight: 760;
   letter-spacing: -0.035em;
@@ -73,7 +73,7 @@
 
 .city-surface-title p {
   margin-top: 7px;
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.78rem;
 }
 
@@ -128,7 +128,7 @@
 }
 
 .data-control-label > span {
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.61rem;
   font-weight: 750;
   letter-spacing: 0.08em;
@@ -141,16 +141,16 @@
   min-width: 0;
   min-height: 38px;
   padding: 0 11px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-2);
   border-radius: 7px;
-  color: var(--text-strong);
-  background: var(--panel);
+  color: var(--text-1);
+  background: var(--ink-2);
   font: 650 0.7rem/1 Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
 .data-control-label select:focus-visible,
 .city-data-confirm input:focus-visible {
-  outline: 2px solid var(--pq-focus);
+  outline: 2px solid var(--signal-text);
   outline-offset: 2px;
 }
 
@@ -159,7 +159,7 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.69rem;
 }
 
@@ -167,7 +167,7 @@
   min-width: 0;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  border-block: 1px solid var(--border);
+  border-block: 1px solid var(--line-2);
 }
 
 .city-data-overview > div {
@@ -175,7 +175,7 @@
   display: grid;
   gap: 4px;
   padding: 14px 16px;
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--line-2);
 }
 
 .city-data-overview > div:first-child {
@@ -185,12 +185,12 @@
 
 .city-data-overview span,
 .city-data-breakdown span {
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.61rem;
 }
 
 .city-data-overview strong {
-  color: var(--text-strong);
+  color: var(--text-1);
   font-size: 0.9rem;
   font-weight: 750;
 }
@@ -210,7 +210,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--line-2) 68%, transparent);
 }
 
 .city-data-breakdown li:last-child {
@@ -218,7 +218,7 @@
 }
 
 .city-data-breakdown strong {
-  color: var(--text-soft);
+  color: var(--text-2);
   font-size: 0.65rem;
   font-weight: 680;
 }
@@ -234,7 +234,7 @@
 
 .city-remove-action {
   padding-top: 14px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line-2);
 }
 
 .city-data-action > span {
@@ -245,7 +245,7 @@
 
 .city-data-action strong,
 .city-data-confirm strong {
-  color: var(--text-strong);
+  color: var(--text-1);
   font-size: 0.72rem;
   font-weight: 740;
 }
@@ -253,7 +253,7 @@
 .city-data-action small,
 .city-data-confirm span {
   max-width: 560px;
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.64rem;
   line-height: 1.45;
 }
@@ -265,14 +265,14 @@
   align-items: center;
   justify-content: center;
   gap: 7px;
-  border: 1px solid color-mix(in srgb, var(--danger) 42%, var(--border));
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 6%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--alert) 42%, var(--line-2));
+  color: var(--alert);
+  background: color-mix(in srgb, var(--alert) 6%, var(--ink-2));
 }
 
 .data-danger-button:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--danger) 66%, var(--border));
-  background: color-mix(in srgb, var(--danger) 10%, var(--panel));
+  border-color: color-mix(in srgb, var(--alert) 66%, var(--line-2));
+  background: color-mix(in srgb, var(--alert) 10%, var(--ink-2));
 }
 
 .city-data-confirm {
@@ -281,14 +281,14 @@
   grid-template-columns: auto minmax(0, 1fr);
   gap: 10px 12px;
   padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--danger) 32%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--alert) 32%, var(--line-2));
   border-radius: 9px;
-  background: color-mix(in srgb, var(--danger) 5%, var(--panel));
+  background: color-mix(in srgb, var(--alert) 5%, var(--ink-2));
 }
 
 .city-data-confirm > svg {
   margin-top: 1px;
-  color: var(--danger);
+  color: var(--alert);
 }
 
 .city-data-confirm > div:nth-child(2) {
@@ -298,7 +298,7 @@
 }
 
 .city-data-confirm span b {
-  color: var(--text-strong);
+  color: var(--text-1);
 }
 
 .city-data-confirm-actions {
@@ -311,12 +311,12 @@
 .city-data-note,
 .city-data-status {
   margin: 0;
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.65rem;
 }
 
 .city-data-status {
-  color: var(--success);
+  color: var(--good);
 }
 
 @media (max-width: 900px) {
@@ -346,7 +346,7 @@
     height: var(--mobile-nav-height, 60px);
     display: block;
     border: 0;
-    border-top: 1px solid var(--border);
+    border-top: 1px solid var(--line-2);
     border-radius: 0;
     overflow: hidden;
     box-shadow: none;
@@ -367,7 +367,7 @@
   .city-data-overview > div:first-child {
     padding: 10px 0;
     border-left: 0;
-    border-top: 1px solid var(--border);
+    border-top: 1px solid var(--line-2);
   }
 
   .city-data-overview > div:first-child {
@@ -462,18 +462,18 @@
   justify-content: center;
   gap: 7px;
   padding: 0 11px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--line-3);
   border-radius: 7px;
   cursor: pointer;
   font-size: 0.63rem;
   font-weight: 680;
-  color: var(--text-soft);
+  color: var(--text-2);
   background: transparent;
 }
 
 .text-action:hover {
-  color: var(--text-strong);
-  background: var(--panel-soft);
+  color: var(--text-1);
+  background: var(--ink-4);
 }
 
 .object-analysis-state {
@@ -482,16 +482,16 @@
   gap: 8px;
   align-items: center;
   padding: 9px;
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--signal-text) 28%, var(--line-2));
   border-radius: 7px;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  color: var(--signal-text);
+  background: color-mix(in srgb, var(--signal-text) 7%, transparent);
 }
 
 .object-analysis-state.is-error {
-  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 7%, transparent);
+  border-color: color-mix(in srgb, var(--alert) 40%, var(--line-2));
+  color: var(--alert);
+  background: color-mix(in srgb, var(--alert) 7%, transparent);
 }
 
 .object-analysis-state span {
@@ -501,12 +501,12 @@
 }
 
 .object-analysis-state strong {
-  color: var(--text-strong);
+  color: var(--text-1);
   font-size: 0.62rem;
 }
 
 .object-analysis-state small {
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.56rem;
   line-height: 1.35;
 }
@@ -540,7 +540,7 @@
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
     border-right: 0;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--line-2);
     overflow: hidden;
   }
 }

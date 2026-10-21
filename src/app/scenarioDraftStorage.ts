@@ -1,4 +1,3 @@
-import type { VigoProject } from '../domain'
 import type { ScenarioDraft } from '../reach'
 
 export type StoredScenarios = {
@@ -9,17 +8,6 @@ export type StoredScenarios = {
 
 export function emptyScenarios(): StoredScenarios {
   return { cases: [{ id: 'case-a', name: 'Case A', interventions: [] }], activeCaseId: 'case-a', activeChangeId: '' }
-}
-
-export function scenarioStorageKey(project: VigoProject | undefined) {
-  if (!project) return ''
-  return `vigo.scenarios.v1:${JSON.stringify([
-    project.storagePath,
-    project.id,
-    project.feeds.map((feed) => [feed.id, feed.importedAt]).sort(),
-    project.routingStore?.builtAt ?? '',
-    project.osmStreetIndex?.builtAt ?? '',
-  ])}`
 }
 
 export function parseStoredScenarios(text: string | null): StoredScenarios {

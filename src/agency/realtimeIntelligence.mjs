@@ -59,7 +59,7 @@ export function deriveOperationalState(context, snapshot, nowSeconds = Date.now(
   const vehiclesByTrip = groupRows(snapshot?.vehicles ?? [], vehicle => eventId(rawId(vehicle.tripId), vehicle.startDate?.replaceAll('-', ''), vehicle.startTime))
   const routes = new Map(context.routes.map((route) => [route.route_id, {
     id: route.route_id, name: route.short_name || route.long_name || rawId(route.route_id), longName: route.long_name || '',
-    color: /^[0-9a-f]{6}$/i.test(route.color) ? `#${route.color}` : 'var(--text-muted)', mode: route.route_type,
+    color: /^[0-9a-f]{6}$/i.test(route.color) ? `#${route.color}` : 'var(--text-3)', mode: route.route_type,
     trips: 0, reportingTrips: 0, maxDelaySeconds: null, events: 0, alerts: 0, serviceChanges: 0, headway: 'unknown', comparedPairs: 0, widestInterval: null,
   }]))
   const active = coverage.serviceDate ? context.activeServices(coverage.serviceDate) : new Set()

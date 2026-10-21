@@ -48,7 +48,7 @@ function Fixture(){
  return React.createElement('main',{className:'app-shell appearance-light accent-teal page-project view-pathfinder',style:{display:'block',overflowY:'auto',width:'100%',maxWidth:380,margin:'0 auto',padding:12}},
   React.createElement('output',{id:'selection-result',style:{display:'none'}},routing.choices[0]?.id||'pending'),
   React.createElement(SidebarPathfinderBox,{
-   routingWheelchair:wheelchair,onRoutingWheelchairChange:setWheelchair,
+   routingWheelchair:wheelchair,routingWheelchairAvailable:true,onRoutingWheelchairChange:setWheelchair,
    routingEnabled:false,routingOrigin:origin,routingWaypoints:waypoints,routingDestination:destination,
    routingPlan:null,routingChoices:[],routingScopeStatus:'ready',routingStoreReady:true,
    routingTimePreference:'depart',routingMode:'transit',routingDataMode,routingDepartureWindowMinutes:0,
@@ -103,10 +103,10 @@ try {
     assert.equal(await read('window.selectionRequests.at(-1).minimumTransferBufferMinutes'),2);
     assert.equal(await read('document.getElementById("pathfinder-transfer-buffer").value'),'2');
     assert.equal(await read('window.selectionRequests.at(-1).wheelchair'),false);
-    await read('document.querySelector("[role=switch]").click()');
+    await read('document.querySelector(".routing-wheelchair").click()');
     await until(()=>read('window.selectionRequests.at(-1).wheelchair===true'));
-    assert.equal(await read('document.querySelector("[role=switch]").checked'),true);
-    await read('document.querySelector("[role=switch]").click()');
+    assert.equal(await read('document.querySelector(".routing-wheelchair").getAttribute("aria-pressed")'),'true');
+    await read('document.querySelector(".routing-wheelchair").click()');
     await until(()=>read('window.selectionRequests.at(-1).wheelchair===false'));
     for(const width of [320,390]){
       await resizeLayout(window,width,1000);

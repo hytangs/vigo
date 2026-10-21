@@ -1,6 +1,6 @@
 /* Network workspace layout outside the floating stage, and map-side context. */
-.app-shell.page-project.view-agency:not(.project-empty) .shell-body { grid-template-columns: var(--pq-rail-width) minmax(0, 1fr); }
-.app-shell.page-project.view-agency:not(.project-empty) .app-sidebar { width: var(--pq-rail-width); grid-template-columns: 1fr; }
+.app-shell.page-project.view-agency:not(.project-empty) .shell-body { grid-template-columns: var(--rail-width) minmax(0, 1fr); }
+.app-shell.page-project.view-agency:not(.project-empty) .app-sidebar { width: var(--rail-width); grid-template-columns: 1fr; }
 .app-shell.page-project.view-agency .project-workbench { display: grid; grid-template-columns: minmax(400px, 480px) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 0; padding: 0; overflow: hidden; }
 .view-agency .route-surface { grid-column: 2; grid-row: 1; min-width: 0; min-height: 0; }
 .view-agency .route-map-shell { border: 0; border-radius: 0; }
@@ -9,18 +9,18 @@
 }
 @media (max-width: 760px) {
   .app-shell.page-project.view-agency:not(.project-empty) .shell-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
-  .app-shell.page-project.view-agency:not(.project-empty) .app-sidebar { position: fixed; z-index: 80; bottom: 0; left: 0; right: 0; width: 100%; min-height: var(--mobile-nav-height, 60px); height: var(--mobile-nav-height, 60px); max-height: var(--mobile-nav-height, 60px); display: block; border: 0; border-top: 1px solid var(--border); }
+  .app-shell.page-project.view-agency:not(.project-empty) .app-sidebar { position: fixed; z-index: 80; bottom: 0; left: 0; right: 0; width: 100%; min-height: var(--mobile-nav-height, 60px); height: var(--mobile-nav-height, 60px); max-height: var(--mobile-nav-height, 60px); display: block; border: 0; border-top: 1px solid var(--line-2); }
   .app-shell.page-project.view-agency .project-workbench { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
   .view-agency .route-surface { display: none; }
   .app-shell.page-project.view-agency.agency-map-open .project-workbench { grid-template-rows: minmax(0, 1.6fr) minmax(0, 1fr); }
   .view-agency.agency-map-open .route-surface { display: grid; grid-column: 1; grid-row: 2; }
 }
-.agency-map-context { position: absolute; z-index: 5; top: 16px; left: 64px; right: 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 4px 20px var(--shadow-color); pointer-events: none; }
+.agency-map-context { position: absolute; z-index: 5; top: 16px; left: 64px; right: 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; background: var(--ink-2); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4); pointer-events: none; }
 .agency-map-context button { pointer-events: auto; white-space: nowrap; }
 .agency-map-context > div:first-child { min-width: 0; overflow-wrap: anywhere; }
 .agency-map-context span, .agency-map-context small { display: block; }
-.agency-map-context span { color: var(--text-strong); font-size: 12px; font-weight: 600; }
-.agency-map-context small { color: var(--text-muted); font-size: 12px; margin-top: 3px; }
+.agency-map-context span { color: var(--text-1); font-size: 12px; font-weight: 600; }
+.agency-map-context small { color: var(--text-3); font-size: 12px; margin-top: 3px; }
 .view-agency .route-map-shell .map-live-card { top: auto; bottom: var(--map-inspector-bottom, 28px); max-height: min(560px, calc(100% - var(--map-inspector-bottom, 28px) - 80px)); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .view-agency .surface-loading-overlay, .view-agency .route-geometry-empty, .view-agency .map-empty { pointer-events: none; }
 .view-agency .map-basemap-status { display: none; }
@@ -30,16 +30,16 @@
   .view-agency .route-map-shell .map-live-card { bottom: 16px; padding: 16px; max-height: calc(100% - 80px); }
 }
 .map-stop-tooltip { pointer-events: none; }
-.map-stop-tooltip .maplibregl-popup-content { white-space: pre-line; padding: 8px 12px; border-radius: 6px; background: var(--panel); color: var(--text-strong); font-family: inherit; font-size: 12px; box-shadow: 0 2px 12px var(--shadow-color); }
-.map-stop-tooltip .maplibregl-popup-tip { border-top-color: var(--panel); border-bottom-color: var(--panel); }
+.map-stop-tooltip .maplibregl-popup-content { white-space: pre-line; padding: 8px 12px; border-radius: 6px; background: var(--ink-2); color: var(--text-1); font-family: inherit; font-size: 12px; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4); }
+.map-stop-tooltip .maplibregl-popup-tip { border-top-color: var(--ink-2); border-bottom-color: var(--ink-2); }
 
-.network-import-example { margin: 0 0 20px; padding: 16px; border: 1px solid var(--border); border-radius: 10px; }
-.network-import-example h3 { margin: 0; color: var(--text-strong); font-size: 16px; }
-.network-import-example p { margin: 6px 0 14px; color: var(--text-muted); font-size: 13px; }
+.network-import-example { margin: 0 0 20px; padding: 16px; border: 1px solid var(--line-2); border-radius: 10px; }
+.network-import-example h3 { margin: 0; color: var(--text-1); font-size: 16px; }
+.network-import-example p { margin: 6px 0 14px; color: var(--text-3); font-size: 13px; }
 .network-import-example > div { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 12px; }
-.network-import-example > div > a { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 6px; color: var(--text-strong); text-decoration: none; }
-.network-import-example > div > a:hover { background: var(--surface-bg); }
-.network-import-example small { display: block; font-size: 12px; color: var(--text-muted); }
+.network-import-example > div > a { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--line-2); border-radius: 6px; color: var(--text-1); text-decoration: none; }
+.network-import-example > div > a:hover { background: var(--ink-1); }
+.network-import-example small { display: block; font-size: 12px; color: var(--text-3); }
 .network-import-example > small { margin-top: 12px; }
 .network-import-example > small a { color: inherit; }
 

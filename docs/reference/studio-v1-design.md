@@ -190,8 +190,9 @@ reduced Studio CSS from 10,068 to about 7,800 lines.
 - **No folded explanations.** Panels hold data and controls. Method notes,
   coverage prose and disclaimers are not repeated in folded sections; precise
   facts that matter, such as a snapshot's agency-local time, sit in a tooltip.
-- **Wheelchair routing** appears only when the City has a prepared wheelchair
-  network for the selected timetable, and not with Now: live service carries no
+- **Wheelchair routing** is one icon toggle in the journey settings header. It is
+  disabled, with the reason as its tooltip, when the City has no prepared
+  wheelchair network for the selection, and with Now: live service carries no
   accessibility data.
 - **Analyze** colors travel time with a ramp whose luminance falls
   monotonically, from the signal chartreuse through teal and blue to violet,

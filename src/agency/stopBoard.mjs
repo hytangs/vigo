@@ -130,7 +130,7 @@ export function stopBoard(context, snapshot, { stopId, routeId, vehicleId, feedI
         const stop = context.stopIndex.get(call.stopId)
         result.rows.push({ key: JSON.stringify([trip.trip_id, date, index]), tripId: trip.trip_id, serviceDate: date,
           routeId: trip.route_id, routeName: route?.short_name || route?.long_name || rawId(trip.route_id),
-          color: /^[0-9a-f]{6}$/i.test(route?.color) ? `#${route.color}` : 'var(--text-muted)',
+          color: /^[0-9a-f]{6}$/i.test(route?.color) ? `#${route.color}` : 'var(--text-3)',
           directionId: trip.direction_id ?? null, destination, stopId: call.stopId, stopName: stop?.name || rawId(call.stopId), platform: stop?.platform_code || null,
           vehicleId: vehicle?.id || (updateFresh ? update.vehicleId : null) || null, vehicleLabel: vehicle?.label || vehicle?.id || (updateFresh ? update.vehicleLabel || update.vehicleId : null) || null,
           vehicleSourceUrl: vehicle?.sourceUrl || null, atStop, kind, expected, arrival, departure, status,

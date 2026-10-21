@@ -13,7 +13,6 @@ try {
   const { exportJourney, exportJourneys, exportReachResults, reachGeometryAvailable, journeyGeometryAvailable } = await server.ssrLoadModule('/src/app/resultExports.ts')
   const { reachResultDifference, reachResultMetrics, reachScenarioDifference } = await server.ssrLoadModule('/src/app/resultSummary.ts')
   const { scenarioImprovedPixels, scenarioWorsenedPixels } = await server.ssrLoadModule('/src/reach.ts')
-  const { routingPlanRuntime } = await server.ssrLoadModule('/src/app/routingPlan.ts')
   const { ResultExportActions } = await server.ssrLoadModule('/src/components/ResultExportActions.tsx')
   const pending = renderToStaticMarkup(createElement(ResultExportActions, { label: 'Save Reach results', disabled: true, onExport: () => assert.fail('A pending export must not run') }))
   assert.equal((pending.match(/disabled=""/g) ?? []).length, 1, 'Prevent saving partial Reach while the computation is running.')
@@ -123,7 +122,5 @@ try {
   assert.equal(reachResultMetrics(result, 'baseline', 15).transitStops, null)
   assert.equal(reachResultMetrics({ ...result, diagnostics: { totalMs: null } }, 'baseline', 15).totalProcessingMs, null)
   assert.equal(reachResultMetrics({ ...result, diagnostics: { totalMs: 0 } }, 'baseline', 15).totalProcessingMs, 0)
-  for (const value of [null, '', false, undefined]) assert.equal(routingPlanRuntime({ diagnostics: { searchStats: { queryMs: value } } }), null)
-  assert.match(routingPlanRuntime({ diagnostics: { searchStats: { queryMs: 0 } } }).label, /<0.1 ms/)
   console.log('Saved journey and Reach files preserve clocks, geometry, CSV labels, complete result records, cutoff-specific gains/losses, and unavailable query timing.')
 } finally { await server.close(); await fs.rm(directory, { recursive: true, force: true }) }

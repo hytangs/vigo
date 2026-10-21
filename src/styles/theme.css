@@ -5,13 +5,13 @@
 }
 
 .topbar-project-action:hover:not(:disabled) {
-  border-color: var(--border);
+  border-color: var(--line-2);
 }
 
 /* Flat canvas and activity rail. */
 .app-sidebar,
 .app-shell.page-project .app-sidebar {
-  border-right-color: var(--border);
+  border-right-color: var(--line-2);
 }
 
 /* Controls use compact radii, plain fills, and teal focus treatment. */
@@ -19,7 +19,7 @@
 .icon-button,
 .project-dialog,
 .surface-panel {
-  border-radius: var(--control-radius, 8px);
+  border-radius: var(--radius-sm);
   box-shadow: none;
 }
 
@@ -30,7 +30,7 @@
 
 /* Project switcher and dialogs use the same flat, readable hierarchy. */
 .project-dialog {
-  background: var(--panel-strong);
+  background: var(--ink-3);
 }
 
 .project-dialog-backdrop {
@@ -39,8 +39,8 @@
 }
 
 .project-dialog {
-  border-color: var(--border-strong);
-  box-shadow: var(--shadow-lg);
+  border-color: var(--line-3);
+  box-shadow: var(--elev-3);
 }
 
 @media (max-width: 760px) {
@@ -122,15 +122,15 @@
   overflow: hidden;
   border: 0;
   border-radius: 9px;
-  color: var(--vigo-ink);
+  color: var(--text-1);
   background: transparent;
   box-shadow: none;
 }
 
 .topbar-mark-button:hover {
   border: 0;
-  color: var(--vigo-ink);
-  background: var(--hover-surface);
+  color: var(--text-1);
+  background: var(--ink-4);
   box-shadow: none;
 }
 
@@ -235,7 +235,7 @@
   padding: 0 9px;
   border: 0;
   border-radius: 9px;
-  color: var(--text-muted);
+  color: var(--text-3);
   background: transparent;
   font-size: 0.73rem;
   font-weight: 590;
@@ -247,16 +247,16 @@
 
 .topbar-project-action:hover:not(:disabled) {
   border: 0;
-  color: var(--text-strong);
-  background: var(--hover-surface);
+  color: var(--text-1);
+  background: var(--ink-4);
 }
 
 /* Flat activity rail and quiet working panel. */
 .app-sidebar,
 .app-shell.page-project .app-sidebar {
   grid-template-columns: 48px minmax(0, 1fr);
-  border-right: 1px solid var(--border);
-  background: var(--panel-strong);
+  border-right: 1px solid var(--line-2);
+  background: var(--ink-3);
   box-shadow: none;
   backdrop-filter: none;
 }
@@ -270,7 +270,7 @@
 .workbench.project-workbench.route-investigation-shell {
   gap: 0;
   padding: 0;
-  background: var(--panel-strong);
+  background: var(--ink-3);
 }
 
 .surface-panel,
@@ -281,7 +281,7 @@
 
 .route-map-shell {
   border: 0;
-  background: var(--map-surface);
+  background: var(--ink-0);
 }
 
 .route-map-shell .map-stage,
@@ -303,16 +303,16 @@
 }
 
 .app-shell .map-stage .maplibregl-ctrl-group button + button {
-  border-color: var(--border);
+  border-color: var(--line-2);
 }
 
 .app-shell .map-stage .maplibregl-ctrl-group button:not(:disabled):hover {
-  background-color: var(--hover-surface);
+  background-color: var(--ink-4);
 }
 
 .app-shell .map-stage .maplibregl-ctrl-group button:focus-visible,
 .app-shell .map-stage .maplibregl-ctrl-attrib-button:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--signal-text);
   outline-offset: -3px;
   box-shadow: none;
 }
@@ -369,7 +369,7 @@
 }
 
 .app-shell.appearance-light .map-scope-actions {
-  border-color: var(--border);
+  border-color: var(--line-2);
   background: #f3f4f3;
 }
 
@@ -420,22 +420,22 @@
 
 .button-primary,
 .project-dialog-primary {
-  border-color: var(--primary-surface);
-  color: var(--primary-ink);
-  background: var(--primary-surface);
+  border-color: var(--signal);
+  color: var(--signal-ink);
+  background: var(--signal);
   box-shadow: none;
 }
 
 .button-primary:hover:not(:disabled),
 .project-dialog-primary:hover:not(:disabled) {
-  border-color: var(--primary-surface-hover);
-  color: var(--primary-ink);
-  background: var(--primary-surface-hover);
+  border-color: var(--signal-strong);
+  color: var(--signal-ink);
+  background: var(--signal-strong);
 }
 
 .runtime-alert {
-  border-bottom-color: color-mix(in srgb, var(--danger) 35%, var(--border));
-  background: color-mix(in srgb, var(--danger) 7%, var(--panel-strong));
+  border-bottom-color: color-mix(in srgb, var(--alert) 35%, var(--line-2));
+  background: color-mix(in srgb, var(--alert) 7%, var(--ink-3));
 }
 
 .app-shell.appearance-dark .maplibregl-ctrl-icon {
@@ -493,7 +493,7 @@
 /* Map and sidebar surfaces share the same palette in both appearances. */
 .app-shell .map-stage,
 .app-shell .route-map-shell {
-  background: var(--map-surface);
+  background: var(--ink-0);
 }
 
 .app-shell .map-stage::before {
@@ -501,14 +501,14 @@
 }
 
 .app-shell .map-live-card {
-  color: var(--text-strong);
-  border-color: var(--border);
-  background: var(--panel-strong);
-  box-shadow: var(--shadow-soft);
+  color: var(--text-1);
+  border-color: var(--line-2);
+  background: var(--ink-3);
+  box-shadow: var(--elev-1);
 }
 
 .app-shell .map-vehicle-journey > div + div {
-  border-top-color: var(--border);
+  border-top-color: var(--line-2);
 }
 
 /*
@@ -566,7 +566,7 @@
     height: 100%;
     display: block;
     padding: 0;
-    background: var(--map-surface);
+    background: var(--ink-0);
   }
 
   .app-shell.has-stage .route-surface,

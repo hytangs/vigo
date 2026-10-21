@@ -6,7 +6,7 @@
 
 .surface-panel,
 .project-dialog {
-  border-color: color-mix(in srgb, var(--accent-2) 13%, var(--border));
+  border-color: color-mix(in srgb, var(--signal-text) 13%, var(--line-2));
 }
 
 .page-projects .app-sidebar,
@@ -17,7 +17,7 @@
   width: auto;
   min-height: 0;
   grid-template-columns: 64px;
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--line-2);
   background:
     linear-gradient(180deg, rgba(4, 8, 13, 0.98), rgba(4, 7, 11, 0.98));
 }
@@ -55,7 +55,7 @@
 
 .route-investigation-shell {
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--surface-bg) 78%, transparent), var(--surface-bg));
+    linear-gradient(180deg, color-mix(in srgb, var(--ink-1) 78%, transparent), var(--ink-1));
 }
 
 .surface-panel {
@@ -68,7 +68,7 @@
 
 .topbar-mark-button:hover,
 .topbar-project-action:hover {
-  background: var(--topbar-control-hover);
+  background: var(--ink-4);
 }
 
 .topbar-project-action,
@@ -118,19 +118,19 @@
 
 /* Operational surface: map-first, flat tool surfaces, no nested card field. */
 .page-project .shell-body {
-  background: var(--surface-bg);
+  background: var(--ink-1);
 }
 
 .page-project .app-sidebar {
-  border-right: 1px solid var(--border);
-  background: var(--panel);
+  border-right: 1px solid var(--line-2);
+  background: var(--ink-2);
 }
 
 .route-investigation-shell,
 .route-surface,
 .route-map-shell {
   border-radius: 0;
-  background: var(--surface-bg);
+  background: var(--ink-1);
 }
 
 .route-map-shell .map-stage,
@@ -158,22 +158,22 @@
 .app-shell textarea:focus-visible,
 .app-shell summary:focus-visible,
 .app-shell [tabindex]:focus-visible {
-  outline: 2px solid var(--pq-focus);
+  outline: 2px solid var(--signal-text);
   outline-offset: 2px;
 }
 
 .button {
   min-width: 0;
-  min-height: var(--pq-control-height);
+  min-height: var(--button-h);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
   padding: 0 13px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--pq-radius);
-  color: var(--text);
-  background: var(--panel);
+  border: 1px solid var(--line-3);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  background: var(--ink-2);
   box-shadow: none;
   cursor: pointer;
   font-size: 0.75rem;
@@ -183,9 +183,9 @@
 }
 
 .button:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--accent) 38%, var(--border-strong));
-  color: var(--text-strong);
-  background: var(--pq-surface-hover);
+  border-color: color-mix(in srgb, var(--signal-text) 38%, var(--line-3));
+  color: var(--text-1);
+  background: var(--ink-4);
 }
 
 .button:disabled,
@@ -220,10 +220,10 @@
   align-items: center;
   gap: 10px;
   padding: 9px 10px 9px 12px;
-  border: 1px solid color-mix(in srgb, var(--danger) 46%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--alert) 46%, var(--line-2));
   border-radius: 9px;
-  color: var(--text-strong);
-  box-shadow: var(--shadow-lg);
+  color: var(--text-1);
+  box-shadow: var(--elev-3);
   font-size: 0.72rem;
   line-height: 1.4;
 }
@@ -244,7 +244,7 @@
 
 /* Compact rail, stable sidebar, and fixed-height route rows. */
 .app-shell.page-project:not(.project-empty) .shell-body {
-  grid-template-columns: var(--pq-sidebar-width) minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
 }
 
 /* Quiet map framing. The map stage and its renderer remain untouched. */
@@ -268,10 +268,10 @@
   align-items: center;
   gap: 0;
   padding: 4px;
-  border: 1px solid var(--border-strong);
-  color: var(--text);
-  background: var(--map-control-surface);
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--text-strong) 12%, transparent);
+  border: 1px solid var(--line-3);
+  color: var(--text-2);
+  background: var(--material-strong);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--text-1) 12%, transparent);
   backdrop-filter: blur(18px) saturate(1.04);
 }
 
@@ -281,7 +281,7 @@
   padding: 2px;
   border: 0;
   border-radius: 9px;
-  background: var(--control-surface);
+  background: var(--ink-3);
 }
 
 .map-scope-actions button {
@@ -290,7 +290,7 @@
   padding: 0 8px;
   border: 0;
   border-radius: 7px;
-  color: var(--text-muted);
+  color: var(--text-3);
   background: transparent;
   cursor: pointer;
   font-size: 0.66rem;
@@ -298,13 +298,13 @@
 }
 
 .map-scope-actions button:hover:not(:disabled) {
-  color: var(--text-strong);
-  background: var(--hover-surface);
+  color: var(--text-1);
+  background: var(--ink-4);
 }
 
 .map-scope-actions button.is-active {
-  color: var(--primary-ink);
-  background: var(--primary-surface);
+  color: var(--signal-ink);
+  background: var(--signal);
 }
 
 .map-scope-actions button:disabled {
@@ -412,7 +412,7 @@
 
 .setup-dialog .setup-hero {
   padding: 0 0 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line-2);
 }
 
 .setup-dialog .setup-choice-grid fieldset {
@@ -421,12 +421,12 @@
 
 .setup-dialog .setup-offline-card {
   padding: 12px 0 0;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line-2);
 }
 
 .setup-dialog .setup-status-grid span {
   border-color: transparent;
-  background: var(--panel-soft);
+  background: var(--ink-4);
 }
 
 .project-dialog header h2 {
@@ -443,10 +443,10 @@
 .project-dialog input,
 .project-dialog select,
 .project-dialog textarea {
-  min-height: var(--pq-control-height);
-  border-color: var(--border-strong);
-  color: var(--text-strong);
-  background: var(--panel);
+  min-height: var(--button-h);
+  border-color: var(--line-3);
+  color: var(--text-1);
+  background: var(--ink-2);
   font-size: 0.78rem;
   font-weight: 520;
 }
@@ -457,13 +457,13 @@
   z-index: 2;
   margin: 0 -17px -17px;
   padding: 12px 17px 17px;
-  border-top: 1px solid var(--border);
-  background: var(--pq-surface-raised);
+  border-top: 1px solid var(--line-2);
+  background: var(--ink-3);
 }
 
 .project-dialog-secondary,
 .project-dialog-primary {
-  min-height: var(--pq-control-height);
+  min-height: var(--button-h);
   padding: 0 13px;
   border-radius: 7px;
   font-size: 0.73rem;
@@ -474,7 +474,7 @@
 
 @media (max-width: 1180px) {
   .app-shell.page-project:not(.project-empty) .shell-body {
-    grid-template-columns: var(--pq-sidebar-width) minmax(0, 1fr);
+    grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   }
 }
 
@@ -518,7 +518,7 @@
    while the map remains a separate, scroll-free panel below it. */
 @media (max-width: 620px) {
   .app-shell {
-    --pq-sidebar-width: 100%;
+    --sidebar-width: 100%;
   }
 
   .topbar,
@@ -573,7 +573,7 @@
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 42svh) 48px;
     border: 0;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--line-2);
   }
 
   .app-frame {
@@ -617,16 +617,16 @@
 /* Shared Network, Route and Analyze surface primitives. */
 /* One segmented control everywhere: workspace views, render modes, filters. */
 
-.operation-progress { display: grid; gap: 8px; margin-top: 12px; min-width: 0; color: var(--text); font-size: 12px; font-weight: 400; }
+.operation-progress { display: grid; gap: 8px; margin-top: 12px; min-width: 0; color: var(--text-2); font-size: 12px; font-weight: 400; }
 .operation-progress-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 14px; }
 .operation-progress-heading > span { font-weight: 500; }
-.operation-progress progress { display: block; width: 100%; height: 5px; border: 0; border-radius: 3px; overflow: hidden; accent-color: var(--accent); }
-.operation-progress p { margin: 0; color: var(--text-muted); line-height: 1.5; }
-.operation-progress-timing { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; line-height: 1.5; }
+.operation-progress progress { display: block; width: 100%; height: 5px; border: 0; border-radius: 3px; overflow: hidden; accent-color: var(--signal-text); }
+.operation-progress p { margin: 0; color: var(--text-3); line-height: 1.5; }
+.operation-progress-timing { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--text-3); font-size: 11px; font-variant-numeric: tabular-nums; line-height: 1.5; }
 .operation-progress.is-compact { margin-top: 6px; }
 
 /* The journey is one timeline; route color identifies a leg, never its text. */
 .city-walking-access { display: grid; gap: 6px; margin: 10px 0; }
 .city-walking-access label { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
-.city-walking-access select { max-width: 100%; min-height: 32px; padding: 5px 8px; color: var(--text-strong); background: var(--panel-strong); border: 1px solid var(--border); border-radius: 6px; }
-.city-walking-access small { color: var(--text-muted); line-height: 1.45; }
+.city-walking-access select { max-width: 100%; min-height: 32px; padding: 5px 8px; color: var(--text-1); background: var(--ink-3); border: 1px solid var(--line-2); border-radius: 6px; }
+.city-walking-access small { color: var(--text-3); line-height: 1.45; }

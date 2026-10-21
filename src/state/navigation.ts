@@ -150,13 +150,6 @@ export function openProjectData(projectId: string) {
   shell.set({ page: 'project', dataSection: 'feeds', activeRouteTool: 'data' })
 }
 
-export function selectFeed(feedId: string) {
-  cancelRouteAnalysis()
-  if (feedId !== city.get().activeFeedId) clearRealtimeConnection()
-  city.set({ activeFeedId: feedId, statusFilter: 'all' })
-  shell.set({ query: '', dataSection: 'feeds', activeRouteTool: 'data' })
-}
-
 export function openNetworkView() {
   const project = selectedProject()
   if (!hasOperationsData(project)) return

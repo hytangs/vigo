@@ -11,7 +11,7 @@
   min-width: 0;
   width: min(calc(100% - 32px), 560px);
   justify-self: center;
-  color: var(--text);
+  color: var(--text-2);
 }
 
 .search-palette__field {
@@ -23,8 +23,8 @@
   padding: 0 7px 0 11px;
   border: 1px solid var(--line-2);
   border-radius: var(--radius-md);
-  color: var(--text-muted);
-  background: var(--control-surface);
+  color: var(--text-3);
+  background: var(--ink-3);
   box-shadow: none;
   transition:
     border-color 130ms ease,
@@ -34,14 +34,14 @@
 
 .search-palette.is-open .search-palette__field,
 .search-palette__field:focus-within {
-  border-color: color-mix(in srgb, var(--pq-focus) 52%, var(--border));
-  background: var(--control-surface-strong);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pq-focus) 9%, transparent);
+  border-color: color-mix(in srgb, var(--signal-text) 52%, var(--line-2));
+  background: var(--ink-4);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--signal-text) 9%, transparent);
 }
 
 .search-palette__field > svg {
   flex: 0 0 auto;
-  color: var(--text-muted);
+  color: var(--text-3);
 }
 
 .search-palette__field input {
@@ -51,7 +51,7 @@
   padding: 0;
   border: 0;
   outline: 0;
-  color: var(--text-strong);
+  color: var(--text-1);
   background: transparent;
   font-size: 0.93rem;
   font-weight: 500;
@@ -63,17 +63,17 @@
 }
 
 .search-palette__field input::placeholder {
-  color: var(--text-faint);
+  color: var(--text-4);
   opacity: 1;
 }
 
 .search-palette__field kbd,
 .search-palette__help kbd {
   flex: 0 0 auto;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-2);
   border-radius: 5px;
-  color: var(--text-muted);
-  background: var(--panel-strong);
+  color: var(--text-3);
+  background: var(--ink-3);
   font-family: inherit;
   font-size: 0.71rem;
   font-weight: 620;
@@ -93,14 +93,14 @@
   padding: 0;
   border: 0;
   border-radius: 6px;
-  color: var(--text-muted);
+  color: var(--text-3);
   background: transparent;
   cursor: pointer;
 }
 
 .search-palette__clear:hover {
-  color: var(--text-strong);
-  background: var(--hover-surface);
+  color: var(--text-1);
+  background: var(--ink-4);
 }
 
 .search-palette__results {
@@ -109,10 +109,10 @@
   right: 0;
   left: 0;
   overflow: hidden;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--line-3);
   border-radius: 16px;
-  background: color-mix(in srgb, var(--panel-strong) 96%, transparent);
-  box-shadow: 0 24px 70px color-mix(in srgb, var(--text-strong) 20%, transparent);
+  background: color-mix(in srgb, var(--ink-3) 96%, transparent);
+  box-shadow: 0 24px 70px color-mix(in srgb, var(--text-1) 20%, transparent);
   backdrop-filter: blur(18px) saturate(1.04);
 }
 
@@ -135,13 +135,13 @@
 .search-palette__group + .search-palette__group {
   margin-top: 2px;
   padding-top: 8px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line-2);
 }
 
 .search-palette__group h2 {
   margin: 0;
   padding: 5px 8px 4px;
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.71rem;
   font-weight: 680;
   letter-spacing: 0.07em;
@@ -160,7 +160,7 @@
   padding: 6px 8px;
   border: 0;
   border-radius: 8px;
-  color: var(--text-soft);
+  color: var(--text-2);
   background: transparent;
   text-align: left;
   cursor: pointer;
@@ -169,8 +169,8 @@
 .search-palette__option:hover,
 .search-palette__option.is-active,
 .search-palette__option[aria-selected="true"] {
-  color: var(--text-strong);
-  background: var(--active-surface);
+  color: var(--text-1);
+  background: var(--signal-soft);
 }
 
 .search-palette__icon {
@@ -178,17 +178,17 @@
   height: 30px;
   display: grid;
   place-items: center;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line-2);
   border-radius: 8px;
-  color: var(--text-muted);
-  background: var(--control-surface);
+  color: var(--text-3);
+  background: var(--ink-3);
 }
 
 .search-palette__option.is-active .search-palette__icon,
 .search-palette__option:hover .search-palette__icon {
-  border-color: color-mix(in srgb, var(--accent) 26%, var(--border));
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, var(--control-surface));
+  border-color: color-mix(in srgb, var(--signal-text) 26%, var(--line-2));
+  color: var(--signal-text);
+  background: color-mix(in srgb, var(--signal-text) 8%, var(--ink-3));
 }
 
 .search-palette__copy {
@@ -206,14 +206,14 @@
 }
 
 .search-palette__copy strong {
-  color: var(--text-strong);
+  color: var(--text-1);
   font-size: 0.93rem;
   font-weight: 640;
   line-height: 1.2;
 }
 
 .search-palette__copy small {
-  color: var(--text-muted);
+  color: var(--text-3);
   font-size: 0.8rem;
   font-weight: 480;
   line-height: 1.25;
@@ -223,12 +223,12 @@
   padding: 0;
   border-radius: 2px;
   color: inherit;
-  background: color-mix(in srgb, var(--vigo-lime) 34%, transparent);
+  background: color-mix(in srgb, var(--signal) 34%, transparent);
 }
 
 .search-palette__open-icon {
   justify-self: center;
-  color: var(--text-faint);
+  color: var(--text-4);
   opacity: 0;
   transform: translateX(-2px);
   transition: opacity 120ms ease, transform 120ms ease;
@@ -247,14 +247,14 @@
   justify-content: center;
   gap: 7px;
   padding: 24px;
-  color: var(--text-muted);
+  color: var(--text-3);
   text-align: center;
 }
 
 .search-palette__empty strong {
   max-width: 100%;
   overflow: hidden;
-  color: var(--text-strong);
+  color: var(--text-1);
   font-size: 0.93rem;
   font-weight: 640;
   text-overflow: ellipsis;
@@ -272,9 +272,9 @@
   justify-content: flex-end;
   gap: 14px;
   padding: 6px 10px;
-  border-top: 1px solid var(--border);
-  color: var(--text-muted);
-  background: color-mix(in srgb, var(--panel-soft) 64%, var(--panel-strong));
+  border-top: 1px solid var(--line-2);
+  color: var(--text-3);
+  background: color-mix(in srgb, var(--ink-4) 64%, var(--ink-3));
   font-size: 0.71rem;
 }
 

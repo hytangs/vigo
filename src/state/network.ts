@@ -205,23 +205,6 @@ export function applyNetworkMapDefaults() {
   route.set({ routingEnabled: false })
 }
 
-export function selectNetworkLens(networkLens: NetworkLens) {
-  network.set(({ layers }) => ({
-    networkLens,
-    mapScope: 'network',
-    layers: {
-      ...layers,
-      routes: true,
-      segments: networkLens === 'service' || networkLens === 'risk',
-      stops: networkLens === 'network' || networkLens === 'shape' || networkLens === 'transfer' || networkLens === 'risk',
-      transfers: networkLens === 'network' || networkLens === 'transfer',
-      coverage: false,
-      scenario: networkLens === 'risk',
-      access: false,
-    },
-  }))
-}
-
 export function returnToNetworkOverview() {
   cancelRouteAnalysis()
   network.set({ selectedRouteId: '', routeRenderMode: 'service', selectedStopId: '' })
@@ -405,14 +388,4 @@ export function changeVehicleMode(vehicleMode: ServiceVehicleMode) {
     return
   }
   network.set({ vehicleMode })
-}
-
-/** The Network sidebar's live button: show live vehicles, or connect feeds first. */
-export function openLiveVehicles() {
-  if (!network.get().realtimeSnapshot) {
-    openDataView()
-    return
-  }
-  network.set({ mapScope: 'network', vehicleMode: 'live' })
-  setActiveRouteTool('agency')
 }

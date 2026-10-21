@@ -212,17 +212,15 @@
 }
 
 .routing-setup-fold:hover { color: var(--text-1); background: var(--fill-2); }
+.routing-wheelchair[aria-pressed="true"] { color: var(--signal-ink); background: var(--signal); }
 .routing-setup-fold > svg { transition: transform var(--duration-base) var(--ease-standard); }
 .routing-setup-fold[aria-expanded="true"] > svg { transform: rotate(180deg); }
 
 .routing-setup-header + div > :first-child,
 .routing-setup-summary { border-top: 1px solid var(--line-1); }
 
-.routing-accessibility { padding: 4px 10px 6px; }
-
 /* When and Preferences are views, so they read as tabs, not as another choice. */
 .routing-setup-tabs { display: flex; gap: 18px; padding: 0 10px; box-shadow: inset 0 -1px 0 var(--line-1); }
-.routing-accessibility + .routing-setup-tabs { border-top: 1px solid var(--line-1); }
 
 .routing-setup-tabs > button {
   position: relative;

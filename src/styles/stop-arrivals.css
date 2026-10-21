@@ -1,7 +1,7 @@
 /* The same station board is used on the network map and the route diagram. */
 .route-map-shell .map-live-card.has-stop-arrivals { top: auto; bottom: 80px; width: min(420px, calc(100% - 24px)); max-height: min(calc(100% - 158px), 620px); overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line-3) transparent; padding: 16px 16px 14px; background: var(--material-strong); border: 0; border-radius: var(--radius-lg); box-shadow: var(--elev-2); backdrop-filter: var(--material-blur); }
 .view-agency .route-map-shell .map-live-card.has-stop-arrivals { bottom: var(--map-inspector-bottom, 28px); max-height: min(620px, calc(100% - var(--map-inspector-bottom, 28px) - 80px)); }
-.stop-arrival-board { color: var(--text); font-size: 12px; }
+.stop-arrival-board { color: var(--text-2); font-size: 12px; }
 .stop-arrival-board header > span { color: var(--text-3); font-size: var(--type-2xs); font-weight: 680; letter-spacing: .06em; text-transform: uppercase; }
 .stop-arrival-board h3 { margin: 5px 24px 4px 0; color: var(--text-1); font-family: var(--font-display); font-size: 20px; font-weight: 700; letter-spacing: -.025em; }
 .stop-arrival-board header p { margin: 0 0 10px; color: var(--text-3); font-size: var(--type-xs); }
@@ -28,7 +28,7 @@
 .stop-arrival-board .stop-board-time strong.is-now { color: var(--good); }
 .stop-board-time small { display: flex; flex-wrap: wrap; justify-content: end; align-items: center; gap: 4px; margin-top: 3px; color: var(--text-3); font-size: var(--type-2xs); }
 .stop-board-time svg { color: var(--good); }
-.stop-board-baseline { grid-column: 2 / -1; min-width: 0; margin: 0; color: var(--text-muted); font-size: 11px; text-align: right; }
+.stop-board-baseline { grid-column: 2 / -1; min-width: 0; margin: 0; color: var(--text-3); font-size: 11px; text-align: right; }
 .stop-board-baseline summary { min-height: 28px; padding: 4px 0; cursor: pointer; list-style: none; }
 .stop-board-baseline summary::-webkit-details-marker { display: none; }
 .stop-board-baseline summary::after { content: '›'; display: inline-block; margin-left: 6px; color: var(--text-4); transition: transform var(--duration-base) var(--ease-standard); }
@@ -40,19 +40,19 @@
 .stop-board-baseline dl { text-align: left; margin: 8px 0 0; padding: 10px 12px; border-radius: var(--radius-md); background: var(--ink-3); line-height: 1.6; }
 .stop-board-baseline dl > div { margin: 0 0 7px; }
 .stop-board-baseline dt { font-size: 10px; }
-.stop-board-baseline dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
-.stop-board-baseline a { color: var(--text); }
-.stop-board-list .is-not-running .stop-board-time strong { color: var(--warn); font-size: 12px; }
-.stop-board-notice, .stop-board-empty { margin: 12px 0; color: var(--text-muted); font-size: 11px; line-height: 1.6; }
+.stop-board-baseline dd { margin: 0; color: var(--text-2); overflow-wrap: anywhere; }
+.stop-board-baseline a { color: var(--text-2); }
+.stop-board-list .is-not-running .stop-board-time strong { color: var(--watch); font-size: 12px; }
+.stop-board-notice, .stop-board-empty { margin: 12px 0; color: var(--text-3); font-size: 11px; line-height: 1.6; }
 .stop-board-more { width: 100%; padding: 10px; border: 0; border-top: 1px solid var(--line-1); background: transparent; color: var(--signal-text); font-size: var(--type-xs); font-weight: 620; cursor: pointer; }
-.stop-arrival-board footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 14px; margin-top: 14px; color: var(--text-muted); font-size: 10px; line-height: 1.5; }
-.stop-board-baseline summary:focus-visible { outline: 2px solid var(--vigo-lime-strong); outline-offset: 2px; }
-.agency-line-station { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; min-height: 44px; border: 1px solid var(--border); background: var(--control-surface); color: var(--text-strong); padding: 8px; font-size: 12px; line-height: 1.4; text-align: inherit; cursor: pointer; border-radius: 6px; }
+.stop-arrival-board footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 14px; margin-top: 14px; color: var(--text-3); font-size: 10px; line-height: 1.5; }
+.stop-board-baseline summary:focus-visible { outline: 2px solid var(--signal-text); outline-offset: 2px; }
+.agency-line-station { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; min-height: 44px; border: 1px solid var(--line-2); background: var(--ink-3); color: var(--text-1); padding: 8px; font-size: 12px; line-height: 1.4; text-align: inherit; cursor: pointer; border-radius: 6px; }
 .agency-line-station > span { min-width: 0; overflow-wrap: anywhere; }
-.agency-line-station > svg { flex-shrink: 0; color: var(--text-muted); }
-.agency-line-station:hover, .agency-line-station[aria-pressed="true"] { background: var(--active-surface); color: var(--text-strong); }
-.agency-line-vehicle > span { color: var(--text-muted); font-size: 9px; white-space: nowrap; }
-.agency-line-station:focus-visible, .stop-arrival-board button:focus-visible { outline: 2px solid var(--vigo-lime-strong); outline-offset: 2px; }
+.agency-line-station > svg { flex-shrink: 0; color: var(--text-3); }
+.agency-line-station:hover, .agency-line-station[aria-pressed="true"] { background: var(--signal-soft); color: var(--text-1); }
+.agency-line-vehicle > span { color: var(--text-3); font-size: 9px; white-space: nowrap; }
+.agency-line-station:focus-visible, .stop-arrival-board button:focus-visible { outline: 2px solid var(--signal-text); outline-offset: 2px; }
 @media (max-width: 760px) {
   .view-agency .route-map-shell .map-live-card.has-stop-arrivals { bottom: 16px; max-height: 75%; padding: 14px; }
   .stop-board-list li { column-gap: 7px; }
@@ -61,6 +61,6 @@
 
 .stop-board-trip { all: unset; cursor: pointer; color: inherit; font: inherit; }
 .stop-board-trip:hover { text-decoration: underline; text-underline-offset: 3px; }
-.stop-board-trip:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 2px; }
+.stop-board-trip:focus-visible { outline: 2px solid var(--signal-text); outline-offset: 4px; border-radius: 2px; }
 
 .stop-board-trip-link { text-decoration: underline; text-underline-offset: 3px; }
