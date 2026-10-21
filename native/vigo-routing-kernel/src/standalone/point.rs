@@ -1,6 +1,8 @@
 //! Reuse the destination-directed exact point certifier used by Node Route.
-//! The shared Matrix rounds remain the fallback for unbounded/selected-stop
-//! queries; no scalar witness bypasses boarding and walking tie certification.
+//! An uncapped departure scans for the earliest arrival, then certifies
+//! boarding and walking ties inside that witness's corridor. The shared Matrix
+//! rounds remain the fallback for other point queries; no scalar witness
+//! bypasses boarding and walking tie certification.
 use super::Result;
 use crate::*;
 use std::time::Instant;
@@ -119,23 +121,8 @@ pub(super) fn alternatives(
 /// Window samples admit alternatives arriving up to 15 minutes later.
 pub(super) const WINDOW_ARRIVAL_SLACK_SECONDS: f64 = 15. * 60.;
 
-pub(super) fn route(
-    kernel: &mut TimetableKernel,
-    input: &TimetableMatrixQueryInput,
-) -> Result<Option<TimetableMatrixQueryResult>> {
-    let Some(cap) = input.maximum_boardings else {
-        return Ok(None);
-    };
-    if input.allow_pre_ride_transfers[0]
-        || input
-            .allow_post_ride_transfers
-            .as_ref()
-            .is_none_or(|a| a[0])
-    {
-        return Ok(None);
-    }
-    let started = Instant::now();
-    let mut output = TimetableMatrixQueryResult {
+fn unreached(input: &TimetableMatrixQueryInput) -> TimetableMatrixQueryResult {
+    TimetableMatrixQueryResult {
         journeys: Some(vec![None]),
         times: vec![if input.arrive_by {
             f64::NEG_INFINITY
@@ -150,7 +137,30 @@ pub(super) fn route(
         expanded_trip_runs: 0.,
         dominated_trip_boardings: 0.,
         explicit_transfer_checks: 0.,
+    }
+}
+
+pub(super) fn route(
+    kernel: &mut TimetableKernel,
+    input: &TimetableMatrixQueryInput,
+) -> Result<Option<TimetableMatrixQueryResult>> {
+    let pre_ride_transfers = input.allow_pre_ride_transfers[0];
+    let post_ride_transfers = input
+        .allow_post_ride_transfers
+        .as_ref()
+        .is_none_or(|a| a[0]);
+    let Some(cap) = input.maximum_boardings else {
+        return if input.arrive_by {
+            Ok(None)
+        } else {
+            certified_departure(kernel, input, pre_ride_transfers, post_ride_transfers)
+        };
     };
+    if pre_ride_transfers || post_ride_transfers {
+        return Ok(None);
+    }
+    let started = Instant::now();
+    let mut output = unreached(input);
     let mut departure = input.departure;
     if input.arrive_by {
         let bound = kernel.route_arrive_by_csa(TimetableArriveByQueryInput {
@@ -268,6 +278,124 @@ pub(super) fn route(
     Ok(Some(output))
 }
 
+/// The uncapped departure sequence Node Route uses: a scalar scan proves the
+/// earliest arrival, then the bounded Pareto certifier settles boarding and
+/// walking ties among journeys with that arrival. Selected stops may transfer
+/// before the first ride and after the last, as in the scalar search. The
+/// forward/reverse corridor only accelerates the proof; if it excludes every
+/// origin, the certifier repeats without it. Any unsupported outcome returns
+/// the Matrix fallback.
+fn certified_departure(
+    kernel: &mut TimetableKernel,
+    input: &TimetableMatrixQueryInput,
+    pre_ride_transfers: bool,
+    post_ride_transfers: bool,
+) -> Result<Option<TimetableMatrixQueryResult>> {
+    let started = Instant::now();
+    let mut output = unreached(input);
+    let origin_candidate_indices: Vec<u32> = (0..input.origin_stops.len() as u32).collect();
+    let destination_candidate_indices: Vec<u32> =
+        (0..input.destination_stops.len() as u32).collect();
+    let scalar = kernel.route_scalar_csa(TimetableQueryInput {
+        origin_stops: input.origin_stops.clone(),
+        origin_walk_seconds: input.origin_walk_seconds.clone(),
+        origin_candidate_indices: origin_candidate_indices.clone(),
+        destination_stops: input.destination_stops.clone(),
+        destination_walk_seconds: input.destination_walk_seconds.clone(),
+        destination_candidate_indices: destination_candidate_indices.clone(),
+        departure: input.departure,
+        horizon: input.horizon,
+        allow_pre_ride_transfers: pre_ride_transfers,
+        allow_post_ride_transfers: Some(post_ride_transfers),
+        maximum_boardings: None,
+    })?;
+    if !scalar.supported {
+        return Ok(None);
+    }
+    output.forward_searches += 1;
+    output.scanned_departures += f64::from(scalar.scanned_departures);
+    output.relaxed_stops += f64::from(scalar.relaxed_stops);
+    output.expanded_trip_runs += f64::from(scalar.expanded_trip_runs);
+    output.dominated_trip_boardings += f64::from(scalar.dominated_trip_boardings);
+    output.explicit_transfer_checks += f64::from(scalar.explicit_transfer_checks);
+    if scalar.status == "blocked" {
+        output.query_ns = started.elapsed().as_nanos() as f64;
+        return Ok(Some(output));
+    }
+    let (Some(arrival), Some(boardings), Some(destination)) = (
+        scalar.best_arrival,
+        scalar.best_boardings,
+        scalar.best_destination_index,
+    ) else {
+        return Ok(None);
+    };
+    if scalar.chain_kinds.is_empty() || boardings == 0 {
+        return Ok(None);
+    }
+    // The witness's walking: its access candidate, transfers and egress.
+    let mut walking = input.destination_walk_seconds[destination as usize];
+    for (i, kind) in scalar.chain_kinds.iter().enumerate() {
+        match kind {
+            3 => walking += input.origin_walk_seconds[scalar.chain_trip_or_candidate[i] as usize],
+            1 => walking += f64::from(scalar.chain_durations[i]),
+            _ => (),
+        }
+    }
+    let query = TimetableParetoQueryInput {
+        origin_stops: input.origin_stops.clone(),
+        origin_walk_seconds: input.origin_walk_seconds.clone(),
+        origin_candidate_indices,
+        destination_stops: input.destination_stops.clone(),
+        destination_walk_seconds: input.destination_walk_seconds.clone(),
+        destination_candidate_indices,
+        departure: input.departure,
+        horizon: input.horizon,
+        allow_pre_ride_transfers: pre_ride_transfers,
+        allow_post_ride_transfers: Some(post_ride_transfers),
+        earliest_arrival: arrival,
+        boarding_upper_bound: boardings,
+        candidate_destination_index: destination,
+        candidate_walking_seconds: walking,
+        arrival_slack_seconds: 0.,
+        transfer_penalty_seconds: 0.,
+        walk_reluctance: 0.,
+        collect_alternatives: None,
+        alternative_ranking: None,
+        alternative_limit: None,
+        restriction_mode: None,
+        deadline_objective: None,
+    };
+    let mut pareto = kernel.route_pareto_round_csa(query.clone())?;
+    if !pareto.supported && pareto.reason.as_deref() == Some("origin_outside_kernel") {
+        pareto = kernel.route_pareto_round_csa(TimetableParetoQueryInput {
+            restriction_mode: Some("anchor-only".into()),
+            ..query
+        })?;
+    }
+    if !pareto.supported
+        || pareto.status != "ready"
+        || pareto.best_arrival.is_none_or(|a| a > arrival + 0.1)
+    {
+        return Ok(None);
+    }
+    output.forward_searches += 1;
+    output.scanned_departures += f64::from(pareto.scanned_departures);
+    output.relaxed_stops += f64::from(pareto.relaxed_stops);
+    output.expanded_trip_runs += f64::from(pareto.expanded_trip_runs);
+    output.dominated_trip_boardings += f64::from(pareto.dominated_trip_boardings);
+    output.explicit_transfer_checks += f64::from(pareto.explicit_transfer_checks);
+    let chain: Chain = if pareto.improved_candidate && !pareto.chain_kinds.is_empty() {
+        pareto.into()
+    } else {
+        scalar.into()
+    };
+    let journey = reconstruct(kernel, input, input.departure, chain)?;
+    output.times[0] = journey.arrival;
+    output.journeys = Some(vec![Some(journey)]);
+    output.query_ns = started.elapsed().as_nanos() as f64;
+    Ok(Some(output))
+}
+
 fn reconstruct(
     kernel: &TimetableKernel,
     input: &TimetableMatrixQueryInput,
@@ -334,4 +462,72 @@ fn reconstruct(
         waiting_seconds: (chain.arrival - departure - walking - riding).max(0.),
         legs,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Stop 0 reaches stop 2 at 40 s either through stop 1 (two boardings) or
+    // on a direct trip (one boarding).
+    fn kernel() -> TimetableKernel {
+        TimetableKernel::new(TimetableKernelInput {
+            stop_count: 3,
+            run_count: 3,
+            departure_seconds: vec![10, 25, 12].into(),
+            arrival_seconds: vec![20, 40, 40].into(),
+            from_stop: vec![0, 1, 0].into(),
+            to_stop: vec![1, 2, 2].into(),
+            sequence: vec![1, 1, 1].into(),
+            segment_trip: vec![0, 1, 2].into(),
+            segment_run: vec![0, 1, 2].into(),
+            continuity_break: vec![1, 1, 1].into(),
+            can_board: vec![1, 1, 1].into(),
+            can_alight: vec![1, 1, 1].into(),
+            trip_start: vec![0, 1, 2, 3].into(),
+            departure_offset: vec![0, 2, 3, 3].into(),
+            departure_order: vec![0, 2, 1].into(),
+            transfer_offset: vec![0, 0, 0, 0].into(),
+            transfer_to: vec![].into(),
+            transfer_duration: vec![].into(),
+            forbidden_same_stop: vec![0, 0, 0].into(),
+            same_stop_transfer_minimum: None,
+            minimum_transfer_buffer_seconds: None,
+        })
+        .unwrap()
+    }
+
+    fn input(maximum_boardings: Option<u32>) -> TimetableMatrixQueryInput {
+        TimetableMatrixQueryInput {
+            origin_offsets: vec![0, 1],
+            origin_stops: vec![0],
+            origin_walk_seconds: vec![0.0],
+            allow_pre_ride_transfers: vec![false],
+            destination_offsets: vec![0, 1],
+            destination_stops: vec![2],
+            destination_walk_seconds: vec![0.0],
+            allow_post_ride_transfers: Some(vec![false]),
+            departure: 0.0,
+            horizon: 100.0,
+            arrive_by: false,
+            maximum_boardings,
+            include_journeys: Some(true),
+        }
+    }
+
+    #[test]
+    fn uncapped_departure_certifies_boarding_ties_like_matrix_rounds() {
+        let mut kernel = kernel();
+        let certified = route(&mut kernel, &input(None)).unwrap().unwrap();
+        let matrix = kernel.route_matrix_csa(input(None)).unwrap();
+        let journey = certified.journeys.unwrap().remove(0).unwrap();
+        let expected = matrix.journeys.unwrap().remove(0).unwrap();
+        assert_eq!(certified.times, matrix.times);
+        assert_eq!((journey.arrival, journey.boardings), (40.0, 1));
+        assert_eq!(journey.boardings, expected.boardings);
+        assert_eq!(
+            certified.forward_searches, 2,
+            "scalar scan, then certification"
+        );
+    }
 }

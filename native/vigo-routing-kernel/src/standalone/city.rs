@@ -125,6 +125,51 @@ fn cch_files(path: &Path, kind: &str) -> Result<(String, String, Option<String>)
     ))
 }
 
+fn access_profile_path(root: &Path, key: &str) -> Result<String> {
+    let suffix = crate::route_materialization::stable_key_suffix(key.encode_utf16().collect());
+    str_path(&root.join(format!(
+        "routing/project.sqlite.native-access-profile.{suffix}.bin"
+    )))
+}
+
+/// A City's street graph and, when its key is known, the prepared access
+/// profile, loaded off the opening thread.
+struct StreetLoad {
+    street: std::result::Result<CoordinateKernel, String>,
+    profile: Option<std::result::Result<(), String>>,
+}
+
+fn load_street(street_path: &Path, root: &Path, key: Option<&str>) -> StreetLoad {
+    let open = || -> Result<CoordinateKernel> {
+        let (structure_path, metric_path, _) = cch_files(street_path, "street")?;
+        Ok(CoordinateKernel::open_prepared(
+            str_path(street_path)?,
+            StreetCchLoadInput {
+                structure_path,
+                metric_path,
+            },
+        )?)
+    };
+    match open() {
+        Ok(mut street) => {
+            let profile = key.map(|key| {
+                access_profile_path(root, key)
+                    .and_then(|path| Ok(street.load_access_profile_snapshot(path, key.to_owned())?))
+                    .map(drop)
+                    .map_err(|error| error.to_string())
+            });
+            StreetLoad {
+                street: Ok(street),
+                profile,
+            }
+        }
+        Err(error) => StreetLoad {
+            street: Err(error.to_string()),
+            profile: None,
+        },
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct Stop {
     pub id: String,
@@ -345,6 +390,20 @@ impl City {
         if manifest["schemaVersion"] != "vigo.city.v1" {
             return fail("Expected a prepared vigo.city.v1 City");
         }
+        // The street graph and its prepared access profile load while the
+        // routing metadata and access context parse. Results are consumed, and
+        // failures reported, at the same points as a sequential open.
+        let street_path = path.join("osm/street-index.sqlite.street-accelerator-v7.bin");
+        let profile_key = manifest["routingStore"]["nativeCoordinateAccess"]["profileKey"]
+            .as_str()
+            .map(str::to_owned);
+        let street_load = (!residents
+            .iter()
+            .any(|(directory, _)| *directory == street_directory))
+        .then(|| {
+            let (street_path, root, key) = (street_path.clone(), path.clone(), profile_key.clone());
+            std::thread::spawn(move || load_street(&street_path, &root, key.as_deref()))
+        });
         let db_path = path.join("routing/project.sqlite");
         if db_path.with_extension("sqlite-wal").exists() {
             return fail("City must be immutable and checkpointed (unexpected SQLite WAL)");
@@ -505,27 +564,26 @@ impl City {
         )?;
         let street_bounds = serde_json::from_str::<Value>(&basemap)?["bounds"].clone();
         drop(street_db);
-        let street_path = path.join("osm/street-index.sqlite.street-accelerator-v7.bin");
         let street_header = Image::open(&street_path, false)?;
         if street_header.header["identity"]["schemaVersion"] != "vigo.street.store.v6" {
             return fail(
                 "Street pedestrian restrictions are stale; rebuild the City from the source OSM PBF",
             );
         }
-        let mut street = if let Some((_, street)) = residents
-            .iter()
-            .find(|(directory, _)| *directory == street_directory)
-        {
-            street.share_streets()?
-        } else {
-            let (structure_path, metric_path, _) = cch_files(&street_path, "street")?;
-            CoordinateKernel::open_prepared(
-                str_path(&street_path)?,
-                StreetCchLoadInput {
-                    structure_path,
-                    metric_path,
-                },
-            )?
+        let (mut street, mut preloaded_profile) = match street_load {
+            Some(load) => {
+                let loaded = load.join().map_err(|_| "Street graph loader panicked")?;
+                (loaded.street?, loaded.profile)
+            }
+            None => (
+                residents
+                    .iter()
+                    .find(|(directory, _)| *directory == street_directory)
+                    .ok_or("Missing resident street graph")?
+                    .1
+                    .share_streets()?,
+                None,
+            ),
         };
         let terminal = path.join("osm/street-index.sqlite.terminal-access-v1.json");
         if terminal.exists() && street.terminal_access.is_none() {
@@ -537,8 +595,8 @@ impl City {
         {
             return fail("Missing terminal-access artifact for private endpoints City");
         }
-        let key = manifest["routingStore"]["nativeCoordinateAccess"]["profileKey"]
-            .as_str()
+        let key = profile_key
+            .as_deref()
             .ok_or("Missing prepared coordinate access profile")?;
         let key_parts: Vec<_> = key.split(':').collect();
         if key_parts.len() != 6
@@ -562,11 +620,15 @@ impl City {
         {
             return fail("Coordinate profile belongs to another street source");
         }
-        let suffix = crate::route_materialization::stable_key_suffix(key.encode_utf16().collect());
-        let snapshot = path.join(format!(
-            "routing/project.sqlite.native-access-profile.{suffix}.bin"
-        ));
-        street.load_access_profile_snapshot(str_path(&snapshot)?, key.to_owned())?;
+        match preloaded_profile.take() {
+            Some(loaded) => loaded?,
+            None => {
+                street.load_access_profile_snapshot(
+                    access_profile_path(&path, key)?,
+                    key.to_owned(),
+                )?;
+            }
+        }
         if street
             .profile
             .as_ref()
@@ -893,7 +955,17 @@ impl City {
     }
     pub(crate) fn activate(&mut self, request: &Value) -> Result<()> {
         let started = std::time::Instant::now();
-        let result = self.activate_inner(request);
+        let result = self.activate_inner(request).and_then(|()| {
+            // The buffer is a search parameter, not part of the timetable:
+            // every buffer reuses the same resident or cached timetable.
+            let buffer = number(request, "minimumTransferBufferMinutes", 0., 0., 60.)?;
+            if let Some(timetable) = self.timetable.as_mut() {
+                timetable
+                    .kernel
+                    .set_minimum_transfer_buffer_seconds(buffer as u32 * 60);
+            }
+            Ok(())
+        });
         self.timetable_activation_ms += started.elapsed().as_secs_f64() * 1000.;
         result
     }
@@ -934,11 +1006,7 @@ impl City {
         // A realtime view derives from the retained source read of the same
         // service days. Its key excludes the snapshot, transfers and buffer.
         let (key, instances, source_key) = if coverage_end.is_some() {
-            (
-                format!("{date_text}:{allow}:{buffer}:scheduled"),
-                None,
-                None,
-            )
+            (format!("{date_text}:{allow}:scheduled"), None, None)
         } else {
             let instances = self.service_instances(request, date, None)?;
             let days_key = instances.as_ref().map(|a| {
@@ -964,7 +1032,7 @@ impl City {
                 .is_some()
                 .then(|| format!("{date_text}:{days_key:?}"));
             (
-                format!("{date_text}:{allow}:{buffer}:{realtime_key}:{days_key:?}"),
+                format!("{date_text}:{allow}:{realtime_key}:{days_key:?}"),
                 instances,
                 source_key,
             )

@@ -920,7 +920,29 @@ impl City {
         } else {
             json!({"status":"blocked","reason":if a.stops.is_empty() || b.stops.is_empty() {"no_access"}else{"no_path"},"mode":"transit"})
         };
+        // A street walk is never shorter than the straight line between the
+        // endpoints. When that bound already loses to the transit journey, the
+        // walk cannot win and, unless choices are collected, is not searched.
+        let walk_cannot_win =
+            !collect && output["status"] == "ready" && output["mode"] == "transit" && {
+                let bound = crate::route_materialization::haversine_km(
+                    origin.coordinate,
+                    destination.coordinate,
+                ) / opt.walk_speed.unwrap_or(self.speed)
+                    * 60.;
+                let transit = if opt.arrive {
+                    opt.time / 60.
+                        - output["departureMinutes"]
+                            .as_f64()
+                            .unwrap_or(f64::NEG_INFINITY)
+                } else {
+                    output["arrivalMinutes"].as_f64().unwrap_or(f64::INFINITY) - opt.time / 60.
+                };
+                // Keep a margin for edge lengths measured another way.
+                bound * 0.99 > transit
+            };
         if !flag(q, "requireTransitRide", false)?
+            && !walk_cannot_win
             && (output["status"] == "ready"
                 || (origin.stop.is_none() && destination.stop.is_none()))
         {
