@@ -827,6 +827,12 @@ pub fn format_owned(kind: &str, request: &Value, mut raw: Value) -> Value {
                                 &endpoints["origins"][i],
                                 &endpoints["destinations"][j],
                             );
+                            set_journey_clock_date(
+                                cell,
+                                raw.get("clockDate")
+                                    .filter(|date| date.is_string())
+                                    .unwrap_or(&endpoints["serviceDate"]),
+                            );
                         }
                     }
                 }

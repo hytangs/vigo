@@ -131,44 +131,6 @@ fn access_profile_path(layout: &super::project::Layout, key: &str) -> PathBuf {
     layout.sidecar(&format!(".native-access-profile.{suffix}.bin"))
 }
 
-/// A City's street graph and, when its key is known, the prepared access
-/// profile, loaded off the opening thread.
-struct StreetLoad {
-    street: std::result::Result<CoordinateKernel, String>,
-    profile: Option<std::result::Result<(), String>>,
-}
-
-fn load_street(street_path: &Path, profile: Option<(PathBuf, String)>) -> StreetLoad {
-    let open = || -> Result<CoordinateKernel> {
-        let (structure_path, metric_path, _) = cch_files(street_path, "street")?;
-        Ok(CoordinateKernel::open_prepared(
-            str_path(street_path)?,
-            StreetCchLoadInput {
-                structure_path,
-                metric_path,
-            },
-        )?)
-    };
-    match open() {
-        Ok(mut street) => {
-            let profile = profile.map(|(path, key)| {
-                str_path(&path)
-                    .and_then(|path| Ok(street.load_access_profile_snapshot(path, key)?))
-                    .map(drop)
-                    .map_err(|error| error.to_string())
-            });
-            StreetLoad {
-                street: Ok(street),
-                profile,
-            }
-        }
-        Err(error) => StreetLoad {
-            street: Err(error.to_string()),
-            profile: None,
-        },
-    }
-}
-
 #[derive(Clone)]
 pub(crate) struct Stop {
     pub id: String,
@@ -342,6 +304,7 @@ pub struct City {
     pub(crate) stop_index: HashMap<String, usize>,
     pub(crate) members: Vec<String>,
     pub(crate) street: CoordinateKernel,
+    pending_pedestrian_profile: Option<(PathBuf, String)>,
     pub(crate) drive: Option<Drive>,
     pub(crate) polling_enabled: bool,
     pub(crate) timetable: Option<Timetable>,
@@ -398,6 +361,32 @@ impl City {
         let path = fs::canonicalize(path)?;
         Self::open_layout(super::project::Layout::project(&path, store)?, &[])
     }
+    pub(crate) fn ensure_pedestrian_hierarchy(&mut self) -> Result<()> {
+        if self.street.street_cch_load_diagnostics().is_none() {
+            let snapshot = self
+                .path
+                .join("osm/street-index.sqlite.street-accelerator-v7.bin");
+            let (structure_path, metric_path, _) = cch_files(&snapshot, "street")?;
+            self.street.load_street_cch_index(StreetCchLoadInput {
+                structure_path,
+                metric_path,
+            })?;
+        }
+        if let Some((path, key)) = &self.pending_pedestrian_profile {
+            self.street
+                .load_access_profile_snapshot(str_path(path)?, key.clone())?;
+            if self
+                .street
+                .profile
+                .as_ref()
+                .is_none_or(|p| p.member_lons.len() != self.members.len())
+            {
+                return fail("Coordinate access member count mismatch");
+            }
+            self.pending_pedestrian_profile = None;
+        }
+        Ok(())
+    }
     fn open_layout(
         layout: super::project::Layout,
         residents: &[(&Path, &CoordinateKernel)],
@@ -408,25 +397,19 @@ impl City {
         if manifest["schemaVersion"] != "vigo.city.v1" {
             return fail("Expected a prepared vigo.city.v1 City");
         }
-        // The street graph and, for a City, its prepared access profile load
-        // while the routing metadata and access context parse. Results are
-        // consumed, and failures reported, at the same points as a sequential
-        // open. A Studio store's profile key is known only after its access
-        // context is read, so its profile loads afterwards.
+        // Load the shared graph alongside routing metadata. The pedestrian
+        // hierarchy and access profile are opened only for pedestrian queries;
+        // Drive uses its own hierarchy and must not depend on those files.
         let street_path = path.join("osm/street-index.sqlite.street-accelerator-v7.bin");
-        let preload_key = (!layout.derived)
-            .then(|| manifest["routingStore"]["nativeCoordinateAccess"]["profileKey"].as_str())
-            .flatten()
-            .map(str::to_owned);
         let street_load = (!residents
             .iter()
             .any(|(directory, _)| *directory == street_directory))
         .then(|| {
             let street_path = street_path.clone();
-            let profile = preload_key
-                .as_deref()
-                .map(|key| (access_profile_path(&layout, key), key.to_owned()));
-            std::thread::spawn(move || load_street(&street_path, profile))
+            std::thread::spawn(move || {
+                CoordinateKernel::new(street_path.to_string_lossy().into_owned())
+                    .map_err(|error| error.to_string())
+            })
         });
         let db_path = layout.routing.clone();
         if db_path.with_extension("sqlite-wal").exists() {
@@ -609,20 +592,14 @@ impl City {
                 "Street pedestrian restrictions are stale; rebuild the City from the source OSM PBF",
             );
         }
-        let (mut street, mut preloaded_profile) = match street_load {
-            Some(load) => {
-                let loaded = load.join().map_err(|_| "Street graph loader panicked")?;
-                (loaded.street?, loaded.profile)
-            }
-            None => (
-                residents
-                    .iter()
-                    .find(|(directory, _)| *directory == street_directory)
-                    .ok_or("Missing resident street graph")?
-                    .1
-                    .share_streets()?,
-                None,
-            ),
+        let mut street = match street_load {
+            Some(load) => load.join().map_err(|_| "Street graph loader panicked")??,
+            None => residents
+                .iter()
+                .find(|(directory, _)| *directory == street_directory)
+                .ok_or("Missing resident street graph")?
+                .1
+                .share_streets()?,
         };
         let terminal = path.join("osm/street-index.sqlite.terminal-access-v1.json");
         if terminal.exists() && street.terminal_access.is_none() {
@@ -678,22 +655,7 @@ impl City {
         {
             return fail("Coordinate profile belongs to another street source");
         }
-        match preloaded_profile.take() {
-            Some(loaded) => loaded?,
-            None => {
-                street.load_access_profile_snapshot(
-                    str_path(&access_profile_path(&layout, key))?,
-                    key.to_owned(),
-                )?;
-            }
-        }
-        if street
-            .profile
-            .as_ref()
-            .is_none_or(|p| p.member_lons.len() != members.len())
-        {
-            return fail("Coordinate access member count mismatch");
-        }
+        let pending_pedestrian_profile = Some((access_profile_path(&layout, key), key.to_owned()));
         let transfer_rows = access
             .materialized
             .transfers
@@ -728,6 +690,7 @@ impl City {
             stop_index,
             members,
             street,
+            pending_pedestrian_profile,
             drive: None,
             polling_enabled: false,
             timetable: None,

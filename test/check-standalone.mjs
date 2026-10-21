@@ -87,14 +87,17 @@ try {
     assert.equal(restricted.status, 'ready', 'Transit access limits must not constrain Walk mode')
     assert.equal(restricted.durationMinutes, unrestricted.durationMinutes)
     assert.equal(run('route', { ...walkOnly, maxStreetKm: 0.05 }).status, 'blocked')
-    assert.equal(run('route', { ...walkOnly, horizonMinutes: 1 }).status, 'blocked')
+    assert.equal(run('route', { ...walkOnly, horizonMinutes: 1 }).durationMinutes, restricted.durationMinutes,
+      'A transit scan horizon must not shorten an explicit Walk route')
     assert.equal(run('route', { ...walkOnly, via: [{ stopId: 'X' }] }).status, 'ready')
-    const walkingMatrix = run('matrix', { ...walkOnly, origin: undefined, destination: undefined,
+    const walkingMatrix = run('matrix', { ...walkOnly, horizonMinutes: 1, origin: undefined, destination: undefined,
       origins: [coordinate.origin], destinations: [coordinate.destination] })
     assert(Math.abs(walkingMatrix.durationsMinutes[0][0] - restricted.durationMinutes) < 1e-6)
     assert.equal(run('route', { ...walkOnly, mode: 'transit', requireTransitRide: false,
       serviceDate: '2026-07-19' }).status, 'blocked', 'Transit must retain the direct-walk limit')
   }
+  const longBound = run('route', { ...coordinate, mode: 'walk', maxStreetKm: 1000, walkSpeedKph: 1, time: '00:00', timePreference: 'arrive_by' })
+  assert.equal(longBound.status, 'ready', 'A large walk bound must not overflow the internal service clock')
   const drive = run('route', { ...coordinate, mode: 'drive' })
   const driveAccess = { ...coordinate, mode: 'drive', maxWalkKm: 1.2,
     origin: { coordinate: [-77.0502, 38.9001] }, destination: { coordinate: [-77.0298, 38.9101] } }
@@ -126,8 +129,9 @@ try {
       'Ordered Transit must allow a walking segment instead of forcing a boarding.')
     const allWalk = run('route', { ...coordinate, mode: 'walk', via: [{ stopId: 'X' }],
       timePreference, time: timePreference === 'arrive_by' ? '08:30' : base.time })
-    assert(timePreference === 'arrive_by' ? via.departureMinutes >= allWalk.departureMinutes
-      : via.arrivalMinutes <= allWalk.arrivalMinutes, 'The selected multi-stop result must be no worse in time than walking')
+    const clock = (result, key) => result[key] + (Date.parse(result.clockDate ?? base.serviceDate) - Date.parse(base.serviceDate)) / 60_000
+    assert(timePreference === 'arrive_by' ? clock(via, 'departureMinutes') + 1e-9 >= clock(allWalk, 'departureMinutes')
+      : clock(via, 'arrivalMinutes') <= clock(allWalk, 'arrivalMinutes') + 1e-9, `The selected multi-stop result must be no worse in time than walking: ${JSON.stringify({direction: timePreference, via: [via.clockDate, via.departureMinutes, via.arrivalMinutes], walk: [allWalk.clockDate, allWalk.departureMinutes, allWalk.arrivalMinutes]})}`)
     assert(via.choices.some(choice => choice.mode === 'walk'), 'Retain the complete walking option')
     assert(via.diagnostics.orderedSearch.segmentQueries <= 9)
   }

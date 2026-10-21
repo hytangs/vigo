@@ -139,6 +139,7 @@ function studioLeg(leg, index, count, body) {
   const startMinutes = minutes(leg.departureMinutes)
   const endMinutes = minutes(leg.arrivalMinutes)
   const shared = {
+    from: leg.from, to: leg.to, departure: leg.departure, arrival: leg.arrival,
     fromName: leg.from?.name ?? (index === 0 ? body.origin?.label : leg.fromStopId) ?? '',
     toName: leg.to?.name ?? (index === count - 1 ? body.destination?.label : leg.toStopId) ?? '',
     startMinutes,
@@ -178,12 +179,13 @@ function studioLeg(leg, index, count, body) {
     fromStopId: leg.fromStopId, toStopId: leg.toStopId,
     ...(leg.fromStationGroupId ? { fromStationGroupId: leg.fromStationGroupId } : {}),
     ...(leg.toStationGroupId ? { toStationGroupId: leg.toStationGroupId } : {}),
+    route: leg.route, serviceId: leg.serviceId, serviceDate: leg.serviceDate, tripShortName: leg.tripShortName,
     routeFeatureId: leg.routeId, routeId: leg.routeId, routeType: route.type ?? undefined,
     routeShortName: route.shortName || route.longName || leg.routeId, routeColor: route.color || undefined,
-    tripId: leg.tripId, directionId: leg.directionId || undefined,
+    tripId: leg.tripId, directionId: leg.directionId ?? undefined,
     headsign: leg.headsign ?? undefined,
     ...shared, stopIds: leg.stopIds, stopCount: leg.stopCount,
-    ...(leg.intermediateStops ? { intermediateStops: leg.intermediateStops.map(stop => ({ stopId: stop.stopId, name: stop.name })) } : {}),
+    ...(leg.intermediateStops ? { intermediateStops: leg.intermediateStops } : {}),
     ...(leg.shapeId ? { shapeId: leg.shapeId } : {}),
     ...(leg.bridgedUntimedGapCount ? { bridgedUntimedGapCount: leg.bridgedUntimedGapCount } : {}),
     ...(sourceEqualTimeConnectionCount ? { sourceEqualTimeConnectionCount } : {}),
@@ -223,7 +225,7 @@ function provenance(trace, body, context, { serviceDate, requested, realtime, ar
     staticTimetableIdentity: context.staticTimetableIdentity ?? null,
     streetIdentity: context.streetIdentity ?? null,
     serviceDate,
-    timeZone: context.timeZone ?? 'UTC',
+    timeZone: context.timeZone ?? trace.timeZone ?? 'UTC',
     serviceDay: body.serviceDay,
     timePreference: arrive ? 'arrive' : 'depart',
     requestedTimeMinutes: arrive ? body.arriveMinutes ?? body.departMinutes : body.departMinutes,
@@ -262,6 +264,7 @@ function resultDiagnostics(trace, body, context) {
     resolvedServiceDate: serviceDate,
     serviceDateFallbackApplied: false,
     walkingNetwork: 'osm',
+    ...(trace.walkingAccessPermission ? { walkingAccessPermission: trace.walkingAccessPermission } : {}),
     walkingSpeedKph,
     routingDataMode: requested ? 'realtime' : 'scheduled',
     ...(realtime ? { realtimeRouting: realtimeRouting(trace.diagnostics?.realtime) }

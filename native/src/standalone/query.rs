@@ -49,7 +49,14 @@ impl Options {
     pub fn parse(q: &Value) -> Result<Self> {
         // A validated arrival request may be rebased onto an earlier service
         // date. The largest supported horizon, reserve and window fit here.
-        Self::parse_limited(q, 5759.)
+        Self::parse_limited(
+            q,
+            if q["mode"] == "walk" {
+                f64::from(u32::MAX)
+            } else {
+                5759.
+            },
+        )
     }
     fn parse_limited(q: &Value, maximum_minutes: f64) -> Result<Self> {
         let time = if let Some(s) = q["time"].as_str() {
@@ -113,9 +120,13 @@ impl Options {
 }
 impl City {
     fn direct_walk_limit(&self, q: &Value, opt: &Options) -> Result<f64> {
-        // Transit access limits must not constrain an explicitly requested walk.
+        // Explicit Walk is bounded by street distance, not the transit scan
+        // horizon or the transit endpoint walking allowance.
+        if q["mode"] == "walk" {
+            return Ok(opt.street_m);
+        }
         let allow_long_walk = flag(q, "allowLongWalk", true)?;
-        let distance = if q["mode"] == "walk" || allow_long_walk {
+        let distance = if allow_long_walk {
             opt.street_m
         } else {
             opt.walk_m
@@ -199,6 +210,17 @@ impl City {
         if request["includeLimitations"] == true {
             raw["warnings"] = self.metadata["routingLimitations"].clone();
         }
+        if matches!(command, "route" | "matrix") {
+            raw["timeZone"] = self.metadata["agencyTimezones"]
+                .as_array()
+                .and_then(|zones| zones.first())
+                .cloned()
+                .unwrap_or(json!("UTC"));
+            raw["walkingAccessPermission"] =
+                self.manifest["streetStore"]["terminalAccess"]["model"]
+                    .as_str()
+                    .map_or(json!("public"), |model| json!(model));
+        }
         if detailed {
             let mut result = json!({"schema":"vigo.stream.detail.v1","status":"ok"});
             result["trace"] = raw;
@@ -259,7 +281,11 @@ impl City {
         if reach && query["mode"].as_str().unwrap_or("transit") != "transit" {
             return Ok(None);
         }
-        let horizon = if reach {
+        let horizon = if query["mode"] == "walk" && !reach {
+            opt.street_m / opt.walk_speed.unwrap_or(self.speed)
+                * 3.6
+                * (query["via"].as_array().map_or(0, Vec::len) + 1) as f64
+        } else if reach {
             query["cutoffsMinutes"].as_array().map_or(60., |cutoffs| {
                 cutoffs.iter().filter_map(Value::as_f64).fold(0., f64::max)
             }) * 60.
@@ -339,6 +365,11 @@ impl City {
         validate_request(command, request, self.polling_enabled, self.live.is_some())?;
         self.validate_wheelchair_request(request)?;
         let started = Instant::now();
+        if matches!(command, "route" | "matrix" | "reach" | "isochrone")
+            && request["mode"] != "drive"
+        {
+            self.ensure_pedestrian_hierarchy()?;
+        }
         self.timetable_activation_ms = 0.;
         self.timetable_preparation_profile = Value::Null;
         let reserved = arrival_reserve(command, request)?;
@@ -1664,6 +1695,12 @@ impl City {
             };
         }
         let operation = q["operation"].as_str().ok_or("native requires operation")?;
+        if operation.starts_with("street.")
+            || operation.starts_with("access.")
+            || operation.starts_with("timetable.")
+        {
+            self.ensure_pedestrian_hierarchy()?;
+        }
         let result = match operation {
             "street.path" => call!(self.street, route_path),
             "street.matrix" => call!(self.street, route_street_matrix),
