@@ -28,18 +28,23 @@ try {
  const post=async(action,body)=>{const r=await api.requestJson('/api/projects/fixture/'+action,{method:'POST',body});assert.equal(r.status,200,JSON.stringify(r.body));return r.body}
  const context={feedId:'feed',serviceDate:'2026-09-14',serviceDay:'weekday',mode:'transit',routingDataMode:'scheduled'}
  const [lease]=await Promise.all([post('routing-residency',{...context,resident:true,leaseId:'test'}),post('national-ready',context)])
- assert.equal(lease.residency.reachPreparation.activeServiceKernel.ready,true)
+ // The native City opens and activates the date; Studio keeps no JavaScript copy.
+ assert.equal(lease.residency.reachPreparation.ready,true)
+ assert.equal(lease.residency.reachPreparation.runtime,'rust')
+ assert.equal(lease.residency.reachPreparation.timetableActivated,true)
  assert((await fs.readdir(path.dirname(street))).some(name=>name.includes('street-cch-v2-')&&name.endsWith('.manifest.json')))
  assert(!(await fs.readdir(path.dirname(street))).some(name=>name.includes('drive-cch-v2-')),'Transit preparation must leave driving deferred')
- assert(lease.residency.reachPreparation.farePreparation, 'City preparation must initialize optional fare output before the first route')
  const health=await api.requestJson('/api/health')
- assert.equal(health.body.routingRuntime.routingAccessPrewarm.started,1,'City residency and Pathfinder must share one exact-context preparation')
+ assert.equal(health.body.nativePreparation.started,1,'City residency and Pathfinder must share one exact-context preparation')
+ // The missing street index was written once by the JavaScript worker, which was then released.
+ assert.equal(health.body.nativePreparation.repaired,1)
+ assert.equal(health.body.routingRuntime.routingAccessPrewarm.started,1)
  const request={...context,requireTransitRide:true,origin:{stopId:'A',coordinate:[-77.05,38.9]},destination:{stopId:'B',coordinate:[-77.03,38.91]},departMinutes:480,maxWalkKm:0.1}
  const first=await post('national-route',request),repeat=await post('national-route',request)
  assert.equal(first.choices[0].status,'ready');assert.equal(first.choices[0].arriveMinutes,510);assert.deepEqual(first.choices[0].legs,repeat.choices[0].legs)
  const live={...context,routingDataMode:'realtime',departNow:true,serviceDate:'1999-01-01',resident:true,leaseId:'test-live'}
  const before=Date.now(),current=await post('routing-residency',live),after=Date.now()
- const actual=current.residency.reachPreparation.serviceDateResolution.requestedServiceDate
+ const actual=current.residency.reachPreparation.serviceDate
  assert([before,after].some(instant=>resolveDepartNowRequest(live,['America/New_York'],instant).serviceDate===actual),'Depart-now residency must prepare the agency current date, not retained research controls')
  let {job}=await post('street-residency',{resident:true,leaseId:'drive-check',prepareDrive:true})
  while (['running','queued'].includes(job.status)) {

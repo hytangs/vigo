@@ -3,19 +3,17 @@ import { createStreetPreparationManager } from '../src/server/street-preparation
 const tick = () => new Promise(resolve => setImmediate(resolve))
 const calls = [], updates = []
 let finish, walkReady = false, driveReady = false
-const pool = {
-  isStreetPrepared: (_store, drive) => drive ? driveReady : walkReady,
-  dispatch(_store, operation, request, _signal, onProgress) {
-    calls.push({ operation, request })
-    onProgress?.({ phase: request.prepareDrive ? 'Opening driving index' : 'Opening walking index', work: { completed: 10, total: 20, unit: 'blocks' } })
-    return new Promise(resolve => { finish = () => {
-      walkReady = true
-      if (request.prepareDrive) driveReady = true
-      resolve({ streetStore: { ready: true, accelerated: true, ...(driveReady ? { drive: { ready: true, accelerated: true } } : {}) } })
-    } })
-  },
+// Walking and driving open separately; each resolves when its mode can route.
+const open = (prepareDrive) => ({ onProgress }) => {
+  calls.push({ request: { prepareDrive } })
+  onProgress?.({ phase: prepareDrive ? 'Opening driving index' : 'Opening walking index', work: { completed: 10, total: 20, unit: 'blocks' } })
+  return new Promise(resolve => { finish = () => {
+    walkReady = true
+    if (prepareDrive) driveReady = true
+    resolve()
+  } })
 }
-const manager = createStreetPreparationManager({ pool, onJob: job => updates.push(structuredClone(job)) })
+const manager = createStreetPreparationManager({ walking: open(false), driving: open(true), onJob: job => updates.push(structuredClone(job)) })
 const input = { projectId: 'city', storePath: 'streets', workerStorePath: 'transit', identity: 'current' }
 const walking = manager.start(input)
 await tick()

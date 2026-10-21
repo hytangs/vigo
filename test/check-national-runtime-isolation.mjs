@@ -9,7 +9,7 @@ import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 import { buildNationalGtfsStore, disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
 import { buildNationalOsmStore, compactNationalOsmRuntimeStore, disposeNationalOsmStore } from '../src/server/national-osm-store.mjs'
 import { NationalRouteWorkerPool } from '../src/server/runtime/route-worker-pool.mjs'
-import { createStreetPreparationManager } from '../src/server/street-preparation.mjs'
+import { createStreetPreparationManager, prepareStreetsInWorker } from '../src/server/street-preparation.mjs'
 import { buildNativeStreetCchIndex } from '../src/server/native-routing-kernel.mjs'
 
 for (const value of ['Infinity', 'NaN', '0', '-1']) assert.equal(boundedInteger(value, 128, 1, 1024), 128)
@@ -86,7 +86,9 @@ try {
   assert.deepEqual(recovered.legs, first.legs)
   assert.notEqual(pool.clients.get(store).worker, originalWorker)
 
-  const manager = createStreetPreparationManager({ pool })
+  const manager = createStreetPreparationManager({
+    walking: prepareStreetsInWorker(pool, false), driving: prepareStreetsInWorker(pool, true),
+  })
   const input = { projectId: 'city', storePath: street, workerStorePath: store, identity: 'streets', label: 'OSM' }
   const job = manager.start(input)
   assert.equal(manager.start(input), job)
