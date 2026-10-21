@@ -1,4 +1,5 @@
 import os from 'node:os'
+import { buildMemoryEnvironment } from './build-memory.mjs'
 
 // Shipped binaries must not embed this machine's paths. Rust remapping does
 // not cover C/C++ dependencies (including bundled SQLite), so both get neutral
@@ -15,7 +16,7 @@ export function remappedBuildEnvironment(repositoryRoot, rustFlags = []) {
     `-ffile-prefix-map=${repositoryRoot}=/vigo-source`,
   ]
   return {
-    ...process.env,
+    ...buildMemoryEnvironment(),
     ...Object.fromEntries(['CFLAGS', 'CXXFLAGS'].map(key => [key,
       [process.env[key] || '', ...cPathFlags.map(flag => JSON.stringify(flag))].filter(Boolean).join(' '),
     ])),
