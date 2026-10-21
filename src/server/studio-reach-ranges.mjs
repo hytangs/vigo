@@ -40,6 +40,9 @@ export function nativeReachRangeRequest(range, { sourceScopes } = {}) {
   const changed = services.length || range.excludedRouteIds?.length || range.excludedTripIds?.length
   return {
     kind: 'reach',
+    // Studio draws its own areas from the surface and reads typed arrays.
+    reachFormat: 'surface',
+    arrayEncoding: 'base64',
     mode: range.mode ?? 'transit',
     surfaceSampling: range.surfaceSampling ?? 'street',
     origin: routePoint(range.origin),
@@ -73,6 +76,8 @@ export function nativeReachRangeRequest(range, { sourceScopes } = {}) {
 export function nativePreliminaryRequest(surface, origin, serviceDate, departMinutes) {
   return {
     kind: 'reach',
+    reachFormat: 'surface',
+    arrayEncoding: 'base64',
     mode: 'walk',
     surfaceSampling: 'street',
     origin: { coordinate: surface.seeds?.[0]?.coordinate ?? origin.coordinate },
@@ -89,10 +94,25 @@ export function nativePreliminaryRequest(surface, origin, serviceDate, departMin
 }
 
 // JSON cannot carry Infinity: an unreached cell arrives as null.
-const minutesArray = values => Float64Array.from(values ?? [], value => (value === null ? Infinity : Number(value)))
+function typedArray(values = [], Type = Float64Array) {
+  const typed = new Type(values.length)
+  for (let index = 0; index < values.length; index += 1) {
+    const value = values[index]
+    typed[index] = value === null ? Infinity : value
+  }
+  return typed
+}
+
+// A base64 array is little-endian f64 already; copy it into aligned memory.
+function minutesArray(values) {
+  if (typeof values !== 'string') return typedArray(values ?? [])
+  const bytes = Buffer.from(values, 'base64')
+  return new Float64Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength))
+}
 
 function packed(values, Type) {
-  const typed = Type.from(values ?? [], value => (value === null ? Infinity : value))
+  if (typeof values === 'string') return values
+  const typed = typedArray(values ?? [], Type)
   return Buffer.from(typed.buffer, typed.byteOffset, typed.byteLength).toString('base64')
 }
 

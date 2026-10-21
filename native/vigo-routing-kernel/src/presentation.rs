@@ -432,9 +432,9 @@ pub fn validate(request: &Value) -> Result<(), String> {
     }
     if request
         .get("reachFormat")
-        .is_some_and(|v| v != "full" && v != "map")
+        .is_some_and(|v| v != "full" && v != "map" && v != "surface")
     {
-        return Err("reachFormat must be full or map".into());
+        return Err("reachFormat must be full, map, or surface".into());
     }
     if request["reachFormat"] == "map"
         && (request["includeStreetEdges"] == true || request["includeNodes"] == true)

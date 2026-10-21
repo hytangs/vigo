@@ -527,7 +527,8 @@ function displayBoundarySurfaces(baseline, scenario, request, readWater, baselin
       : new Float64Array(raster.areaValues.length).fill(Infinity)
     blockEstimates[surface] = { width: size, height: size, bounds: raster.areaBounds,
       values: encodeRaster(estimates), scale: rasterScale, nodata: rasterNoData }
-    const displayValues = Float64Array.from(raster.areaValues, (value, index) => Math.min(value, estimates[index]))
+    const displayValues = new Float64Array(raster.areaValues.length)
+    for (let index = 0; index < displayValues.length; index++) displayValues[index] = Math.min(raster.areaValues[index], estimates[index])
     return nativeRasterAreas(displayValues, size, size, raster.areaBounds, request.cutoffsMinutes, surface)
   }
   const retained = memo?.get(memoKey)

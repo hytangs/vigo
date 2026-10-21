@@ -24,6 +24,12 @@ impl City {
         query["requireTransitRide"] = json!(false);
         query["includeJourneys"] = json!(false);
         query["includeGeometry"] = json!(false);
+        // Every cell centre is a new point: an endpoint cache would only hold
+        // them, while uncached access projects them on the endpoint pool.
+        // Driving grids keep the cached road attachment.
+        if q["mode"] != "drive" {
+            query["disableCache"] = json!(true);
+        }
         query.as_object_mut().unwrap().remove("scenario");
         for first in (0..size * size).step_by(16_384) {
             query["destinations"] = Value::Array((first..(first + 16_384).min(size * size)).map(|i| {
@@ -31,7 +37,7 @@ impl City {
                     +0.5/size as f64*(bounds[2]-bounds[0]),
                     bounds[3]-((i/size) as f64+0.5)/size as f64*(bounds[3]-bounds[1])]})
             }).collect());
-            let matrix = self.matrix(&query)?;
+            let matrix = self.matrix_with(&query, false)?;
             let row = matrix["durationsMinutes"][0]
                 .as_array()
                 .ok_or("Missing Reach destination-grid row")?;
@@ -407,6 +413,34 @@ impl City {
             }
         }
         let include_edges = flag(q, "includeStreetEdges", false)?;
+        // A caller that draws its own areas asks for the surface alone.
+        let polygons = q["reachFormat"] != "surface";
+        // A typed-array caller reads rasters and street evidence as
+        // little-endian base64: f64 values, u32 indices.
+        let base64 = match q.get("arrayEncoding").map(Value::as_str) {
+            None | Some(Some("json")) => false,
+            Some(Some("base64")) => true,
+            Some(_) => return fail("arrayEncoding must be json or base64"),
+        };
+        let f64s = |values: &[f64]| {
+            if base64 {
+                json!(super::encoding::f64s(values))
+            } else {
+                json!(values)
+            }
+        };
+        let u32s = |values: &[u32]| {
+            if base64 {
+                json!(super::encoding::u32s(values))
+            } else {
+                json!(values)
+            }
+        };
+        let raster_encoding = if base64 {
+            json!("f64le-base64")
+        } else {
+            Value::Null
+        };
         let grid = if sampling == "cell-center" {
             Some(self.reach_grid_values(q, size, &bounds, maximum)?)
         } else {
@@ -415,24 +449,33 @@ impl City {
         if let Some(values) = &grid
             && (mode == "drive" || (!include_edges && !flag(q, "includeNodes", false)?))
         {
-            let areas = areas(values, size, size, &bounds, &cutoffs);
+            let areas = if polygons {
+                areas(values, size, size, &bounds, &cutoffs)
+            } else {
+                Value::Null
+            };
             if q["reachFormat"] == "map" {
                 return Ok(
                     json!({"kind":"reach","mode":mode,"cutoffsMinutes":cutoffs,"areas":areas,"mapBounds":bounds,"diagnostics":{"transit":transit},"warnings":self.metadata["routingLimitations"]}),
                 );
             }
-            let contours = contours(values, size, size, &bounds, &cutoffs);
+            let contours = if polygons {
+                contours(values, size, size, &bounds, &cutoffs)
+            } else {
+                Value::Null
+            };
             let reached = values.iter().filter(|v| v.is_finite()).count();
-            return Ok(
+            return Ok(without_polygons(
                 json!({"kind":"reach","mode":mode,"serviceDate":q["serviceDate"],"origin":q["origin"],
                 "cutoffsMinutes":cutoffs,"stops":stops,"surface":{"sampling":sampling,"width":size,"height":size,
-                    "bounds":bounds,"values":values,"fullBounds":bounds,"fullValues":values,"nodes":[],"edges":null},
+                    "bounds":bounds,"values":f64s(values),"fullBounds":bounds,"fullValues":f64s(values),"arrayEncoding":raster_encoding,"nodes":[],"edges":null},
                 "areas":areas,"fullAreas":areas,"contours":contours,"fullContours":contours,
                 "diagnostics":{"transit":transit,"surface":{"surfaceModel":"coordinate_to_coordinate_cell_centers",
                     "sampledTargets":values.len(),"reachableTargets":reached,"blockedTargets":values.len()-reached,
                     "queryErrors":0,"fixedRequestedGrid":true,"walkingSpeedKph":opt.walk_speed.unwrap_or(self.speed),
                     "directWalkingLimitKm":if mode == "drive" { Value::Null } else { json!(opt.walk_m/1000.) },"travelMode":mode,"fixedExtent":true}},"warnings":self.metadata["routingLimitations"]}),
-            );
+                polygons,
+            ));
         }
         // A comparison keeps its reference surface ("baseline") for the
         // scenario that follows it in this process ("scenario"); the street
@@ -478,18 +521,44 @@ impl City {
                 "diagnostics":{"transit":transit,"surface":{"queryNs":result.query_ns,"seedNs":result.seed_ns,"propagationNs":result.propagation_ns,"envelopeNs":result.envelope_ns,"rasterNs":result.raster_ns}},
                 "warnings":self.metadata["routingLimitations"]}));
         }
-        let area_features = areas(&result.values, size, size, &bounds, &cutoffs);
-        let full_areas = areas(full_values, size, size, full_bounds, &cutoffs);
-        let contour_features = contours(&result.values, size, size, &bounds, &cutoffs);
-        let full_contours = contours(full_values, size, size, full_bounds, &cutoffs);
-        Ok(
+        let polygon =
+            |draw: fn(&[f64], usize, usize, &[f64], &[f64]) -> Value, values: &[f64], b: &[f64]| {
+                if polygons {
+                    draw(values, size, size, b, &cutoffs)
+                } else {
+                    Value::Null
+                }
+            };
+        let area_features = polygon(areas, &result.values, &bounds);
+        let full_areas = polygon(areas, full_values, full_bounds);
+        let contour_features = polygon(contours, &result.values, &bounds);
+        let full_contours = polygon(contours, full_values, full_bounds);
+        Ok(without_polygons(
             json!({"kind":"reach","mode":mode,"serviceDate":q["serviceDate"],"origin":q["origin"],"cutoffsMinutes":cutoffs,"stops":stops,
-            "surface":{"sampling":sampling,"width":size,"height":size,"bounds":bounds,"values":result.values,"fullBounds":full_bounds,"fullValues":full_values,"nodes":result.node_evidence,
-                "edges":if include_edges {json!({"schemaVersion":"vigo.standalone.street-edges.v2","encoding":"indexed-json","count":result.edge_evidence_ids.as_ref().map_or(0,Vec::len),"nodeCount":result.edge_evidence_nodes.as_ref().map_or(0,|v|v.len()/2),"nodes":result.edge_evidence_nodes,"endpoints":result.edge_evidence_endpoints,"edgeIds":result.edge_evidence_ids,"durationMinutes":result.edge_evidence_durations,"fromDurationMinutes":result.edge_evidence_start_durations,"startFractions":result.edge_evidence_start_fractions,"endFractions":result.edge_evidence_end_fractions,"walkDistanceM":result.edge_evidence_walk_distances,"transitArrivalMinutes":result.edge_evidence_transit_arrivals})}else{Value::Null}},
+            "surface":{"sampling":sampling,"width":size,"height":size,"bounds":bounds,"values":f64s(&result.values),"fullBounds":full_bounds,"fullValues":f64s(full_values),"arrayEncoding":raster_encoding,"nodes":result.node_evidence,
+                "edges":if include_edges {
+                    let f = |v: &Option<Vec<f64>>| v.as_deref().map_or(Value::Null, f64s);
+                    let u = |v: &Option<Vec<u32>>| v.as_deref().map_or(Value::Null, u32s);
+                    json!({"schemaVersion":"vigo.standalone.street-edges.v2","encoding":if base64 {"indexed-base64-le"} else {"indexed-json"},"count":result.edge_evidence_ids.as_ref().map_or(0,Vec::len),"nodeCount":result.edge_evidence_nodes.as_ref().map_or(0,|v|v.len()/2),"nodes":f(&result.edge_evidence_nodes),"endpoints":u(&result.edge_evidence_endpoints),"edgeIds":u(&result.edge_evidence_ids),"durationMinutes":f(&result.edge_evidence_durations),"fromDurationMinutes":f(&result.edge_evidence_start_durations),"startFractions":f(&result.edge_evidence_start_fractions),"endFractions":f(&result.edge_evidence_end_fractions),"walkDistanceM":f(&result.edge_evidence_walk_distances),"transitArrivalMinutes":f(&result.edge_evidence_transit_arrivals)})
+                } else {Value::Null}},
             "areas":area_features,"fullAreas":full_areas,"contours":contour_features,"fullContours":full_contours,
             "diagnostics":{"transit":transit,"surface":{"queryNs":result.query_ns,"seedNs":result.seed_ns,"propagationNs":result.propagation_ns,"envelopeNs":result.envelope_ns,"rasterNs":result.raster_ns,"settledLabels":result.settled_labels,"reusedLabels":result.reused_labels,"retainedLabels":result.retained_labels,"relaxedEdges":result.relaxed_edges,"reachedPixels":result.reached_pixels,"reachedEdgeCount":result.reached_edge_count,"reachedEdgeLengthM":result.reached_edge_length_m,"edgeEvidenceTruncated":result.edge_evidence_truncated,"nodeEvidenceTruncated":result.node_evidence_truncated}},"warnings":self.metadata["routingLimitations"]}),
-        )
+            polygons,
+        ))
     }
+}
+/// The Reach Result, or with `reachFormat: "surface"` its stops and rasters
+/// alone: area and contour fields are omitted rather than drawn.
+fn without_polygons(mut output: Value, polygons: bool) -> Value {
+    if !polygons && let Some(object) = output.as_object_mut() {
+        object.retain(|key, _| {
+            !matches!(
+                key.as_str(),
+                "areas" | "fullAreas" | "contours" | "fullContours"
+            )
+        });
+    }
+    output
 }
 type GridPoint = (i32, i32);
 // Split corner-touching boundary walks into simple cycles before simplification.

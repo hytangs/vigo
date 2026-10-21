@@ -35,11 +35,17 @@ export function blockInteriorEstimates(values, width, height, bounds, water, wal
       || (maxX - minX + 1) * dx > 350 || (maxY - minY + 1) * dy > 350) continue
     const boundary = [...border]
     const latestBoundary = boundary.reduce((latest, cell) => Math.max(latest, values[cell]), 0)
+    const columns = Int32Array.from(boundary, other => other % width)
+    const rows = Int32Array.from(boundary, other => Math.floor(other / width))
     for (const cell of component) {
       const x = cell % width, y = Math.floor(cell / width)
-      const distance = Math.min(...boundary.map(other => Math.hypot(
-        (x - other % width) * dx, (y - Math.floor(other / width)) * dy,
-      ))) + Math.hypot(dx, dy) / 2
+      // The nearest boundary cell by squared distance, then its exact length.
+      let nearest = 0, nearestSquared = Infinity
+      for (let k = 0; k < boundary.length; k++) {
+        const ex = (x - columns[k]) * dx, ey = (y - rows[k]) * dy, squared = ex * ex + ey * ey
+        if (squared < nearestSquared) { nearestSquared = squared; nearest = k }
+      }
+      const distance = Math.hypot((x - columns[nearest]) * dx, (y - rows[nearest]) * dy) + Math.hypot(dx, dy) / 2
       if (distance <= 120) estimates[cell] = latestBoundary + distance / (walkSpeedKph * 1000 / 60)
     }
   }

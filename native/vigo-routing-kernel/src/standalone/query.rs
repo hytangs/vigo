@@ -131,6 +131,9 @@ impl City {
         let now = super::clock::depart_now(self, request)?;
         let request = now.as_ref().unwrap_or(request);
         crate::presentation::validate(request)?;
+        if !detailed && request["arrayEncoding"] == "base64" {
+            return fail("arrayEncoding base64 is available with detailed output");
+        }
         let mut query = request.clone();
         crate::presentation::normalize_points(&mut query)?;
         if let Some(o) = query.as_object_mut() {
@@ -1155,6 +1158,11 @@ impl City {
         Ok(result)
     }
     pub fn matrix(&mut self, q: &Value) -> Result<Value> {
+        self.matrix_with(q, true)
+    }
+    /// A Matrix; without `evidence`, unreached endpoints are not explained,
+    /// as a caller reading durations alone (a Reach grid) needs no reasons.
+    pub(super) fn matrix_with(&mut self, q: &Value, evidence: bool) -> Result<Value> {
         let opt = Options::parse(q)?;
         let origins = q["origins"]
             .as_array()
@@ -1248,16 +1256,34 @@ impl City {
             })
             .transpose()?;
         if !flag(q, "requireTransitRide", false)? {
-            let walk = self.street.route_street_matrix(StreetMatrixInput {
-                origin_coordinates: search_origins.iter().flat_map(|p| p.coordinate).collect(),
-                destination_coordinates: search_destinations
-                    .iter()
-                    .flat_map(|p| p.coordinate)
-                    .collect(),
-                maximum_distance_m: self.direct_walk_limit(q, &opt)?,
-                disable_cache: Some(opt.disable_cache),
-            })?;
-            for (i, &distance) in walk.distances_m.iter().enumerate() {
+            let limit = self.direct_walk_limit(q, &opt)?;
+            // No street walk is shorter than the straight line, so only
+            // destinations within the limit of some origin need a street
+            // search; the margin covers edge-length rounding.
+            let near: Vec<usize> = (0..search_width)
+                .filter(|&j| {
+                    search_origins.iter().any(|origin| {
+                        haversine(origin.coordinate, search_destinations[j].coordinate)
+                            <= limit * 1.01 + 1.
+                    })
+                })
+                .collect();
+            let mut distances = vec![f64::INFINITY; search_origins.len() * search_width];
+            if !near.is_empty() {
+                let walk = self.street.route_street_matrix(StreetMatrixInput {
+                    origin_coordinates: search_origins.iter().flat_map(|p| p.coordinate).collect(),
+                    destination_coordinates: near
+                        .iter()
+                        .flat_map(|&j| search_destinations[j].coordinate)
+                        .collect(),
+                    maximum_distance_m: limit,
+                    disable_cache: Some(opt.disable_cache),
+                })?;
+                for (k, &distance) in walk.distances_m.iter().enumerate() {
+                    distances[k / near.len() * search_width + near[k % near.len()]] = distance;
+                }
+            }
+            for (i, &distance) in distances.iter().enumerate() {
                 let minutes = distance / self.speed * 3.6 / 60.;
                 let exact = search_origins[i / search_width].stop.is_some()
                     || search_destinations[i % search_width].stop.is_some();
@@ -1329,7 +1355,7 @@ impl City {
                 .collect();
         }
         let mut origin_access = serde_json::Map::new();
-        for (i, point) in origins.iter().enumerate() {
+        for (i, point) in origins.iter().enumerate().filter(|_| evidence) {
             let candidates = &a[origin_indices[i]];
             if candidates.stops.is_empty() {
                 origin_access.insert(
@@ -1339,7 +1365,7 @@ impl City {
             }
         }
         let mut destination_access = serde_json::Map::new();
-        for (i, point) in destinations.iter().enumerate() {
+        for (i, point) in destinations.iter().enumerate().filter(|_| evidence) {
             let candidates = &b[destination_indices[i]];
             if candidates.stops.is_empty() {
                 destination_access.insert(
@@ -1815,6 +1841,7 @@ fn validate_request(command: &str, q: &Value, polling: bool, live: bool) -> Resu
             "includeNodes",
             "scenario",
             "surfaceReuse",
+            "arrayEncoding",
         ],
         "native" => &["operation", "input"],
         "compare" => &["before", "after"],
