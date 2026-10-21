@@ -61,7 +61,7 @@
     "check:reach-scenarios": "node scripts/run-checks.mjs check:reach-scenarios",
     "check:reach-engine": "node scripts/run-checks.mjs check:reach-engine",
     "check:national-focused": "node scripts/run-checks.mjs check:national-focused",
-    "check:national-runtime": "node test/check-routing-job-queue.mjs && node test/check-stop-projection.mjs && node test/check-routing-snapshot.mjs && node test/check-prepared-access-compaction.mjs && node test/check-national-derived-artifact-lifecycle.mjs && node test/check-national-cache.mjs && node test/check-national-runtime-isolation.mjs && node test/check-preparation-process.mjs && npm run check:national-focused --silent",
+    "check:national-runtime": "node test/check-routing-job-queue.mjs && node test/check-native-runtime.mjs && node test/check-stop-projection.mjs && node test/check-routing-snapshot.mjs && node test/check-prepared-access-compaction.mjs && node test/check-national-derived-artifact-lifecycle.mjs && node test/check-national-cache.mjs && node test/check-national-runtime-isolation.mjs && node test/check-preparation-process.mjs && npm run check:national-focused --silent",
     "check:atlas": "node scripts/run-checks.mjs check:atlas",
     "build:cli": "node scripts/build-cli.mjs",
     "build:cli-runtime": "node scripts/build-cli-runtime.mjs",

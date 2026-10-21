@@ -5,11 +5,14 @@ import { fileURLToPath } from 'node:url'
 import { boundedInteger } from './resource-limits.mjs'
 
 // Studio's queries run in the `vigo` executable, the same runtime as the CLI,
-// HTTP server and Python. Each opened City (or Studio project store) is one
-// resident `vigo stream` process that answers requests in order; this module
-// only transports them. Opening a City and activating a service date happen
-// once per process, so processes stay resident until idle.
+// HTTP server and Python. Each opened City (or Studio project store) is served
+// by resident `vigo stream` processes that each answer requests in order; this
+// module only transports them. Opening a City and activating a service date
+// happen once per process, so processes stay resident until idle. A second
+// process starts only while every ready one is busy, and a request whose
+// process dies under it is answered by a fresh one.
 const maxResidentCities = boundedInteger(process.env.VIGO_NATIVE_CITY_MAX, 2, 1, 8)
+const processesPerCity = boundedInteger(process.env.VIGO_NATIVE_CITY_PROCESSES, 2, 1, 8)
 const residentIdleMs = boundedInteger(process.env.VIGO_NATIVE_CITY_IDLE_MS, 300_000, 100, 3_600_000)
 const queryTimeoutMs = boundedInteger(process.env.VIGO_NATIVE_QUERY_TIMEOUT_MS, 600_000, 1000, 3_600_000)
 // A cancelled query normally finishes within milliseconds; its answer is then
@@ -56,11 +59,14 @@ export class NativeQueryError extends Error {
  * Studio project store whose prepared artifacts are missing or stale.
  */
 export class NativeCityUnavailableError extends Error {
-  constructor(message, { preparation = false } = {}) {
+  constructor(message, { preparation = false, retryable = false } = {}) {
     super(message)
     this.code = 'VIGO_NATIVE_CITY_UNAVAILABLE'
     this.statusCode = 409
     this.preparation = preparation
+    // The process stopped for a reason other than this request; another
+    // process can answer it.
+    this.retryable = retryable
   }
 }
 
@@ -79,13 +85,14 @@ export function nativeLayout(root, routingStore = null) {
   }
 }
 
-class ResidentCity {
+/** One resident `vigo stream` process of a City. */
+class StreamProcess {
   constructor({ executable, layout, spawnProcess, onExit }) {
     this.layout = layout
     this.pending = []
-    this.sequence = 0
     this.lastUsed = Date.now()
     this.closed = false
+    this.stopping = false
     this.answered = false
     this.stderr = ''
     this.chunks = []
@@ -102,8 +109,10 @@ class ResidentCity {
     this.child.on('error', error => this.fail(new NativeCityUnavailableError(`VIGO could not start its runtime: ${error.message}`)))
     this.child.on('exit', (code, signal) => {
       const detail = this.lastError() || `exit ${code ?? signal}`
-      this.fail(this.answered
-        ? new NativeCityUnavailableError(`The VIGO runtime stopped: ${detail}`)
+      // A process that opened its City, or was killed, can be replaced; one
+      // that could not open it reports why.
+      this.fail(this.answered || signal
+        ? new NativeCityUnavailableError(`The VIGO runtime stopped: ${detail}`, { retryable: !this.stopping })
         : new NativeCityUnavailableError(detail, { preparation: preparationFailure.test(detail) }))
     })
   }
@@ -174,13 +183,13 @@ class ResidentCity {
         reject(makeAbortError())
         if (this.pending[0] === entry) {
           grace = setTimeout(() => {
-            if (this.pending.includes(entry)) this.stop(new NativeCityUnavailableError('A cancelled query was stopped.'))
+            if (this.pending.includes(entry)) this.stop(new NativeCityUnavailableError('A cancelled query was stopped.'), entry)
           }, cancelGraceMs)
           grace.unref?.()
         }
       }
       const timeout = setTimeout(() => {
-        this.stop(new NativeCityUnavailableError(`The VIGO runtime exceeded ${Math.ceil(queryTimeoutMs / 1000)} seconds.`))
+        this.stop(new NativeCityUnavailableError(`The VIGO runtime exceeded ${Math.ceil(queryTimeoutMs / 1000)} seconds.`), entry)
       }, queryTimeoutMs)
       timeout.unref?.()
       entry.cleanup = () => {
@@ -194,23 +203,51 @@ class ResidentCity {
     })
   }
 
-  fail(error) {
+  /** Reject every waiting request; those queued behind `culprit` can be retried. */
+  fail(error, culprit = null) {
     if (this.closed && !this.pending.length) return
     this.closed = true
     for (const entry of this.pending) {
       entry.cleanup()
-      if (!entry.discarded) entry.reject(error)
+      if (entry.discarded) continue
+      entry.reject(culprit && entry !== culprit
+        ? new NativeCityUnavailableError(error.message, { retryable: true })
+        : error)
     }
     this.pending = []
     this.onExit?.(this, error)
   }
 
-  stop(error = new NativeCityUnavailableError('The VIGO runtime was closed.')) {
+  stop(error = new NativeCityUnavailableError('The VIGO runtime was closed.'), culprit = null) {
+    this.stopping = true
+    // Settle waiting requests before the exit event can.
+    this.fail(error, culprit)
     if (!this.child.killed && this.child.exitCode === null) {
       this.child.stdin.end()
       this.child.kill('SIGKILL')
     }
-    this.fail(error)
+  }
+}
+
+/** The processes serving one City layout. */
+class CityProcesses {
+  constructor(layout) {
+    this.layout = layout
+    this.processes = []
+    // A Reach comparison's scenario grows from its baseline's stream.
+    this.baseline = null
+  }
+
+  get pending() {
+    return this.processes.reduce((total, stream) => total + stream.pending.length, 0)
+  }
+
+  get lastUsed() {
+    return Math.max(0, ...this.processes.map(stream => stream.lastUsed))
+  }
+
+  stop(error) {
+    for (const stream of [...this.processes]) stream.stop(error)
   }
 }
 
@@ -218,11 +255,13 @@ export class NativeRuntime {
   constructor({
     executable = nativeExecutable(),
     maxCities = maxResidentCities,
+    maxProcesses = processesPerCity,
     idleMs = residentIdleMs,
     spawnProcess = spawn,
   } = {}) {
     this.executable = executable
     this.maxCities = maxCities
+    this.maxProcesses = maxProcesses
     this.idleMs = idleMs
     this.spawnProcess = spawnProcess
     this.cities = new Map()
@@ -234,36 +273,74 @@ export class NativeRuntime {
     return Boolean(this.executable)
   }
 
-  /** Answer one public request (`kind` route, matrix, reach, …) on `layout`. */
-  query(layout, request, signal) {
+  /**
+   * Answer one public request (`kind` route, matrix, reach, …) on `layout`.
+   * A request left behind by a stream that stopped for another reason is
+   * sent once more, to a fresh stream.
+   */
+  async query(layout, request, signal) {
     if (!this.executable) {
-      return Promise.reject(new NativeCityUnavailableError('The VIGO executable is missing. Run npm run build:standalone.'))
+      throw new NativeCityUnavailableError('The VIGO executable is missing. Run npm run build:standalone.')
     }
-    return this.#resident(layout).query(request, signal)
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await this.#stream(layout, request).query(request, signal)
+      } catch (error) {
+        if (attempt || !error?.retryable || signal?.aborted) throw error
+      }
+    }
   }
 
   /** Open `layout` ahead of its first query; a failure reappears on that query. */
   open(layout) {
-    if (this.executable) this.#resident(layout)
+    if (this.executable) this.#city(layout, true)
   }
 
-  #resident(layout) {
-    let resident = this.cities.get(layout.key)
-    if (resident?.closed) resident = null
-    if (!resident) {
+  #city(layout, create) {
+    let city = this.cities.get(layout.key)
+    if (!city && create) {
       this.evict()
-      resident = new ResidentCity({
-        executable: this.executable,
-        layout,
-        spawnProcess: this.spawnProcess,
-        onExit: exited => {
-          if (this.cities.get(exited.layout.key) === exited) this.cities.delete(exited.layout.key)
-        },
-      })
-      this.cities.set(layout.key, resident)
+      city = new CityProcesses(layout)
+      this.cities.set(layout.key, city)
     }
+    if (city && !city.processes.length) this.#start(city, false)
     this.scheduleIdle()
-    return resident
+    return city
+  }
+
+  #start(city, warm) {
+    const stream = new StreamProcess({
+      executable: this.executable,
+      layout: city.layout,
+      spawnProcess: this.spawnProcess,
+      onExit: exited => {
+        city.processes = city.processes.filter(other => other !== exited)
+        if (city.baseline === exited) city.baseline = null
+        if (!city.processes.length && this.cities.get(city.layout.key) === city) this.cities.delete(city.layout.key)
+      },
+    })
+    // An added stream takes requests once it has opened the City.
+    stream.ready = !warm
+    if (warm) {
+      stream.query({ kind: 'info' }).then(() => { stream.ready = true }, () => {})
+    }
+    city.processes.push(stream)
+    return stream
+  }
+
+  // The least busy ready stream; a new one opens while all are busy.
+  #stream(layout, request) {
+    const city = this.#city(layout, true)
+    if (request?.surfaceReuse === 'scenario' && city.baseline && !city.baseline.closed) return city.baseline
+    const ready = city.processes.filter(stream => stream.ready && !stream.closed)
+    const candidates = ready.length ? ready : city.processes
+    const chosen = candidates.reduce((best, stream) => stream.pending.length < best.pending.length ? stream : best)
+    if (chosen.pending.length && city.processes.length < this.maxProcesses
+      && city.processes.every(stream => stream.ready)) {
+      this.#start(city, true)
+    }
+    if (request?.surfaceReuse === 'baseline') city.baseline = chosen
+    return chosen
   }
 
   /** Keep `layout` resident while any lease holds it, as the open Route tool does. */
@@ -278,19 +355,25 @@ export class NativeRuntime {
 
   evict() {
     if (this.cities.size < this.maxCities) return
-    const idle = [...this.cities.values()].filter(city => !city.pending.length)
+    const idle = [...this.cities.values()].filter(city => !city.pending)
       .sort((left, right) => Number(this.leases.has(left.layout.key)) - Number(this.leases.has(right.layout.key))
         || left.lastUsed - right.lastUsed)
     idle[0]?.stop()
   }
 
+  // Idle processes stop; a leased City keeps its most recently used one.
   scheduleIdle() {
     if (this.idleTimer) return
     this.idleTimer = setTimeout(() => {
       this.idleTimer = null
       const now = Date.now()
-      for (const city of this.cities.values()) {
-        if (!city.pending.length && !this.leases.has(city.layout.key) && now - city.lastUsed >= this.idleMs) city.stop()
+      for (const city of [...this.cities.values()]) {
+        const keep = this.leases.has(city.layout.key)
+          ? city.processes.reduce((latest, stream) => (!latest || stream.lastUsed > latest.lastUsed ? stream : latest), null)
+          : null
+        for (const stream of [...city.processes]) {
+          if (stream !== keep && !stream.pending.length && now - stream.lastUsed >= this.idleMs) stream.stop()
+        }
       }
       if (this.cities.size) this.scheduleIdle()
     }, Math.min(this.idleMs, 30_000))
@@ -301,10 +384,12 @@ export class NativeRuntime {
     return {
       available: this.available,
       executable: this.executable ? path.basename(this.executable) : null,
+      processesPerCity: this.maxProcesses,
       residentCities: [...this.cities.values()].map(city => ({
         root: city.layout.root,
         routingStore: city.layout.routingStore ? path.basename(city.layout.routingStore) : null,
-        pending: city.pending.length,
+        processes: city.processes.length,
+        pending: city.pending,
         resident: this.leases.has(city.layout.key),
       })),
     }
@@ -320,7 +405,7 @@ export class NativeRuntime {
   }
 
   closeAll() {
-    for (const city of this.cities.values()) city.stop()
+    for (const city of [...this.cities.values()]) city.stop()
     this.cities.clear()
     this.leases.clear()
   }
