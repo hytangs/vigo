@@ -632,6 +632,7 @@ impl City {
         self.activate(q)?;
         if planned {
             self.install_scenario(scenario.unwrap())?;
+            self.apply_transfer_buffer(q)?;
             self.pinned_timetable = true;
         }
         let searched = self.latest_boardings(scenario, destination, opt, maximum);

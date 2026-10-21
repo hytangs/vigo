@@ -3409,6 +3409,11 @@ impl TimetableKernel {
     pub fn take_query_workspace(&mut self) -> TimetableQueryWorkspace {
         std::mem::take(&mut self.query)
     }
+    /// The transfer buffer is read only while searching, so one prepared
+    /// timetable serves every buffer a request selects.
+    pub fn set_minimum_transfer_buffer_seconds(&mut self, seconds: u32) {
+        self.minimum_transfer_buffer_seconds = seconds;
+    }
     pub fn retained_schedule_bytes(&self) -> usize {
         self.owned_source_bytes()
             + self.diagnostics().native_index_bytes as usize

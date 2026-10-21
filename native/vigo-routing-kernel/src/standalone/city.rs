@@ -125,6 +125,50 @@ fn cch_files(path: &Path, kind: &str) -> Result<(String, String, Option<String>)
     ))
 }
 
+/// A store's prepared access profile for `key`.
+fn access_profile_path(layout: &super::project::Layout, key: &str) -> PathBuf {
+    let suffix = crate::route_materialization::stable_key_suffix(key.encode_utf16().collect());
+    layout.sidecar(&format!(".native-access-profile.{suffix}.bin"))
+}
+
+/// A City's street graph and, when its key is known, the prepared access
+/// profile, loaded off the opening thread.
+struct StreetLoad {
+    street: std::result::Result<CoordinateKernel, String>,
+    profile: Option<std::result::Result<(), String>>,
+}
+
+fn load_street(street_path: &Path, profile: Option<(PathBuf, String)>) -> StreetLoad {
+    let open = || -> Result<CoordinateKernel> {
+        let (structure_path, metric_path, _) = cch_files(street_path, "street")?;
+        Ok(CoordinateKernel::open_prepared(
+            str_path(street_path)?,
+            StreetCchLoadInput {
+                structure_path,
+                metric_path,
+            },
+        )?)
+    };
+    match open() {
+        Ok(mut street) => {
+            let profile = profile.map(|(path, key)| {
+                str_path(&path)
+                    .and_then(|path| Ok(street.load_access_profile_snapshot(path, key)?))
+                    .map(drop)
+                    .map_err(|error| error.to_string())
+            });
+            StreetLoad {
+                street: Ok(street),
+                profile,
+            }
+        }
+        Err(error) => StreetLoad {
+            street: Err(error.to_string()),
+            profile: None,
+        },
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct Stop {
     pub id: String,
@@ -364,6 +408,26 @@ impl City {
         if manifest["schemaVersion"] != "vigo.city.v1" {
             return fail("Expected a prepared vigo.city.v1 City");
         }
+        // The street graph and, for a City, its prepared access profile load
+        // while the routing metadata and access context parse. Results are
+        // consumed, and failures reported, at the same points as a sequential
+        // open. A Studio store's profile key is known only after its access
+        // context is read, so its profile loads afterwards.
+        let street_path = path.join("osm/street-index.sqlite.street-accelerator-v7.bin");
+        let preload_key = (!layout.derived)
+            .then(|| manifest["routingStore"]["nativeCoordinateAccess"]["profileKey"].as_str())
+            .flatten()
+            .map(str::to_owned);
+        let street_load = (!residents
+            .iter()
+            .any(|(directory, _)| *directory == street_directory))
+        .then(|| {
+            let street_path = street_path.clone();
+            let profile = preload_key
+                .as_deref()
+                .map(|key| (access_profile_path(&layout, key), key.to_owned()));
+            std::thread::spawn(move || load_street(&street_path, profile))
+        });
         let db_path = layout.routing.clone();
         if db_path.with_extension("sqlite-wal").exists() {
             return fail("City must be immutable and checkpointed (unexpected SQLite WAL)");
@@ -539,27 +603,26 @@ impl City {
             None => Value::Null,
         };
         drop(street_db);
-        let street_path = path.join("osm/street-index.sqlite.street-accelerator-v7.bin");
         let street_header = Image::open(&street_path, false)?;
         if street_header.header["identity"]["schemaVersion"] != "vigo.street.store.v6" {
             return fail(
                 "Street pedestrian restrictions are stale; rebuild the City from the source OSM PBF",
             );
         }
-        let mut street = if let Some((_, street)) = residents
-            .iter()
-            .find(|(directory, _)| *directory == street_directory)
-        {
-            street.share_streets()?
-        } else {
-            let (structure_path, metric_path, _) = cch_files(&street_path, "street")?;
-            CoordinateKernel::open_prepared(
-                str_path(&street_path)?,
-                StreetCchLoadInput {
-                    structure_path,
-                    metric_path,
-                },
-            )?
+        let (mut street, mut preloaded_profile) = match street_load {
+            Some(load) => {
+                let loaded = load.join().map_err(|_| "Street graph loader panicked")?;
+                (loaded.street?, loaded.profile)
+            }
+            None => (
+                residents
+                    .iter()
+                    .find(|(directory, _)| *directory == street_directory)
+                    .ok_or("Missing resident street graph")?
+                    .1
+                    .share_streets()?,
+                None,
+            ),
         };
         let terminal = path.join("osm/street-index.sqlite.terminal-access-v1.json");
         if terminal.exists() && street.terminal_access.is_none() {
@@ -615,9 +678,15 @@ impl City {
         {
             return fail("Coordinate profile belongs to another street source");
         }
-        let suffix = crate::route_materialization::stable_key_suffix(key.encode_utf16().collect());
-        let snapshot = layout.sidecar(&format!(".native-access-profile.{suffix}.bin"));
-        street.load_access_profile_snapshot(str_path(&snapshot)?, key.to_owned())?;
+        match preloaded_profile.take() {
+            Some(loaded) => loaded?,
+            None => {
+                street.load_access_profile_snapshot(
+                    str_path(&access_profile_path(&layout, key))?,
+                    key.to_owned(),
+                )?;
+            }
+        }
         if street
             .profile
             .as_ref()
@@ -947,6 +1016,17 @@ impl City {
             maximum_departure_seconds: coverage_end,
         })?)
     }
+    /// The transfer buffer is a search parameter, not part of the timetable:
+    /// every buffer reuses the same resident, cached or scenario timetable.
+    pub(super) fn apply_transfer_buffer(&mut self, request: &Value) -> Result<()> {
+        let buffer = number(request, "minimumTransferBufferMinutes", 0., 0., 60.)?;
+        if let Some(timetable) = self.timetable.as_mut() {
+            timetable
+                .kernel
+                .set_minimum_transfer_buffer_seconds(buffer as u32 * 60);
+        }
+        Ok(())
+    }
     /// The requested source feeds of a merged City, or None for all of them.
     fn selected_scopes(&self, request: &Value) -> Result<Option<BTreeSet<String>>> {
         let Some(value) = request.get("sourceScopes") else {
@@ -979,7 +1059,9 @@ impl City {
             return Ok(());
         }
         let started = std::time::Instant::now();
-        let result = self.activate_inner(request);
+        let result = self
+            .activate_inner(request)
+            .and_then(|()| self.apply_transfer_buffer(request));
         if result.is_ok() {
             self.scenario_view = None;
         }
@@ -1038,7 +1120,7 @@ impl City {
         });
         let (key, instances, source_key) = if coverage_end.is_some() {
             (
-                format!("{date_text}:{allow}:{buffer}:scheduled{scope_key}"),
+                format!("{date_text}:{allow}:scheduled{scope_key}"),
                 None,
                 None,
             )
@@ -1071,7 +1153,7 @@ impl City {
                 .is_some()
                 .then(|| format!("{date_text}:{days_key:?}{scope_key}"));
             (
-                format!("{date_text}:{allow}:{buffer}:{realtime_key}:{days_key:?}{scope_key}"),
+                format!("{date_text}:{allow}:{realtime_key}:{days_key:?}{scope_key}"),
                 instances,
                 source_key,
             )

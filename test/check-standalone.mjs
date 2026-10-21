@@ -56,6 +56,12 @@ try {
   assert.equal(run('route', { ...base, time: '08:30', timePreference: 'arrive_by' }).departureMinutes, 480)
   assert.equal(run('route', { ...base, maxTransfers: 0 }).status, 'blocked')
   assert.equal(run('route', { ...base, minimumTransferBufferMinutes: 6 }).status, 'blocked')
+  // A retained scenario view takes each request's buffer, like any timetable.
+  const unrelated = { id: 'reverse', name: 'Reverse', services: [{ id: 'reverse', name: 'Reverse', operation: 'add', timeModel: 'preserve-scheduled',
+    scheduleMode: 'frequency', bidirectional: false, stops: [{ stopId: 'B' }, { stopId: 'X' }], startMinutes: 475, endMinutes: 600, headwayMinutes: 5, segmentRuntimeMinutes: [5] }] }
+  const buffered = spawnSync(binary, ['stream', '--city', city, '--stream-output=detailed'], { env, encoding: 'utf8',
+    input: [0, 6, 0].map(minimumTransferBufferMinutes => JSON.stringify({ kind: 'route', ...base, scenario: unrelated, minimumTransferBufferMinutes })).join('\n') + '\n' })
+  assert.deepEqual(buffered.stdout.trim().split('\n').map(line => JSON.parse(line).trace.status), ['ready', 'blocked', 'ready'])
   assert.equal(run('route', { ...base, minimumTransferBufferMinutes: 5, allowStreetTransfers: false }).status, 'ready')
   assert.equal(run('route', { ...base, serviceDate: '2026-07-19' }).status, 'blocked')
   const coordinate = { ...base, origin: { coordinate: [-77.05, 38.9] }, destination: { coordinate: [-77.03, 38.91] } }

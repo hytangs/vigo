@@ -64,6 +64,8 @@ impl City {
         base.as_object_mut().unwrap().remove("scenario");
         self.activate(&base)?;
         self.install_scenario(scenario)?;
+        // A retained view keeps the buffer it was last searched with.
+        self.apply_transfer_buffer(&base)?;
         self.pinned_timetable = true;
         let result = self.route(&base);
         self.pinned_timetable = false;

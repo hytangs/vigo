@@ -43,7 +43,7 @@
             "coordinate": [-77.05,38.9],
             "name": "Alpha",
             "stop": {
-              "feed": "one",
+              "feed": "two",
               "id": "A"
             }
           },
@@ -64,7 +64,7 @@
             "coordinate": [-77.05,38.9],
             "name": "Alpha",
             "stop": {
-              "feed": "one",
+              "feed": "two",
               "id": "A"
             }
           },
@@ -81,7 +81,7 @@
           "route": {
             "color": "",
             "id": {
-              "feed": "one",
+              "feed": "two",
               "id": "R1"
             },
             "longName": "First Route",
@@ -90,10 +90,46 @@
             "type": 3
           },
           "service": {
-            "feed": "one",
+            "feed": "two",
             "id": "WKD"
           },
           "serviceDate": "2026-07-15",
+          "to": {
+            "coordinate": [-77.04,38.905],
+            "name": "Transfer",
+            "stop": {
+              "feed": "two",
+              "id": "X"
+            }
+          },
+          "trip": {
+            "feed": "two",
+            "id": "T1"
+          },
+          "tripShortName": null,
+          "type": "transit"
+        },
+        {
+          "arrivalTime": "08:10:00",
+          "departureTime": "08:10:00",
+          "distanceMeters": 0,
+          "durationSeconds": 0,
+          "from": {
+            "coordinate": [-77.04,38.905],
+            "name": "Transfer",
+            "stop": {
+              "feed": "two",
+              "id": "X"
+            }
+          },
+          "geometry": {
+            "coordinates": [[-77.04,38.905],[-77.04,38.905]],
+            "type": "LineString"
+          },
+          "quality": {
+            "geometrySource": "unverified_transfer",
+            "streetGeometry": "unverified"
+          },
           "to": {
             "coordinate": [-77.04,38.905],
             "name": "Transfer",
@@ -102,12 +138,7 @@
               "id": "X"
             }
           },
-          "trip": {
-            "feed": "one",
-            "id": "T1"
-          },
-          "tripShortName": null,
-          "type": "transit"
+          "type": "walk"
         },
         {
           "arrivalTime": "08:30:00",
