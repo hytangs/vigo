@@ -6,6 +6,7 @@ use super::{BinaryHeap, LabelQueueEntry};
 pub(super) struct SurfaceQueue {
     last: u64,
     buckets: [Vec<LabelQueueEntry>; 64],
+    occupied: u64,
     ready: BinaryHeap<LabelQueueEntry>,
     fallback: Option<BinaryHeap<LabelQueueEntry>>,
 }
@@ -15,6 +16,7 @@ impl SurfaceQueue {
         Self {
             last: 0,
             buckets: std::array::from_fn(|_| Vec::new()),
+            occupied: 0,
             ready: BinaryHeap::new(),
             fallback: None,
         }
@@ -31,7 +33,9 @@ impl SurfaceQueue {
         if difference == 0 {
             self.ready.push(entry);
         } else {
-            self.buckets[(63 - difference.leading_zeros()) as usize].push(entry);
+            let index = 63 - difference.leading_zeros();
+            self.buckets[index as usize].push(entry);
+            self.occupied |= 1_u64 << index;
         }
     }
     pub(super) fn push(&mut self, entry: LabelQueueEntry) {
@@ -58,7 +62,13 @@ impl SurfaceQueue {
             return heap.pop();
         }
         if self.ready.is_empty() {
-            let index = self.buckets.iter().position(|bucket| !bucket.is_empty())?;
+            if self.occupied == 0 {
+                return None;
+            }
+            // Exact timestamps often occupy high radix buckets. Finding the
+            // next bucket must not scan dozens of empty vectors per label.
+            let index = self.occupied.trailing_zeros() as usize;
+            self.occupied &= !(1_u64 << index);
             let mut entries = std::mem::take(&mut self.buckets[index]);
             self.last = entries.iter().map(Self::key).min().unwrap();
             for entry in entries.drain(..) {
