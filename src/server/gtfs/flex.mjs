@@ -5,6 +5,12 @@ import { gtfsTableEntry, readGtfsZipJson } from '../gtfs-zip-reader.mjs'
 // conditional booking metadata at query time. No synthetic scheduled departures.
 export async function importFlexCatalog({ archive, streamTable, db, prefix, budget, windows, tripModels }) {
   db.exec(`CREATE TABLE IF NOT EXISTS flex_catalog(scope TEXT PRIMARY KEY, data TEXT NOT NULL);`)
+  let retainedBytes = 0
+  const retain = value => {
+    retainedBytes += Buffer.byteLength(JSON.stringify(value)) + 16
+    if (retainedBytes > 32 * 1024 * 1024) throw new Error('GTFS Flex catalog exceeds 32 MiB')
+    return value
+  }
   const catalog = Object.fromEntries(['groups','locations','bookings','trips'].map(key => [key, Object.create(null)]))
   const read = async (name, visit) => {
     const entry = gtfsTableEntry(archive, name)
@@ -12,13 +18,14 @@ export async function importFlexCatalog({ archive, streamTable, db, prefix, budg
   }
   const unique = (map, id, value) => {
     if (!id || Object.hasOwn(map, id)) throw new Error(`Missing or duplicate GTFS Flex identity: ${id}`)
-    map[id] = value
+    retain(id)
+    map[id] = retain(value)
   }
   await read('location_groups.txt', row => unique(catalog.groups, row.location_group_id, { name: row.location_group_name || '', stops: [] }))
   await read('location_group_stops.txt', row => {
     const group = catalog.groups[row.location_group_id]
     if (!group || !db.prepare('SELECT 1 FROM stops WHERE stop_id=? AND COALESCE(location_type,0)=0').get(row.stop_id)) throw new Error('Broken GTFS location-group stop reference')
-    if (!group.stops.includes(row.stop_id)) group.stops.push(row.stop_id)
+    if (!group.stops.includes(row.stop_id)) group.stops.push(retain(row.stop_id))
   })
   await read('booking_rules.txt', row => {
     const type = Number(row.booking_type)
@@ -83,11 +90,12 @@ export async function importFlexCatalog({ archive, streamTable, db, prefix, budg
     for (const key of ['pickup_booking_rule_id','drop_off_booking_rule_id']) if (row[key] && !catalog.bookings[row[key]]) throw new Error('Unknown GTFS Flex booking rule')
     const sequence = Number(row.stop_sequence)
     if (!String(row.stop_sequence ?? '').trim() || !Number.isSafeInteger(sequence) || sequence < 0) throw new Error('Invalid GTFS Flex stop sequence')
-    const record = catalog.trips[row.trip_id] ?? { ...trip, ...tripModels.get(row.trip_id), calls: [] }
+    if (!catalog.trips[row.trip_id]) retain(row.trip_id)
+    const record = catalog.trips[row.trip_id] ?? retain({ ...trip, ...tripModels.get(row.trip_id), calls: [] })
     if (record.calls.some(c => c.sequence === sequence)) throw new Error('Duplicate GTFS Flex stop sequence')
-    record.calls.push({ sequence, location: id, start: window ? start : seconds(row.departure_time || row.arrival_time),
+    record.calls.push(retain({ sequence, location: id, start: window ? start : seconds(row.departure_time || row.arrival_time),
       end: window ? end : seconds(row.arrival_time || row.departure_time), window, pickup, dropoff,
-      pickupBooking: row.pickup_booking_rule_id || null, dropoffBooking: row.drop_off_booking_rule_id || null })
+      pickupBooking: row.pickup_booking_rule_id || null, dropoffBooking: row.drop_off_booking_rule_id || null }))
     catalog.trips[row.trip_id] = record
   })
   for (const trip of Object.values(catalog.trips)) {
