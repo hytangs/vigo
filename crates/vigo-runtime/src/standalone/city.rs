@@ -314,6 +314,7 @@ pub struct City {
     pub(crate) scenario_views: HashMap<String, Arc<super::scenario_route::ScenarioPresentation>>,
     /// A scenario Route keeps its view for the whole request.
     pub(crate) pinned_timetable: bool,
+    pub(super) linked_candidates: Option<super::linked_trips::Candidates>,
     pub(crate) timetable_cache: super::timetable_cache::TimetableCache,
     pub(crate) query_workspace: Option<crate::timetable::TimetableQueryWorkspace>,
     pub(crate) timetable_preparations: u64,
@@ -699,6 +700,7 @@ impl City {
             scenario_view: None,
             scenario_views: HashMap::new(),
             pinned_timetable: false,
+            linked_candidates: None,
             timetable_cache: super::timetable_cache::TimetableCache::from_env()?,
             query_workspace: None,
             timetable_preparations: 0,
@@ -1281,7 +1283,20 @@ impl City {
             let ScheduleSource { arrays, names, .. } = ScheduleSource::new(String::new(), read);
             (arrays, names, Value::Null)
         };
-        let links = super::linked_trips::compile(&self.db, &mut source, &mut names)?;
+        let linked_started = std::time::Instant::now();
+        let linked_candidates_reused = self.linked_candidates.is_some();
+        if self.linked_candidates.is_none() {
+            self.linked_candidates = Some(super::linked_trips::load_candidates(&self.db)?);
+        }
+        let linked_candidates_ms = linked_started.elapsed().as_secs_f64() * 1000.;
+        let links = super::linked_trips::compile(
+            self.linked_candidates
+                .as_ref()
+                .expect("initialized candidates"),
+            &mut source,
+            &mut names,
+        )?;
+        let linked_ms = linked_started.elapsed().as_secs_f64() * 1000.;
         let source_ms = source_started.elapsed().as_secs_f64() * 1000.;
         let index_started = std::time::Instant::now();
         // Sources normally use exactly the City's stops; a source that adds a
@@ -1368,6 +1383,7 @@ impl City {
             kernel.set_service_semantics(semantics)?;
         }
         self.timetable_preparation_profile = json!({"setupMs":calendar_ms,"sourceAndRealtimeMs":source_ms,"sourceReused":source_reused,
+            "linkedCandidatesReused":linked_candidates_reused,"linkedCandidatesMs":linked_candidates_ms,"linkedTripsMs":linked_ms,
             "indexMs":index_ms,"kernelMs":kernel_started.elapsed().as_secs_f64()*1000.});
         self.timetable = Some(Timetable {
             kernel,

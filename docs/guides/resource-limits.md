@@ -22,6 +22,12 @@ HTTP budgets preserve room for one maximum-sized request and one worker response
 
 Python caps its existing one-to-four worker budget using affinity, CPU quota and the same visible Linux memory-controller hierarchy. Unknown memory capacity selects one worker. On all platforms, `workers=1` remains the public batch default.
 
+## Scenario and date switching
+
+For collections, inspect `/v1/info` residency counters before attributing latency to route search. Increasing `cityOpens` and `evictions` on repeated scenario sweeps indicates that retained Cities exceed `VIGO_RESIDENT_HEAP_BYTES`, even when the scenario-count limit permits them. Tune the heap budget only with measured container peaks and concurrent requests; leave room for query scratch, mapped pages and other services. The default remains conservative.
+
+Changing service dates can rebuild a timetable when the inactive-timetable cache is too small. Immutable linked-trip and block adjacency is retained with its City and included in the heap ledger; active service, realtime cancellations and continuity are still checked for each timetable. Native trace timing separates `linkedCandidatesMs` and `linkedTripsMs` within `sourceAndRealtimeMs`, and reports `linkedCandidatesReused`. These are preparation measurements, not end-to-end HTTP latency.
+
 ## Swap is an explicit deployment choice
 
 The Compose service disables swap by default by setting total RAM-plus-swap equal to RAM. To permit up to 4 GiB of swap alongside 2 GiB RAM, use `VIGO_MEMORY=2g VIGO_MEMORY_SWAP=6g`. The Linux host must already provide sufficient swap; Compose does not create it. A swap-free comparison uses `VIGO_MEMORY_SWAP=2g`.

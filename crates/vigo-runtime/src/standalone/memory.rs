@@ -183,6 +183,10 @@ impl City {
             })
             .sum::<usize>();
         let cache = inactive_timetables
+            + self
+                .linked_candidates
+                .as_ref()
+                .map_or(0, super::linked_trips::Candidates::estimated_bytes)
             + self.shape_cache.retained_bytes()
             + self.route_metadata.heap_bytes()
             + self.trip_shape_ids.heap_bytes()

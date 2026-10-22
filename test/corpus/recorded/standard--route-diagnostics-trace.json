@@ -244,6 +244,8 @@
         "timing.timetableActivationUs": 0,
         "timing.timetablePreparation.indexUs": 0,
         "timing.timetablePreparation.kernelUs": 0,
+        "timing.timetablePreparation.linkedCandidatesUs": 0,
+        "timing.timetablePreparation.linkedTripsUs": 0,
         "timing.timetablePreparation.setupUs": 0,
         "timing.timetablePreparation.sourceAndRealtimeUs": 0,
         "timing.totalUs": 0

@@ -37,11 +37,24 @@ try {
   fs.writeFileSync(input.gtfsPath,await zip.generateAsync({type:'nodebuffer'}))
   const city=path.join(inputDir,'city')
   execFileSync(process.execPath,['public/vigo.mjs','build',`--gtfs=${input.gtfsPath}`,`--osm=${input.osmPath}`,`--output=${city}`],{cwd:root,stdio:'pipe'})
-  const child=spawn(standaloneBinary,['stream','--city',city]);children.push(child)
+  const child=spawn(standaloneBinary,['stream','--city',city],{env:{...process.env,VIGO_TIMETABLE_CACHE_BYTES:'0'}});children.push(child)
   let stderr='';child.stderr.on('data',c=>stderr+=c)
   const lines=createInterface({input:child.stdout})[Symbol.asyncIterator]()
   const run=async q=>{child.stdin.write(JSON.stringify(q)+'\n');const line=await lines.next();assert(!line.done,stderr);const r=JSON.parse(line.value);assert.notEqual(r.status,'error',JSON.stringify(r));return r}
   const base={kind:'route',origin:{stopId:'A'},destination:{stopId:'B'},serviceDate:'2026-07-15',timeMinutes:480,maxWalkKm:.01,maxTransfers:0,requireTransitRide:true,includeGeometry:true,diagnostics:'trace'}
+  // Rebuild each date independently: immutable adjacency must not retain a
+  // previous day's service, nor change the result of a fresh-process query.
+  if(['linked','block'].includes(variant)) {
+   for(const serviceDate of ['2026-07-15','2026-07-16','2026-07-19','2026-07-15']) {
+    const q={...base,serviceDate,diagnostics:undefined}
+    const reused=await run(q)
+    const fresh=JSON.parse(execFileSync(standaloneBinary,['stream','--city',city],{
+     input:JSON.stringify(q)+'\n',encoding:'utf8',env:{...process.env,VIGO_TIMETABLE_CACHE_BYTES:'0'}
+    }).trim())
+    assert.deepEqual({status:reused.status,journey:reused.journey},{status:fresh.status,journey:fresh.journey})
+    checks++
+   }
+  }
   for(const reverse of [false,true]) {
    const r=await run({...base,...(reverse?{timePreference:'arrive_by',timeMinutes:510}:{})})
    if((type!==4 && variant!=='block') || variant==='overlap') {assert.equal(r.status,'not_found',JSON.stringify(r));checks++;continue}

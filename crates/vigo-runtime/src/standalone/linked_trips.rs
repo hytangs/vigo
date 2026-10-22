@@ -74,22 +74,33 @@ fn paths(
     Ok(())
 }
 
-pub(super) fn compile(
-    db: &Connection,
-    a: &mut ServiceTimetableResult,
-    names: &mut TimetableNames,
-) -> Result<Links> {
+/// Immutable source adjacency; active dates and realtime continuity are checked
+/// again for every timetable. Owned by the City and charged to its heap budget.
+struct Candidate {
+    from: String,
+    to: String,
+    terminal: u32,
+    inferred: bool,
+    first: Option<u32>,
+}
+
+pub(super) struct Candidates(Vec<Candidate>);
+
+impl Candidates {
+    pub(super) fn estimated_bytes(&self) -> usize {
+        self.0.capacity() * std::mem::size_of::<Candidate>()
+            + self
+                .0
+                .iter()
+                .map(|c| c.from.capacity() + c.to.capacity())
+                .sum::<usize>()
+    }
+}
+
+pub(super) fn load_candidates(db: &Connection) -> Result<Candidates> {
     if !present(db)? {
-        return Ok(HashMap::new());
+        return Ok(Candidates(Vec::new()));
     }
-    let mut instances: HashMap<&str, Vec<usize>> = HashMap::new();
-    for (i, id) in names.trip_ids.iter().enumerate() {
-        if a.trip_start[i] < a.trip_start[i + 1] {
-            instances.entry(id).or_default().push(i);
-        }
-    }
-    let mut edges = vec![Vec::new(); names.trip_ids.len()];
-    let mut incoming = vec![false; edges.len()];
     let mut candidates = Vec::new();
     if has_table(db, "trip_links")? {
         let mut statement = db.prepare("SELECT l.from_trip_id,l.to_trip_id,MAX(c.stop_sequence) FROM trip_links l JOIN connections c ON c.trip_id=l.from_trip_id WHERE l.transfer_type=4 GROUP BY l.from_trip_id,l.to_trip_id ORDER BY l.from_trip_id,l.to_trip_id")?;
@@ -167,7 +178,51 @@ pub(super) fn compile(
             }
         }
     }
+    let mut first_sequences = HashMap::new();
+    let mut statement = db.prepare("SELECT MIN(stop_sequence) FROM connections WHERE trip_id=?")?;
+    let mut indexed = Vec::with_capacity(candidates.len());
     for (from, to, terminal, inferred) in candidates {
+        let first = match first_sequences.entry(to.clone()) {
+            std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                *entry.insert(statement.query_row([&to], |r| r.get::<_, Option<u32>>(0))?)
+            }
+        };
+        indexed.push(Candidate {
+            from,
+            to,
+            terminal,
+            inferred,
+            first,
+        });
+    }
+    Ok(Candidates(indexed))
+}
+
+pub(super) fn compile(
+    candidates: &Candidates,
+    a: &mut ServiceTimetableResult,
+    names: &mut TimetableNames,
+) -> Result<Links> {
+    if candidates.0.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let mut instances: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (i, id) in names.trip_ids.iter().enumerate() {
+        if a.trip_start[i] < a.trip_start[i + 1] {
+            instances.entry(id).or_default().push(i);
+        }
+    }
+    let mut edges = vec![Vec::new(); names.trip_ids.len()];
+    let mut incoming = vec![false; edges.len()];
+    for Candidate {
+        from,
+        to,
+        terminal,
+        inferred,
+        first,
+    } in &candidates.0
+    {
         let (Some(sources), Some(targets)) =
             (instances.get(from.as_str()), instances.get(to.as_str()))
         else {
@@ -176,7 +231,7 @@ pub(super) fn compile(
         for &source in sources {
             let end = a.trip_start[source + 1] as usize - 1;
             // A truncated horizon or canceled tail is not the end of a trip.
-            if a.sequence[end] != terminal {
+            if a.sequence[end] != *terminal {
                 continue;
             }
             let target = targets
@@ -192,7 +247,8 @@ pub(super) fn compile(
                             .and_then(|d| d.succ_opt())
                             .is_some_and(|d| d.to_string() == *date_b);
                     dates
-                        && (!inferred || (date_a == date_b && a.to_stop[end] == a.from_stop[start]))
+                        && (!*inferred
+                            || (date_a == date_b && a.to_stop[end] == a.from_stop[start]))
                         && source != target
                         && a.departure_seconds[start] >= a.arrival_seconds[end]
                 })
@@ -207,12 +263,7 @@ pub(super) fn compile(
                         a.segment_run[i] == a.segment_run[start] && a.continuity_break[i] == 0
                     })
                 });
-                let first: u32 = db.query_row(
-                    "SELECT MIN(stop_sequence) FROM connections WHERE trip_id=?",
-                    [&to],
-                    |r| r.get(0),
-                )?;
-                if intact && a.sequence[a.trip_start[target] as usize] == first {
+                if intact && Some(a.sequence[a.trip_start[target] as usize]) == *first {
                     edges[source].push(target);
                     incoming[target] = true;
                 }
