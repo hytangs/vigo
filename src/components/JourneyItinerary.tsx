@@ -93,15 +93,15 @@ export function RoutingItinerary({ plan, destinationLabel }: { plan: RoutingPlan
             {leg.inSeatSeconds != null ? <p className="journey-wait">Stay aboard{leg.inSeatSeconds > 0 ? ` · ${formatRoutingMinutes(leg.inSeatSeconds / 60)} onboard layover` : ''}</p> : null}
             {wait > 0 ? <p className="journey-wait"><Clock3 size={12} aria-hidden="true" />{formatRoutingMinutes(wait)} wait at {leg.fromName}</p> : null}
             {immediateVehicleChange ? <p className="journey-caution">No time between vehicles</p> : null}
-            {transfer && (leg.geometrySource === 'stop_coordinate_fallback' || leg.stationAccessStatus === 'unverified') ? <p className="journey-leg-meta">Station connection · map line approximate</p> : null}
             {ride ? <div className="journey-ride">
               <span className="journey-route"><RouteTypeIcon routeType={leg.routeType} size={13} />{routingLegPrimaryLabel(leg)}</span>
               <span className="journey-leg-meta">{leg.scenarioService ? <span className="journey-planned">Planned · {leg.scenarioService.scenarioName} · </span> : null}{leg.stopCount > 0 ? `${leg.stopCount} ${leg.headwayEstimate ? 'service' : leg.scenarioService ? 'planned' : 'scheduled'} stop${leg.stopCount === 1 ? '' : 's'}` : 'Transit ride'} · {formatRoutingLegDuration(leg)}</span>
             </div> : <p className="journey-move">
               <MoveIcon size={13} aria-hidden="true" />
-              <span>{transfer ? routingLegPrimaryLabel(leg) : leg.type === 'drive' ? 'Drive' : 'Walk'}</span>
+              <span>{transfer ? 'Change' : leg.type === 'drive' ? 'Drive' : 'Walk'}</span>
               <span className="journey-leg-meta">{formatRoutingLegDuration(leg)}{leg.distanceKm > 0 ? ` · ${formatDistance(leg.distanceKm)}` : ''}</span>
             </p>}
+            {transfer && (leg.geometrySource === 'stop_coordinate_fallback' || leg.stationAccessStatus === 'unverified') ? <p className="journey-leg-meta journey-transfer-note">Map line approximate</p> : null}
             {ride && Boolean(leg.intermediateStops?.length) ? <details className="kit-inline-details journey-leg-evidence journey-stops">
               <summary>Stops along the way · {leg.intermediateStops!.length}</summary>
               <ol>{leg.intermediateStops!.map((stop, stopIndex) => <li key={`${stop.stopId}:${stopIndex}`}>{stop.name || stop.stopId}</li>)}</ol>
@@ -112,11 +112,6 @@ export function RoutingItinerary({ plan, destinationLabel }: { plan: RoutingPlan
                 <p className="journey-departure-times" aria-label="Departure times">{(frequency?.departureSeconds ?? [leg.startMinutes * 60, ...sharedOptions.map(option => option.plan.legs[index].startMinutes * 60)])
                   .filter((time, i, times) => times.indexOf(time) === i).sort((a, b) => a - b)
                   .map(time => <time key={time}>{formatScheduleClock(time / 60)}</time>)}</p>
-                <details className="kit-inline-details">
-                  <summary>{frequency ? <>{frequency.status === 'incomplete' ? 'At least ' : ''}{frequency.departureCount} departure{frequency.departureCount === 1 ? '' : 's'}</> : 'Services on this leg'}</summary>
-                  {frequency ? <p className="journey-combined-frequency">
-                    {formatScheduleClock(frequency.windowStartSeconds / 60)}–{formatScheduleClock(frequency.windowEndSeconds / 60)}
-                  </p> : null}
                   {frequency && frequency.departureCount > frequency.uniqueDepartureCount ? <p className="journey-leg-meta">Some services depart at the same time.</p> : null}
                   {frequency?.status === 'incomplete' ? <p className="journey-leg-meta">More departures may be available in this window.</p> : null}
                   {sharedOptions.map(option => {
@@ -127,7 +122,6 @@ export function RoutingItinerary({ plan, destinationLabel }: { plan: RoutingPlan
                       <small>{alternate.routeId} · Arrive {formatScheduleClock(option.plan.arriveMinutes ?? option.plan.departMinutes + option.plan.durationMinutes)}</small>
                     </button>
                   })}
-                </details>
               </div> : null}
           </div>
         </li>
