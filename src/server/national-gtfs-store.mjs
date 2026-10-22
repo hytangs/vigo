@@ -1065,6 +1065,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
     restrictedDropOffStopTimeCount: 0,
     onDemandPickupStopTimeCount: 0,
     onDemandDropOffStopTimeCount: 0,
+    driverCoordinatedStopTimeCount: 0,
     continuousPickupStopTimeCount: 0,
     continuousDropOffStopTimeCount: 0,
     routeSpecificTransferCount: 0,
@@ -1327,14 +1328,17 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
         const context = `trip ${row.trip_id || '(missing trip_id)'} stop_sequence ${row.stop_sequence || '(missing sequence)'}`
         const pickupType = requiredGtfsEnum(row.pickup_type, [0, 1, 2, 3], 'pickup_type', context, 0)
         const dropOffType = requiredGtfsEnum(row.drop_off_type, [0, 1, 2, 3], 'drop_off_type', context, 0)
-        const restrictedPickup = pickupType !== 0
-        const restrictedDropOff = dropOffType !== 0
+        // Type 3 is a fixed flag stop: the rider signals the driver.
+        // Type 2 requires advance agency coordination and remains unavailable.
+        const restrictedPickup = pickupType === 1 || pickupType === 2
+        const restrictedDropOff = dropOffType === 1 || dropOffType === 2
         const continuousPickup = Boolean(String(row.continuous_pickup ?? '').trim()) && numeric(row.continuous_pickup, 1) !== 1
         const continuousDropOff = Boolean(String(row.continuous_drop_off ?? '').trim()) && numeric(row.continuous_drop_off, 1) !== 1
         if (restrictedPickup) featureInventory.restrictedPickupStopTimeCount += 1
         if (restrictedDropOff) featureInventory.restrictedDropOffStopTimeCount += 1
-        if (pickupType === 2 || pickupType === 3) featureInventory.onDemandPickupStopTimeCount += 1
-        if (dropOffType === 2 || dropOffType === 3) featureInventory.onDemandDropOffStopTimeCount += 1
+        if (pickupType === 2) featureInventory.onDemandPickupStopTimeCount += 1
+        if (dropOffType === 2) featureInventory.onDemandDropOffStopTimeCount += 1
+        if (pickupType === 3 || dropOffType === 3) featureInventory.driverCoordinatedStopTimeCount += 1
         if (continuousPickup) featureInventory.continuousPickupStopTimeCount += 1
         if (continuousDropOff) featureInventory.continuousDropOffStopTimeCount += 1
         const arrivalText = String(row.arrival_time ?? '').trim()
@@ -1508,7 +1512,11 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
     featureInventory.exactFrequencyExpandedConnectionCount = exactFrequencyExpandedConnectionCount
     if (featureInventory.inexactFrequencyCount) routingLimitations.push({code:'frequency_based_service',count:featureInventory.inexactFrequencyCount,exactness:'approximate',detail:'Rust headway routing assumes half a headway of waiting, rounded up to whole seconds, after service opens. Times are estimates, not scheduled departures.'})
     limitFeature('on_demand_boarding_or_alighting', featureInventory.onDemandPickupStopTimeCount + featureInventory.onDemandDropOffStopTimeCount,
-      'pickup_type/drop_off_type values 2 and 3 require rider-agency coordination; the default routing request conservatively treats those events as unavailable.')
+      'pickup_type/drop_off_type value 2 requires advance agency coordination; those events remain unavailable.')
+    if (featureInventory.driverCoordinatedStopTimeCount) routingLimitations.push({
+      code: 'driver_coordinated_stops', count: featureInventory.driverCoordinatedStopTimeCount,
+      exactness: 'conditional', detail: 'Fixed-stop pickup_type/drop_off_type=3 is routable. Riders must signal or notify the driver to board or alight; service assumes this coordination.',
+    })
     limitFeature('continuous_pickup_or_drop_off', featureInventory.routeContinuousRuleCount + featureInventory.tripContinuousRuleCount + featureInventory.continuousPickupStopTimeCount + featureInventory.continuousDropOffStopTimeCount,
       'Fixed-stop service is retained, but continuous pickup or drop-off between scheduled stops is not represented by the point-to-point router.')
 
