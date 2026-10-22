@@ -312,10 +312,25 @@ impl Collection {
                 .find(|s| s.id == id)
                 .ok_or_else(|| format!("Unknown scenarioId: {id}"))?
                 .city;
-            // Reserve an estimated resident view before opening its replacement.
-            // The estimate includes a share of common data and is conservative
-            // for similar scenarios; the post-query check uses actual ownership.
-            let reservation = self.resident_heap_bytes() / self.cities.len().max(1);
+            // Opening a City does not activate its timetable. Reserve only its
+            // private dictionary/access state, not a fraction of shared street
+            // and timetable owners or another City's active query indexes.
+            // The post-query check still enforces the actual retained budget.
+            let reservation = self
+                .cities
+                .iter()
+                .map(|(_, city)| {
+                    let ledger = city.memory_ledger();
+                    [
+                        ledger["cityDictionaryHeapBytes"].as_u64().unwrap_or(0),
+                        ledger["street"]["accessHeapBytes"].as_u64().unwrap_or(0),
+                        ledger["sqliteHeapBytes"].as_u64().unwrap_or(0),
+                    ]
+                    .iter()
+                    .sum::<u64>() as usize
+                })
+                .max()
+                .unwrap_or(0);
             let mut retired_street = None;
             while self.cities.len() >= self.manifest.maximum_resident_scenarios
                 || (!self.cities.is_empty()

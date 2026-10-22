@@ -20,6 +20,8 @@ const queryTimeoutMs = boundedInteger(process.env.VIGO_NATIVE_QUERY_TIMEOUT_MS, 
 const cancelGraceMs = boundedInteger(process.env.VIGO_NATIVE_CANCEL_GRACE_MS, 1500, 0, 600_000)
 const maxResponseBytes = 256 * 1024 * 1024
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url))
+const preparationRequest = request => request?.kind === 'info'
+  || request?.kind === 'native' && request.operation === 'timetable.prepare'
 const executableName = process.platform === 'win32' ? 'vigo.exe' : 'vigo'
 
 export function makeAbortError(message = 'The request was cancelled.') {
@@ -199,7 +201,7 @@ class StreamProcess {
     if (signal?.aborted) return Promise.reject(makeAbortError())
     this.lastUsed = Date.now()
     return new Promise((resolve, reject) => {
-      const entry = { resolve, reject, discarded: false, started: performance.now() }
+      const entry = { resolve, reject, discarded: false, started: performance.now(), preparing: preparationRequest(request) }
       // Answers arrive in request order. A cancelled caller returns at once;
       // a query still running after the grace period stops the process.
       let grace = null
@@ -360,8 +362,9 @@ export class NativeRuntime {
     const ready = city.processes.filter(stream => stream.ready && !stream.closed)
     const candidates = ready.length ? ready : city.processes
     const chosen = candidates.reduce((best, stream) => stream.pending.length < best.pending.length ? stream : best)
-    if (chosen.pending.length && city.processes.length < this.maxProcesses
-      && city.processes.every(stream => stream.ready)) {
+    if (!preparationRequest(request) && chosen.pending.some(entry => !entry.preparing)
+      && city.processes.length < this.maxProcesses
+      && city.processes.every(stream => stream.ready && stream.answered)) {
       this.#start(city, true)
     }
     if (request?.surfaceReuse === 'baseline') city.baseline = chosen
