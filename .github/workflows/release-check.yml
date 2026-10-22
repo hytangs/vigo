@@ -24,6 +24,10 @@ permissions:
 
 jobs:
   python-quality:
+    # GitHub validates permissions of the nested publisher even when skipped.
+    # The called quality jobs retain their workflow-level contents: read.
+    permissions:
+      contents: write
     uses: ./.github/workflows/python.yml
 
   deployment:
