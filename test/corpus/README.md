@@ -39,13 +39,16 @@ These fields differ between runs or builds. Each is replaced by a fixed value of
 | `meta.requestId` | Generated unless the request has an `id` |
 | `meta.computeUs`, `profile.timingsUs.*` | Measured time |
 | `meta.cityRevision`, `revision`, `cityRevisions.*` | Build time of the City |
-| `meta.queryFingerprint` | Hashes the City revision |
+| `meta.queryFingerprint`, `meta.assumptionsFingerprint` | Hash the City revision |
 | `meta.realtimeSnapshotFingerprint` | Hashes a snapshot stamped at run time |
 | `memory` anywhere | Process memory |
+| `allocator`, `resourcePolicy.memoryCapacityBytes` | Platform telemetry and host capacity |
+| `residency.residentHeapBudgetBytes`, `residency.lastQueryTiming` | Host-derived budget and measured timing |
+| `meta.traffic.observedAt/expiresAt` | Snapshot admission time; retention duration remains checked |
 | `trace` | Unstable internal ABI; only its presence is compared |
 
-Realtime snapshots and traffic expire, so those requests are stamped at run time and recorded with a fixed timestamp. All other fields, including geometry, clocks, durations and error messages, must match exactly.
+Realtime snapshots and traffic expire, so those requests are stamped at run time and recorded with a fixed timestamp. All other fields, including geometry, clocks, durations and error messages, must match exactly, except finite non-integer numbers tolerate a relative/absolute `1e-12` rounding difference across architectures. Integer clocks and counts remain exact.
 
 The Rust model tests (`crates/vigo-model`) read every file here and write it back unchanged, and validate it against the generated schema.
 
-V1 traffic migration keeps the retained records unchanged. The replay explicitly asserts the new `meta.traffic` admission evidence and the `traffic-import` capability, then compares the original fields against the historical record. `test/check-traffic-snapshots.mjs` separately verifies that metadata for fresh, stale, unmatched, prepared and inline traffic in both runtimes.
+The release-candidate records include traffic admission, assumptions fingerprints, clock dates and the alternatives policy. Previous records remain available in Git history. The frozen 0.5.0 City archive is unchanged.

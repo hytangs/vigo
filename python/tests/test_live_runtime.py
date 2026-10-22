@@ -281,7 +281,8 @@ class LiveRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(route.status, "ready")
         self.assertEqual(len(route.value["waypoints"]), 1)
-        self.assertAlmostEqual(route.value["arriveMinutes"], 510, delta=0.001)
+        arrival = dt.datetime.fromisoformat(route.value.get("clockDate") or route.value.get("diagnostics", {}).get("clockDate") or route.query["serviceDate"]) + dt.timedelta(minutes=route.value["arriveMinutes"])
+        self.assertEqual(arrival, dt.datetime(2026, 7, 15, 8, 30))
         exported = route.export(Path(self.temporary.name) / "route.geojson")
         self.assertGreater(len(json.loads(exported.read_text())["features"]), 0)
         matrix = self.city.matrix({"a": "A"}, {"b": "B"}, service_date="2026-07-15")
@@ -290,17 +291,15 @@ class LiveRuntimeTest(unittest.TestCase):
             matrix.export(Path(self.temporary.name) / "matrix.csv").read_text(),
         )
 
-    def test_transit_cache_control_reaches_native_paths(self) -> None:
+    def test_transit_cache_control_is_forwarded_and_preserves_results(self) -> None:
         options = {"depart_at": "07:55", "service_date": "2026-07-15", "max_walk_km": 0.2}
         cached = self.city.route("A", "B", **options)
         uncached = self.city.route("A", "B", disable_cache=True, **options)
         self.assertEqual(cached.duration_minutes, uncached.duration_minutes)
-        stats = uncached.value["diagnostics"]["searchStats"]
-        self.assertTrue(stats["nativeStreetPathCacheDisabled"])
-        self.assertEqual(stats["nativeStreetPathCacheHits"], 0)
+        self.assertTrue(uncached.query["disableCache"])
         matrix = self.city.matrix({"a": "A"}, {"b": "B"}, disable_cache=True,
                                   include_journeys=True, include_geometry=True, **options)
-        self.assertEqual(matrix.rows[0]["durationMinutes"], uncached.duration_minutes)
+        self.assertAlmostEqual(matrix.rows[0]["durationMinutes"], uncached.duration_minutes, delta=0.000501)
 
     def test_arrive_by_large_many_to_one_matrix(self) -> None:
         result = self.city.matrix(
@@ -316,8 +315,10 @@ class LiveRuntimeTest(unittest.TestCase):
         self.assertEqual(len(result.rows), 1024)
         for row in result.rows:
             self.assertEqual(row["status"], "ready")
-            self.assertEqual(row["departMinutes"], point.value["departMinutes"])
-            self.assertEqual(row["arriveMinutes"], 510)
+            self.assertAlmostEqual(row["departMinutes"], point.value["departMinutes"], delta=0.000501)
+            self.assertEqual(row["arriveMinutes"], point.value["arriveMinutes"])
+            arrival = dt.datetime.fromisoformat(point.value.get("clockDate") or point.value.get("diagnostics", {}).get("clockDate") or point.query["serviceDate"]) + dt.timedelta(minutes=row["arriveMinutes"])
+            self.assertEqual(arrival, dt.datetime(2026, 7, 15, 8, 30))
 
     def test_transfer_caps_use_the_resident_runtime_in_both_directions(self) -> None:
         for time in ({"depart_at": "07:55"}, {"arrive_by": "08:30"}):

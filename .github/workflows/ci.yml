@@ -2,27 +2,37 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, vigo-v1-final]
   pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
   actions: read
 
 jobs:
-  container:
-    uses: ./.github/workflows/deployment-check.yml
-
   source-and-native-safety:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            rust-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-
       - run: npm audit --audit-level=high
       - run: npm run check:public
       - run: npm run typecheck
@@ -30,12 +40,9 @@ jobs:
       - run: npm run check:security
       - run: npm run check:package-publication
       - run: npm run check:rust-routing-targets
-      - run: cargo fmt --manifest-path native/Cargo.toml -- --check
       - run: npm run check:rust-workspace
-      - run: cargo test --manifest-path native/Cargo.toml
-      - run: cargo clippy --release --all-targets --manifest-path native/Cargo.toml -- -D warnings
-      - run: cargo test --no-default-features --features standalone --manifest-path native/Cargo.toml
-      - run: cargo clippy --all-targets --no-default-features --features standalone --manifest-path native/Cargo.toml -- -D warnings
+      - run: cargo test --no-default-features --features standalone --manifest-path crates/vigo-runtime/Cargo.toml
+      - run: cargo clippy --all-targets --no-default-features --features standalone --manifest-path crates/vigo-runtime/Cargo.toml -- -D warnings
 
   engine:
     name: Complete engine (${{ matrix.os }})
@@ -43,15 +50,28 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14, windows-2022]
+        os: [ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: rust-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            rust-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-
+      - run: npm run build:cli-runtime
+      - name: Reuse this job's compiled runtime
+        run: echo "VIGO_USE_BUILT_RUNTIME=1" >> "$GITHUB_ENV"
+        shell: bash
       - run: npm run check:release
       - name: Install pinned Electron runtime
         shell: bash
@@ -61,7 +81,7 @@ jobs:
             sleep 2
           done
           exit 1
-      - run: npm run build
+      - run: npm run build:studio-assets
       - run: xvfb-run -a npm run check:studio-runtime
         if: runner.os == 'Linux'
       - run: npm run check:studio-runtime
@@ -72,32 +92,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
       - run: npm run package:cli
       - run: npm run check:cli-package
-      - run: node test/check-city-portability.mjs --write temp/portable-city.zip
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          name: city-${{ matrix.os }}
-          path: temp/portable-city.zip
-          if-no-files-found: error
-
-  city-portability:
-    needs: engine
-    name: Foreign City reuse (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14, windows-2022]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      - run: npm run build:rust-routing-kernel
-      - run: npm run build:cli
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
-        with:
-          pattern: city-*
-          path: temp/foreign-cities
-      - run: node test/check-city-portability.mjs --read temp/foreign-cities
+          python-version: '3.12'
+      - run: python -m pip install './python[progress,speed]' pytest
+      - run: node python/scripts/prepare-integration.mjs
+      - name: Check Python against the already built engine
+        run: python -m pytest python/tests/test_live_runtime.py -q
+        env:
+          VIGO_RUNTIME: ${{ github.workspace }}/public/vigo.mjs

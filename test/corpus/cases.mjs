@@ -118,6 +118,7 @@ export const cases = [
   route('standard', 'route-stops', base),
   route('standard', 'route-no-geometry', { ...base, includeGeometry: false }),
   route('standard', 'route-coordinates', coordinate),
+  route('standard', 'route-policy', { ...coordinate, journeyPolicy: 'alternatives-v1', expandedWalkKm: 2.4 }),
   route('standard', 'route-near-coordinates', { ...base, ...near, disableCache: true }),
   route('standard', 'route-legacy-stop-ids', { ...base, origin: { stopId: 'A' }, destination: { stopId: 'B' } }),
   route('standard', 'route-labels', { ...coordinate, origin: { ...free.origin, label: 'Home' }, destination: { ...free.destination, name: 'Office' } }),

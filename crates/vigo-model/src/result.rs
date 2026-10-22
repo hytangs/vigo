@@ -16,21 +16,21 @@ use std::collections::BTreeMap;
 #[serde(tag = "schema")]
 pub enum Response {
     #[serde(rename = "vigo.route.v1")]
-    Route(RouteResult),
+    Route(Box<RouteResult>),
     #[serde(rename = "vigo.matrix.v1")]
-    Matrix(MatrixResult),
+    Matrix(Box<MatrixResult>),
     #[serde(rename = "vigo.reach.v1")]
-    Reach(ReachResult),
+    Reach(Box<ReachResult>),
     #[serde(rename = "vigo.compare.v1")]
-    Compare(CompareResult),
+    Compare(Box<CompareResult>),
     #[serde(rename = "vigo.info.v1")]
-    Info(InfoResult),
+    Info(Box<InfoResult>),
     #[serde(rename = "vigo.scenarios.info.v1")]
-    CollectionInfo(CollectionInfoResult),
+    CollectionInfo(Box<CollectionInfoResult>),
     #[serde(rename = "vigo.stream.detail.v1")]
-    StreamDetail(StreamDetail),
+    StreamDetail(Box<StreamDetail>),
     #[serde(rename = "vigo.error.v1")]
-    Error(ErrorResult),
+    Error(Box<ErrorResult>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -64,6 +64,8 @@ pub struct Meta {
     /// Hash of the request (stop references canonicalized, output switches
     /// excluded) and the City revision.
     pub query_fingerprint: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assumptions_fingerprint: Option<String>,
     /// Service-date activation, search and materialization, in microseconds.
     pub compute_us: Option<u64>,
     /// `query_dispatch_including_materialization`.
@@ -187,7 +189,10 @@ pub struct MatrixQuery {
 pub struct ReachQuery {
     pub service_date: Option<String>,
     pub time_preference: TimePreference,
-    pub requested_time: Option<String>,
+    #[serde(default, skip_serializing_if = "Maybe::is_absent")]
+    pub requested_time: Maybe<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub all_day: Option<AllDayQuery>,
     pub data_mode: DataMode,
     /// Depart-at Reach.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -442,7 +447,14 @@ pub struct ReachSurface {
     pub height: u32,
     pub bounds: Bounds,
     /// Seconds per cell; `null` when unreachable.
-    pub values_seconds: Vec<Option<u64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub values_seconds: Option<Vec<Option<u64>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reachable_samples: Option<Vec<u32>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mean_reachable_duration_seconds: Option<Vec<Option<Number>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reachable_samples_by_cutoff: Option<Vec<Vec<u32>>>,
     /// Reached street intervals, with `includeStreetEdges`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edges: Option<StreetEdges>,
@@ -532,6 +544,8 @@ pub enum CutoffGeometry {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ReachResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub all_day: Option<AllDaySummary>,
     pub status: QueryStatus,
     pub mode: Mode,
     pub query: ReachQuery,
@@ -539,7 +553,8 @@ pub struct ReachResult {
     pub cutoffs_seconds: Vec<u64>,
     /// Areas within each cutoff. With `reachFormat: "map"`, these cover the
     /// full reached extent.
-    pub areas: CutoffFeatures,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub areas: Option<CutoffFeatures>,
     /// Full reached extent, with `reachFormat: "map"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bounds: Option<Bounds>,
@@ -743,4 +758,22 @@ pub struct ErrorDetail {
     /// `city_unavailable`.
     pub code: String,
     pub message: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AllDayQuery {
+    pub start_minutes: u32,
+    pub end_minutes: u32,
+    pub step_minutes: u32,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AllDaySummary {
+    pub sample_count: u32,
+    pub step_minutes: u32,
+    pub end_exclusive: bool,
+    pub aggregation: String,
+    pub mean_condition: String,
+    pub walking_preparation: String,
 }

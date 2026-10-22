@@ -1,9 +1,9 @@
+import { ScenarioNetworkSettings } from './ScenarioNetworkSettings'
 import { type CSSProperties, type FormEvent, memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowRight,
   CircleDot,
   Eraser,
-  GitCompareArrows,
   Grid2x2,
   LoaderCircle,
   MapPin,
@@ -32,7 +32,6 @@ import {
   cancelSurfaceAnalysis,
   changeAnalysisDepartMinutes,
   changeAnalysisServiceDate,
-  changeAnalyzeMode,
   changeCutoff,
   changeReachMaxTransfers,
   changeReachMaxWalkKm,
@@ -43,27 +42,19 @@ import {
   changeWalkSpeed,
   cityGrouping,
   clearScenarioSketch,
-  comparisonFeedOptions,
   inferScenarioRoadGeometry,
   removeScenario,
   removeScenarioChange,
   removeScenarioStop,
   resetScenarioRouteStops,
-  runComparison as runComparisonAction,
-  compareReferenceOptions,
-  compareScenarioIds,
-  changeCompareReference,
-  toggleCompareScenario,
-  selectComparisonVariant,
+
   renameScenario,
   assignScenarioGroup,
-  runServiceDecomposition,
   runSurfaceAnalysis,
   selectScenario,
   selectScenarioChange,
   setAnalysisOrigin,
   setScenarioView,
-  toggleComparisonFeed,
   updateScenarioChange,
   updateScenarioChangeRoute,
 } from '../state/analyze'
@@ -83,10 +74,9 @@ import { AnalysisOriginPicker } from './AnalysisOriginPicker'
 import { OperationProgress } from './OperationProgress'
 import { AnalysisNumberField, ReachSettings } from './ReachSettings'
 import { ResultExportActions } from './ResultExportActions'
-import { exportComparison, exportReachResults, reachExportEntries, reachGeometryAvailable } from '../app/resultExports'
-import { rankedCompareEntries, type CompareVariant, type ComparisonRun } from '../app/comparison'
+import { exportReachResults, reachExportEntries, reachGeometryAvailable } from '../app/resultExports'
 import { reachTransitStops, reachScenarioDifference } from '../app/resultSummary'
-import { maximumScenarios } from '../app/scenarioLibrary'
+import { maximumScenarios, scenarioNetworkDiffers } from '../app/scenarioLibrary'
 import type { CityDataGroup } from '../app/cityDataGroups'
 import type { ScenarioSaveState } from '../app/useScenarioLibrary'
 import {
@@ -113,7 +103,6 @@ import {
   type ScenarioStopDraft,
   type ScenarioStopPlacement,
   type ScenarioView,
-  type ServiceEdgeDecomposition,
 } from '../reach'
 
 export type AnalyzeMode = 'single' | 'compare'
@@ -127,7 +116,7 @@ export type ComparisonFeedOption = {
 }
 
 type AnalyzePanelProps = {
-  mode: AnalyzeMode
+
   origin: RoutingPoint | null
   serviceDate: string
   /** The departure, or for arrive-by the arrival deadline. */
@@ -149,8 +138,7 @@ type AnalyzePanelProps = {
   scenarioSaveState?: ScenarioSaveState
   onRenameCase?: (caseId: string, name: string) => void
   onAssignCaseGroup?: (caseId: string, groupId: string) => void
-  feeds: ComparisonFeedOption[]
-  comparisonFeedIds: string[]
+
   activeCaseId: string
   activeInterventionId: string
   stopPlacement: ScenarioStopPlacement | null
@@ -163,16 +151,7 @@ type AnalyzePanelProps = {
   progress: ApiProgress | null
   error: string
   analysis: ReachResult | null
-  comparisonRun?: ComparisonRun | null
-  compareReferenceOptions?: CompareVariant[]
-  compareReferenceId?: string
-  compareScenarioIds?: string[]
-  onCompareReferenceChange?: (id: string) => void
-  onCompareScenarioChange?: (id: string, selected: boolean) => void
-  onSelectComparisonVariant?: (id: string) => void
-  serviceDecomposition: ServiceEdgeDecomposition | null
-  serviceDecompositionLoading: boolean
-  serviceDecompositionError: string
+
   routingStoreAvailable: boolean
   streetGraphAvailable: boolean
   preparationTasks: PreparationTask[]
@@ -185,8 +164,7 @@ type AnalyzePanelProps = {
   onWalkSpeedChange: (value: number) => void
   onCutoffChange: (value: number) => void
   onRenderModeChange: (mode: ScenarioRenderMode) => void
-  onModeChange: (mode: AnalyzeMode) => void
-  onComparisonFeedChange: (feedId: string, selected: boolean) => void
+
   onSelectCase: (caseId: string) => void
   onAddCase: () => void
   onRemoveCase: (caseId: string) => void
@@ -212,8 +190,7 @@ type AnalyzePanelProps = {
   onClearOrigin: () => void
   onSetOrigin?: (point: RoutingPoint) => void
   onRun: () => void
-  onRunComparison: () => void
-  onRunServiceDecomposition: () => void
+
   onOpenData: () => void
   onCancel: () => void
 }
@@ -642,7 +619,7 @@ function scenarioSaveLabel(state: ScenarioSaveState) {
 }
 
 export function AnalyzePanelView({
-  mode,
+
   origin,
   serviceDate,
   departMinutes,
@@ -663,8 +640,7 @@ export function AnalyzePanelView({
   scenarioSaveState = 'saved',
   onRenameCase = () => {},
   onAssignCaseGroup = () => {},
-  feeds,
-  comparisonFeedIds,
+
   activeCaseId,
   activeInterventionId,
   stopPlacement,
@@ -682,16 +658,7 @@ export function AnalyzePanelView({
   preparationTasks,
   streetGraphBuilding,
   routingStoreBuilding,
-  comparisonRun = null,
-  compareReferenceOptions = [],
-  compareReferenceId = '',
-  compareScenarioIds = [],
-  onCompareReferenceChange = () => {},
-  onCompareScenarioChange = () => {},
-  onSelectComparisonVariant = () => {},
-  serviceDecomposition,
-  serviceDecompositionLoading,
-  serviceDecompositionError,
+
   onServiceDateChange,
   onDepartMinutesChange,
   onMaxWalkKmChange,
@@ -699,8 +666,7 @@ export function AnalyzePanelView({
   onWalkSpeedChange,
   onCutoffChange,
   onRenderModeChange,
-  onModeChange,
-  onComparisonFeedChange,
+
   onSelectCase,
   onAddCase,
   onRemoveCase,
@@ -719,8 +685,7 @@ export function AnalyzePanelView({
   onClearOrigin,
   onSetOrigin,
   onRun,
-  onRunComparison,
-  onRunServiceDecomposition,
+
   onOpenData,
   onCancel,
 }: AnalyzePanelProps) {
@@ -734,13 +699,14 @@ export function AnalyzePanelView({
   const selectedRoute = useMemo(() => routes.find((route) => (
     route.id === activeIntervention?.routeId || route.patternId === activeIntervention?.routeId
   )), [activeIntervention?.routeId, routes])
-  const hasScenarioChanges = travelMode !== 'drive' && interventions.length > 0
+  const hasPolicyChanges = travelMode !== 'drive' && interventions.length > 0
+  const hasScenarioChanges = travelMode !== 'drive' && (hasPolicyChanges || scenarioNetworkDiffers(scenarioGroups, activeCase?.groupId))
   // An arrive-by Reach anchors at its destination and reads the clock as a deadline.
   const arriveBy = timePreference === 'arrive'
   const place = arriveBy ? 'destination' : 'origin'
   useEffect(() => {
-    if (hasScenarioChanges && surfaceSampling === 'cell-center') onSurfaceSamplingChange?.('street')
-  }, [hasScenarioChanges, travelMode, onTravelModeChange, surfaceSampling, onSurfaceSamplingChange])
+    if (hasPolicyChanges && surfaceSampling === 'cell-center') onSurfaceSamplingChange?.('street')
+  }, [hasPolicyChanges, travelMode, onTravelModeChange, surfaceSampling, onSurfaceSamplingChange])
   useEffect(() => {
     if (hasScenarioChanges) setScenarioEditorOpen(true)
   }, [hasScenarioChanges])
@@ -748,44 +714,28 @@ export function AnalyzePanelView({
   const worsenedPixels = useMemo(() => scenarioWorsenedPixels(analysis, cutoffMinutes), [analysis, cutoffMinutes])
   const scenarioDifference = useMemo(() => analysis ? reachScenarioDifference(analysis, cutoffMinutes) : null, [analysis, cutoffMinutes])
   const analysisExportEntries = useMemo(() => reachExportEntries(analysis), [analysis, cutoffMinutes])
-  const roadInferencePending = mode === 'single' && interventions.some((intervention) => (
+  const roadInferencePending = interventions.some((intervention) => (
     hasLineSettings(intervention.kind)
     && intervention.geometryMode === 'auto-road'
     && intervention.geometryStatus !== 'ready'
   ))
-  const compareTimetableIds = feeds.length >= 2
-    ? comparisonFeedIds.filter((feedId) => feeds.some((feed) => feed.id === feedId) && `timetable:${feedId}` !== compareReferenceId)
-    : []
-  const comparisonReady = compareReferenceOptions.some((option) => option.id === compareReferenceId)
-    && (compareScenarioIds.length > 0 || compareTimetableIds.length > 0)
-  const serviceEdgeSummary = useMemo(() => {
-    const counts = { added: 0, maintained: 0, removed: 0 }
-    for (const feature of serviceDecomposition?.featureCollection.features ?? []) {
-      const indicator = Number(feature.properties?.serviceIndicator)
-      if (indicator === 1) counts.added += 1
-      else if (indicator === 2) counts.maintained += 1
-      else if (indicator === 0) counts.removed += 1
-    }
-    return counts
-  }, [serviceDecomposition])
   const canRun = Boolean(
     origin
     && streetGraphAvailable
     && !loading
     && !routeAnalysisLoading
     && !roadInferencePending
-    && (mode === 'compare' ? comparisonReady : routingStoreAvailable),
+    && routingStoreAvailable,
   )
   const transitSetup = preparationState(routingStoreAvailable,
     preparationTasks, ['national-gtfs-import', 'national-gtfs-merge'], routingStoreBuilding)
   const streetSetup = preparationState(streetGraphAvailable, preparationTasks, ['national-osm-import'], streetGraphBuilding)
   const dataPreparing = [transitSetup, streetSetup].some((state) => state.status === 'working')
-  const setupHint = !streetGraphAvailable || !(mode === 'compare' ? comparisonReady : routingStoreAvailable)
+  const setupHint = !streetGraphAvailable || !routingStoreAvailable
     ? [transitSetup, streetSetup].some((state) => state.status === 'paused')
       ? 'Task updates are paused. Open background tasks to reconnect.'
       : dataPreparing ? `Data is being prepared. You can choose the ${place} while it runs.`
-        : mode === 'compare' && routingStoreAvailable && !comparisonReady ? 'Choose a scenario or timetable to compare above.'
-          : 'Finish the data setup above, then run the analysis.'
+        : 'Finish the data setup above, then run the analysis.'
     : !origin ? onSetOrigin ? 'Search for a stop above or click the map.' : `Click the map to choose ${arriveBy ? 'a destination' : 'an origin'}.`
       : routeAnalysisLoading ? 'Loading the selected route’s timetable…'
         : roadInferencePending ? 'Finish the scenario road trace before running Reach.' : ''
@@ -843,8 +793,7 @@ export function AnalyzePanelView({
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!canRun) return
-    if (mode === 'compare') onRunComparison()
-    else onRun()
+    onRun()
   }
 
   function changeGeometryMode(intervention: ScenarioChangeDraft, mode: ScenarioGeometryMode) {
@@ -865,61 +814,12 @@ export function AnalyzePanelView({
   return (
     <section className="reach-surface" aria-label="Reach analysis controls">
       <header className="inspector-head reach-analysis-switch">
-        <div className="studio-tabs reach-mode-tabs" role="group" aria-label="Analyze mode">
-          <button type="button" aria-pressed={mode === 'single'} onClick={() => onModeChange('single')}>
-            <Radar size={13} aria-hidden="true" /><span>Reach</span>
-          </button>
-          <button type="button" aria-pressed={mode === 'compare'} onClick={() => onModeChange('compare')}>
-            <GitCompareArrows size={13} aria-hidden="true" /><span>Compare</span>
-          </button>
-        </div>
+        <strong>Reach</strong>
         <button type="button" className="kit-icon-button reach-new" onClick={onClearOrigin} disabled={!origin} aria-label="New Reach" title={`Clear the ${place} and start a new Reach`}>
           <RotateCcw size={15} aria-hidden="true" />
         </button>
       </header>
       <form className="reach-form" onSubmit={submit}>
-
-        {mode === 'compare' ? (
-          <div className="reach-comparison-picker">
-            <label className="reach-field">
-              <span>Compare against</span>
-              <select value={compareReferenceId} onChange={(event) => onCompareReferenceChange(event.currentTarget.value)}>
-                {compareReferenceOptions.map((option) => <option key={option.id} value={option.id}>{option.label} · {option.detail}</option>)}
-              </select>
-            </label>
-            <div className="compare-variant-group" role="group" aria-label="Saved scenarios to compare">
-              <span className="reach-section-kicker">Saved scenarios</span>
-              {cases.length ? cases.map((entry) => (
-                <label className="reach-comparison-scenario-option" key={entry.id}>
-                  <input type="checkbox" checked={compareScenarioIds.includes(entry.id)} onChange={(event) => onCompareScenarioChange(entry.id, event.currentTarget.checked)} />
-                  <span>
-                    <strong>{entry.name}</strong>
-                    <small>{scenarioGroups.find((group) => group.id === entry.groupId)?.name ?? 'No timetable group'} · {entry.interventions.length ? `${entry.interventions.length} change${entry.interventions.length === 1 ? '' : 's'}` : 'no changes'}</small>
-                  </span>
-                </label>
-              )) : <small className="reach-comparison-selection-note">Save a scenario in Reach to compare it here.</small>}
-            </div>
-            {feeds.length >= 2 ? (
-              <div className="compare-variant-group reach-comparison-feed-list" role="group" aria-label="GTFS feeds to compare">
-                <span className="reach-section-kicker">Timetables</span>
-                {feeds.map((feed) => (
-                  <label className="reach-comparison-feed-option" key={feed.id}>
-                    <input
-                      type="checkbox"
-                      checked={comparisonFeedIds.includes(feed.id)}
-                      disabled={`timetable:${feed.id}` === compareReferenceId}
-                      onChange={(event) => onComparisonFeedChange(feed.id, event.currentTarget.checked)}
-                    />
-                    <span>
-                      <strong>{feed.name}</strong>
-                      <small>{formatNumber(feed.routeCount)} routes · {formatNumber(feed.stopCount)} stops · {formatNumber(feed.tripCount)} trips</small>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
 
         <div className="reach-query-card kit-group">
           {onTimePreferenceChange ? <div className="studio-tabs reach-time-preference" role="group" aria-label="Reach time">
@@ -954,30 +854,32 @@ export function AnalyzePanelView({
               <span>{arriveBy ? 'Deadline' : 'Departs'}</span>
               <input
                 type="time"
-                value={`${String(Math.floor(departMinutes / 60) % 24).padStart(2, '0')}:${String(Math.round(departMinutes) % 60).padStart(2, '0')}`}
+                value={`${String(Math.floor(Math.round(departMinutes) / 60) % 24).padStart(2, '0')}:${String(Math.round(departMinutes) % 60).padStart(2, '0')}`}
                 onChange={(event) => {
-                  const [hours, minutes] = event.currentTarget.value.split(':').map(Number)
-                  onDepartMinutesChange(hours * 60 + minutes)
+                  const value = event.currentTarget.value
+                  if (!/^\d{2}:\d{2}$/.test(value)) return
+                  const [hours, minutes] = value.split(':').map(Number)
+                  if (hours < 24 && minutes < 60) onDepartMinutesChange(hours * 60 + minutes)
                 }}
               />
             </label>
           </div>
         </div>
 
-        <ReachSettings travelMode={travelMode} onTravelModeChange={mode === 'single' ? onTravelModeChange : undefined} timePreference={timePreference} cutoffMinutes={cutoffMinutes} maxWalkKm={maxWalkKm} walkSpeedKph={walkSpeedKph}
-          maxTransfers={maxTransfers} surfaceSampling={surfaceSampling} hasScenarioChanges={hasScenarioChanges}
+        <ReachSettings travelMode={travelMode} onTravelModeChange={onTravelModeChange} timePreference={timePreference} cutoffMinutes={cutoffMinutes} maxWalkKm={maxWalkKm} walkSpeedKph={walkSpeedKph}
+          maxTransfers={maxTransfers} surfaceSampling={surfaceSampling} hasScenarioChanges={hasPolicyChanges}
           onCutoffChange={onCutoffChange} onMaxWalkKmChange={onMaxWalkKmChange} onWalkSpeedChange={onWalkSpeedChange}
           onMaxTransfersChange={onMaxTransfersChange} onSurfaceSamplingChange={onSurfaceSamplingChange} />
 
-        {mode === 'single' && travelMode !== 'drive' ? (
+        {travelMode !== 'drive' ? (
           <details
             className="studio-disclosure is-compact reach-scenario-builder"
             open={scenarioEditorOpen}
             onToggle={(event) => setScenarioEditorOpen(event.currentTarget.open)}
           >
             <summary>
-              <span>Scenario</span>
-              <b>{activeCase ? `${activeCase.name}${hasScenarioChanges ? ` · ${interventions.length} change${interventions.length === 1 ? '' : 's'}` : ''}` : 'No changes'}</b>
+              <span>Network & scenario settings</span>
+              <b>{activeCase ? `${activeCase.name}${hasPolicyChanges ? ` · ${interventions.length} change${interventions.length === 1 ? '' : 's'}` : ''}` : 'No changes'}</b>
             </summary>
             <div className="reach-scenario-content">
               <div className="scenario-library">
@@ -1033,6 +935,7 @@ export function AnalyzePanelView({
                       {scenarioGroups.map((group) => <option key={group.id} value={group.id}>{group.name} · {group.feedIds.length} timetable{group.feedIds.length === 1 ? '' : 's'}</option>)}
                     </select>
                   </label>
+                  <ScenarioNetworkSettings scenarioId={activeCase.id} />
                   <div className="scenario-active-actions">
                     <button type="button" className="city-case-group-link" onClick={onOpenData}>{caseGroupLabel ? 'Edit timetable groups' : 'Choose timetables'}</button>
                     {cases.length > 1 ? (
@@ -1045,7 +948,7 @@ export function AnalyzePanelView({
                 </div>
               ) : null}
 
-        {mode === 'single' ? <div className="reach-intervention-add">
+        <div className="reach-intervention-add">
           <label className="reach-field">
             <span>Add a change</span>
             <select
@@ -1066,9 +969,9 @@ export function AnalyzePanelView({
             <Plus size={14} />
             Add
           </button>
-        </div> : null}
+        </div>
 
-        {mode === 'single' && interventions.length ? (
+        {interventions.length ? (
           <div className="reach-intervention-list" role="list" aria-label={`${activeCase?.name} interventions`}>
             {interventions.map((intervention, index) => (
               <article
@@ -1406,11 +1309,11 @@ export function AnalyzePanelView({
               </article>
             ))}
           </div>
-        ) : mode === 'single' ? (
+        ) : (
           <p className="reach-empty-case">
-            This case uses the baseline network.
+            This scenario uses its selected timetables without policy changes.
           </p>
-        ) : null}
+        )}
 
             </div>
           </details>
@@ -1426,9 +1329,7 @@ export function AnalyzePanelView({
             {loading ? <LoaderCircle className="is-spinning" size={15} /> : <Radar size={15} />}
             {loading
               ? 'Cancel analysis'
-              : mode === 'compare'
-                ? comparisonRun ? 'Refresh comparison' : 'Compare'
-                : analysis ? 'Update Reach' : 'Run Reach'}
+              : analysis ? 'Update Reach' : 'Run Reach'}
           </button>
           {loading || !canRun ? (
             <small className="reach-run-hint">
@@ -1436,7 +1337,7 @@ export function AnalyzePanelView({
             </small>
           ) : null}
           {loading ? (
-            <OperationProgress phase={progress?.phase || 'Starting analysis'} detail={progress?.detail} work={progress?.work} profile={`reach:${mode}`} />
+            <OperationProgress phase={progress?.phase || 'Starting analysis'} detail={progress?.detail} work={progress?.work} profile="reach:single" />
           ) : null}
         </div>
 
@@ -1444,99 +1345,7 @@ export function AnalyzePanelView({
         {error ? <p className="reach-inline-note is-error" role="alert">{error}</p> : null}
       </form>
 
-      {mode === 'compare' && comparisonRun ? (
-        <section className="reach-results compare-results" aria-label="Comparison results">
-          <div className="reach-results-heading">
-            <div>
-              <strong>Compare · {comparisonRun.cutoffMinutes} min</strong>
-              <small>Against {comparisonRun.reference.label} · {comparisonRun.serviceDate} · {comparisonRun.timePreference === 'arrive' ? 'arrive by ' : ''}{serviceTimeLabel(comparisonRun.departMinutes)}</small>
-            </div>
-            <div className="reach-results-tools">
-              <ReachRenderModePicker renderMode={renderMode} onRenderModeChange={onRenderModeChange} />
-              <ResultExportActions label="Save comparison" resultKey={comparisonRun}
-                disabled={loading} formats={['csv', 'json', 'geojson']}
-                onExport={(format) => exportComparison(comparisonRun, analysis, format)} />
-            </div>
-          </div>
-          <div className="compare-reference">
-            <span className="reach-reference-label">Reference</span>
-            <strong>{comparisonRun.reference.label}</strong>
-            <b>{comparisonRun.reference.areaKm2.toFixed(2)} km²</b>
-            <small>{comparisonRun.reference.stops === null ? 'Stops unavailable' : `${formatNumber(comparisonRun.reference.stops)} stops reached`}</small>
-          </div>
-          <div className="compare-ranking" role="radiogroup" aria-label="Variants ranked by reach gained">
-            {(() => {
-              const ranked = rankedCompareEntries(comparisonRun.entries)
-              const largest = Math.max(...ranked.map((entry) => Math.abs(entry.stats?.areaDeltaKm2 ?? 0)), 1e-9)
-              return ranked.map((entry, index) => {
-                const stats = entry.stats
-                const selected = entry.variant.id === comparisonRun.selectedId
-                const gain = stats?.areaDeltaKm2 ?? 0
-                return (
-                  <button
-                    key={entry.variant.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    disabled={!stats || loading}
-                    className={classNames('compare-variant', selected && 'is-selected', !stats && 'is-failed')}
-                    onClick={() => onSelectComparisonVariant(entry.variant.id)}
-                  >
-                    <span className="compare-variant-name">
-                      <strong>{entry.variant.label}</strong>
-                      {index === 0 && stats && gain > 0 ? <em>Most reach</em> : null}
-                      <small>{entry.variant.kind === 'scenario' ? 'Scenario' : entry.variant.kind === 'group' ? 'Timetable group' : 'Timetable'}{entry.variant.detail ? ` · ${entry.variant.detail}` : ''}</small>
-                    </span>
-                    {stats ? <>
-                      <span className="compare-variant-area">
-                        <b>{stats.areaKm2.toFixed(2)} km²</b>
-                        <small data-tone={gain > 0.005 ? 'good' : gain < -0.005 ? 'alert' : 'same'}>{reachDelta(gain, 2)} km²</small>
-                      </span>
-                      <span className="compare-variant-bar" aria-hidden="true"><i data-tone={gain >= 0 ? 'good' : 'alert'} style={{ width: `${Math.round(Math.abs(gain) / largest * 100)}%` }} /></span>
-                      <small className="compare-variant-detail">
-                        {formatNumber(stats.newPixels)} cells newly reached · {formatNumber(stats.lostPixels)} lost
-                        {stats.commonPixels ? ` · ${stats.meanSavedMinutes >= 0 ? 'saves' : 'adds'} ${reachDecimal(Math.abs(stats.meanSavedMinutes), 1)} min where both reach` : ''}
-                        {stats.stopsDelta !== null ? ` · ${reachDelta(stats.stopsDelta)} stops` : ''}
-                      </small>
-                    </> : <small className="compare-variant-detail is-error">{entry.error ?? 'Not measured'}</small>}
-                  </button>
-                )
-              })
-            })()}
-          </div>
-          {analysis && comparisonRun.selectedId ? <p className="compare-map-note">The map shows time change from {comparisonRun.reference.label} to {comparisonRun.entries.find((entry) => entry.variant.id === comparisonRun.selectedId)?.variant.label}. Choose another variant to compare it.</p> : null}
-          {feeds.length >= 2 && comparisonFeedIds.length === 2 ? (
-            <div className="reach-service-edges">
-              <div>
-                <strong>Street service change</strong>
-                <small>Compare GTFS shapes on the local OSM driving graph; route IDs are not used for alignment.</small>
-              </div>
-              <div className="reach-service-edge-legend" aria-label="Street service edge legend">
-                <span><i style={{ background: '#35d0a1' }} />Added</span>
-                <span><i style={{ background: '#6da8ff' }} />Maintained</span>
-                <span><i style={{ background: '#ff6757' }} />Removed</span>
-              </div>
-              <button
-                type="button"
-                className="reach-run"
-                disabled={serviceDecompositionLoading || !streetGraphAvailable}
-                onClick={onRunServiceDecomposition}
-              >
-                {serviceDecompositionLoading ? <LoaderCircle size={14} /> : <Route size={14} />}
-                {serviceDecompositionLoading ? 'Mapping service edges…' : serviceDecomposition ? 'Refresh street service map' : 'Map street service change'}
-              </button>
-              {serviceDecomposition ? (
-                <small className="reach-service-edge-summary">
-                  {formatNumber(serviceEdgeSummary.added)} added · {formatNumber(serviceEdgeSummary.maintained)} maintained · {formatNumber(serviceEdgeSummary.removed)} removed · unmatched/partial patterns excluded
-                </small>
-              ) : null}
-              {serviceDecompositionError ? <p className="reach-inline-note is-error" role="alert">{serviceDecompositionError}</p> : null}
-            </div>
-          ) : null}
-        </section>
-      ) : null}
-
-      {mode === 'single' && analysis ? (
+      {analysis ? (
         <section className="reach-results" aria-label="Modeled network reach comparison results">
           <div className="reach-results-heading">
             <div>
@@ -1596,14 +1405,11 @@ const addCase = () => addScenario()
 const inferGeometry = (interventionId: string) => { void inferScenarioRoadGeometry(interventionId) }
 const clearOrigin = () => setAnalysisOrigin(null)
 const runAnalysis = () => { void runSurfaceAnalysis() }
-const runComparison = () => { void runComparisonAction() }
-const runDecomposition = () => { void runServiceDecomposition() }
 
 /** The Analyze workspace panel, reading the Analyze store and the open City. */
 export const AnalyzePanel = memo(function AnalyzePanel() {
   countRender('AnalyzePanel')
   const settings = useStore(analyze, (state) => ({
-    analyzeMode: state.analyzeMode,
     analysisOrigin: state.analysisOrigin,
     reachTimePreference: state.reachTimePreference,
     reachMaxWalkKm: state.reachMaxWalkKm,
@@ -1613,27 +1419,18 @@ export const AnalyzePanel = memo(function AnalyzePanel() {
     reachTravelMode: state.reachTravelMode,
     scenarioCutoffMinutes: state.scenarioCutoffMinutes,
     scenarioRenderMode: state.scenarioRenderMode,
-    comparisonFeedIds: state.comparisonFeedIds,
     scenarioView: state.scenarioView,
     scenarioLoading: state.scenarioLoading,
     scenarioProgress: state.scenarioProgress,
     scenarioError: state.scenarioError,
     reachResult: state.reachResult,
-    comparisonRun: state.comparisonRun,
-    compareReferenceId: state.compareReferenceId,
-    serviceDecomposition: state.serviceDecomposition,
-    serviceDecompositionLoading: state.serviceDecompositionLoading,
-    serviceDecompositionError: state.serviceDecompositionError,
   }), shallowEqual)
   const { serviceDate, scheduleTimeMinutes } = useStore(clock, (state) => state, shallowEqual)
   const library = useStudio(scenarioLibrary)
-  const references = useStudio(compareReferenceOptions)
-  const comparedScenarios = useStudio(compareScenarioIds)
   const activeInterventionId = useStudio(() => activeScenarioChange()?.id ?? '')
   const stopPlacement = useStudio(activeScenarioStopPlacement)
   const caseFeeds = useStudio(activeCaseFeeds)
   const groupsError = useStudio(() => cityGrouping().error)
-  const feeds = useStudio(comparisonFeedOptions)
   const routes = useStudio(analysisRoutes)
   const stops = useStudio(() => preview().stops)
   const routeAnalysis = useStore(network, (state) => ({
@@ -1653,7 +1450,6 @@ export const AnalyzePanel = memo(function AnalyzePanel() {
 
   return (
     <AnalyzePanelView
-      mode={settings.analyzeMode}
       origin={settings.analysisOrigin}
       serviceDate={serviceDate}
       departMinutes={scheduleTimeMinutes}
@@ -1662,7 +1458,7 @@ export const AnalyzePanel = memo(function AnalyzePanel() {
       maxWalkKm={settings.reachMaxWalkKm}
       maxTransfers={settings.reachMaxTransfers}
       walkSpeedKph={settings.scenarioWalkSpeedKph}
-      travelMode={settings.analyzeMode === 'single' ? settings.reachTravelMode : 'transit'}
+      travelMode={settings.reachTravelMode}
       onTravelModeChange={changeReachTravelMode}
       surfaceSampling={settings.reachSurfaceSampling}
       onSurfaceSamplingChange={changeSurfaceSampling}
@@ -1674,8 +1470,6 @@ export const AnalyzePanel = memo(function AnalyzePanel() {
       scenarioSaveState={library.saveState}
       onRenameCase={renameScenario}
       onAssignCaseGroup={assignScenarioGroup}
-      feeds={feeds}
-      comparisonFeedIds={settings.comparisonFeedIds}
       activeCaseId={library.activeScenarioId}
       activeInterventionId={activeInterventionId}
       stopPlacement={stopPlacement}
@@ -1686,18 +1480,8 @@ export const AnalyzePanel = memo(function AnalyzePanel() {
       view={settings.scenarioView}
       loading={settings.scenarioLoading}
       progress={settings.scenarioProgress}
-      error={settings.scenarioError || library.draftStorageError || (settings.analyzeMode === 'single' ? groupsError || caseFeeds.error : '')}
+      error={settings.scenarioError || library.draftStorageError || (groupsError || caseFeeds.error)}
       analysis={settings.reachResult}
-      comparisonRun={settings.comparisonRun}
-      compareReferenceOptions={references}
-      compareReferenceId={settings.compareReferenceId}
-      compareScenarioIds={comparedScenarios}
-      onCompareReferenceChange={changeCompareReference}
-      onCompareScenarioChange={toggleCompareScenario}
-      onSelectComparisonVariant={selectComparisonVariant}
-      serviceDecomposition={settings.serviceDecomposition}
-      serviceDecompositionLoading={settings.serviceDecompositionLoading}
-      serviceDecompositionError={settings.serviceDecompositionError}
       routingStoreAvailable={data.routingStoreAvailable}
       streetGraphAvailable={data.streetGraphAvailable}
       preparationTasks={preparationTasks}
@@ -1710,8 +1494,6 @@ export const AnalyzePanel = memo(function AnalyzePanel() {
       onWalkSpeedChange={changeWalkSpeed}
       onCutoffChange={changeCutoff}
       onRenderModeChange={changeRenderMode}
-      onModeChange={changeAnalyzeMode}
-      onComparisonFeedChange={toggleComparisonFeed}
       onSelectCase={selectScenario}
       onAddCase={addCase}
       onRemoveCase={removeScenario}
@@ -1730,8 +1512,6 @@ export const AnalyzePanel = memo(function AnalyzePanel() {
       onSetOrigin={setAnalysisOrigin}
       onClearOrigin={clearOrigin}
       onRun={runAnalysis}
-      onRunComparison={runComparison}
-      onRunServiceDecomposition={runDecomposition}
       onOpenData={openDataView}
       onCancel={cancelSurfaceAnalysis}
     />

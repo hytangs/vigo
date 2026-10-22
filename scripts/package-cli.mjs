@@ -31,11 +31,11 @@ try {
   await fs.mkdir(payload)
   for (const [source, destination] of [
     ['public/vigo.mjs', 'vigo.mjs'],
-    ['native/vigo-routing-kernel.node', 'vigo-routing-kernel.node'],
-    [`native/target/release/${executable}`, executable],
+    ['crates/vigo-runtime/vigo-routing-kernel.node', 'vigo-routing-kernel.node'],
+    [`target/release/${executable}`, executable],
     ['LICENSE', 'LICENSE'], ['NOTICE', 'NOTICE'],
-    ['native/vendor/cch/LICENSE', 'CCH-LICENSE'],
-    ['native/vendor/cch/NOTICE', 'CCH-NOTICE'],
+    ['vendor/cch/LICENSE', 'CCH-LICENSE'],
+    ['vendor/cch/NOTICE', 'CCH-NOTICE'],
     ['docs/guides/cli-only.md', 'README.md'],
   ]) await fs.copyFile(path.join(root, source), path.join(payload, destination))
   // The extracted README has no adjacent source documentation tree.

@@ -5,7 +5,7 @@ import App from '../../src/App'
 import { emptyCityProject } from '../../src/app/projectState'
 import { city } from '../../src/state/city'
 import { shell, setQuery } from '../../src/state/shell'
-import { route, routingNetwork, routeScenario, clearRouting, selectRoutingPlan, routingPlan } from '../../src/state/route'
+import { route, routingNetwork, routeScenario, clearRouting, selectRoutingPlan, routingPlan, wheelchairSelectionKey, wheelchairAvailable } from '../../src/state/route'
 import { analyze, analysisPointFromMap, changeReachMaxWalkKm } from '../../src/state/analyze'
 import { scenarioLibrary } from '../../src/state/scenarios'
 import { openProject, openPathfinderView, openAnalyzeView, applyCitySelection } from '../../src/state/navigation'
@@ -164,6 +164,12 @@ window.checkStores = async () => {
   await until(() => document.querySelector('[aria-label="Route network"]')?.value === id, 'Route scenario selection did not update')
   check(routeScenario().request?.feedIds.join() === 'feed', 'Route scenario lost its timetable group')
   check(routeScenario().request?.scenario.name === 'Saved plan', 'Route scenario request used an old plan')
+  const capabilityKey = wheelchairSelectionKey()
+  flushSync(() => route.set({ wheelchairAvailableKey: capabilityKey }))
+  check(wheelchairAvailable(), 'Fixture capability was not available')
+  flushSync(() => scenarioLibrary().setScenarioDrafts(current => current.map(entry => ({ ...entry, name: 'Updated plan' }))))
+  check(wheelchairSelectionKey() !== capabilityKey && !wheelchairAvailable(), 'Edited scenario retained old wheelchair capability')
+
 
   flushSync(openAnalyzeView)
   await until(() => document.querySelector('.reach-surface'), 'Analyze did not open')

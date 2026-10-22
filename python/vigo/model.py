@@ -1161,7 +1161,8 @@ class City:
             "horizonMinutes": query.horizon_minutes,
             "includeJourneys": query.include_journeys,
             "includeGeometry": query.include_geometry,
-            "walkSpeedKph": query.walk_speed_kph,
+            **({"walkSpeedKph": query.walk_speed_kph}
+               if query.mode != "transit" or query.walk_speed_kph != 4.8 else {}),
             **(
                 {"maxDistanceKm": query.max_distance_km}
                 if query.max_distance_km is not None

@@ -12,8 +12,8 @@ const moduleDirectory = path.dirname(fileURLToPath(import.meta.url))
 const nativeKernelCandidates = [...new Set([
   String(process.env.VIGO_NATIVE_ROUTING_KERNEL ?? '').trim(),
   path.join(moduleDirectory, 'vigo-routing-kernel.node'),
-  path.resolve(moduleDirectory, '..', 'native', 'vigo-routing-kernel.node'),
-  path.resolve(moduleDirectory, '..', '..', 'native', 'vigo-routing-kernel.node'),
+  path.resolve(moduleDirectory, '..', 'crates', 'vigo-runtime', 'vigo-routing-kernel.node'),
+  path.resolve(moduleDirectory, '..', '..', 'crates', 'vigo-runtime', 'vigo-routing-kernel.node'),
 ].filter(Boolean))]
 const nativeKernelCache = new Map()
 const nativeTimetableKernelCache = new WeakMap()
@@ -252,7 +252,7 @@ export function nativeStableKeySuffix(value) {
 export function renderNativeLocalBasemapTile(storePath, z, x, y) {
   const binding = loadNativeBinding()
   if (typeof binding.localBasemapTile !== 'function') throw new Error('Rust routing binding lacks offline basemap tiles. Rebuild the native kernel.')
-  return binding.localBasemapTile(storePath, z, x, y)
+  return binding.localBasemapTile(path.resolve(storePath), z, x, y)
 }
 
 function transitNetworkBinding() {
@@ -2383,7 +2383,9 @@ export function nativeFarePrimitives() {
 }
 
 export function disposeNativeRoutingKernel(storePath) {
-  nativeKernelCache.delete(path.resolve(storePath))
+  const resolvedPath = path.resolve(storePath)
+  nativeKernelCache.delete(resolvedPath)
+  nativeBinding?.disposeLocalBasemapStore(resolvedPath)
 }
 
 // One versioned projection is implemented in Rust for every public transport.

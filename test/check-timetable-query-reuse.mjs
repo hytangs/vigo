@@ -3,7 +3,7 @@ import { createRequire } from 'node:module'
 import { timetableQueryFixture, timetableMatrixRequest, timetableQuerySemantics } from './helpers/timetable-query-fixture.mjs'
 
 const require = createRequire(import.meta.url)
-const { TimetableKernel } = require(process.env.VIGO_NATIVE_ROUTING_KERNEL || '../native/vigo-routing-kernel.node')
+const { TimetableKernel } = require(process.env.VIGO_NATIVE_ROUTING_KERNEL || '../crates/vigo-runtime/vigo-routing-kernel.node')
 const fixture = timetableQueryFixture(4)
 const reused = new TimetableKernel(fixture)
 const initialBytes = reused.diagnostics().workspaceBytes

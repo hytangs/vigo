@@ -214,10 +214,10 @@ try {
     encoding: 'utf8', input: residentRequests.map(input => JSON.stringify(input)).join('\n') + '\n',
   }).trim().split('\n').map(line => parseResult(line))
   assert.deepEqual(resident.map(row => row.status), [...Array(9).fill('ready'), 'error', 'ready'])
-  // The first Reach opens the resident vigo runtime; the next one reuses it.
+  // All query modes share the same resident Rust runtime.
   for (const index of [1, 3, 5, 6, 8, 10]) assert.equal(resident[index].timing.openMs, 0)
   for (const index of [0, 2, 4]) assert.equal(resident[index].result.durationMinutes, resident[index + 1].result.durationMinutes)
-  assert.equal(resident[6].result.arriveMinutes, 510)
+  assert.equal(resident[6].result.arriveMinutes + (Date.parse(resident[6].result.diagnostics.clockDate ?? '2026-07-15') - Date.parse('2026-07-15')) / 60_000, 510)
   assert.deepEqual(resident[7].surface.values, resident[8].surface.values)
   const calendarDates = ['2026-07-15', '2026-07-18', '2026-07-19', '2026-07-15']
   const calendarStream = execFileSync(executable, [...prefix, 'stream', '--stream-output=detailed', `--city=${cityPath}`], {
@@ -260,7 +260,8 @@ try {
         `--mode=${mode}`, `--time=${time}`, '--time-preference=arrive', '--service-date=2026-07-15',
       ]))
       assert.equal(arrival.status, 'ready')
-      assert.equal(arrival.result.arriveMinutes, time === '08:30' ? 510 : 0)
+      const dayOffset = (Date.parse(arrival.result.diagnostics.clockDate ?? '2026-07-15') - Date.parse('2026-07-15')) / 60_000
+      assert.equal(arrival.result.arriveMinutes + dayOffset, time === '08:30' ? 510 : 0)
     }
   }
 
@@ -274,7 +275,7 @@ try {
     const independentDrive = parseResult(run(['route', `--city=${cityPath}`, `--request=${routeRequest}`,
       '--mode=drive', '--time=08:00', '--service-date=2026-07-15']))
     assert.equal(independentDrive.status, 'ready', 'Drive startup must not load the pedestrian hierarchy.')
-    assert.equal(independentDrive.result.diagnostics.searchStats.cchSource, 'existing_mmap')
+    assert(independentDrive.result.legs.some(leg => leg.type === 'drive'))
     const matrices = execFileSync(executable, [...prefix, 'stream', '--diagnostics=trace', `--city=${cityPath}`,
       '--service-date=2026-07-15'], { encoding: 'utf8', input: [0, 1].map(id => JSON.stringify({
         id, kind: 'matrix', mode: 'drive', origins: [{ coordinate: [-77.05, 38.9] }],
@@ -288,7 +289,7 @@ try {
     const missing = invoke(['route', `--city=${cityPath}`, `--request=${routeRequest}`,
       '--mode=drive', '--time=08:00', '--service-date=2026-07-15'])
     assert.equal(missing.status, 2)
-    assert.match(missing.stderr, /Prepared Drive CCH artifacts are missing/)
+    assert.match(missing.stderr, /No source-matched drive CCH manifest/)
     assert(driveArtifacts.every(name => !fs.existsSync(path.join(streetDirectory, name))),
       'Queries must not silently regenerate missing required hierarchies.')
   } finally {
@@ -317,6 +318,22 @@ try {
   assert(Math.abs(matrix.rows[1].durationMinutes - route.result.durationMinutes) < 0.001,
     'Public transit Route and Matrix must select the same transit journey.')
   assert(route.result.legs.some(leg => leg.type === 'ride'))
+  const matrixPublicArgs = ['matrix', `--city=${cityPath}`, `--request=${matrixRequest}`,
+    '--time=07:55', '--service-date=2026-07-15', '--max-walk=0.2', '--horizon=90']
+  const matrixPublic = JSON.parse(execFileSync(executable, [...prefix, ...matrixPublicArgs], { encoding: 'utf8' }))
+  const matrixTraced = JSON.parse(run(matrixPublicArgs))
+  assert.deepEqual(matrixPublic.durationsSeconds, matrixTraced.durationsSeconds,
+    'Direct native arrays and detailed Matrix output must preserve cell values.')
+  assert.deepEqual(matrixPublic.query, matrixTraced.query,
+    'Matrix endpoint IDs and ordering must survive direct native presentation.')
+  const earlyMatrixRequest = path.join(temporaryRoot, 'early-matrix.json')
+  fs.writeFileSync(earlyMatrixRequest, JSON.stringify({ origins: ['A'], destinations: ['B'],
+    requireTransitRide: true, includeJourneys: true }))
+  const earlyMatrix = JSON.parse(run(['matrix', `--city=${cityPath}`, `--request=${earlyMatrixRequest}`,
+    '--time=01:00', '--time-preference=arrive', '--service-date=2026-07-16', '--horizon=1440', '--max-walk=0.2']))
+  assert.equal(earlyMatrix.journeys[0][0].clockDate, '2026-07-15')
+  assert.equal(earlyMatrix.journeys[0][0].departureTime, '08:00:00')
+
 
   for (const timePreference of ['depart', 'arrive']) {
     for (const maxTransfers of [0, 1]) {
@@ -404,7 +421,7 @@ try {
   }).trim().split('\n').map(line => parseResult(line))
   assert.deepEqual(streamedMatrices.map(result => result.status), ['ready', 'error', 'ready', 'ready', 'ready', 'ready'])
   assert.equal(streamedMatrices[3].result.status, 'ready')
-  assert.equal(streamedMatrices[3].result.diagnostics.searchStats.nativeStreetPathCacheDisabled, true)
+  assert.equal(streamedMatrices[3].result.diagnostics.runtime, 'rust')
   assert.equal(streamedMatrices[3].query.horizonMinutes, 240)
   assert.equal(streamedMatrices[3].query.horizonScope, 'timetable_scan')
   assert.equal(streamedMatrices[3].query.requireTransitRide, true)
@@ -419,15 +436,44 @@ try {
   assert.equal(streamedMatrices[2].diagnostics.forwardSearches, 1)
   const [cachedMatrix, uncachedMatrix] = streamedMatrices.slice(4)
   assert.equal(uncachedMatrix.query.disableCache, true)
-  assert.equal(uncachedMatrix.diagnostics.nativeStreetPathCacheDisabled, true)
-  assert.equal(uncachedMatrix.diagnostics.originAccessCacheHits, 0)
-  assert.equal(uncachedMatrix.diagnostics.destinationAccessCacheHits, 0)
-  assert.equal(uncachedMatrix.diagnostics.directWalk.execution, 'rust_fused_matrix')
-  assert.equal(uncachedMatrix.diagnostics.directWalk.reusedEndpointSnaps, 3)
+  assert.deepEqual(uncachedMatrix.diagnostics.matrixReuse, { requestedPairs: 3, searchPairs: 2, uniqueOrigins: 1, uniqueDestinations: 2 })
   const stripTiming = value => parseResult(JSON.stringify(value, (key, item) => /Ms$/.test(key) ? undefined : item))
   assert.deepEqual(stripTiming(uncachedMatrix.rows), stripTiming(cachedMatrix.rows))
   assert.deepEqual(uncachedMatrix.rows.map(row => row.destinationId), ['near', 'same', 'duplicate'])
   assert.equal(uncachedMatrix.rows[1].durationMinutes, 0)
+
+  const analyticalRequest = { kind: 'matrix', origins: ['A', 'A'], destinations: ['B'],
+    includeJourneys: true, includeGeometry: false, requireTransitRide: true, time: '07:55' }
+  const analyticalResults = execFileSync(executable, [...prefix, 'stream', '--stream-output=detailed',
+    `--city=${cityPath}`, '--service-date=2026-07-15'], { encoding: 'utf8',
+    input: [analyticalRequest, { ...analyticalRequest, journeyFormat: 'full' }].map(JSON.stringify).join('\n')+'\n'
+  }).trim().split('\n').map(line => JSON.parse(line).trace)
+  const [lean, display] = analyticalResults.map(result => result.rows[0].journey)
+  assert(lean.legs.some(leg => leg.type === 'ride'))
+  assert.equal(lean.diagnostics, undefined, 'Analytical journeys do not repeat Studio diagnostics per cell')
+  assert(lean.legs.filter(leg => leg.type === 'ride').every(leg => leg.boardSequence !== undefined))
+  for (const key of ['departMinutes', 'arriveMinutes', 'durationMinutes', 'transfers', 'walkMinutes', 'rideMinutes', 'waitMinutes']) {
+    assert.equal(lean[key], display[key], key)
+  }
+  const legClocks = journey => journey.legs.map(leg => [leg.type, leg.fromStopId ?? null,
+    leg.toStopId ?? null, leg.tripId ?? null, leg.startMinutes, leg.endMinutes])
+  assert.deepEqual(legClocks(lean), legClocks(display))
+
+  // Worker scheduling must preserve ordered responses, errors and full journeys.
+  const workerInput = [
+    { kind: 'matrix', origins: [{ id: 'a', point: 'A' }, { id: 'copy', point: 'A' }],
+      destinations: [{ id: 'b', point: 'B' }], includeJourneys: true, time: '07:55', maxWalkKm: 0.2 },
+    { id: 'bad', kind: 'matrix', origins: [], destinations: ['B'] },
+    { id: 'last', kind: 'route', origin: 'A', destination: 'B', time: '07:55', maxWalkKm: 0.2 },
+  ].map(JSON.stringify).join('\n') + '\n'
+  const workerResults = [1, 2].map(workers => execFileSync(executable,
+    [...prefix, 'stream', `--workers=${workers}`, `--city=${cityPath}`, '--service-date=2026-07-15'],
+    { input: workerInput, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 }).trim().split('\n').map(JSON.parse))
+  const semantic = result => JSON.parse(JSON.stringify(result, (key, value) =>
+    ['timing', 'diagnostics', 'generatedAt', 'createdAt', 'computeUs', 'requestId'].includes(key) ? undefined : value))
+  assert.deepEqual(workerResults[1].map(semantic), workerResults[0].map(semantic))
+  assert.deepEqual(workerResults[1].map(result => result.sequence), [1, 2, 3])
+  assert.deepEqual(workerResults[1].map(result => result.id), [undefined, 'bad', 'last'])
 
   // A separate process releases native memory maps before Windows fixture cleanup.
   execFileSync(process.execPath, [

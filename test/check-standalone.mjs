@@ -78,8 +78,65 @@ try {
     assert.equal(fallback.status, 'ready', 'No transit access must still allow the requested direct-walk comparison')
     assert.equal(fallback.mode, 'walk')
   }
+  // Policy composition must preserve independently queried direct/transit/walk results.
+  for (const timePreference of ['depart_at', 'arrive_by']) {
+    const q = { ...coordinate, timePreference, time: timePreference === 'arrive_by' ? '08:30' : '07:55', requireTransitRide: false, allowLongWalk: true, maxStreetKm: 5 }
+    const composed = run('route', { ...q, journeyPolicy: 'alternatives-v1', sharedLegs: true })
+    const choices = [composed, ...(composed.choices || [])].filter(p => p.status === 'ready')
+    for (const options of [{}, { maxTransfers: 0, requireTransitRide: true }, { mode: 'walk' }]) {
+      const independent = run('route', { ...q, ...options })
+      if (independent.status === 'ready') assert(choices.some(p => p.arrivalMinutes === independent.arrivalMinutes &&
+        p.departureMinutes === independent.departureMinutes && p.mode === independent.mode), 'Independent witness retained')
+    }
+    const noWalk = run('route', { ...q, maxWalkKm: 0, allowLongWalk: false, journeyPolicy: 'alternatives-v1' })
+    assert([noWalk, ...(noWalk.choices || [])].every(p => p.status !== 'ready' || p.legs.some(l => l.kind === 'ride')))
+  }
+  rejects('route', { ...base, journeyPolicy: 'unknown' }, /journeyPolicy/)
+  rejects('route', { ...base, journeyPolicy: 'alternatives-v1', alternatives: 2 }, /owns alternatives/)
   const walk = run('route', { ...coordinate, mode: 'walk' })
+  for (const timePreference of ['depart_at', 'arrive_by']) {
+    const walkOnly = { ...coordinate, mode: 'walk', allowLongWalk: false,
+      maxWalkKm: 0.01, maxStreetKm: 50, timePreference }
+    const unrestricted = run('route', { ...walkOnly, allowLongWalk: true })
+    const restricted = run('route', walkOnly)
+    assert.equal(restricted.status, 'ready', 'Transit access limits must not constrain Walk mode')
+    assert.equal(restricted.durationMinutes, unrestricted.durationMinutes)
+    assert.equal(run('route', { ...walkOnly, maxWalkKm: 0 }).status, 'ready')
+    for (const maxStreetKm of [0, 0.001, 0.049]) {
+      rejects('route', { ...walkOnly, maxStreetKm }, /maxStreetKm/)
+      rejects('matrix', { ...walkOnly, maxStreetKm, origin: undefined, destination: undefined,
+        origins: [coordinate.origin], destinations: [coordinate.destination] }, /maxStreetKm/)
+    }
+    assert.equal(run('route', { ...walkOnly, maxStreetKm: 0.05 }).status, 'blocked')
+    assert.equal(run('route', { ...walkOnly, horizonMinutes: 1 }).durationMinutes, restricted.durationMinutes,
+      'A transit scan horizon must not shorten an explicit Walk route')
+    assert.equal(run('route', { ...walkOnly, via: [{ stopId: 'X' }] }).status, 'ready')
+    const walkingMatrix = run('matrix', { ...walkOnly, horizonMinutes: 1, origin: undefined, destination: undefined,
+      origins: [coordinate.origin], destinations: [coordinate.destination] })
+    assert(Math.abs(walkingMatrix.durationsMinutes[0][0] - restricted.durationMinutes) < 1e-6)
+    assert.equal(run('route', { ...walkOnly, mode: 'transit', requireTransitRide: false,
+      serviceDate: '2026-07-19' }).status, 'blocked', 'Transit must retain the direct-walk limit')
+  }
+  const longBound = run('route', { ...coordinate, mode: 'walk', maxStreetKm: 1000, walkSpeedKph: 1, time: '00:00', timePreference: 'arrive_by' })
+  assert.equal(longBound.status, 'ready', 'A large walk bound must not overflow the internal service clock')
   const drive = run('route', { ...coordinate, mode: 'drive' })
+  const driveAccess = { ...coordinate, mode: 'drive', maxWalkKm: 1.2,
+    origin: { coordinate: [-77.0502, 38.9001] }, destination: { coordinate: [-77.0298, 38.9101] } }
+  for (const timePreference of ['depart_at', 'arrive_by']) {
+    const slow = run('route', { ...driveAccess, timePreference, walkSpeedKph: 2 })
+    const fast = run('route', { ...driveAccess, timePreference, walkSpeedKph: 4 })
+    assert.equal(slow.status, 'ready')
+    assert.deepEqual(slow.legs.map(l => l.kind), ['walk', 'drive', 'walk'])
+    assert(slow.durationMinutes > fast.durationMinutes)
+    assert.equal(slow.legs[1].durationMinutes, fast.legs[1].durationMinutes)
+    for (const index of [0, 2]) assert(Math.abs(slow.legs[index].durationMinutes - 2 * fast.legs[index].durationMinutes) < 1e-6)
+    const matrix = run('matrix', { ...driveAccess, timePreference, walkSpeedKph: 2,
+      origin: undefined, destination: undefined, origins: [driveAccess.origin], destinations: [driveAccess.destination] })
+    // Drive matrices quantize the two road-access walks to centiseconds.
+    assert(Math.abs(matrix.durationsMinutes[0][0] - slow.durationMinutes) <= 0.02 / 60, JSON.stringify({ timePreference, matrix: matrix.durationsMinutes, route: slow.durationMinutes, legs: slow.legs.map(l => ({ kind: l.kind, duration: l.durationMinutes, distance: l.distanceMeters })) }))
+    assert.equal(run('route', { ...driveAccess, timePreference, maxWalkKm: 0 }).status, 'blocked')
+    assert.equal(run('route', { ...driveAccess, timePreference, maxStreetKm: 0.05 }).status, 'blocked')
+  }
   assert.equal(walk.status, 'ready')
   assert.equal(drive.status, 'ready')
   assert(drive.durationMinutes < walk.durationMinutes)
@@ -93,8 +150,9 @@ try {
       'Ordered Transit must allow a walking segment instead of forcing a boarding.')
     const allWalk = run('route', { ...coordinate, mode: 'walk', via: [{ stopId: 'X' }],
       timePreference, time: timePreference === 'arrive_by' ? '08:30' : base.time })
-    assert(timePreference === 'arrive_by' ? via.departureMinutes >= allWalk.departureMinutes
-      : via.arrivalMinutes <= allWalk.arrivalMinutes, 'The selected multi-stop result must be no worse in time than walking')
+    const clock = (result, key) => result[key] + (Date.parse(result.clockDate ?? base.serviceDate) - Date.parse(base.serviceDate)) / 60_000
+    assert(timePreference === 'arrive_by' ? clock(via, 'departureMinutes') + 1e-9 >= clock(allWalk, 'departureMinutes')
+      : clock(via, 'arrivalMinutes') <= clock(allWalk, 'arrivalMinutes') + 1e-9, `The selected multi-stop result must be no worse in time than walking: ${JSON.stringify({direction: timePreference, via: [via.clockDate, via.departureMinutes, via.arrivalMinutes], walk: [allWalk.clockDate, allWalk.departureMinutes, allWalk.arrivalMinutes]})}`)
     assert(via.choices.some(choice => choice.mode === 'walk'), 'Retain the complete walking option')
     assert(via.diagnostics.orderedSearch.segmentQueries <= 9)
   }
@@ -139,6 +197,11 @@ try {
   assert(noBaseService.stops.some(stop => stop.stopId === 'B' && stop.durationMinutes <= 5))
   const preserved = run('reach', { ...reachQuery, scenario: { services: [{ operation: 'replace', scheduleMode: 'preserve-trips', stops: [{ stopId: 'X' }, { stopId: 'B' }], scheduledTrips: [{ tripId: 'T2', departureSeconds: 495 * 60, arrivalOffsetsSeconds: [0, 600], departureOffsetsSeconds: [0, 600], canBoard: [1, 0], canAlight: [0, 1] }] }] } })
   assert(preserved.stops.some(stop => stop.stopId === 'B' && stop.durationMinutes <= 30))
+  const places = run('native', { operation: 'places.describe', input: { longitudes: [-77.05, 0], latitudes: [38.9, 0] } }).result
+  assert.deepEqual(places, { labels: ['Near Alpha', null], kinds: ['stop', null] })
+  rejects('native', { operation: 'places.describe', input: { longitudes: [181], latitudes: [0] } }, /finite longitude/)
+  rejects('native', { operation: 'places.describe', input: { longitudes: [0], latitudes: [] } }, /equal lengths/)
+  rejects('native', { operation: 'places.describe', input: { longitudes: Array(257).fill(0), latitudes: Array(257).fill(0) } }, /at most 256/)
   const identifiers = run('native', { serviceDate: base.serviceDate, operation: 'timetable.identifiers' }).result
   assert.deepEqual(identifiers.stopIds, ['A', 'B', 'X'])
   const rawMatrix = run('native', { serviceDate: base.serviceDate, operation: 'timetable.matrix', input: {

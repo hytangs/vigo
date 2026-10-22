@@ -10,7 +10,7 @@ from vigo import City, InvalidQuery, Matrix, Result, RuntimeInfo
 
 class BatchTest(unittest.TestCase):
     def setUp(self):
-        self.city = City(Path('.'), RuntimeInfo('0.5.2', '1.0', 'test', 'unused',
+        self.city = City(Path('.'), RuntimeInfo('1.0.0-rc.1', '1.0', 'test', 'unused',
                                                ('unused',), {}), {})
         self.city._stream_limit = 2
         self.queries = [Matrix({'a': 'A'}, {'b': 'B'}) for _ in range(8)]

@@ -12,7 +12,7 @@ Runnable examples for the public `vigo` package. They use only the documented AP
 Install VIGO Python with an Engine 0.5 runtime ([installation](../docs/guide.md#your-first-python-query)) and Jupyter in the same environment:
 
 ```sh
-python -m pip install "/path/to/vigo-0.5.2-py3-none-PLATFORM.whl[speed]" jupyterlab
+python -m pip install "/path/to/vigo-1.0.0rc1-py3-none-PLATFORM.whl[speed]" jupyterlab
 jupyter lab examples/walkthrough.ipynb
 ```
 

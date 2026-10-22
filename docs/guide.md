@@ -1,10 +1,10 @@
-# VIGO 0.5.2 guide
+# VIGO 1.0.0-rc.1 guide
 
 The canonical source for the [VIGO guide](guide.html), a single offline page that also includes the [engine reference](guides/rust-standalone.md), [Results](reference/results.md), [VIGO Python](../python/docs/guide.md), and [developer resources](developer.md#developer-resources). Edit a chapter here, then run `npm run docs:build`.
 
 ## Build a network. Answer a transport question.
 
-VIGO 0.5.2 turns GTFS timetables and OpenStreetMap streets into a reusable City, then answers three questions about it: how to make a journey, how long every trip takes, and how far people can get. It runs on your own machine, explains each answer, and never needs an internet connection to route.
+VIGO 1.0.0-rc.1 turns GTFS timetables and OpenStreetMap streets into a reusable City, then answers three questions about it: how to make a journey, how long every trip takes, and how far people can get. It runs on your own machine, explains each answer, and never needs an internet connection to route.
 
 ### Start here
 
@@ -28,7 +28,7 @@ A **Scenario** changes the service one query sees, such as a new line or a remov
 | Interface | Best for | What it needs |
 | --- | --- | --- |
 | **Engine** (`vigo`) | Queries, resident streams, and the HTTP API | One native executable; no Node, Python, or network access |
-| **Compiler** (`vigo.mjs`) | Building Cities and scenario collections; it can also query them | Node.js 24.18 or newer and its bundled native kernel |
+| **Compiler** (`vigo.mjs`) | Building Cities and scenario collections; it can also query them | Node.js 24.18 or newer, its bundled native kernel, and the native executable for queries |
 | **Studio** | Inspecting service, planning journeys, and exploring Reach and scenarios | The desktop application and its own project library |
 | **Python** (`import vigo`) | Studies, batches, notebooks, and journey tables | A platform wheel with a headless engine |
 
@@ -42,9 +42,9 @@ Every answer carries its evidence. A Route Result says whether each walk follows
 - **Stable results.** The public `vigo.route.v1`, `vigo.matrix.v1`, and `vigo.reach.v1` schemas only gain optional fields. See [Read a Result](reference/results.md).
 - **Offline by default.** Queries never fetch anything. This guide works offline too: press `/` to search, and open saved Results in the [Result viewer](#inspect-a-saved-result).
 
-### What's new in 0.5.2
+### What's new in 1.0.0-rc.1
 
-Route can return several journeys at once with `alternatives`. The engine and the compiler now return the same Result for the same request, including fares and walking connections. Studio saves journeys and comparisons as JSON, GeoJSON, CSV, or Markdown. Read the [release notes](releases/0.5.2.md) and the [changelog](../CHANGELOG.md).
+Route can return several journeys at once with `alternatives`. The engine and the compiler now return the same Result for the same request, including fares and walking connections. Studio saves journeys and comparisons as JSON, GeoJSON, CSV, or Markdown. Read the [release notes](releases/1.0.0-rc.1.md) and the [changelog](../CHANGELOG.md).
 
 ## Install VIGO
 
@@ -98,7 +98,7 @@ npm run build:cli-runtime
 npm run build:standalone
 ```
 
-`build:cli-runtime` produces the compiler, `public/vigo.mjs`, and its native kernel. `build:standalone` produces the engine at `native/target/release/vigo`. `npm run build` additionally compiles Studio, and `npm run studio` opens it.
+`build:cli-runtime` produces the compiler, `public/vigo.mjs`, and its native kernel. `build:standalone` produces the engine at `target/release/vigo`. `npm run build` additionally compiles Studio, and `npm run studio` opens it.
 
 ### Name the commands
 
@@ -109,7 +109,7 @@ alias vigo="/absolute/path/to/vigo"
 alias vigo-build='node "/absolute/path/to/vigo.mjs"'
 ```
 
-From a source checkout, point them at `native/target/release/vigo` and `public/vigo.mjs`. On Windows, use `.\vigo.exe` and `node .\vigo.mjs`, or define your own functions. Both commands accept `--name value` and `--name=value` and reject unknown options.
+From a source checkout, point them at `target/release/vigo` and `public/vigo.mjs`. On Windows, use `.\vigo.exe` and `node .\vigo.mjs`, or define your own functions. Both commands accept `--name value` and `--name=value` and reject unknown options.
 
 ### Studio and Python
 
@@ -390,7 +390,7 @@ vigo route --city ./boston --request journey.json --output journey-result.json
 
 Check `status`, then the chronological `journey.legs`. Walking competes with transit, so a short trip can return a walk; set `requireTransitRide: true` to require a boarding, or `"mode": "walk"` to request walking alone. A `not_found` Result can reflect the date, timetable, access network, or constraints. It does not mean the places are physically disconnected; [Troubleshooting](#route-returns-no-journey) lists the checks in order.
 
-For several journeys at the requested time, add `"alternatives": 3`. The default `pareto` ranking keeps only genuine trade-offs between arrival, boardings, and walking; `"alternativeRanking": "ranked"` lists the earliest distinct journeys even when one beats another in every respect. See [alternative journeys](guides/rust-standalone.md#alternative-journeys) and [journey windows](guides/rust-standalone.md#journey-windows).
+For several journeys at the requested time, add `"alternatives": 3`. The default `pareto` ranking keeps only genuine trade-offs between arrival, boardings, and walking; `"alternativeRanking": "ranked"` lists the earliest distinct journeys even when one beats another in every respect. Equal-arrival ranked journeys prefer less walking, then fewer boardings; the least-walking returned tie becomes the primary journey. See [alternative journeys](guides/rust-standalone.md#alternative-journeys) and [journey windows](guides/rust-standalone.md#journey-windows).
 
 ### Reach one destination by a deadline
 
@@ -613,9 +613,9 @@ Stop IDs are exact GTFS identifiers. Coordinate points are `[longitude, latitude
 
 ### Walking and transit
 
-Transit Route and Matrix compare a direct OSM walk by default, so a short coordinate trip can return walking when it arrives sooner. Set `requireTransitRide: true` to require at least one boarding, or select Walk mode to request walking alone. `maxWalkKm` limits each access and egress walk. Set `allowLongWalk: false` to apply the same limit to a direct walking alternative; otherwise `maxStreetKm` bounds the complete walk.
+Transit Route and Matrix compare a direct OSM walk by default, so a short coordinate trip can return walking when it arrives sooner. Set `requireTransitRide: true` to require at least one boarding, or select Walk mode to request walking alone. `maxWalkKm` limits each access and egress walk. Set `allowLongWalk: false` to apply the same limit to a direct walking alternative; otherwise `maxStreetKm` bounds the complete walk. Explicit Walk mode always uses `maxStreetKm`, regardless of `allowLongWalk`, including when `maxWalkKm` is zero. `maxStreetKm` accepts 0.05–1000 km; zero and smaller values are rejected rather than rounded up. Clients offering smaller walking limits must enforce their own stricter distance contract.
 
-`horizonMinutes` sets the timetable search horizon (default 480, range 1–2880). For depart-at transit, boarding and alighting must happen at or before this boundary, including in alternative journeys; the final walk can finish after it. The horizon is therefore not a hard limit on door-to-door duration: comparisons with a total-duration cap must check the final arrival separately.
+`horizonMinutes` sets the timetable search horizon (default 480, range 1–2880). For depart-at transit, boarding and alighting must happen at or before this boundary, including in alternative journeys; the final walk can finish after it. The horizon is therefore not a hard limit on door-to-door duration: comparisons with a total-duration cap must check the final arrival separately. Explicit Walk and Drive routes use `maxStreetKm` rather than the transit horizon; Walk also ignores the transit-only `allowLongWalk` restriction.
 
 `allowStreetTransfers` (default `true`) controls walking connections between separate stops or stations. Turn it off to change vehicles only at the same stop or between members of one station, as identified by the GTFS station hierarchy. The engine removes cross-station walking edges before searching, including for arrive-by, realtime, and departure-window searches; access to the first stop and egress from the last remain available. Studio exposes this as **Route options → Allow walks between stations or stops**. It does not certify station-interior paths or free-transfer eligibility.
 
@@ -787,7 +787,7 @@ A Scenario is an immutable set of changes tied to exactly one City revision. It 
 
 Scenarios never edit the imported GTFS or OSM, and a complete alternative feed is another City revision. Drawing geometry in an editor creates no computational change until it is attached to a valid service edit. Several nonconflicting planned changes may coexist; conflicts need an explicit resolution. A Scenario never moves to another City revision, and expired live state cannot be queried.
 
-In VIGO 0.5.2, planned service changes apply to Reach, supplied traffic to Drive Route and Drive Matrix, and supplied realtime predictions to transit Route. Transit Matrix and Reach remain scheduled. Studio can also route transit journeys on a saved scenario, on the scheduled timetable. Unsupported combinations are rejected with an explanation. The [Scenario request reference](guides/rust-standalone.md#10-scenarios) lists every field.
+In VIGO 1.0.0-rc.1, planned service changes apply to Reach, supplied traffic to Drive Route and Drive Matrix, and supplied realtime predictions to transit Route. Transit Matrix and Reach remain scheduled. Studio can also route transit journeys on a saved scenario, on the scheduled timetable. Unsupported combinations are rejected with an explanation. The [Scenario request reference](guides/rust-standalone.md#10-scenarios) lists every field.
 
 ### Planned service
 
@@ -931,6 +931,8 @@ Builds default to public pedestrian access: `access=private` without a pedestria
 
 This City-wide modeling assumption permits mapped private streets only within the origin's or destination's attached internal street region. An exact directed search follows those streets and interior public islands up to the first public component with a transit-access anchor. The public middle of the journey and stop-to-stop transfers never enter private streets, all internal walking counts toward the same walking limit, and geometry follows the mapped edges. Walking wholly within one internal region is supported.
 
+Destination-only gates (`access=destination` or `foot=destination`) are permitted for authorized endpoint access, while locked gates, pedestrian prohibitions, and unresolved opening hours remain excluded. A closer private attachment with no directed public exit does not erase an existing public attachment; a walking-budget cutoff alone cannot trigger this fallback.
+
 The private graph is stored separately, so public street queries are unaffected. `network.json` records the access model, and transit diagnostics report `walkingAccessPermission: "authorized_endpoints"`. The option assumes endpoint authorization; it does not infer parcel ownership, gate hours, or missing OSM links. Explicit pedestrian prohibitions stay excluded, gates marked prohibited, locked, or with unresolved opening times gain no connections, and Street Reach follows the same rules at the origin and at reached destinations. Rebuild older Cities to apply street-store schema v6, which also excludes isolated platform area outlines from the linear walking graph.
 
 ### Names for coordinate points
@@ -1058,7 +1060,7 @@ VIGO models the City revision and query it is given. It does not certify real-wo
 
 - Support is limited to the source features listed in [GTFS support](developer.md#gtfs-support-matrix). Unsupported or malformed features are reported during the build.
 - Missing published shapes do not prevent timetable routing but limit map geometry.
-- Block-based in-seat continuation is not inferred.
+- Explicit GTFS in-seat links at a shared terminal keep passengers aboard across trip changes. Route, Matrix and Reach count one boarding and preserve onboard layovers. Studio shows “Stay aboard.” Block-based continuation is not inferred, and missing feed links are not guessed. Existing Cities must be rebuilt if their importer discarded those links.
 
 ### Transit Route and Matrix
 
@@ -1326,7 +1328,7 @@ Run the engine executable as the HTTP service. It opens a prepared City or scena
 From the repository root with Docker installed:
 
 ```sh
-docker build -f deploy/Dockerfile -t vigo:0.5.2 .
+docker build -f deploy/Dockerfile -t vigo:1.0.0-rc.1 .
 ```
 
 The image contains the engine with this guide embedded, license notices, and a Debian glibc runtime, and runs as UID/GID 65532. Its compiler matches `rust-toolchain.toml`; City data, JavaScript dependencies, desktop bundles, and build caches are excluded from the build context. Check the image before using it:
@@ -1334,7 +1336,7 @@ The image contains the engine with this guide embedded, license notices, and a D
 ```sh
 npm ci
 npm run build:cli-runtime
-npm run check:deployment -- --image vigo:0.5.2
+npm run check:deployment -- --image vigo:1.0.0-rc.1
 ```
 
 The check builds public synthetic inputs and exercises the real Compose service: a read-only City, authentication, Route, Matrix, Reach, scenario switching, readiness, restart, and resource limits, and it confirms that queries never change City files. CI runs it on Linux x64 and ARM64. Measure your own City and request mix before choosing production limits; the small fixture is not a metropolitan memory or latency result.
@@ -1344,7 +1346,7 @@ The check builds public synthetic inputs and exercises the real Compose service:
 Make the City directory and its files readable by UID 65532, and keep every referenced directory inside the mounted City or collection.
 
 ```sh
-export VIGO_IMAGE=vigo:0.5.2
+export VIGO_IMAGE=vigo:1.0.0-rc.1
 export VIGO_CITY=/absolute/path/to/prepared-city
 # Set VIGO_API_TOKEN through your shell or deployment secret store (16+ characters).
 docker compose -f deploy/compose.yml up -d --wait
@@ -1372,6 +1374,7 @@ Compose defaults to 2 CPUs, 2 GiB of memory, two native threads, two resident sc
 | `VIGO_CPUS` / `VIGO_MEMORY` | `2` / `2g` | Container CPU and memory limits |
 | `VIGO_THREADS` | `2` | Native parallel threads |
 | `VIGO_MAX_RESIDENT_SCENARIOS` | `2` | Maximum resident scenario views |
+| `VIGO_RESIDENT_HEAP_BYTES` | min(1 GiB, memory / 3) | Collection retained-heap budget; one selected City may exceed it, reported by `/v1/info`; not an RSS limit |
 | `VIGO_ENDPOINT_CACHE_MAX_BYTES` | `8388608` | Shared endpoint-cache budget |
 | `VIGO_SHAPE_GEOMETRY_CACHE_MAX_BYTES` | `8388608` | Shared geometry-cache budget |
 | `VIGO_MAX_QUEUE` | `8` | Waiting queries |
@@ -1514,3 +1517,22 @@ A Matrix `ok` status can include unreachable `null` cells, and arrive-by Matrix 
 ### Report a reproducible issue
 
 Include the VIGO version, OS and CPU, the failing command, the request, the City inspection summary, stderr, and the full Result if one was returned. Say what you expected and whether it reproduces with the same inputs, and share a minimal redistributable fixture when possible. Review paths, coordinates, credentials, and source licenses before attaching files to a public issue, and use the [security policy](../SECURITY.md) for vulnerabilities. [Keep a reproducible run](reference/results.md#keep-a-reproducible-run) explains what to retain.
+
+### Concurrent stream queries
+
+Use `vigo stream --city ./city --workers 2 < requests.ndjson` for a bounded
+resident worker pool. The default is one worker; requests accept one through
+four, capped by CPU and resident-memory capacity (two CPUs and 6 GiB per
+worker). Results and query errors retain input order. Each worker loads its
+own City and caches; no more than one response per worker is buffered.
+`RAYON_NUM_THREADS` controls threads within each Rust process, separately
+from the number of concurrent requests. For performance comparisons, keep
+worker count, thread count, City, cache policy and output options identical.
+
+Detailed analytical Matrix streams with `includeJourneys: true` and
+`includeGeometry: false` return every timed leg, trip and stop reference,
+including boarding/alighting sequences and headway assumptions when present.
+They omit Studio display diagnostics and intermediate-stop presentation records.
+Set `journeyFormat: "full"` in the stream request for that additional metadata;
+`includeGeometry: true` also selects full materialization. This preserves the
+lightweight non-geometric Matrix contract used by the Python wrapper.

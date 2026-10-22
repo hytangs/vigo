@@ -1,0 +1,49 @@
+[package]
+name = "vigo-routing-kernel"
+version = "1.0.0-rc.1"
+edition = "2024"
+publish = false
+description = "Native timetable, street-routing, and accessibility kernel for VIGO."
+license = "Apache-2.0"
+repository = "https://github.com/hytangs/vigo"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["node"]
+node = ["dep:napi", "dep:napi-derive", "dep:chrono", "dep:chrono-tz"]
+standalone = ["dep:ureq", "dep:httparse", "dep:chrono", "dep:chrono-tz"]
+
+[[bin]]
+name = "vigo"
+path = "src/bin/vigo.rs"
+required-features = ["standalone"]
+
+[dependencies]
+vigo-model = { path = "../vigo-model" }
+vigo-traffic = { path = "../vigo-traffic" }
+vigo-route = { path = "../vigo-route" }
+vigo-format = { path = "../vigo-format" }
+vigo-prepare = { path = "../vigo-prepare" }
+vigo-gtfs = { path = "../vigo-gtfs" }
+bincode = "1.3"
+cch = { path = "../../vendor/cch" }
+memmap2 = "0.9"
+napi = { version = "3.14.2", features = ["napi10"], optional = true }
+napi-derive = { version = "3.6.12", optional = true }
+rayon = "1"
+rusqlite = { version = "0.37.0", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip", "raw_value"] }
+ureq = { version = "3.4", default-features = false, features = ["rustls"], optional = true }
+httparse = { version = "1.10", optional = true }
+chrono = { version = "0.4", default-features = false, features = ["std"], optional = true }
+chrono-tz = { version = "0.10", optional = true }
+sha2 = "0.10"
+flate2 = "1.1"
+
+[build-dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"

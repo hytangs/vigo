@@ -172,12 +172,20 @@ function readStopTimeEvent(tag, result, pbf) {
   else if (tag === 4) result.scheduledTime = pbf.readVarint(true)
 }
 
+function readStopTimeProperties(tag, result, pbf) {
+  if (tag === 1) result.assignedStopId = pbf.readString()
+  else if (tag === 2) result.stopHeadsign = pbf.readString()
+  else if (tag === 3) result.pickupType = pbf.readVarint()
+  else if (tag === 4) result.dropOffType = pbf.readVarint()
+}
+
 function readStopTimeUpdate(tag, result, pbf) {
   if (tag === 1) result.stopSequence = pbf.readVarint()
   else if (tag === 2) result.arrival = message(pbf, readStopTimeEvent, {})
   else if (tag === 3) result.departure = message(pbf, readStopTimeEvent, {})
   else if (tag === 4) result.stopId = pbf.readString()
   else if (tag === 5) result.scheduleRelationship = pbf.readVarint()
+  else if (tag === 6) result.stopTimeProperties = message(pbf, readStopTimeProperties, {})
 }
 
 function readTripUpdate(tag, result, pbf) {

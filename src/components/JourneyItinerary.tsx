@@ -63,14 +63,14 @@ export function RoutingItinerary({ plan, destinationLabel }: { plan: RoutingPlan
     {plan.diagnostics.expandedWalkingLimitKm ? <p className="journey-start-wait">More walking allowed · up to {plan.diagnostics.expandedWalkingLimitKm} km at each end</p> : null}
     <ol className="journey-timeline">
       {plan.legs.map((leg, index) => {
-        const wait = Math.max(0, leg.startMinutes - previousEnd)
+        const wait = leg.inSeatSeconds != null ? 0 : Math.max(0, leg.startMinutes - previousEnd)
         previousEnd = leg.endMinutes
         const ride = leg.type === 'ride'
         const frequency = plan.sharedLegAlternatives?.frequencies?.find(f => f.legIndex === index)
         const sharedOptions = plan.sharedLegAlternatives?.options.filter(option => option.legIndex === index) ?? []
         const previousLeg = plan.legs[index - 1]
         const immediateVehicleChange = ride && previousLeg?.type === 'ride'
-          && previousLeg.tripId !== leg.tripId && wait === 0
+          && previousLeg.tripId !== leg.tripId && wait === 0 && leg.inSeatSeconds == null
         const transfer = isSameStationTransfer(leg)
         const kind = ride ? 'ride' : leg.type === 'drive' ? 'drive' : transfer ? 'transfer' : 'walk'
         const color = routingLegColor(leg)
@@ -89,12 +89,14 @@ export function RoutingItinerary({ plan, destinationLabel }: { plan: RoutingPlan
           <strong className="journey-place">{index === 0 ? journeyPlace(leg.fromName, plan.origin.label && !coordinateLabel.test(plan.origin.label) ? plan.origin.label : 'Start')
             : via !== undefined ? <>{viaLabel}{/^Via stop \d+$/.test(viaLabel) ? null : <span className="journey-via-tag">Via {via + 1}</span>}</> : leg.fromName}</strong>
           <div className="journey-leg-body">
+            {leg.headwayEstimate ? <p className="journey-caution">Estimated timing · every {formatRoutingMinutes(leg.headwayEstimate.headwaySeconds / 60)} · assumes {formatRoutingMinutes(leg.headwayEstimate.expectedWaitSeconds / 60)} waiting</p> : null}
+            {leg.inSeatSeconds != null ? <p className="journey-wait">Stay aboard{leg.inSeatSeconds > 0 ? ` · ${formatRoutingMinutes(leg.inSeatSeconds / 60)} onboard layover` : ''}</p> : null}
             {wait > 0 ? <p className="journey-wait"><Clock3 size={12} aria-hidden="true" />{formatRoutingMinutes(wait)} wait at {leg.fromName}</p> : null}
             {immediateVehicleChange ? <p className="journey-caution">No time between vehicles</p> : null}
             {transfer && (leg.geometrySource === 'stop_coordinate_fallback' || leg.stationAccessStatus === 'unverified') ? <p className="journey-leg-meta">Station connection · map line approximate</p> : null}
             {ride ? <div className="journey-ride">
               <span className="journey-route"><RouteTypeIcon routeType={leg.routeType} size={13} />{routingLegPrimaryLabel(leg)}</span>
-              <span className="journey-leg-meta">{leg.scenarioService ? <span className="journey-planned">Planned · {leg.scenarioService.scenarioName} · </span> : null}{leg.stopCount > 0 ? `${leg.stopCount} ${leg.scenarioService ? 'planned' : 'scheduled'} stop${leg.stopCount === 1 ? '' : 's'}` : 'Transit ride'} · {formatRoutingLegDuration(leg)}</span>
+              <span className="journey-leg-meta">{leg.scenarioService ? <span className="journey-planned">Planned · {leg.scenarioService.scenarioName} · </span> : null}{leg.stopCount > 0 ? `${leg.stopCount} ${leg.headwayEstimate ? 'service' : leg.scenarioService ? 'planned' : 'scheduled'} stop${leg.stopCount === 1 ? '' : 's'}` : 'Transit ride'} · {formatRoutingLegDuration(leg)}</span>
             </div> : <p className="journey-move">
               <MoveIcon size={13} aria-hidden="true" />
               <span>{transfer ? routingLegPrimaryLabel(leg) : leg.type === 'drive' ? 'Drive' : 'Walk'}</span>
@@ -106,20 +108,27 @@ export function RoutingItinerary({ plan, destinationLabel }: { plan: RoutingPlan
             </details> : null}
             {leg.stationAccessStatus !== 'unverified' && leg.transferSource === 'parent_station_fallback' ? <p className="journey-caution">Assumed station connection time</p> : null}
             {ride && plan.sharedLegAlternatives && (frequency || sharedOptions.length > 0) ?
-              <details className="kit-inline-details journey-leg-evidence journey-shared-services">
-                <summary>{frequency ? <>{frequency.status === 'incomplete' ? 'At least ' : ''}{frequency.departureCount} departure{frequency.departureCount === 1 ? '' : 's'}</> : 'Services on this leg'}</summary>
-                {frequency ? <p className="journey-combined-frequency">
-                  {formatScheduleClock(frequency.windowStartSeconds / 60)}–{formatScheduleClock(frequency.windowEndSeconds / 60)}
-                </p> : null}
-                {sharedOptions.map(option => {
-                  const alternate = option.plan.legs[index]
-                  return <button type="button" key={option.plan.id} onClick={() => selectRoutingPlan(option.plan.id)}>
-                    <strong>{alternate.routeShortName || alternate.routeId}</strong>
-                    <span>{formatScheduleClock(alternate.startMinutes)} → {formatScheduleClock(alternate.endMinutes)}</span>
-                    <small>{alternate.routeId} · Arrive {formatScheduleClock(option.plan.arriveMinutes ?? option.plan.departMinutes + option.plan.durationMinutes)}</small>
-                  </button>
-                })}
-              </details> : null}
+              <div className="journey-leg-evidence journey-shared-services">
+                <p className="journey-departure-times" aria-label="Departure times">{(frequency?.departureSeconds ?? [leg.startMinutes * 60, ...sharedOptions.map(option => option.plan.legs[index].startMinutes * 60)])
+                  .filter((time, i, times) => times.indexOf(time) === i).sort((a, b) => a - b)
+                  .map(time => <time key={time}>{formatScheduleClock(time / 60)}</time>)}</p>
+                <details className="kit-inline-details">
+                  <summary>{frequency ? <>{frequency.status === 'incomplete' ? 'At least ' : ''}{frequency.departureCount} departure{frequency.departureCount === 1 ? '' : 's'}</> : 'Services on this leg'}</summary>
+                  {frequency ? <p className="journey-combined-frequency">
+                    {formatScheduleClock(frequency.windowStartSeconds / 60)}–{formatScheduleClock(frequency.windowEndSeconds / 60)}
+                  </p> : null}
+                  {frequency && frequency.departureCount > frequency.uniqueDepartureCount ? <p className="journey-leg-meta">Some services depart at the same time.</p> : null}
+                  {frequency?.status === 'incomplete' ? <p className="journey-leg-meta">More departures may be available in this window.</p> : null}
+                  {sharedOptions.map(option => {
+                    const alternate = option.plan.legs[index]
+                    return <button type="button" key={option.plan.id} onClick={() => selectRoutingPlan(option.plan.id)}>
+                      <strong>{alternate.routeShortName || alternate.routeId}</strong>
+                      <span>{formatScheduleClock(alternate.startMinutes)} → {formatScheduleClock(alternate.endMinutes)}</span>
+                      <small>{alternate.routeId} · Arrive {formatScheduleClock(option.plan.arriveMinutes ?? option.plan.departMinutes + option.plan.durationMinutes)}</small>
+                    </button>
+                  })}
+                </details>
+              </div> : null}
           </div>
         </li>
       })}

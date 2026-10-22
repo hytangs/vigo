@@ -169,6 +169,7 @@ impl TimetableKernel {
         scan_time_offsets.shrink_to_fit();
         scan_time_needs_closure.shrink_to_fit();
         Ok(Self {
+            service: None,
             stop_count,
             run_count,
             departure_seconds: input.departure_seconds.into(),

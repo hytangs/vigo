@@ -18,7 +18,7 @@ import {
   selectStop,
 } from './network'
 import { clearRouting, route, routeDateAlignment, runRoutingSearch } from './route'
-import { hasActiveOperationsData, isProjectEmpty, preview, selectedProject } from './scope'
+import { hasActiveOperationsData, preview, selectedProject } from './scope'
 import { applyRuntimeConfig, navigation, setApiError, shell } from './shell'
 
 /** Reset the workspaces for a newly selected City. */
@@ -125,7 +125,7 @@ function closeCity() {
   clearRealtimeConnection()
   route.set({ routingResidencyCoverage: null })
   city.set({ osmStreetMessage: '', statusFilter: 'all' })
-  shell.set({ query: '', activeRouteTool: 'agency', sidebarCollapsed: false })
+  shell.set({ query: '', activeRouteTool: 'agency' })
   applyNetworkMapDefaults()
 }
 
@@ -154,7 +154,7 @@ export function openNetworkView() {
   const project = selectedProject()
   if (!hasOperationsData(project)) return
   city.set({ openedNetworkProjectId: project.id })
-  shell.set({ activeRouteTool: 'agency', sidebarCollapsed: false })
+  shell.set({ activeRouteTool: 'agency' })
   route.set({ routingEnabled: false })
 }
 
@@ -240,20 +240,9 @@ export function runCommandCenter() {
   runRoutingSearch(commandText)
 }
 
-export function handleDesktopCommand(command: 'toggleSidebar' | 'navigateBack' | 'navigateForward') {
-  const { page } = shell.get()
-  if (command === 'toggleSidebar' && page === 'project' && !isProjectEmpty()) {
-    shell.set(({ sidebarCollapsed }) => ({ sidebarCollapsed: !sidebarCollapsed }))
-    return
-  }
-  if (command === 'navigateBack' && page === 'project') {
-    showProjects()
-    return
-  }
-  const projectId = selectedProject().id
-  if (command === 'navigateForward' && page === 'projects' && city.get().projects.some((project) => project.id === projectId)) {
-    openProject(projectId)
-  }
+export function handleDesktopCommand(command: 'chooseCity' | 'openSettings') {
+  if (command === 'chooseCity') showProjects()
+  else if (command === 'openSettings') openSettingsView()
 }
 
 /** Number keys switch workspaces: 1 Network, 2 Route, 3 Analyze, 5 Settings. */

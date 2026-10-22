@@ -23,15 +23,13 @@ type DesktopMapTelemetryPayload = {
   sourceStopFeatures: number
 }
 
-type DesktopChromeCommand = 'toggleSidebar' | 'navigateBack' | 'navigateForward'
+type DesktopChromeCommand = 'chooseCity' | 'openSettings'
 
 type DesktopChromeState = {
   appearance: 'dark' | 'light'
   title: string
-  sidebarAvailable: boolean
-  sidebarCollapsed: boolean
-  canGoBack: boolean
-  canGoForward: boolean
+  canChooseCity: boolean
+  canOpenSettings: boolean
 }
 
 function desktopBridge(): DesktopBridge | undefined {

@@ -4,7 +4,6 @@ import { flushSync } from 'react-dom'
 import { RoutingDetailPanel } from '../../src/components/JourneyItinerary'
 import { PathfinderRouteList } from '../../src/components/PathfinderPanel'
 import { AnalyzePanelView } from '../../src/components/AnalyzePanel'
-import { compareStats } from '../../src/app/comparison'
 import { ResultExportActions } from '../../src/components/ResultExportActions'
 import '../../src/App.css'
 import '../../src/index.css'
@@ -61,17 +60,6 @@ const candidate = { ...result, request: { ...result.request, baselineIdentity: '
     { cutoffMinutes: 15, reachablePixels: 1, areaKm2: 12.5 }, { cutoffMinutes: 30, reachablePixels: 3, areaKm2: 18.5 },
   ] } } } }
 void candidate
-const feeds = [{ id: 'reference', name: 'Reference timetable' }, { id: 'candidate', name: 'Candidate timetable' }]
-  .map(feed => ({ ...feed, routeCount: 10, stopCount: 30, tripCount: 60 }))
-// Compare: the pair result holds the reference as its baseline surface and the variant as its scenario surface.
-const compareRun = cutoffMinutes => ({
-  reference: { id: 'timetable:reference', label: 'Reference timetable', kind: 'timetable', detail: 'One timetable', feedIds: ['reference'],
-    areaKm2: result.surface.areaMetrics.baseline.byCutoff.find(entry => entry.cutoffMinutes === cutoffMinutes).areaKm2,
-    stops: result.summary.transitStopsByCutoff.find(entry => entry.cutoffMinutes === cutoffMinutes).stops },
-  cutoffMinutes, serviceDate: '2026-07-15', departMinutes: 1440, selectedId: 'timetable:candidate',
-  entries: [{ variant: { id: 'timetable:candidate', label: 'Candidate timetable', kind: 'timetable', detail: '10 routes', feedIds: ['candidate'] },
-    stats: compareStats(result, cutoffMinutes) }],
-})
 const cases = [{ id: 'case-a', name: 'Case, "new service"', interventions: [{ id: 'remove', name: 'Remove line',
   kind: 'remove-line', routeId: 'Red', routeScope: 'route', stops: [], headwayMinutes: 10,
   averageSpeedKph: 25, startMinutes: 300, endMinutes: 1500, bidirectional: true }] }]
@@ -98,16 +86,15 @@ function Fixture() {
           {mode === 'journey' ? <PathfinderRouteList plans={plans} selectedPlanId={selected}
             alternativesLoading={variant === 'loading'} onSelect={setSelected} />
             : mode === 'error' ? <ResultExportActions label="Save failure example" onExport={() => { throw Error('Could not prepare this result. Try again.') }} />
-            : <AnalyzePanelView mode={mode === 'city' ? 'compare' : 'single'} origin={origin}
+            : <AnalyzePanelView origin={origin}
               serviceDate={result.request.serviceDate} departMinutes={1440} maxWalkKm={1.2} walkSpeedKph={4.8}
               cutoffMinutes={cutoff} surfaceSampling="street" renderMode="area" onRenderModeChange={() => {}}
-              cases={mode === 'reach' ? cases : []} activeCaseId="case-a" activeInterventionId="remove" view="comparison"
-              feeds={feeds} comparisonFeedIds={['reference', 'candidate']} routes={[]} stops={[]}
-              analysis={mode === 'reach' || mode === 'city' ? analysis : null} comparisonRun={mode === 'city' ? compareRun(cutoff) : null}
-              compareReferenceOptions={[compareRun(cutoff).reference]} compareReferenceId="timetable:reference"
+              cases={mode === 'reach' ? cases : [{ id: 'case-a', name: 'Different timetables', groupId: 'candidate', interventions: [] }]} scenarioGroups={[{ id: 'baseline', name: 'Baseline', feedIds: ['reference'] }, { id: 'candidate', name: 'Candidate', feedIds: ['candidate'] }]} activeCaseId="case-a" activeInterventionId="remove" view="comparison"
+              routes={[]} stops={[]}
+              analysis={mode === 'reach' || mode === 'city' ? analysis : null}
               loading={variant === 'loading'} preparationTasks={[]} routingStoreAvailable streetGraphAvailable
-              onCutoffChange={setCutoff} onModeChange={() => {}} onServiceDateChange={() => {}} onDepartMinutesChange={() => {}}
-              onRun={() => {}} onRunComparison={() => {}} onRunServiceDecomposition={() => {}} />}
+              onCutoffChange={setCutoff} onServiceDateChange={() => {}} onDepartMinutesChange={() => {}}
+              onRun={() => {}} />}
         </section>
       </aside>
       <section className="app-frame" style={{ position: 'relative', minWidth: 0, background: 'var(--ink-4)' }}>
@@ -148,12 +135,10 @@ window.prepareSave = (label, format) => {
 window.downloadFeedback = label => group(label).querySelector('[role="status"],[role="alert"]')?.textContent
 window.checkResultState = () => {
   window.showResult('city')
-  assert(document.querySelector('.reach-reference-label').textContent === 'Reference', 'Reference feed is missing')
-  assert(document.querySelector('.compare-variant-area small').textContent === '+2.50 km²', 'Positive differences disagree with exact cutoff')
-  assert(document.querySelector('.compare-variant-detail').textContent.includes('+2 stops'), 'Stop gains disagree with exact cutoff')
+  assert(document.querySelector('[aria-label="Network comparison view"]'), 'Network-only scenario cannot switch result surfaces')
+  assert(document.querySelector('.reach-scenario-difference').textContent === '+2.50 km² · +2 reached stops from baseline', 'Network gains disagree with cutoff')
   window.changeCutoff(30)
-  assert(document.querySelector('.compare-variant-area small').textContent === '-1.50 km²', 'Negative differences lost at the longer cutoff')
-  assert(document.querySelector('.compare-variant-detail').textContent.includes('-2 stops'), 'Stop losses lost at the longer cutoff')
+  assert(document.querySelector('.reach-scenario-difference').textContent === '-1.50 km² · -2 reached stops from baseline', 'Network losses disagree with cutoff')
   window.showResult('reach')
   assert(document.querySelector('.reach-scenario-difference').textContent === '+2.50 km² · +2 reached stops from baseline', 'Scenario gains disagree with exact cutoff')
   window.changeCutoff(30)
@@ -199,13 +184,7 @@ window.checkResultLayout = (mode, dark) => {
   }
   const panel = document.querySelector(mode === 'journey' ? '.routing-detail-scroll' : '.reach-surface')
   assert(panel.scrollWidth <= panel.clientWidth + 1, 'Result panel overflows horizontally')
-  if (mode === 'city') {
-    const rows = [...document.querySelectorAll('.compare-variant')]
-    for (const row of rows) assert(row.scrollWidth <= row.clientWidth + 1, 'Comparison row overflows')
-    rows.at(-1).scrollIntoView({ block: 'end' })
-  } else if (mode === 'reach') {
-    document.querySelector('.reach-scenario-difference').scrollIntoView({ block: 'end' })
-  }
+  if (mode === 'city' || mode === 'reach') document.querySelector('.reach-scenario-difference').scrollIntoView({ block: 'end' })
   return { width: innerWidth, mode, dark, controls: controls.length }
 }
 window.expectedPlan = plan

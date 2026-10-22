@@ -109,6 +109,8 @@ export type RoutingLeg = {
   routeFeatureId?: string
   routeId?: string
   routeType?: number
+  headwayEstimate?: { headwaySeconds: number; waitingAssumption: string; expectedWaitSeconds: number }
+  inSeatSeconds?: number
   routeShortName?: string
   routeColor?: string
   tripId?: string

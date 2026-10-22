@@ -5,13 +5,6 @@
 !rust-toolchain.toml
 !deploy/
 !deploy/Dockerfile
-!native/
-!native/Cargo.toml
-!native/Cargo.lock
-!native/src/
-!native/src/**
-!native/vendor/
-!native/vendor/**
 !docs/
 !docs/guide.html
 !docs/standalone-openapi.json
@@ -23,4 +16,9 @@
 !crates/
 !crates/**
 crates/**/target/
-!native/build.rs
+
+!vendor/
+!vendor/**
+vendor/**/target/
+crates/**/*.node
+crates/**/*.node.*.tmp

@@ -188,10 +188,11 @@
       "width": 24
     },
     "meta": {
+      "assumptionsFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
       "cityRevision": "city-revision",
       "computeScope": "query_dispatch_including_materialization",
       "computeUs": 0,
-      "engineVersion": "0.5.2",
+      "engineVersion": "1.0.0-rc.1",
       "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
       "requestId": "vigo-request",
       "scenarioFingerprint": "016d43f95abb8a4358a18088fd58b5fc24be701f089ea92571a157d056ccc19c"

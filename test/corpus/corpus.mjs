@@ -28,7 +28,7 @@ const option = name => {
   return index < 0 ? undefined : args[index + 1]
 }
 const binary = path.resolve(option('binary') ?? process.env.VIGO_STANDALONE_PATH
-  ?? path.join(root, 'native/target/release', process.platform === 'win32' ? 'vigo.exe' : 'vigo'))
+  ?? path.join(root, 'target/release', process.platform === 'win32' ? 'vigo.exe' : 'vigo'))
 const only = option('only')
 
 // Fields that legitimately differ between runs or builds. Each is replaced by a
@@ -38,6 +38,8 @@ const VARYING = Object.freeze({
   'meta.computeUs': 'Measured time',
   'meta.cityRevision': 'Build timestamp of the City',
   'meta.queryFingerprint': 'Hashes the City revision',
+  'meta.assumptionsFingerprint': 'Hashes the City revision and engine version',
+  'meta.traffic.observedAt/expiresAt': 'Traffic admission uses a snapshot stamped at run time',
   'profile.timingsUs.*': 'Measured times',
   'revision': 'Build timestamp of the City (info)',
   'trace.**': 'Unstable internal ABI; compared only for presence',
@@ -46,6 +48,10 @@ const VARYING = Object.freeze({
   'meta.realtimeSnapshotFingerprint': 'Hashes a snapshot stamped at run time',
   'cityRevisions.*': 'Build timestamps of the compared Cities',
   '**.memory.**': 'Process memory (info and collection residency)',
+  'allocator': 'Platform-specific allocator telemetry; unavailable on some hosts',
+  'resourcePolicy.memoryCapacityBytes': 'Host/container RAM capacity; unavailable on some hosts',
+  'residency.residentHeapBudgetBytes': 'Budget derived from host/container capacity',
+  'residency.lastQueryTiming': 'Measured collection query timing',
 })
 const STAMPED = 1784113200000
 
@@ -57,7 +63,17 @@ export function normalize(result, request = {}) {
     if (typeof out.meta.computeUs === 'number') out.meta.computeUs = 0
     if (typeof out.meta.cityRevision === 'string') out.meta.cityRevision = 'city-revision'
     if (typeof out.meta.queryFingerprint === 'string') out.meta.queryFingerprint = '0'.repeat(64)
+    if (typeof out.meta.assumptionsFingerprint === 'string') {
+      assert.match(out.meta.assumptionsFingerprint, /^[a-f0-9]{64}$/u)
+      out.meta.assumptionsFingerprint = '0'.repeat(64)
+    }
     if (typeof out.meta.realtimeSnapshotFingerprint === 'string') out.meta.realtimeSnapshotFingerprint = '0'.repeat(64)
+    if (out.meta.traffic?.observedAt && out.meta.traffic?.expiresAt) {
+      const duration = Date.parse(out.meta.traffic.expiresAt) - Date.parse(out.meta.traffic.observedAt)
+      assert(Number.isFinite(duration) && duration >= 0)
+      out.meta.traffic.observedAt = new Date(STAMPED).toISOString()
+      out.meta.traffic.expiresAt = new Date(STAMPED + duration).toISOString()
+    }
   }
   if (out.profile?.timingsUs && typeof out.profile.timingsUs === 'object') {
     for (const key of Object.keys(out.profile.timingsUs)) out.profile.timingsUs[key] = 0
@@ -67,6 +83,12 @@ export function normalize(result, request = {}) {
     for (const key of Object.keys(out.cityRevisions)) out.cityRevisions[key] = 'city-revision'
   }
   if (out.trace !== undefined) out.trace = { normalized: true }
+  if (Object.hasOwn(out, 'allocator')) out.allocator = null
+  if (out.resourcePolicy && Object.hasOwn(out.resourcePolicy, 'memoryCapacityBytes')) out.resourcePolicy.memoryCapacityBytes = null
+  if (out.residency) {
+    if (Object.hasOwn(out.residency, 'residentHeapBudgetBytes')) out.residency.residentHeapBudgetBytes = 0
+    if (out.residency.lastQueryTiming) out.residency.lastQueryTiming = zeroNumbers(out.residency.lastQueryTiming)
+  }
   return zeroMemory(out)
 }
 
@@ -86,6 +108,12 @@ function zeroNumbers(value) {
 function differences(expected, actual, at = '$', found = []) {
   if (found.length >= 20) return found
   if (Object.is(expected, actual)) return found
+  // Floating-point geometry may differ by a few ULPs across architectures.
+  // Keep integer clocks/counts exact and tolerate only floating-point rounding noise.
+  if (typeof expected === 'number' && typeof actual === 'number'
+    && Number.isFinite(expected) && Number.isFinite(actual)
+    && !(Number.isInteger(expected) && Number.isInteger(actual))
+    && Math.abs(expected - actual) <= 1e-12 * Math.max(1, Math.abs(expected), Math.abs(actual))) return found
   const kind = value => value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value
   if (kind(expected) !== kind(actual)) {
     found.push(`${at}: ${kind(expected)} → ${kind(actual)}`)

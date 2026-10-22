@@ -84,14 +84,20 @@ export function nativeRouteRequest(body, context = {}) {
   }
   // Street waypoints are composed segment by segment like transit ones.
   if (!transit && waypoints.length) request.windowChoices = 'supported'
-  if (mode === 'walk' && body.walkSpeedKph !== undefined) request.walkSpeedKph = body.walkSpeedKph
+  if (!transit && body.walkSpeedKph !== undefined) request.walkSpeedKph = body.walkSpeedKph
+  if (mode === 'drive') {
+    const traffic = body.routingDataMode === 'realtime' ? body.traffic : undefined
+    request.routingDataMode = traffic ? 'realtime' : 'scheduled'
+    if (traffic) request.traffic = traffic
+  }
   return request
 }
 
 function boardingSummary(legs) {
   const rides = legs.filter(leg => leg.type === 'ride')
   const labels = rides.map(leg => String(leg.routeShortName || leg.routeId || '').trim()).filter(Boolean)
-  return { boardings: rides.length, transfers: Math.max(0, rides.length - 1), title: labels.join(' -> ') }
+  const boardings = rides.filter(leg => leg.inSeatSeconds == null).length
+  return { boardings, transfers: Math.max(0, boardings - 1), title: labels.join(' -> ') }
 }
 
 // Walks between two rides: an interchange, or a change between vehicles of one line.
@@ -124,6 +130,7 @@ function timingDetail(durationMinutes, { scheduleMode, unverifiedStationAccessLe
 }
 
 function walkSource(leg, index, count) {
+  if (leg.geometrySource === 'coordinate-snap') return 'direct'
   if (leg.geometrySource === 'station_selection') return 'station-selection'
   if (leg.transferSource || (leg.fromStopId && leg.toStopId)) return 'transfer'
   return index === 0 || index === count - 1 ? 'osm-rust' : 'transfer'
@@ -133,6 +140,7 @@ function studioLeg(leg, index, count, body) {
   const startMinutes = minutes(leg.departureMinutes)
   const endMinutes = minutes(leg.arrivalMinutes)
   const shared = {
+    from: leg.from, to: leg.to, departure: leg.departure, arrival: leg.arrival,
     fromName: leg.from?.name ?? (index === 0 ? body.origin?.label : leg.fromStopId) ?? '',
     toName: leg.to?.name ?? (index === count - 1 ? body.destination?.label : leg.toStopId) ?? '',
     startMinutes,
@@ -172,12 +180,15 @@ function studioLeg(leg, index, count, body) {
     fromStopId: leg.fromStopId, toStopId: leg.toStopId,
     ...(leg.fromStationGroupId ? { fromStationGroupId: leg.fromStationGroupId } : {}),
     ...(leg.toStationGroupId ? { toStationGroupId: leg.toStationGroupId } : {}),
+    route: leg.route, serviceId: leg.serviceId, serviceDate: leg.serviceDate, tripShortName: leg.tripShortName,
     routeFeatureId: leg.routeId, routeId: leg.routeId, routeType: route.type ?? undefined,
     routeShortName: route.shortName || route.longName || leg.routeId, routeColor: route.color || undefined,
-    tripId: leg.tripId, directionId: leg.directionId || undefined,
+    tripId: leg.tripId, directionId: leg.directionId ?? undefined,
     headsign: leg.headsign ?? undefined,
+    ...(leg.headwayEstimate ? { headwayEstimate: leg.headwayEstimate } : {}),
+    ...(leg.inSeatSeconds != null ? { inSeatSeconds: leg.inSeatSeconds } : {}),
     ...shared, stopIds: leg.stopIds, stopCount: leg.stopCount,
-    ...(leg.intermediateStops ? { intermediateStops: leg.intermediateStops.map(stop => ({ stopId: stop.stopId, name: stop.name })) } : {}),
+    ...(leg.intermediateStops ? { intermediateStops: leg.intermediateStops } : {}),
     ...(leg.shapeId ? { shapeId: leg.shapeId } : {}),
     ...(leg.bridgedUntimedGapCount ? { bridgedUntimedGapCount: leg.bridgedUntimedGapCount } : {}),
     ...(sourceEqualTimeConnectionCount ? { sourceEqualTimeConnectionCount } : {}),
@@ -217,7 +228,7 @@ function provenance(trace, body, context, { serviceDate, requested, realtime, ar
     staticTimetableIdentity: context.staticTimetableIdentity ?? null,
     streetIdentity: context.streetIdentity ?? null,
     serviceDate,
-    timeZone: context.timeZone ?? 'UTC',
+    timeZone: context.timeZone ?? trace.timeZone ?? 'UTC',
     serviceDay: body.serviceDay,
     timePreference: arrive ? 'arrive' : 'depart',
     requestedTimeMinutes: arrive ? body.arriveMinutes ?? body.departMinutes : body.departMinutes,
@@ -256,6 +267,7 @@ function resultDiagnostics(trace, body, context) {
     resolvedServiceDate: serviceDate,
     serviceDateFallbackApplied: false,
     walkingNetwork: 'osm',
+    ...(trace.walkingAccessPermission ? { walkingAccessPermission: trace.walkingAccessPermission } : {}),
     walkingSpeedKph,
     routingDataMode: requested ? 'realtime' : 'scheduled',
     ...(realtime ? { realtimeRouting: realtimeRouting(trace.diagnostics?.realtime) }
@@ -291,19 +303,19 @@ function windowDiagnostics(trace, plan) {
 }
 
 function streetPlan(raw, trace, body, context) {
-  const leg = raw.legs?.[0]
-  if (!leg) return null
+  if (!raw.legs?.length) return null
   const mode = raw.mode === 'drive' ? 'drive' : 'walk'
   const timePreference = body.timePreference === 'arrive' ? 'arrive' : 'depart'
   const departMinutes = minutes(raw.departureMinutes)
   const arriveMinutes = minutes(raw.arrivalMinutes)
   const durationMinutes = minutes(raw.arrivalMinutes - raw.departureMinutes)
-  const legs = [{
-    ...studioLeg({ ...leg, kind: mode }, 0, 1, body),
-    ...(mode === 'walk' ? { walkSource: 'osm', streetPathVerified: true } : {}),
-    fromName: body.origin?.label ?? '', toName: body.destination?.label ?? '',
-  }]
-  const distanceKm = (leg.distanceMeters ?? 0) / 1000
+  const legs = raw.legs.map((leg, index) => ({
+    ...studioLeg(leg, index, raw.legs.length, body),
+    ...(leg.kind === 'walk' ? { walkSource: leg.streetPathVerified === true ? 'osm' : 'direct' } : {}),
+  }))
+  const distanceKm = legs.reduce((sum, leg) => sum + leg.distanceKm, 0)
+  const walkMinutes = minutes(legs.filter(leg => leg.type === 'walk').reduce((sum, leg) => sum + leg.durationMinutes, 0))
+  const driveMinutes = minutes(legs.filter(leg => leg.type === 'drive').reduce((sum, leg) => sum + leg.durationMinutes, 0))
   const toName = String(body.destination?.label ?? 'Destination')
   const streetMode = body.mode === 'walk' || body.mode === 'drive'
   const trafficApplied = mode === 'drive' && raw.diagnostics?.traffic?.status === 'applied'
@@ -316,11 +328,11 @@ function streetPlan(raw, trace, body, context) {
       `${Math.max(1, Math.round(durationMinutes))} min / direct OSM walk`]
   return {
     id: planId(`national-${mode}`, { serviceDate: body.serviceDate ?? '', timePreference, departMinutes, arriveMinutes,
-      origin: body.origin, destination: body.destination, coordinates: leg.coordinates }),
+      origin: body.origin, destination: body.destination, coordinates: legs.map(leg => leg.coordinates) }),
     status: 'ready', travelMode: mode, timePreference, maxWalkKm: streetMode && mode === 'walk' ? body.maxStreetKm ?? body.maxWalkKm : body.maxWalkKm,
     scheduleMode: 'none', choiceLabel: raw.choiceLabel ?? label, recommended: raw.recommended ?? true, title, detail,
     departMinutes, arriveMinutes, durationMinutes, waitMinutes: 0,
-    walkMinutes: mode === 'walk' ? durationMinutes : 0, rideMinutes: 0, transfers: 0,
+    walkMinutes, rideMinutes: driveMinutes, transfers: 0,
     origin: body.origin, destination: body.destination, legs,
     diagnostics: {
       ...resultDiagnostics(trace, body, context),
@@ -329,9 +341,11 @@ function streetPlan(raw, trace, body, context) {
       ...(mode === 'walk' ? { walkingPolicyId: 'vigo-national-direct-physical-walk' } : {}),
       algorithm: mode === 'drive' ? 'rust_exact_drive_search' : 'rust_direct_walk',
       optimality: mode === 'drive' ? 'exact_drive_time' : 'graph_verified_direct_walk',
-      originStreetPathVerified: true, destinationStreetPathVerified: true,
-      ...(mode === 'walk' ? { directWalkDistanceKm: (leg.distanceMeters ?? 0) / 1000 } : {}),
-      ...(mode === 'drive' && raw.diagnostics?.traffic ? { roadMetricMode: 'traffic-adjusted', traffic: raw.diagnostics.traffic } : {}),
+      originStreetPathVerified: legs[0].streetPathVerified === true,
+      destinationStreetPathVerified: legs.at(-1).streetPathVerified === true,
+      ...(mode === 'walk' ? { directWalkDistanceKm: distanceKm } : {}),
+      ...(mode === 'drive' ? { roadMetricMode: trafficApplied ? 'traffic-adjusted' : 'free-flow',
+        ...(raw.diagnostics?.traffic ? { traffic: raw.diagnostics.traffic } : {}) } : {}),
     },
   }
 }
@@ -342,7 +356,7 @@ function transitPlan(raw, trace, body, context, substitute = false) {
   const legs = transferSemantics(raw.legs.map((leg, index) => studioLeg(leg, index, raw.legs.length, body)))
   const rides = legs.filter(leg => leg.type === 'ride')
   const walkMinutes = minutes(legs.filter(leg => leg.type === 'walk').reduce((sum, leg) => sum + leg.durationMinutes, 0))
-  const rideMinutes = minutes(rides.reduce((sum, leg) => sum + leg.durationMinutes, 0))
+  const rideMinutes = minutes(rides.reduce((sum, leg) => sum + leg.durationMinutes + (leg.inSeatSeconds ?? 0) / 60, 0))
   const departMinutes = Number(raw.departureMinutes)
   // The journey starts at its exact departure clock, as the plan does.
   if (Math.abs(legs[0].startMinutes - departMinutes) < 0.001) legs[0] = { ...legs[0], startMinutes: departMinutes }
@@ -502,7 +516,7 @@ function orderedPlan(raw, trace, body, context) {
   const mode = raw.mode === 'transit' ? 'transit' : raw.mode
   const base = mode === 'transit'
     ? transitPlan(raw, trace, body, context)
-    : streetLegsPlan(raw, trace, body, context)
+    : streetPlan(raw, trace, body, context)
   if (!base) return blockedPlan(raw, trace, body, context)
   return {
     ...base,
@@ -526,19 +540,6 @@ function orderedPlan(raw, trace, body, context) {
       ...(trace.diagnostics?.orderedSearch ? { orderedSearch: trace.diagnostics.orderedSearch } : {}),
     },
   }
-}
-
-// A walk or drive through waypoints: several street legs, no rides.
-function streetLegsPlan(raw, trace, body, context) {
-  const legs = (raw.legs ?? []).map((leg, index) => ({
-    ...studioLeg(leg, index, raw.legs.length, body),
-    ...(leg.kind === 'walk' && !leg.fromStopId && !leg.toStopId ? { walkSource: 'osm', streetPathVerified: true } : {}),
-  }))
-  if (!legs.length) return null
-  const single = streetPlan({ ...raw, legs: [raw.legs[0]] }, trace, body, context)
-  const walkMinutes = minutes(legs.filter(leg => leg.type === 'walk').reduce((sum, leg) => sum + leg.durationMinutes, 0))
-  return { ...single, legs, walkMinutes, rideMinutes: minutes(legs.filter(leg => leg.type !== 'walk')
-    .reduce((sum, leg) => sum + leg.durationMinutes, 0)) }
 }
 
 /** The blocked waypoint segment, named by its two points. */

@@ -1,6 +1,6 @@
 # VIGO Rust standalone manual
 
-VIGO 0.5.2 · CLI and HTTP reference · Prepared City format 1
+VIGO 1.0.0-rc.1 · CLI and HTTP reference · Prepared City format 1
 
 VIGO runs routing and isochrone queries from a single Rust executable. The executable contains the routing kernels, City loader, JSON interface, and HTTP server. It needs no Node, Python, browser, external routing service, or internet connection at query time. SQLite is compiled in. City data is supplied separately and opened read-only.
 
@@ -63,7 +63,7 @@ Each standalone City also retains up to eight inactive scheduled timetables, wit
 
 One timetable query workspace belongs to the sequential worker and is lent to the selected scenario. Boarding layers, predecessors and generation tags are rebound to its stop and run dimensions; results never cross scenarios. Reusable street-search buffers move with the active request. Exact street attachments for Reach are shared only after scenario-specific station exits are resolved, with a limit of 16,384 coordinates per street graph.
 
-The least recently used City is evicted before opening another when `maximumResidentScenarios` is reached, retaining the street graph even with a one-City budget. `VIGO_MAX_RESIDENT_SCENARIOS` overrides this count from 1 to 16; this bounds resident scenarios, not total bytes. `GET /v1/info` reports current residency, unique timetable block bytes, column-view bytes and query-workspace bytes without opening every scenario. Timetable `sourceArrayBytes` measures logical column contents, including shared values; do not sum it as exclusive memory.
+The least recently used City is evicted before opening another when `maximumResidentScenarios` is reached, retaining the street graph even with a one-City budget. `VIGO_MAX_RESIDENT_SCENARIOS` overrides this count from 1 to 16; this bounds resident scenarios. `VIGO_RESIDENT_HEAP_BYTES` additionally bounds collection retention using tracked heap ownership (default: the smaller of 1 GiB and one third of the detected memory capacity). Least-recently-used Cities leave before an estimated replacement allocation and after queries when measured retained heap exceeds the budget. The selected City is always retained; `residentHeapOverBudget` reports when that City alone exceeds the budget. This is not an RSS limit: mapped pages, allocator overhead and temporary preparation allocations require additional capacity. `residency.lastQueryTiming` separates scenario selection, City opening, execution and post-query retention; eviction time is a subphase of selection/retention, not an extra additive duration. Profile/trace queries separately report timetable activation and preparation inside execution. `GET /v1/info` reports current residency, unique timetable block bytes, column-view bytes and query-workspace bytes without opening every scenario. Timetable `sourceArrayBytes` measures logical column contents, including shared values; do not sum it as exclusive memory.
 
 ### Memory ledger
 
@@ -197,10 +197,10 @@ To build from this source checkout, install the pinned Rust toolchain in `rust-t
 
 ```sh
 cargo build --locked --release \
-  --manifest-path native/Cargo.toml \
+  --manifest-path crates/vigo-runtime/Cargo.toml \
   --no-default-features --features standalone --bin vigo
 
-./native/target/release/vigo --version
+./target/release/vigo --version
 python3 scripts/package-standalone.py
 ```
 
@@ -393,11 +393,11 @@ Exact identifiers are case-sensitive. Multi-feed IDs may contain a feed scope an
 | `maxWalkKm` | 1.2 | Number 0–100; per transit access/egress endpoint, Reach terminal-walk budget, or Drive walk between a point and its road |
 | `maxTransfers` | No explicit cap | Integer 0–31; zero means at most one boarding |
 | `horizonMinutes` | 480 | Number 1–2880; Route/Matrix only |
-| `maxStreetKm` | 50 | Number 0.05–1000; Walk/Drive Route/Matrix limit |
+| `maxStreetKm` | 50 | Number 0.05–1000; Walk/Drive Route/Matrix limit. Zero and values below 0.05 are rejected, never rounded up or treated as unlimited. |
 | `allowStreetTransfers` | true | Keep or filter walking transfers between separate stops/stations |
 | `minimumTransferBufferMinutes` | 0 | Integer 0–60; extra time per subsequent transit transfer |
 | `requireTransitRide` | false | Transit Route/Matrix boarding policy |
-| `allowLongWalk` | true | When false, cap direct walking by `maxWalkKm` instead of `maxStreetKm` |
+| `allowLongWalk` | true | Transit only: when false, cap direct walking alternatives by `maxWalkKm` instead of `maxStreetKm`. Explicit Walk mode always uses `maxStreetKm` |
 | `walkSpeedKph` | City's walking policy, normally 4.8 | Number 1–8; walking legs, including a drive's walk to and from its road |
 | `disableCache` | false | Disable street endpoint caches; not a complete cold-run switch |
 | `requireCompleteServiceCoverage` | false | Reject missing active source scopes in a multi-feed service slice |
@@ -523,7 +523,7 @@ Ask for several journeys at one time, plan through intermediate points, or compa
 `alternativeRanking` chooses them:
 
 - `pareto` (default) keeps only trade-offs: an alternative must beat every other returned journey on arrival, boardings, or walking. It uses no more boardings than the primary journey. When more trade-offs exist than requested, the fewest boardings and the least walking are kept first.
-- `ranked` keeps the earliest arrivals even when another journey is better in every respect, then prefers fewer boardings and less walking. It admits one more boarding than the primary journey, within `maxTransfers`. Journeys on the same sequence of vehicles count once, whatever stops they use to change or leave.
+- `ranked` keeps the earliest arrivals even when another journey is better in every respect, then prefers less walking and fewer boardings. A returned candidate with the same arrival and less walking replaces the primary journey, preserving any genuinely earlier arrival. This tie policy applies to ranked alternatives; scalar queries without alternatives retain their boarding-first tie policy. It admits one more boarding than the primary journey, within `maxTransfers`. Journeys on the same sequence of vehicles count once, whatever stops they use to change or leave.
 
 `alternativeSlackMinutes` (0–120, default 15) bounds how much later than the primary journey an alternative may arrive. `alternativeSearch` records `coverage: "requested_time"`, `ranking`, `maximumJourneys` (including the primary), `arrivalSlackMinutes`, and `status`. A search that exceeds the kernel's label budget reports `status: "unavailable"` with a `reason` and returns the primary journey alone. Alternatives are transit journeys; a faster direct walk remains the primary journey. Requests that combine alternatives with arrive-by, via points, or a journey window are rejected, except a window with `windowChoices: "supported"` (see [Supported window choices](#supported-window-choices)).
 
@@ -795,6 +795,30 @@ For map display, Reach accepts `reachFormat: "map"`. It returns the full reached
 ### Street evidence
 
 Street evidence is `surface.edges` with schema `vigo.standalone.street-edges.v2`, encoding `indexed-json`. It retains partial directed intervals, with coordinates and times decoded as shown under [Reach output](#decode-directed-street-evidence). This encoding differs from Studio's binary edge bundles.
+
+### All-day Reach
+
+The Rust CLI and native HTTP Reach endpoint accept `allDay` as a temporal extension of the existing query. It samples scheduled depart-at transit every **five minutes**. The default window is `[0, 1440)` service-day minutes (288 samples); a shorter window can be supplied. No separate engine or job service is required.
+
+```json
+{
+  "kind": "reach",
+  "origin": {"stopId": "B"},
+  "serviceDate": "2026-07-15",
+  "allDay": {"startMinutes": 0, "endMinutes": 1440},
+  "cutoffsMinutes": [15, 30, 45],
+  "maxWalkKm": 0.5,
+  "rasterSize": 48,
+  "extentRadiusKm": 2,
+  "reachFormat": "surface"
+}
+```
+
+Save this request and run `vigo reach --city city --request all-day.json`, or send it as a line to the native `stream` command. Do not specify `time` or `timeMinutes`. This initial mode supports street sampling, scheduled transit and depart-at queries only; scenarios, live state, arrive-by, cell-center sampling, polygons and per-sample output are excluded. It is not yet exposed in Studio or the Node compiler CLI.
+
+The result keeps `schema: "vigo.reach.v1"`. `allDay.sampleCount` is the denominator; the row-major `surface` contains `reachableSamples`, `meanReachableDurationSeconds` (null when never reachable), and `reachableSamplesByCutoff` (one row per `cutoffsSeconds` entry). Divide a cutoff count by the sample count for the fraction of sampled departures reaching that cell within that cutoff. Means include only samples reachable within the maximum cutoff: unreachable samples are **not zero**, and a low conditional mean does not imply reliable all-day access. There is no single `valuesSeconds` raster or requested departure time for the aggregate.
+
+Walking indexes and cached origin access are shared in one resident City. Each sample runs the existing Reach search and street propagation; only one sample raster and online accumulators are retained, so aggregation memory does not grow with the number of times sampled. Changed transit seeds are not assumed safe for cross-time street-label reuse. Five-minute sampling estimates service-day reachability, not continuous-time guarantees or counts of jobs/population. Opportunity-weighted accessibility remains a separate downstream calculation.
 
 ## 10. Scenarios
 
@@ -1663,6 +1687,7 @@ The environment variables for the Rust runtime are:
 | `VIGO_API_TOKEN` | Bearer token; nonempty values protect data endpoints, including loopback |
 | `RAYON_NUM_THREADS` | Optional native parallel thread count |
 | `VIGO_MAX_RESIDENT_SCENARIOS` | Maximum resident scenario views |
+| `VIGO_RESIDENT_HEAP_BYTES` | Collection retained-heap budget; default min(1 GiB, detected memory / 3), positive integer |
 | `VIGO_TIMETABLE_CACHE_BYTES` | Inactive scheduled-timetable budget per City or collection; default 134217728 bytes, `0` disables retention |
 | `VIGO_ENDPOINT_CACHE_MAX_BYTES` | Shared endpoint-cache budget |
 | `VIGO_SHAPE_GEOMETRY_CACHE_MAX_BYTES` | Shared geometry-cache budget |
@@ -1687,8 +1712,8 @@ Terminate HTTPS at a reverse proxy or hosting platform. Give its upstream timeou
 Build the native service image from the repository root:
 
 ```sh
-docker build -f deploy/Dockerfile -t vigo:0.5.2 .
-export VIGO_IMAGE=vigo:0.5.2
+docker build -f deploy/Dockerfile -t vigo:1.0.0-rc.1 .
+export VIGO_IMAGE=vigo:1.0.0-rc.1
 export VIGO_CITY=/absolute/path/to/prepared-city
 # Set VIGO_API_TOKEN through your deployment secret store.
 docker compose -f deploy/compose.yml up -d --wait
@@ -1856,9 +1881,9 @@ The packaged [test record](../reference/rust-standalone-audit.md) reports the ma
 The adapter tests use public synthetic GTFS/OSM fixtures and compare outputs with the existing public CLI. Separate graph and timetable oracles check the shared kernels. These tests cover modeled routing behavior; source-feed completeness, field arrival accuracy, station accessibility, and deployment capacity require their own validation.
 
 ```sh
-cargo test --manifest-path native/Cargo.toml \
+cargo test --manifest-path crates/vigo-runtime/Cargo.toml \
   --no-default-features --features standalone
-cargo clippy --manifest-path native/Cargo.toml \
+cargo clippy --manifest-path crates/vigo-runtime/Cargo.toml \
   --no-default-features --features standalone --all-targets -- -D warnings
 VIGO_STANDALONE_PATH=/absolute/path/to/vigo npm run check:standalone
 python3 test/check-standalone-package.py /absolute/path/to/package.tar.gz
@@ -1942,3 +1967,31 @@ and [OSM wheelchair tags](https://wiki.openstreetmap.org/wiki/Key:wheelchair).
 The public synthetic regression is `npm run check:wheelchair`; it checks
 accessible alternatives through both CLIs and authenticated HTTP, as well as
 Matrix, Reach, reverse routing and profile mismatch rejection.
+
+### Native planner integration
+
+Clients can request `journeyPolicy: "alternatives-v1"` on transit Route. Capabilities
+exposes `route.journeyPolicies`; deployment checks should require this value before
+switching an adapter. The policy returns the ordinary `vigo.route.v1` journey and
+alternatives, preserving direct transit and a permitted direct walk. It orders by
+arrival (departure for arrive-by), then walking and boardings. Journeys sharing the same boarding/alighting stations, modes and walking policy
+are bundled; GTFS parent-station identifiers determine station membership. Do not combine it with explicit alternatives, windows or via
+points. Arrive-by retains a 15-minute earlier-arrival window sampled every five minutes.
+
+`expandedWalkKm` is explicit permission for a wider transit-access search; omit it
+when the user sets a binding walking limit. Wider choices must improve the time
+objective or shorten travel after initial waiting, and carry `expandedWalkingLimitKm`. A whole-trip walk uses at most
+`maxWalkKm` unless `allowLongWalk` explicitly permits `maxStreetKm`. Limits below
+50 metres do not trigger a widened street query. `requireTransitRide` excludes
+walking-only choices. Optional wider-search failures preserve ordinary results.
+
+Use `sharedLegs: true` for native single-leg substitutions and observed departure
+frequency. Missing or truncated frequency evidence must remain unknown; it is not
+a zero headway or a complete route-wide schedule. The client remains responsible
+for labels, rendering, authentication, cancellation, deadlines and bounded caching.
+The policy consolidates HTTP requests; it still performs bounded searches inside
+the resident Rust engine and is not a claim of one algorithm traversal.
+
+### Batched place names
+
+`POST /v1/native` accepts `{"operation":"places.describe","input":{"longitudes":[-71.06],"latitudes":[42.36]}}`. The result contains parallel `labels` and `kinds` arrays in input order, with null entries when no nearby label is available. Batches are limited to 256 coordinates. This uses the same native place index as Studio: optional prepared OSM naming tables and GTFS stops, without an external geocoder. A label is descriptive and does not change the routing coordinate or establish accessibility.

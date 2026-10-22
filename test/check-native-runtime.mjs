@@ -16,8 +16,8 @@ const locations = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-runtime-layout-'))
 try {
   const binary = process.platform === 'win32' ? 'vigo.exe' : 'vigo'
   for (const [modulePath, executablePath] of [
-    ['src/server/runtime', 'native/target/release'],
-    ['public', 'native/target/release'],
+    ['src/server/runtime', 'target/release'],
+    ['public', 'target/release'],
     ['cli', 'cli'],
     ['app/server/runtime', 'app/server'],
   ]) {
@@ -73,7 +73,7 @@ function fakeSpawn(_executable, args) {
           return
         }
         child.served.push(request.id)
-        child.stdout.emit('data', Buffer.from(`${JSON.stringify({ status: 'ok', trace: { id: request.id, process: child.id } })}\n`))
+        child.stdout.emit('data', Buffer.from(`${JSON.stringify({ status: 'ok', trace: request.trace ?? { id: request.id, process: child.id } })}\n`))
       })
     },
   }
@@ -148,6 +148,18 @@ try {
   await assert.rejects(runtime.query(stale, { kind: 'open-failure' }),
     error => error.preparation === true && error.retryable === false)
   assert.equal(spawned.length, opened + 1)
+
+  const indexed = { originCount: 2, destinationCount: 2,
+    journeyTable: [{ legs: [{ kind: 'ride', tripId: 'trip' }] }, null],
+    journeyIndices: [[0, 1], [0, 0]] }
+  const decoded = await runtime.query(boston, { trace: indexed })
+  assert.deepEqual(decoded.journeys, [[indexed.journeyTable[0], null],
+    [indexed.journeyTable[0], indexed.journeyTable[0]]])
+  assert.equal(decoded.journeyIndices, undefined)
+  for (const journeyIndices of [[[0]], [[0, 2], [0, 0]], [[0, -1], [0, 0]]]) {
+    await assert.rejects(runtime.query(boston, { trace: { ...indexed, journeyIndices } }), /Invalid native/)
+  }
+  assert.equal((await runtime.query(boston, { id: 'after-bad-index' })).id, 'after-bad-index')
 
   // Retiring a City's files stops its processes; their requests are not retried.
   const retiring = runtime.query(boston, { id: 'retired', delayMs: 100 })

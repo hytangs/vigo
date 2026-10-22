@@ -1,7 +1,7 @@
 import { NativeRuntime, nativeLayout, nativeExecutable } from '../server/runtime/native-runtime.mjs'
 import { nativeSurface, plannedService, nativePoint } from '../server/studio-reach-ranges.mjs'
 
-// Reach runs in the `vigo` executable, as in Studio, the Rust CLI and the HTTP
+// Routing runs in the `vigo` executable, as in Studio, the Rust CLI and the HTTP
 // server: one request form for both directions and one implementation. The
 // Node CLI validates the request, keeps one resident process per City and
 // presents the answer in its own Result shape.
@@ -11,11 +11,11 @@ export { nativePoint }
 
 let runtime = null
 
-/** Answer one Reach request; `openMs` is nonzero only when this call started the City's process. */
-export async function queryNativeReach(cityPath, request) {
+/** Answer one routing request; `openMs` is nonzero only when this call started the City's process. */
+export async function queryNativeCity(cityPath, request) {
   runtime ??= new NativeRuntime({ executable: nativeExecutable(), maxCities: 1, maxProcesses: 1 })
   if (!runtime.available) {
-    throw new Error('Reach runs in the vigo executable. Build it with npm run build:standalone, or set VIGO_STANDALONE_PATH.')
+    throw new Error('Routing runs in the vigo executable. Build it with npm run build:standalone, or set VIGO_STANDALONE_PATH.')
   }
   const layout = nativeLayout(cityPath)
   const opening = !runtime.cities.has(layout.key)
@@ -26,7 +26,7 @@ export async function queryNativeReach(cityPath, request) {
   return { trace, openMs: opening ? wallMs - computeMs : 0, computeMs }
 }
 
-export function closeNativeReach() {
+export function closeNativeCity() {
   runtime?.closeAll()
   runtime = null
 }

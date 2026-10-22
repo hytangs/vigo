@@ -17,11 +17,27 @@ export function createRoutingStoreSchema(db) {
       PRIMARY KEY(source_scope, route_type, service_key)
     ) WITHOUT ROWID;
     CREATE TABLE trip_details(trip_id TEXT PRIMARY KEY, headsign TEXT, short_name TEXT) WITHOUT ROWID;
+    CREATE TABLE trip_operations(
+      trip_id TEXT PRIMARY KEY, block_id TEXT,
+      bikes_allowed INTEGER NOT NULL CHECK(bikes_allowed IN (0,1,2))
+    ) WITHOUT ROWID;
     CREATE TABLE trip_shapes(trip_id TEXT PRIMARY KEY, shape_id TEXT NOT NULL);
     CREATE TABLE shape_points(shape_id TEXT NOT NULL, sequence INTEGER NOT NULL, lat REAL NOT NULL, lon REAL NOT NULL, PRIMARY KEY(shape_id, sequence)) WITHOUT ROWID;
     CREATE TABLE calendar(service_id TEXT PRIMARY KEY, monday INTEGER, tuesday INTEGER, wednesday INTEGER, thursday INTEGER, friday INTEGER, saturday INTEGER, sunday INTEGER, start_date INTEGER, end_date INTEGER);
     CREATE TABLE calendar_dates(service_id TEXT NOT NULL, date INTEGER NOT NULL, exception_type INTEGER NOT NULL, PRIMARY KEY(service_id, date));
     CREATE TABLE transfers(from_stop_id TEXT NOT NULL, to_stop_id TEXT NOT NULL, transfer_type INTEGER, min_transfer_time INTEGER, PRIMARY KEY(from_stop_id, to_stop_id));
+    CREATE TABLE trip_origins(trip_id TEXT PRIMARY KEY, source_trip_id TEXT NOT NULL) WITHOUT ROWID;
+    CREATE TABLE transfer_rules(
+      from_stop_id TEXT, to_stop_id TEXT, from_route_id TEXT, to_route_id TEXT,
+      from_trip_id TEXT, to_trip_id TEXT, transfer_type INTEGER NOT NULL CHECK(transfer_type BETWEEN 0 AND 5),
+      min_transfer_time INTEGER NOT NULL CHECK(min_transfer_time>=0)
+    );
+    CREATE INDEX transfer_rules_stops ON transfer_rules(from_stop_id,to_stop_id);
+    CREATE TABLE trip_links(
+      from_trip_id TEXT NOT NULL, to_trip_id TEXT NOT NULL,
+      transfer_type INTEGER NOT NULL CHECK(transfer_type IN (4,5)),
+      PRIMARY KEY(from_trip_id,to_trip_id)
+    ) WITHOUT ROWID;
     CREATE TABLE transfer_provenance(
       from_stop_id TEXT NOT NULL,
       to_stop_id TEXT NOT NULL,
@@ -37,6 +53,7 @@ export function createRoutingStoreSchema(db) {
     ) WITHOUT ROWID;
     CREATE TABLE frequencies(trip_id TEXT NOT NULL, start_time INTEGER NOT NULL, end_time INTEGER NOT NULL, headway_secs INTEGER NOT NULL, exact_times INTEGER);
     CREATE TABLE connections(departure INTEGER NOT NULL, arrival INTEGER NOT NULL, trip_id TEXT NOT NULL, route_id TEXT NOT NULL, service_id TEXT NOT NULL, direction_id TEXT, from_stop_id TEXT NOT NULL, to_stop_id TEXT NOT NULL, stop_sequence INTEGER NOT NULL, PRIMARY KEY(trip_id, stop_sequence)) WITHOUT ROWID;
+    CREATE TABLE headway_connections(departure INTEGER NOT NULL, arrival INTEGER NOT NULL, trip_id TEXT NOT NULL, route_id TEXT NOT NULL, service_id TEXT NOT NULL, direction_id TEXT, from_stop_id TEXT NOT NULL, to_stop_id TEXT NOT NULL, stop_sequence INTEGER NOT NULL, PRIMARY KEY(trip_id, stop_sequence)) WITHOUT ROWID;
     CREATE TABLE connection_permissions(
       trip_id TEXT NOT NULL,
       stop_sequence INTEGER NOT NULL,
@@ -54,6 +71,15 @@ export function createRoutingStoreSchema(db) {
 
 export function assertNoBrokenGtfsReferences(db) {
   const checks = [
+    ...['stop','route','trip'].flatMap(kind => ['from','to'].map(side => ({
+      query: `SELECT r.${side}_${kind}_id AS owner_id,r.${side}_${kind}_id AS referenced_id FROM transfer_rules r LEFT JOIN ${kind}s t ON t.${kind}_id=r.${side}_${kind}_id WHERE r.${side}_${kind}_id IS NOT NULL AND t.${kind}_id IS NULL LIMIT 1`,
+      relation: `transfer_rules.${side}_${kind}_id -> ${kind}s.${kind}_id`,
+    }))),
+    ...['from_trip_id', 'to_trip_id'].map(field => ({
+      query: `SELECT l.${field} AS owner_id,l.${field} AS referenced_id
+        FROM trip_links l LEFT JOIN trips t ON t.trip_id=l.${field} WHERE t.trip_id IS NULL LIMIT 1`,
+      relation: `trip_links.${field} -> trips.trip_id`,
+    })),
     {
       query: `
         SELECT trips.trip_id AS owner_id, trips.route_id AS referenced_id
@@ -105,6 +131,15 @@ export function assertNoBrokenGtfsReferences(db) {
       relation: 'frequencies.trip_id -> trips.trip_id',
     },
   ]
+  for (const side of ['from','to']) {
+    if (db.prepare(`SELECT 1 FROM transfer_rules r JOIN trips t ON t.trip_id=r.${side}_trip_id WHERE r.${side}_route_id IS NOT NULL AND r.${side}_route_id<>t.route_id LIMIT 1`).get()) throw new Error(`Conflicting GTFS ${side} trip and route transfer selectors.`)
+  }
+  for (const [side,column,order] of [['from','to_stop_id','DESC'],['to','from_stop_id','ASC']]) {
+    const invalid=db.prepare(`SELECT 1 FROM transfer_rules r JOIN stops s ON s.stop_id=r.${side}_stop_id WHERE r.transfer_type IN (4,5) AND (COALESCE(s.location_type,0)<>0 OR r.${side}_stop_id<>(SELECT ${column} FROM connections c WHERE c.trip_id=r.${side}_trip_id ORDER BY stop_sequence ${order} LIMIT 1)) LIMIT 1`).get()
+    if (invalid) throw new Error(`GTFS linked-trip ${side}_stop_id must identify its terminal platform.`)
+  }
+  if (db.prepare('SELECT 1 FROM frequencies GROUP BY trip_id HAVING MIN(exact_times)<>MAX(exact_times) LIMIT 1').get()) throw new Error('GTFS frequency windows for a trip must use one exact_times value.')
+  if (db.prepare('SELECT 1 FROM frequencies a JOIN frequencies b ON a.trip_id=b.trip_id AND a.rowid<b.rowid WHERE a.start_time<b.end_time AND b.start_time<a.end_time LIMIT 1').get()) throw new Error('Overlapping GTFS frequency windows.')
   for (const check of checks) {
     const violation = db.prepare(check.query).get()
     if (!violation) continue
@@ -175,6 +210,7 @@ export function rebuildStopAccessRoles(db) {
     FROM sqlite_master
     WHERE type='table' AND name='connection_permissions'
   `).get()?.present === 1
+  const serviceConnections = db.prepare("SELECT 1 FROM sqlite_master WHERE name='headway_connections'").get() ? '(SELECT * FROM connections UNION ALL SELECT * FROM headway_connections)' : 'connections'
   const permissionJoin = hasConnectionPermissions
     ? `LEFT JOIN connection_permissions AS permission
         ON permission.trip_id=connection.trip_id
@@ -189,12 +225,12 @@ export function rebuildStopAccessRoles(db) {
     DELETE FROM stop_access_roles;
     INSERT OR IGNORE INTO stop_access_roles(stop_id, can_board, can_alight)
     SELECT connection.from_stop_id, 1, 0
-    FROM connections AS connection
+    FROM ${serviceConnections} AS connection
     ${permissionJoin}
     WHERE ${hasConnectionPermissions ? 'COALESCE(permission.can_board, 1)' : '1'}=1;
     INSERT INTO stop_access_roles(stop_id, can_board, can_alight)
     SELECT connection.to_stop_id, 0, 1
-    FROM connections AS connection
+    FROM ${serviceConnections} AS connection
     ${permissionJoin}
     WHERE ${hasConnectionPermissions ? 'COALESCE(permission.can_alight, 1)' : '1'}=1
     ON CONFLICT(stop_id) DO UPDATE SET can_alight=1;

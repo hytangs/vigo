@@ -11,6 +11,7 @@ sys.dont_write_bytecode = True
 SOURCE = ROOT / 'docs/guides/rust-standalone.md'
 VERSION = json.loads((ROOT / 'package.json').read_text(encoding='utf-8'))['version']
 OPERATIONS = {
+    'places.describe': ('DescribePlacesInput', 'DescribePlacesResult'),
     'timetable.route': ('TimetableQueryInput', 'TimetableQueryResult'),
     'timetable.arrive_by': ('TimetableArriveByQueryInput', 'TimetableArriveByQueryResult'),
     'timetable.matrix': ('TimetableMatrixQueryInput', 'TimetableMatrixQueryResult'),
@@ -171,7 +172,7 @@ TYPE_FIELD_NOTES = {
 
 def native_contracts():
     structs = {}
-    sources = list((ROOT / 'native/src').rglob('*.rs'))
+    sources = list((ROOT / 'crates/vigo-runtime/src').rglob('*.rs'))
     for crate in ('vigo-route', 'vigo-format', 'vigo-prepare'):
         sources.extend((ROOT / 'crates' / crate / 'src').rglob('*.rs'))
     for path in sorted(sources):
@@ -252,7 +253,7 @@ def specification(native):
         'mode':text('transit','walk','drive',default='transit'), 'maxWalkKm':number(0,100,1.2), 'maxStreetKm':number(.05,1000,50),
         'maxTransfers':number(0,31,integer=True), 'horizonMinutes':number(1,2880,480), 'allowStreetTransfers':boolean(True),
         'minimumTransferBufferMinutes':number(0,60,0,integer=True), 'disableCache':boolean(), 'requireTransitRide':boolean(False),
-        'allowLongWalk':boolean(True), 'walkSpeedKph':number(1,8,description='Default comes from the City. Walk Route/Matrix and Reach only.'),
+        'allowLongWalk':boolean(True), 'walkSpeedKph':number(1,8,description='Default comes from the City. Walk/Drive Route/Matrix and Reach; in Drive mode this controls the walks to and from the road.'),
         'requireCompleteServiceCoverage':boolean(), 'routingDataMode':text('scheduled','realtime'), 'dataMode':text('scheduled','realtime'),
     }
     clock_rule = {'oneOf':[{'required':['time']},{'required':['timeMinutes']}]}
@@ -287,6 +288,7 @@ def specification(native):
         'windowMinutes':number(0,240,0),'windowStepMinutes':number(1,60,1),
         'sharedLegs':{**boolean(), 'description':'Bundle feasible services sharing an ordered stop pattern and proven path. Transit Route without via points only. Each option retains a complete timed journey; see shared-leg services in the guide.'},
         'alternatives':number(0,9,0,integer=True,description='Additional transit journeys for a depart-at transit query at the requested time; 0 turns alternatives off. Not combined with arrive-by, via points or journey windows.'),
+        'journeyPolicy':text('alternatives-v1',description='Resident native planner policy retaining direct transit and permitted walking alternatives. Owns alternatives and windows; optional expandedWalkKm is explicit opt-in.'),
         'alternativeRanking':text('pareto','ranked',default='pareto',description='pareto returns nondominated arrival/boarding/walking trade-offs; ranked returns the earliest distinct vehicle sequences, dominated ones included. Requires alternatives.'),
         'alternativeSlackMinutes':number(0,120,15,description='Latest arrival admitted for an alternative, in minutes after the primary arrival. Requires alternatives.')},['origin','destination'],allOf=[clock_rule,transit_date,mode_rule,{'not':{'required':['via','waypoints']}}],
         description='Additional mode constraints, source identities, freshness, and via/window combinations are validated by the runtime. Route includes available leg GeoJSON by default. Set includeGeometry: false to omit coordinate arrays. Geometry retains source precision and provenance; inferred station links remain labeled.')
@@ -305,9 +307,9 @@ def specification(native):
     reach_common = {k:v for k,v in common.items() if k not in ['maxStreetKm','horizonMinutes','requireTransitRide','allowLongWalk']}
     reach_common['surfaceSampling'] = text('street','cell-center',default='street')
     reach_common['mode'] = text('transit','walk','drive',default='transit')
-    schemas['ReachRequest'] = obj({'reachFormat':text('full','map',default='full'),**reach_common,'origin':ref('Point'),'cutoffsMinutes':{**array(number(1,240),1,16),'default':[15,30,45,60]},'rasterSize':number(16,1024,96,integer=True),
+    schemas['ReachRequest'] = obj({'allDay':obj({'startMinutes':number(0,1439,0,integer=True),'endMinutes':number(1,1440,1440,integer=True)},description='Scheduled depart-at transit, street sampling, five-minute steps, end exclusive. Omit time/timeMinutes. Online aggregation; surface output only.'),'reachFormat':text('full','map','surface',default='full'),**reach_common,'origin':ref('Point'),'cutoffsMinutes':{**array(number(1,240),1,16),'default':[15,30,45,60]},'rasterSize':number(16,1024,96,integer=True),
         'extentRadiusKm':number(1,40,8),'bounds':array(number(),4,4),'includeStreetEdges':boolean(),'includeNodes':boolean(),'scenario':ref('Scenario'),'realtimeSnapshot':ref('RealtimeSnapshot'),
-        'destination':ref('Point')},[],allOf=[clock_rule,transit_date,mode_rule,{'oneOf':[{'required':['origin']},{'required':['destination']}]}])
+        'destination':ref('Point')},[],allOf=[{'oneOf':[{'required':['allDay']},clock_rule]},transit_date,mode_rule,{'oneOf':[{'required':['origin']},{'required':['destination']}]}])
     schemas['CompareRequest'] = obj({'kind':text(),'id':{},'before':ref('ReachResult'),'after':ref('ReachResult')},['before','after'])
     cases = [obj({'operation':{'const':'timetable.identifiers'},'serviceDate':{'type':'string','format':'date'},'kind':text(),'id':{}},['operation','serviceDate'],strict=False)]
     for op,(request,response) in OPERATIONS.items():
@@ -387,12 +389,14 @@ def specification(native):
     schemas['PublicEndpoint'] = obj({'stop':ref('PublicIdentifier'),'name':text(),'coordinate':ref('Coordinate')},strict=False)
     schemas['PublicLeg'] = obj({'type':text('walk','transit','drive'),'from':ref('PublicEndpoint'),'to':ref('PublicEndpoint'),
         'departureTime':text(),'arrivalTime':text(),'durationSeconds':seconds,'distanceMeters':seconds,'quality':{'type':'object'},'trip':ref('PublicIdentifier'),'service':ref('PublicIdentifier'),'serviceDate':text(),'headsign':nullable(text()),'directionId':nullable(text()),'intermediateStops':array({'type':'object'}),
+        'continuation':obj({'type':text('stay_aboard'),'durationSeconds':number(0)},['type','durationSeconds']),
         'alerts':{**array(obj({'id':text(),'effect':text(),'cause':{},'severity':{},'header':text(),'description':text(),'url':text()},['effect'],strict=False)),'description':'Realtime Service Alerts active during the ride for its trip, route or stops.'},
         'geometry':obj({'type':{'const':'LineString'},'coordinates':array(ref('Coordinate'))},['type','coordinates'])},
         ['type','from','to','departureTime','arrivalTime','durationSeconds','quality'],strict=False)
     schemas['PublicJourney'] = obj({'clockDate':text(description='Date anchoring all elapsed service clocks in this journey, including overnight arrive-by searches.'),'departureTime':text(),'arrivalTime':text(),'durationSeconds':seconds,
         **{k:nullable_seconds for k in ['walkingSeconds','waitingSeconds','ridingSeconds','drivingSeconds']},
         'boardings':seconds,'transfers':seconds,'legs':array(ref('PublicLeg')),
+        'expandedWalkingLimitKm':number(0,description='Explicitly permitted wider access budget used by this choice.'),
         'sharedLegAlternatives':ref('SharedLegAlternatives')},
         ['departureTime','arrivalTime','durationSeconds','walkingSeconds','waitingSeconds','ridingSeconds','boardings','transfers','legs'],strict=False)
     schemas['SharedLegFrequency'] = obj({
@@ -416,7 +420,7 @@ def specification(native):
         'diagnostics':{'type':'object'},'profile':{'type':'object'},'trace':{'type':'object'},'warnings':array({'type':'object'}),'datasetLimitations':{},'id':{}}
     schemas['RouteResult'] = obj({**public_common,'schema':{'const':'vigo.route.v1'},'journey':nullable(ref('PublicJourney')),'reason':{'type':'object'},'alternativeSearch':{'type':'object','description':'Present when alternatives were searched. Journey windows report their sampling; requested alternatives report coverage requested_time, ranking, maximumJourneys (including the primary), arrivalSlackMinutes and status (complete or unavailable, with reason).'},'access':{'type':'object'},'alternatives':array(nullable(ref('PublicJourney')))},['schema','status','query','meta','journey'],strict=False)
     schemas['MatrixResult'] = obj({**public_common,'schema':{'const':'vigo.matrix.v1'},'durationsSeconds':array(array(nullable_seconds)),'journeys':array(array(nullable(ref('PublicJourney'))))},['schema','status','query','meta','durationsSeconds'],strict=False)
-    public_surface = obj({'width':seconds,'height':seconds,'bounds':array(number(),4,4),'valuesSeconds':array(nullable_seconds)},['width','height','bounds','valuesSeconds'],strict=False)
+    public_surface = obj({'width':seconds,'height':seconds,'bounds':array(number(),4,4),'valuesSeconds':array(nullable_seconds),'reachableSamples':array(number(0,288,integer=True)),'meanReachableDurationSeconds':array({'type':['number','null'],'minimum':0}),'reachableSamplesByCutoff':array(array(number(0,288,integer=True)))},['width','height','bounds'],strict=False,oneOf=[{'required':['valuesSeconds']},{'required':['reachableSamples','meanReachableDurationSeconds','reachableSamplesByCutoff']}])
     schemas['ReachResult'] = obj({**public_common,'schema':{'const':'vigo.reach.v1'},'surface':public_surface,'fullSurface':public_surface,'bounds':array(number(),4,4),'cutoffsSeconds':array(seconds),
         **{k:{'type':'object'} for k in ['areas','contours','fullAreas','fullContours']}},['schema','status','query','meta','cutoffsSeconds'],strict=False,anyOf=[{'required':['surface']},{'required':['areas','bounds']}])
     schemas['CompareRequest'] = obj({'before':{'oneOf':[ref(k+'Result') for k in ['Route','Matrix','Reach']]},'after':{'oneOf':[ref(k+'Result') for k in ['Route','Matrix','Reach']]}},['before','after'],strict=False)

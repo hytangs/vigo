@@ -1,6 +1,8 @@
+import { nativeRouteRequest, studioRouteResponse } from '../server/studio-route-plans.mjs'
 import { routingResultStatus } from '../server/gtfs/route-results.mjs'
 import { wheelchairDescription, validateWheelchairRequest } from '../server/wheelchair-policy.mjs'
 import fs from 'node:fs'
+import { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
@@ -13,6 +15,8 @@ import packageJson from '../../package.json'
 import { CliUsageError, parseArguments, validateInvocation, value, values, enabled } from './arguments.mjs'
 import { publicResult, publicResultJson, presentationRequest, normalizePublicPoint, publicError, streamLineArgs } from './presentation.mjs'
 import { commands, usage } from './commands.mjs'
+import { runStreamWorkers } from './stream-workers.mjs'
+import { memoryCapacityBytes } from '../server/runtime/resource-limits.mjs'
 import { handleOutputErrors, readJsonObject, writeJsonResult, writeOutputFile } from './io.mjs'
 import { assertMatrixSize } from '../server/matrix-size.mjs'
 import { validateArrivalBuffer } from '../server/arrival-reserve.mjs'
@@ -34,18 +38,10 @@ import {
   disposeNationalGtfsStore,
   ensureNationalGtfsOsmStopTransfers,
   inspectNationalStaticTopologySidecar,
-  nationalGtfsRuntimeView,
   prepareNationalGtfsRoutingContext,
   prepareNationalGtfsNativeCoordinateAccess,
-  prepareNationalGtfsStore,
-  readNationalGtfsStoreMetadata,
-  routeNationalGtfsDepartureWindow,
-  routeNationalGtfsOrderedSegment,
-  addNationalGtfsFares,
-  routeNationalGtfsMatrix,
-  routeNationalGtfsStore,
-  routeNationalGtfsStoreWithAlternatives,
 } from '../server/national-gtfs-store.mjs'
+import { readNationalGtfsStoreMetadata } from '../server/gtfs/store-metadata.mjs'
 import {
   readNationalOsmStoreMetadata,
   buildNationalOsmDriveStore,
@@ -53,19 +49,11 @@ import {
   compactNationalOsmRuntimeStore,
   disposeNationalOsmStore,
   prepareNationalOsmNativeStore,
-  prepareNationalOsmDriveStore,
-  routeNationalStreetMatrix,
-  routeNationalStreetStore,
 } from '../server/national-osm-store.mjs'
 import { buildNativeStreetCchIndex, formatPublicResult, routeAlternativeRequest, selectDetailedRouteChoices } from '../server/native-routing-kernel.mjs'
 import { buildTerminalAccessStore } from '../server/terminal-access-store.mjs'
-import {
-  composeOrderedRoutingFailure,
-  routeOrderedRoutingSegments,
-  validateOrderedRoutingPoints,
-} from '../server/ordered-route-composition.mjs'
 import { compileReachScenario, rasterAreas, rasterContours } from '../server/reach.mjs'
-import { closeNativeReach, nativePoint, nativeReachRange, nativeScenario, queryNativeReach } from './native-reach.mjs'
+import { closeNativeCity, nativePoint, nativeReachRange, nativeScenario, queryNativeCity } from './native-reach.mjs'
 import { hydrateScenarioRouteServices } from '../server/scenario-services.mjs'
 import { resolveServiceDay } from '../server/service-day.mjs'
 import type { ServiceDay } from '../domain'
@@ -78,6 +66,7 @@ type RouteResult = {
   alternativeSearch?: Record<string, unknown> | null
   profileSampleCount: number
   elapsedMs: number
+  openMs: number
 }
 type RouteAlternatives = { count: number; ranking: string; arrivalSlackSeconds: number; limit?: number | null }
 
@@ -152,18 +141,37 @@ function numberField(row: Record<string, string>, names: string[]) {
   return undefined
 }
 
+const stopLookups = new Map<string, ReturnType<typeof createStopLookup>>()
 function openStopLookup(storePath: string) {
-  const view = nationalGtfsRuntimeView(storePath)
+  let lookup = stopLookups.get(storePath)
+  if (!lookup) {
+    lookup = createStopLookup(storePath)
+    stopLookups.set(storePath, lookup)
+  }
+  return lookup
+}
+
+function createStopLookup(storePath: string) {
+  // Endpoint labels need one indexed SQLite lookup, not a second routing store
+  // with timetable activation, transfer graphs and access materialization.
+  const metadata = readNationalGtfsStoreMetadata(storePath)
+  let db: DatabaseSync | undefined
+  let statement: ReturnType<DatabaseSync['prepare']> | undefined
   const routingStore = {
-    storeId: view.metadata.storeId,
-    connectionCount: view.metadata.connectionCount,
+    storeId: (metadata as Record<string, unknown>).storeId,
+    connectionCount: metadata.connectionCount,
   }
   type StopRow = { stop_id: string; name: string; lon: number; lat: number }
   return {
-    metadata: view.metadata,
+    metadata,
+    close() { db?.close() },
     routingStore,
     point(stopId: string, label?: string): RoutingPoint | null {
-      const row = view.stop(stopId) as StopRow | null
+      if (!statement) {
+        db = new DatabaseSync(storePath, { readOnly: true })
+        statement = db.prepare('SELECT stop_id, name, lon, lat FROM stops WHERE stop_id = ?')
+      }
+      const row = statement.get(String(stopId ?? '').trim()) as StopRow | undefined
       if (!row || !Number.isFinite(row.lon) || !Number.isFinite(row.lat)) return null
       return { stopId: row.stop_id, coordinate: [row.lon, row.lat], label: label || row.name || row.stop_id, source: 'stop' }
     },
@@ -247,40 +255,42 @@ function decorateCliRoutingPlan(plan: RoutingPlan | undefined): RoutingPlan | un
   }
 }
 
-function routeOne(
-  storePath: string, request: Record<string, unknown>, departureWindowMinutes: number,
+async function routeOne(
+  storePath: string, request: Record<string, any>, departureWindowMinutes: number,
   alternatives: RouteAlternatives | null = null,
-): RouteResult {
+): Promise<RouteResult> {
   const startedAt = performance.now()
-  const priced = (plan: RoutingPlan) => decorateCliRoutingPlan(addNationalGtfsFares(storePath, plan))
-  if (alternatives) {
-    const routed = routeNationalGtfsStoreWithAlternatives(storePath, request, alternatives)
-    return {
-      plan: priced(routed.plan),
-      choices: routed.choices.map(priced),
-      alternativeSearch: routed.alternativeSearch,
-      profileSampleCount: 0,
-      elapsedMs: performance.now() - startedAt,
-    }
+  const body = { ...request, departureWindowMinutes: 0 }
+  const query: Record<string, any> = nativeRouteRequest(body)
+  delete query.requireCompleteServiceCoverage
+  for (const key of ['arrivalBufferMinutes', 'disableCache', 'walkSpeedKph']) {
+    if (request[key] !== undefined) query[key] = request[key]
   }
-  if (request.timePreference === 'depart' && departureWindowMinutes > 0) {
-    const profile = routeNationalGtfsDepartureWindow(storePath, {
-      ...request,
-      departureWindowMinutes,
-      stepMinutes: 1,
-    })
-    return {
-      plan: decorateCliRoutingPlan(addNationalGtfsFares(storePath, profile.plan)),
-      choices: profile.choices.map(plan => decorateCliRoutingPlan(addNationalGtfsFares(storePath, plan))),
-      profileSampleCount: profile.profile.sampleCount,
-      elapsedMs: performance.now() - startedAt,
-    }
+  if (request.__disableNativeStreetPathCache !== undefined) query.disableCache = request.__disableNativeStreetPathCache
+  if (request.walkingSpeedKph !== undefined) query.walkSpeedKph = request.walkingSpeedKph
+  if (request.trafficSnapshot) { query.traffic = request.trafficSnapshot; query.routingDataMode = 'realtime' }
+  if (departureWindowMinutes > 0) {
+    const start = Math.max(0, Number(request.departMinutes) - departureWindowMinutes)
+    query.timeMinutes = start
+    query.windowMinutes = Number(request.departMinutes) + departureWindowMinutes - start
+    query.windowChoices = 'supported'
   }
-  return {
-    plan: decorateCliRoutingPlan(addNationalGtfsFares(storePath, routeNationalGtfsStore(storePath, request))),
-    profileSampleCount: 0,
-    elapsedMs: performance.now() - startedAt,
-  }
+  if (alternatives) Object.assign(query, { alternatives: alternatives.count, alternativeRanking: alternatives.ranking,
+    alternativeSlackMinutes: alternatives.arrivalSlackSeconds / 60 })
+  const { trace, openMs } = await queryNativeCity(path.dirname(path.dirname(storePath)), query)
+  const response = studioRouteResponse(trace, request)
+  const choices: RoutingPlan[] = response.choices.map((plan: RoutingPlan) => decorateCliRoutingPlan({ ...plan,
+    diagnostics: { ...plan.diagnostics, ...(trace.clockDate ? { clockDate: trace.clockDate } : {}),
+      ...(trace.window ? { departureWindow: { centerMinutes: request.departMinutes,
+        beforeMinutes: request.departMinutes - trace.window.startMinutes,
+        afterMinutes: trace.window.endMinutes - request.departMinutes,
+        sampleCount: trace.window.sampleCount } } : {}),
+    },
+  }))
+  return { plan: choices.find(plan => plan?.id === response.selectedPlanId) ?? choices[0],
+    ...(trace.choices ? { choices } : {}),
+    ...(trace.alternativeSearch ? { alternativeSearch: trace.alternativeSearch } : {}),
+    profileSampleCount: trace.window?.sampleCount ?? 0, openMs, elapsedMs: performance.now() - startedAt }
 }
 
 function resolveRuntimePaths(args: CliArguments) {
@@ -351,33 +361,9 @@ function runtimeOptions(args: CliArguments, request: Record<string, unknown> = {
   }
 }
 
-async function prepareRuntime(
-  storePath: string,
-  streetStorePath: string | undefined,
-  serviceDate: string | undefined,
-  serviceDay: ServiceDay,
-  mode = 'transit',
-) {
-  if (!['transit', 'walk', 'drive'].includes(mode)) throw new Error('mode must be transit, walk, or drive')
-  const started = performance.now()
-  if (streetStorePath) {
-    if (mode === 'drive') prepareNationalOsmDriveStore(streetStorePath)
-    else prepareNationalOsmNativeStore(streetStorePath)
-  }
-  if (mode === 'transit') {
-    if (streetStorePath) await ensureNationalGtfsOsmStopTransfers(storePath, streetStorePath)
-    if (serviceDate) prepareNationalGtfsRoutingContext(storePath, {
-      serviceDate, serviceDay, streetStorePath, allowServiceDateFallback: false,
-    })
-    else prepareNationalGtfsStore(storePath)
-  }
-  return { elapsedMs: Number((performance.now() - started).toFixed(3)) }
-}
-
 async function computeRouteRequest(
   args: CliArguments, request: Record<string, any>,
   paths: ReturnType<typeof resolveRuntimePaths>,
-  prepare: typeof prepareRuntime = prepareRuntime,
 ) {
   const { storePath, streetStorePath, city } = paths
   validateWheelchairRequest(city.accessibility?.profile, { ...request,
@@ -413,13 +399,6 @@ async function computeRouteRequest(
   if (mode !== 'transit' && [origin, ...waypoints, destination].some((point) => !point.coordinate)) {
     throw new Error(`${mode} routes require coordinate points`)
   }
-  const preparation = await prepare(
-    storePath,
-    streetStorePath,
-    options.serviceDate,
-    options.serviceDay,
-    mode,
-  )
   const queryStarted = performance.now()
   const baseRequest = normalizeRoutingDataRequest({
     routingDataMode: options.routingDataMode,
@@ -451,36 +430,9 @@ async function computeRouteRequest(
     ...(options.routingDataMode === 'realtime' && mode === 'drive' && request.traffic
       ? { trafficSnapshot: request.traffic } : {}),
   })
-  const routeSegment = async (segmentRequest: Record<string, any>) => (
-    mode === 'transit'
-      ? routeNationalGtfsOrderedSegment(storePath, { ...segmentRequest, __orderedSegment: true })
-      : routeNationalStreetStore(streetStorePath!, segmentRequest) as RoutingPlan
-  )
-  let routed: RouteResult
-  if (waypoints.length) {
-    const points = validateOrderedRoutingPoints(origin, waypoints, destination)
-    const components = await routeOrderedRoutingSegments(points, baseRequest, routeSegment)
-    if (!components) throw new Error('Ordered routing returned no components')
-    if (components.failedIndex < 0 && !components.choices?.length) throw new Error('Ordered routing returned no choices')
-    // Ordered journeys price their boardings like every other published journey.
-    const priced = (plan: RoutingPlan) => (mode === 'transit' ? addNationalGtfsFares(storePath, plan) : plan)
-    routed = {
-      plan: components.failedIndex >= 0
-        ? composeOrderedRoutingFailure(components.failedPlan, components.failedIndex, points, components.componentPlans)
-        : priced(components.choices![0]),
-      choices: components.choices?.map(priced),
-      profileSampleCount: components.componentPlans.length,
-      elapsedMs: performance.now() - queryStarted,
-    }
-  } else {
-    routed = mode === 'transit'
-      ? routeOne(storePath, baseRequest, options.departureWindowMinutes, alternatives)
-      : {
-          plan: routeNationalStreetStore(streetStorePath!, baseRequest) as RoutingPlan,
-          profileSampleCount: 1,
-          elapsedMs: 0,
-        }
-  }
+  const routed = await routeOne(storePath, { ...baseRequest, waypoints,
+    maxStreetKm: request.maxStreetKm ?? (mode === 'drive' ? 750 : 50),
+  }, options.departureWindowMinutes, alternatives)
   const queryMs = performance.now() - queryStarted
   const result = {
     schemaVersion: 'vigo.result.route.v1',
@@ -518,7 +470,7 @@ async function computeRouteRequest(
     warnings: request.includeLimitations === true ? readNationalGtfsStoreMetadata(storePath).routingLimitations ?? [] : [],
     timing: {
       buildMs: null,
-      openMs: preparation.elapsedMs,
+      openMs: routed.openMs,
       computeMs: Number(queryMs.toFixed(3)),
       endToEndMs: Number((performance.now() - cliStartedAt).toFixed(3)),
     },
@@ -535,6 +487,7 @@ async function runRouteRequest(args: CliArguments) {
     writeJsonResult(publicResult(raw, request, args), value(args, 'output'), value(args, 'format', 'auto'))
   } finally {
     disposeNationalGtfsStore(paths.storePath)
+    closeNativeCity()
   }
 }
 
@@ -570,7 +523,6 @@ async function runRoute(args: CliArguments) {
     horizonMinutes,
   } = runtimeOptions(args)
 
-  const preparation = await prepareRuntime(storePath, streetStorePath, serviceDate, serviceDay)
   const parsed = Papa.parse<Record<string, string>>(fs.readFileSync(odPath, 'utf8'), { header: true, skipEmptyLines: true })
   if (parsed.errors.length) throw new Error(`OD CSV parse failed: ${parsed.errors[0].message}`)
   const stopLookup = openStopLookup(storePath)
@@ -608,7 +560,7 @@ async function runRoute(args: CliArguments) {
         horizonMinutes,
         streetStorePath,
       }
-      const result = routeOne(storePath, request, departureWindowMinutes)
+      const result = await routeOne(storePath, request, departureWindowMinutes)
       results.push(result)
       const plan = result.plan
       fullResults.push({
@@ -665,7 +617,7 @@ async function runRoute(args: CliArguments) {
     query: queryMetadata,
     rows: { total: rows.length, ready, blocked: rows.length - ready },
     timing: {
-      openMs: preparation.elapsedMs,
+      openMs: results[0]?.openMs ?? 0,
       computeMs: Number(routingElapsedMs.toFixed(3)),
       outputMs: Number(outputElapsedMs.toFixed(3)),
       endToEndMs: Number((performance.now() - cliStartedAt).toFixed(3)),
@@ -746,27 +698,16 @@ async function writeNdjson(value: unknown, request?: Record<string, unknown>, ar
 }
 
 async function runRouteStream(args: CliArguments) {
+  const workers = Number(value(args, 'workers', '1'))
+  if (!Number.isInteger(workers) || workers < 1 || workers > 4) throw new Error('--workers must be an integer from 1 to 4')
+  const capacity = Math.max(1, Math.min(4, Math.floor(os.availableParallelism() / 2), Math.floor(memoryCapacityBytes / (6 * 1024 ** 3))))
+  const effectiveWorkers = Math.min(workers, capacity)
+  if (effectiveWorkers !== workers) process.stderr.write(`Using ${effectiveWorkers} stream worker(s) within CPU and memory limits.\n`)
   const streamOutput = value(args, 'stream-output', 'public')
   if (!['public', 'detailed'].includes(streamOutput)) throw new Error('stream-output must be public or detailed')
   const paths = resolveRuntimePaths(args)
-  const { storePath, streetStorePath } = paths
-  const preparedModes = new Map<string, string>()
-  const prepareMode = async (mode: string, serviceDate: string, serviceDay: ServiceDay) => {
-    if (preparedModes.get(mode) === serviceDate) return 0
-    if (preparedModes.has(mode)) {
-      // The resident City already owns the street graph and stop transfers.
-      // A date switch only selects the applicable timetable.
-      const started = performance.now()
-      if (mode === 'transit') prepareNationalGtfsRoutingContext(storePath, {
-        serviceDate, serviceDay, streetStorePath, allowServiceDateFallback: false,
-      })
-      preparedModes.set(mode, serviceDate)
-      return Number((performance.now() - started).toFixed(3))
-    }
-    const prepared = await prepareRuntime(storePath, streetStorePath, serviceDate, serviceDay, mode)
-    preparedModes.set(mode, serviceDate)
-    return prepared.elapsedMs
-  }
+  if (effectiveWorkers > 1) return runStreamWorkers(args, effectiveWorkers)
+  const { storePath } = paths
   const stopLookup = openStopLookup(storePath)
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity, terminal: false })
   let sequence = 0
@@ -797,18 +738,13 @@ async function runRouteStream(args: CliArguments) {
           const minutes = parseNdjsonTime(clock, 'time')
           requestArgs.set('time', [`${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`])
         }
-        const prepare: typeof prepareRuntime = async (_store, _street, date, day, mode = 'transit') => {
-          if (!date) throw new Error('Stream preparation requires an explicit service date')
-          return { elapsedMs: await prepareMode(mode, date, day) }
-        }
         let result
-        if (input.kind === 'route') result = await computeRouteRequest(requestArgs, input, paths, prepare)
+        if (input.kind === 'route') result = await computeRouteRequest(requestArgs, input, paths)
         else if (input.kind === 'reach') result = await computeReachRequest(requestArgs, input, paths)
         else {
           const options = analyticalRuntimeOptions(requestArgs, 'matrix', input)
-          const openMs = await prepareMode(String(input.mode ?? 'transit'), options.serviceDate, options.serviceDay)
-          const matrix = computePreparedMatrix(requestArgs, input, paths, options, stopLookup)
-          result = { ...matrix, timing: { ...matrix.timing, openMs } }
+          const matrix = await computePreparedMatrix(requestArgs, input, paths, options, stopLookup)
+          result = matrix
         }
         const detailed = { ...result, sequence, id, timing: {
           ...result.timing,
@@ -826,7 +762,7 @@ async function runRouteStream(args: CliArguments) {
     }
   } finally {
     disposeNationalGtfsStore(storePath)
-    closeNativeReach()
+    closeNativeCity()
   }
 }
 
@@ -936,7 +872,20 @@ function matrixOrigins(
   })
 }
 
-function computePreparedMatrix(
+function analyticalJourney(raw: Record<string, any>) {
+  const rounded = (value: number) => Number(value.toFixed(3))
+  const { departureMinutes, arrivalMinutes, legs, ...rest } = raw
+  return { ...rest, departMinutes: rounded(departureMinutes), arriveMinutes: rounded(arrivalMinutes),
+    ...Object.fromEntries(['durationMinutes', 'walkMinutes', 'rideMinutes', 'waitMinutes']
+      .filter(key => typeof raw[key] === 'number').map(key => [key, rounded(raw[key])])),
+    legs: legs.map((leg: Record<string, any>) => {
+      const { kind, departureMinutes, arrivalMinutes, ...fields } = leg
+      return { ...fields, type: kind, startMinutes: rounded(departureMinutes),
+        endMinutes: rounded(arrivalMinutes), durationMinutes: rounded(leg.durationMinutes) }
+    }) }
+}
+
+async function computePreparedMatrix(
   args: CliArguments,
   request: Record<string, unknown>,
   paths: ReturnType<typeof resolveRuntimePaths>,
@@ -992,53 +941,49 @@ function computePreparedMatrix(
   )) {
     throw new Error(`${mode} matrices require coordinate points`)
   }
-  const matrix = mode === 'transit'
-    ? routeNationalGtfsMatrix(storePath, {
-        routingDataMode: options.routingDataMode,
-        origins: origins.map((origin) => origin.point),
-        destinations: destinations.map((destination) => destination.point),
-        departMinutes: options.timeMinutes,
-        arriveMinutes: options.timeMinutes,
-        timePreference: options.timePreference,
-        routingPreference: options.routingPreference,
-        serviceDay: options.serviceDay,
-        serviceDate: options.serviceDate,
-        allowServiceDateFallback: false,
-        maxWalkKm: options.maxWalkKm,
-        maxTransfers: options.maxTransfers,
-        horizonMinutes,
-        requireTransitRide: request.requireTransitRide,
-        allowLongWalk: request.allowLongWalk,
-        __disableNativeStreetPathCache: request.disableCache === true,
-        allowStreetTransfers: request.allowStreetTransfers,
-        minimumTransferBufferMinutes: request.minimumTransferBufferMinutes,
-        arrivalBufferMinutes: request.arrivalBufferMinutes,
-        includeJourneys: request.includeJourneys,
-        includeGeometry: request.includeGeometry,
-        streetStorePath,
-      })
-    : routeNationalStreetMatrix(streetStorePath!, {
-        mode,
-        ...(options.routingDataMode === 'realtime' && mode === 'drive' ? { trafficSnapshot: request.traffic } : {}),
-        disableCache: request.disableCache === true,
-        origins: origins.map((origin) => origin.point),
-        destinations: destinations.map((destination) => destination.point),
-        walkingSpeedKph: request.walkSpeedKph,
-        maxDistanceKm: request.maxDistanceKm,
-        // A drive endpoint walks to its road within the same limit.
-        maxWalkKm: options.maxWalkKm,
-      })
-  const assemblyStarted = performance.now()
-  // Matrix owns fresh rows for this request; attach IDs without copying each row.
-  const rows = matrix.rows
-  for (const row of rows) {
-    row.originId = origins[Number(row.originIndex)]?.id ?? null
-    row.destinationId = destinations[Number(row.destinationIndex)]?.id ?? null
+  const nativeRequest: Record<string, any> = { kind: 'matrix', mode,
+    origins: origins.map(origin => nativePoint(origin.point)), destinations: destinations.map(destination => nativePoint(destination.point)),
+    timeMinutes: options.timeMinutes, timePreference: options.timePreference, serviceDate: options.serviceDate,
+    maxWalkKm: options.maxWalkKm, maxTransfers: options.maxTransfers, horizonMinutes,
+    maxStreetKm: request.maxStreetKm ?? request.maxDistanceKm ?? (mode === 'drive' ? 750 : 50),
+    routingDataMode: options.routingDataMode,
   }
+  for (const key of ['requireTransitRide', 'allowLongWalk', 'disableCache', 'allowStreetTransfers',
+    'minimumTransferBufferMinutes', 'arrivalBufferMinutes', 'includeJourneys', 'includeGeometry', 'walkSpeedKph']) {
+    if (request[key] !== undefined) nativeRequest[key] = request[key]
+  }
+  if (options.routingDataMode === 'realtime' && mode === 'drive') nativeRequest.traffic = request.traffic
+  const detailed = value(args, 'stream-output') === 'detailed' || value(args, 'diagnostics', String(request.diagnostics ?? '')) === 'trace'
+  // The legacy analytical contract contains every timed leg, without Studio
+  // presentation records. Geometry or an explicit full format opts into them.
+  const compactJourneys = detailed && request.includeJourneys === true
+    && request.includeGeometry !== true && request.journeyFormat !== 'full'
+  if (request.journeyFormat !== undefined) nativeRequest.journeyFormat = request.journeyFormat
+  else if (compactJourneys) nativeRequest.journeyFormat = 'compact'
+  const { trace, openMs } = await queryNativeCity(paths.cityPath, nativeRequest)
+  // Public Matrix output consumes native arrays directly. Only the explicit
+  // legacy detailed stream needs flat rows and Studio journey adaptation.
+  const matrix = { diagnostics: trace.diagnostics, rows: detailed ? origins.flatMap((origin, i) => destinations.map((destination, j) => {
+    const duration = trace.durationsMinutes[i][j]
+    const ready = Number.isFinite(duration) && duration >= 0
+    const rawJourney = trace.journeys?.[i]?.[j]
+    const journey = rawJourney ? compactJourneys ? analyticalJourney(rawJourney) : studioRouteResponse({ ...rawJourney, serviceDate: trace.serviceDate,
+      status: 'ready', mode: rawJourney.mode ?? mode },
+      { ...nativeRequest, origin: origin.point, destination: destination.point,
+        departMinutes: options.timeMinutes, serviceDay: options.serviceDay }).choices[0] : undefined
+    return { originIndex: i, destinationIndex: j, originId: origin.id, destinationId: destination.id,
+      status: ready ? 'ready' : 'blocked', durationMinutes: ready ? duration : null,
+      departMinutes: ready ? (options.timePreference === 'arrive' ? options.timeMinutes - duration : options.timeMinutes) : null,
+      arriveMinutes: ready ? (options.timePreference === 'arrive' ? options.timeMinutes : options.timeMinutes + duration) : null,
+      ...(trace.distancesMeters ? { distanceKm: ready ? trace.distancesMeters[i][j] / 1000 : null } : {}),
+      ...(journey ? { journey } : {}) }
+  })) : undefined }
+  const assemblyStarted = performance.now()
   const payload = {
     schemaVersion: 'vigo.result.matrix.v1',
     ...publicResultMetadata,
     kind: 'matrix',
+    ...(trace.clockDate ? { clockDate: trace.clockDate } : {}),
     status: 'ready',
     city,
     warnings: request.includeLimitations === true ? readNationalGtfsStoreMetadata(storePath).routingLimitations ?? [] : [],
@@ -1062,10 +1007,13 @@ function computePreparedMatrix(
       ...(request.arrivalBufferMinutes !== undefined ? { arrivalBufferMinutes: request.arrivalBufferMinutes } : {}),
       disableCache: request.disableCache === true,
     },
-    rows,
+    ...(detailed ? { rows: matrix.rows } : { durationsMinutes: trace.durationsMinutes,
+      ...(trace.distancesMeters ? { distancesMeters: trace.distancesMeters } : {}),
+      ...(trace.journeys ? { journeys: trace.journeys } : {}) }),
     diagnostics: matrix.diagnostics,
     timing: {
       computeMs: Number((assemblyStarted - queryStarted).toFixed(3)),
+      openMs,
       requestPreparationMs: Number((queryStarted - preparationStarted).toFixed(3)),
       resultAssemblyMs: Number((performance.now() - assemblyStarted).toFixed(3)),
     },
@@ -1079,11 +1027,8 @@ async function runMatrix(args: CliArguments) {
   const paths = resolveRuntimePaths(args)
   assertMatrixSize((request.origins as unknown[])?.length, (request.destinations as unknown[])?.length)
   const options = analyticalRuntimeOptions(args, 'matrix', request)
-  const preparation = await prepareRuntime(paths.storePath, paths.streetStorePath, options.serviceDate, options.serviceDay,
-    String(value(args, 'mode', String(request.mode ?? 'transit'))))
-  const payload = computePreparedMatrix(args, request, paths, options, openStopLookup(paths.storePath))
+  const payload = await computePreparedMatrix(args, request, paths, options, openStopLookup(paths.storePath))
   writeJsonResult(publicResult({ ...payload, timing: { ...payload.timing,
-    openMs: preparation.elapsedMs,
     endToEndMs: Number((performance.now() - cliStartedAt).toFixed(3)),
   } }, request, args), value(args, 'output'), value(args, 'format', 'auto'))
 }
@@ -1108,6 +1053,9 @@ async function computeReachRequest(
   args: CliArguments, request: Record<string, any>,
   paths: ReturnType<typeof resolveRuntimePaths>,
 ) {
+  if (Object.hasOwn(request, 'allDay')) {
+    throw new Error('allDay Reach currently requires the Rust vigo executable or native HTTP endpoint.')
+  }
   const { storePath, streetStorePath, city } = paths
   validateWheelchairRequest(city.accessibility?.profile, { ...request,
     mode: value(args, 'mode', String(request.mode ?? 'transit')),
@@ -1171,7 +1119,7 @@ async function computeReachRequest(
     : analyticalPoint(request.origin, 'Origin', stopLookup)
   const surfaceSampling = mode === 'drive' ? 'cell-center' : request.surfaceSampling ?? 'street'
   const plannedScenario = nativeScenario(scenario)
-  const { trace, openMs, computeMs } = await queryNativeReach(paths.cityPath, {
+  const { trace, openMs, computeMs } = await queryNativeCity(paths.cityPath, {
     kind: 'reach',
     [arrive ? 'destination' : 'origin']: nativePoint(place),
     timePreference: arrive ? 'arrive_by' : 'depart_at',
@@ -1252,7 +1200,7 @@ async function runReach(args: CliArguments) {
     writeJsonResult(publicResult(await computeReachRequest(args, request, paths), request, args), value(args, 'output'), value(args, 'format', 'auto'))
   } finally {
     disposeNationalGtfsStore(paths.storePath)
-    closeNativeReach()
+    closeNativeCity()
   }
 }
 
@@ -2070,6 +2018,7 @@ try {
     else if (command === 'compare') await runCompare(args)
     else if (command === 'stream') await runRouteStream(args)
     else await runRoute(args)
+    closeNativeCity()
   }
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error)
@@ -2079,4 +2028,8 @@ try {
   process.stderr.write(`VIGO${command ? ` ${command}` : ''}: ${message}\n`)
   process.stderr.write(`Run "vigo${publicCommand ? ` ${publicCommand}` : ''} --help" for usage.\n`)
   process.exitCode = 2
+} finally {
+  closeNativeCity()
+  for (const lookup of stopLookups.values()) lookup.close()
+  stopLookups.clear()
 }

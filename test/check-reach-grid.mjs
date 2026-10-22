@@ -47,8 +47,9 @@ try {
     assert.deepEqual(n.surface.fullValues, n.surface.values)
     const [w, s, e, north] = n.surface.bounds
     const destinations = Array.from({ length: 48 * 48 }, (_, i) => ({ coordinate: [w + (i % 48 + .5) / 48 * (e - w), north - (Math.floor(i / 48) + .5) / 48 * (north - s)] }))
+    // Walk Reach uses the time cutoff; maxWalkKm limits transit access only.
     const matrix = await node({ ...q, kind: 'matrix', origins: [q.origin], destinations,
-      horizonMinutes: q.cutoffsMinutes.at(-1), allowLongWalk: false, requireTransitRide: false, maxDistanceKm: mode === 'drive' ? 750 : 1.2 })
+      horizonMinutes: q.cutoffsMinutes.at(-1), allowLongWalk: false, requireTransitRide: false, maxDistanceKm: mode === 'drive' ? 750 : mode === 'walk' ? q.cutoffsMinutes.at(-1) * 4.8 / 60 : undefined })
     assert.equal(matrix.rows.length, destinations.length)
     let reached = 0
     n.surface.values.forEach((value, i) => {

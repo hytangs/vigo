@@ -53,6 +53,9 @@ impl TimetableKernel {
                 "Rust arrive-by many-to-one query arrays or bounds are inconsistent.",
             ));
         }
+        if self.service.is_some() {
+            return self.service_arrive_many(input);
+        }
         let maximum_layer = boarding_layers(input.maximum_boardings)?;
         let first_layer = usize::from(input.maximum_boardings.is_some());
         let workspace = &mut self.query.workspace;
@@ -341,6 +344,9 @@ impl TimetableKernel {
             ));
         }
 
+        if self.service.is_some() {
+            return self.service_many(input);
+        }
         let maximum_layer = boarding_layers(input.maximum_boardings)?;
         let first_layer = usize::from(input.maximum_boardings.is_some());
         let base_stop_count = self.stop_count;
@@ -352,6 +358,7 @@ impl TimetableKernel {
 
         let transfer_buffer_seconds = self.minimum_transfer_buffer_seconds;
         let Self {
+            service: _,
             stop_count: _,
             run_count: _,
             departure_seconds: _,

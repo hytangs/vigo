@@ -1,13 +1,10 @@
-# VIGO 1.0 workspace (RFC 0001). The 0.5 kernel keeps its own manifest and lock
-# while M1 moves its modules into crates/. Timetable computation and its I/O
-# now live in the workspace; street kernels and transports are still migrating.
 [workspace]
 resolver = "3"
-members = ["crates/vigo-model", "crates/vigo-route", "crates/vigo-format", "crates/vigo-prepare", "crates/vigo-traffic", "crates/vigo-gtfs"]
-exclude = ["native"]
+members = ["crates/vigo-runtime", "crates/vigo-model", "crates/vigo-route", "crates/vigo-format", "crates/vigo-prepare", "crates/vigo-traffic", "crates/vigo-gtfs"]
+exclude = ["vendor/cch"]
 
 [workspace.package]
-version = "0.5.2"
+version = "1.0.0-rc.1"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/hytangs/vigo"
@@ -17,3 +14,9 @@ publish = false
 schemars = "1.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+panic = "unwind"
+strip = "symbols"

@@ -63,6 +63,7 @@ window.checkTransitions = async () => {
   const camera = () => JSON.stringify([liveMap.getCenter(), liveMap.getZoom(), liveMap.getBearing(), liveMap.getPitch()])
   const initialCamera = camera()
   const failures = new Set()
+  let panelFrame
   for (const name of ['Route', 'Reach', 'Network', 'Reach', 'Route', 'Network']) {
     const button = rail.querySelector(`[aria-label="${name === 'Reach' ? 'Analyze' : name}"]`)
     button.focus()
@@ -75,6 +76,12 @@ window.checkTransitions = async () => {
       if (JSON.stringify(frame.getBoundingClientRect().toJSON()) !== bounds) failures.add('Frame moved on ' + name)
       if (camera() !== initialCamera) failures.add('Camera moved on ' + name)
       const panel = document.querySelector(name === 'Network' ? '.agency-panel' : '.sidebar-panel')
+      const rect = panel.getBoundingClientRect()
+      const geometry = JSON.stringify([rect.x, rect.y, rect.width, rect.height])
+      panelFrame ??= geometry
+      if (geometry !== panelFrame) failures.add('Panel dimensions differ on ' + name)
+      if (Math.abs(frame.getBoundingClientRect().bottom - rect.bottom - parseFloat(getComputedStyle(document.querySelector('.app-shell')).getPropertyValue('--stage-gutter'))) > 1) failures.add('Panel bottom gutter differs on ' + name)
+      if (parseFloat(getComputedStyle(panel).borderBottomLeftRadius) === 0) failures.add('Panel bottom corner is square on ' + name)
       if (getComputedStyle(panel).transform !== 'none') failures.add('Panel frame animates on ' + name)
     }
   }

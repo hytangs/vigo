@@ -1,9 +1,8 @@
 # VIGO 1 Poros readiness
 
 Audit date: 2026-10-19. Status: development preview. The Studio redesign and
-native routing capability do not satisfy the complete 1.0 exit criteria in
-[RFC 0001](../../rfcs/0001-vigo-1-architecture.md) and
-[RFC 0002](../../rfcs/0002-vigo-1-capabilities.md).
+native routing capability are assessed against the maintained [developer guide](../developer.md).
+The completed architecture proposals have been retired; the limitations below remain explicit.
 
 ## Fixed in this audit
 
@@ -30,7 +29,7 @@ native routing capability do not satisfy the complete 1.0 exit criteria in
 
 | Gate | Current gap | Evidence required before closing |
 | --- | --- | --- |
-| M1: pure workspace | Street/access/drive kernels, engine orchestration, server and CLI remain in the original native crate. The public model is not the whole internal executable request model. | Extract ownership into the planned crates; retain addon/standalone parity, corpus and pure routing dependency checks. |
+| M1: pure workspace | All Rust packages now share one workspace and lockfile. The runtime crate still owns street/access/drive kernels, orchestration and transports. The public model is not the whole internal executable request model. | Extract ownership into the planned crates; retain addon/standalone parity, corpus and pure routing dependency checks. |
 | M2: packed City | The planned pack reader/writer and executable pack/inspect workflow have not passed their exit. | Identical results with/without packs; old City compatibility; matched open/first-query timings, memory and pack size. |
 | M3: native build | Rust compiles GTFS connections, but ZIP/CSV admission, calendars, source scoping, OSM construction, publication and build orchestration still depend on JS. The standalone executable does not build a City from raw inputs. | Native raw-data build; stage-by-stage admitted-row and routed-result equivalence; crash/rollback tests; matched time, RSS and temporary storage; permanent 0.5 bidirectional gate. |
 | M4/M5: unified runtime | Studio uses the Node internal API around native operators. It is not yet a client of the planned unified Rust server. | One authoritative request/validation/job model; client parity; cancellation, progress and restart acceptance through Studio and public interfaces. |

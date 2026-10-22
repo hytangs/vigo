@@ -19,7 +19,7 @@ const {values} = parseArgs({options:{
 assert(values.reference, '--reference must identify the executable to compare')
 const samples = Number(values.samples)
 assert(Number.isInteger(samples) && samples>=3 && samples<=1000)
-const binaries = [path.resolve(values.reference),path.resolve(values.binary ?? path.join(root,'native/target/release',process.platform==='win32'?'vigo.exe':'vigo'))]
+const binaries = [path.resolve(values.reference),path.resolve(values.binary ?? path.join(root,'target/release',process.platform==='win32'?'vigo.exe':'vigo'))]
 for (const binary of binaries) assert(fs.existsSync(binary),binary)
 const directory = fs.mkdtempSync(path.join(os.tmpdir(),'vigo-service-reuse-'))
 const children = []

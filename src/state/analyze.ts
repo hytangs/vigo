@@ -3,7 +3,7 @@ import { bundleFeedId } from '../app/projectState'
 import { createScenarioRoadGeometryRequest } from '../app/scenarioRoadGeometryRequest'
 import { createStore, memoizeLast } from '../app/store'
 import { caseFeedSelection, type CityDataGroups } from '../app/cityDataGroups'
-import { baselineGroupId, maximumScenarios, newScenario } from '../app/scenarioLibrary'
+import { baselineGroupId, maximumScenarios, newScenario, scenarioNetworkDiffers } from '../app/scenarioLibrary'
 import { compareStats, type CompareVariant, type CompareEntry, type ComparisonRun } from '../app/comparison'
 import { reachTransitStops } from '../app/resultSummary'
 import type { useReachInspection } from '../app/useReachInspection'
@@ -1132,7 +1132,7 @@ export async function runSurfaceAnalysis(includeStreetEdges = analyze.get().scen
   const baselineFeeds = baselineGroup && !caseFeedSelection({ ...grouping.value, cases: { baseline: baselineGroupId } }, 'baseline', project).error
     ? [...new Set(baselineGroup.feedIds)].sort() : null
   const { scheduleTimeMinutes, serviceDate } = clock.get()
-  const interventionCount = settings.reachTravelMode === 'drive' ? 0 : activeScenario()?.interventions.length ?? 0
+  const hasScenarioChanges = settings.reachTravelMode !== 'drive' && (Boolean(activeScenario()?.interventions.length) || scenarioNetworkDiffers(grouping.value.groups, selection.group?.id))
   analysisAbort?.abort()
   const controller = new AbortController()
   analysisAbort = controller
@@ -1176,7 +1176,7 @@ export async function runSurfaceAnalysis(includeStreetEdges = analyze.get().scen
       (preliminary) => analyze.set({ reachResult: preliminary.result }),
     )
     if (controller.signal.aborted) return
-    analyze.set({ reachResult: inflateReachResult(response.result), scenarioView: interventionCount ? 'comparison' : 'baseline' })
+    analyze.set({ reachResult: inflateReachResult(response.result), scenarioView: hasScenarioChanges ? 'comparison' : 'baseline' })
   } catch (error) {
     if (controller.signal.aborted) return
     analyze.set({ scenarioError: error instanceof Error ? error.message : 'Analysis failed.' })

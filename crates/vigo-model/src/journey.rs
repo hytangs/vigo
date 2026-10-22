@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Journey {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expanded_walking_limit_km: Option<Number>,
     /// Date anchoring every clock in this journey. Route only; `null` for a
     /// walking or driving journey without a service date.
     #[serde(default, skip_serializing_if = "Maybe::is_absent")]
@@ -86,6 +88,8 @@ pub struct TransitLeg {
     pub direction_id: Option<String>,
     pub headsign: Option<String>,
     pub trip_short_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continuation: Option<InSeatContinuation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intermediate_stops: Option<Vec<IntermediateStop>>,
     pub quality: TransitQuality,
@@ -177,6 +181,8 @@ pub enum ScheduleQuality {
     SourceTimeLimitations,
     /// Realtime predictions for this trip were applied.
     Realtime,
+    /// Expected timing under the declared headway waiting model.
+    HeadwayEstimate,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -199,6 +205,16 @@ pub struct TransitQuality {
     /// `stop_sequence` (straight lines between stops) or `unknown`.
     pub geometry: String,
     pub schedule: ScheduleQuality,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub headway: Option<HeadwayEstimate>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct HeadwayEstimate {
+    pub headway_seconds: u32,
+    pub waiting_assumption: String,
+    pub expected_wait_seconds: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -274,4 +290,18 @@ pub struct UnavailableFare {
     /// Such as `missing_catalog`, `no_rule` or `invalid_data`.
     pub code: String,
     pub reason: String,
+}
+
+/// An explicit GTFS continuation from the preceding transit leg.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InSeatContinuation {
+    #[serde(rename = "type")]
+    pub kind: InSeatContinuationType,
+    pub duration_seconds: f64,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub enum InSeatContinuationType {
+    #[serde(rename = "stay_aboard")]
+    StayAboard,
 }

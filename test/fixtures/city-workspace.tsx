@@ -1,3 +1,4 @@
+import packageInfo from '../../package.json'
 import React, { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { flushSync } from 'react-dom'
@@ -184,7 +185,7 @@ window.checkDocumentation = async (dark = false) => {
   assert(document.querySelector('.settings-docs-frame') === frame && frame.getAttribute('aria-busy') === 'false', 'Guide navigation reloads the embedded reader')
   assert(!doc.querySelector('#page-http-api').hidden, 'Integrated HTTP reference did not open')
   const schema = await originalFetch(document.querySelector('.settings-docs-toolbar a').href).then(response => response.json())
-  assert(schema.openapi === '3.1.0' && schema.info.version === '0.5.2', 'API schema is missing or stale')
+  assert(schema.openapi === '3.1.0' && schema.info.version === packageInfo.version, 'API schema is missing or stale')
   const codePage = [...doc.querySelectorAll('.doc-page')].find(page => page.querySelector('.copy'))
   doc.defaultView.location.hash = codePage.dataset.page; await settle()
   codePage.querySelector('.copy').click(); await settle()

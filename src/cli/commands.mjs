@@ -3,6 +3,7 @@ import { publicCliCommands, supportedReachRasterSizes } from '../capabilities.mj
 // Help and validation share these definitions. Computation stays in the engines.
 export const options = {
   format: ["FORMAT", "text or json (automatic terminal view by default)"],
+  "workers": ["COUNT", "Resident stream workers, 1–4 (default 1); results retain input order"],
   "stream-output": ["FORMAT", "public (default) or detailed wrapper envelope; detailed payload is an internal ABI"],
   diagnostics: ["LEVEL", "none (default), summary, profile, or trace"],
   "include-geometry": ["", "Include journey GeoJSON", "boolean"],
@@ -109,7 +110,7 @@ export const commands = {
   stream: {
     summary: 'Run Route, Matrix, and Reach as NDJSON in one resident process.',
     usage: ['--city ./city [--service-date YYYY-MM-DD] < queries.ndjson > results.ndjson'],
-    options: ['stream-output', 'diagnostics', 'include-geometry', 'include-limitations', 'city', 'wheelchair', 'service-date', 'service-day', 'time', 'max-walk'],
+    options: ['workers', 'stream-output', 'diagnostics', 'include-geometry', 'include-limitations', 'city', 'wheelchair', 'service-date', 'service-day', 'time', 'max-walk'],
     notes: ['Send one JSON object per line with kind: "route", "matrix", or "reach" and an optional id.',
       'Example: {"id":"trip-1","kind":"route","origin":"A","destination":"B","time":"08:00"}',
       'One City per process. Each query may select its serviceDate, mode, time, and other options.',

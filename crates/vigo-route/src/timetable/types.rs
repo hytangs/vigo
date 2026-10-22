@@ -89,6 +89,7 @@ pub struct TimetableArriveByQueryInput {
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub struct TimetableArriveByQueryResult {
     pub supported: bool,
     pub status: String,
@@ -136,6 +137,7 @@ pub struct TimetableArriveByManyQueryInput {
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub struct TimetableArriveByManyQueryResult {
     pub latest_departures: Vec<f64>,
     pub query_ns: f64,
@@ -179,6 +181,7 @@ pub struct TimetableMatrixQueryResult {
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub struct TimetableManyQueryResult {
     pub supported: bool,
     pub status: String,

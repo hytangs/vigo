@@ -228,10 +228,11 @@
       "walkingSeconds": 0
     },
     "meta": {
+      "assumptionsFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
       "cityRevision": "city-revision",
       "computeScope": "query_dispatch_including_materialization",
       "computeUs": 0,
-      "engineVersion": "0.5.2",
+      "engineVersion": "1.0.0-rc.1",
       "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
       "requestId": "vigo-request"
     },
@@ -243,6 +244,8 @@
         "timing.timetableActivationUs": 0,
         "timing.timetablePreparation.indexUs": 0,
         "timing.timetablePreparation.kernelUs": 0,
+        "timing.timetablePreparation.linkedCandidatesUs": 0,
+        "timing.timetablePreparation.linkedTripsUs": 0,
         "timing.timetablePreparation.setupUs": 0,
         "timing.timetablePreparation.sourceAndRealtimeUs": 0,
         "timing.totalUs": 0

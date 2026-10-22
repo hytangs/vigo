@@ -50,6 +50,7 @@ pub struct StopTimeEvent {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct StopTimeUpdate {
+    pub stop_time_properties: Option<Value>,
     pub stop_sequence: Option<u32>,
     pub stop_id: Option<String>,
     pub arrival: Option<StopTimeEvent>,
@@ -263,6 +264,29 @@ fn stop_time_update(mut r: Reader) -> Result<StopTimeUpdate> {
             3 => u.departure = Some(stop_time_event(message(&mut r, wire)?)?),
             4 => u.stop_id = Some(string(&mut r, wire)?),
             5 => u.schedule_relationship = Some(unsigned(&mut r, wire)?),
+            6 => {
+                let mut props = message(&mut r, wire)?;
+                let mut record = Map::new();
+                while let Some((field, wire)) = props.key()? {
+                    match field {
+                        1 => {
+                            record
+                                .insert("assignedStopId".into(), string(&mut props, wire)?.into());
+                        }
+                        2 => {
+                            record.insert("stopHeadsign".into(), string(&mut props, wire)?.into());
+                        }
+                        3 => {
+                            record.insert("pickupType".into(), unsigned(&mut props, wire)?.into());
+                        }
+                        4 => {
+                            record.insert("dropOffType".into(), unsigned(&mut props, wire)?.into());
+                        }
+                        _ => props.skip(wire)?,
+                    }
+                }
+                u.stop_time_properties = Some(Value::Object(record));
+            }
             _ => r.skip(wire)?,
         }
     }
@@ -565,6 +589,11 @@ impl TripUpdate {
             .iter()
             .map(|u| {
                 let mut stop = Map::new();
+                put(
+                    &mut stop,
+                    "stopTimeProperties",
+                    u.stop_time_properties.clone(),
+                );
                 put(&mut stop, "stopSequence", u.stop_sequence.map(Value::from));
                 put(&mut stop, "stopId", u.stop_id.clone().map(Value::from));
                 put(
@@ -699,6 +728,23 @@ mod tests {
         w.msg(1, |h| {
             h.str(1, "2.0").uint(2, 0).uint(3, 1_760_000_000);
         });
+    }
+
+    #[test]
+    fn preserves_stop_permissions_from_protobuf_to_runtime_record() {
+        let mut w = W::default();
+        w.uint(1, 1).str(4, "S").msg(6, |p| {
+            p.str(1, "S").str(2, "Destination").uint(3, 1).uint(4, 2);
+        });
+        let stop = stop_time_update(Reader::new(&w.0)).unwrap();
+        let update = TripUpdate {
+            stop_time_updates: vec![stop],
+            ..TripUpdate::default()
+        };
+        assert_eq!(
+            update.record()["stopTimeUpdates"][0]["stopTimeProperties"],
+            json!({"assignedStopId":"S","stopHeadsign":"Destination","pickupType":1,"dropOffType":2})
+        );
     }
 
     #[test]

@@ -203,6 +203,9 @@ impl TimetableKernel {
             departures: vec![],
             departures_truncated: false,
         };
+        if self.service.is_some() {
+            return Ok(result);
+        }
         let (Some(first), Some(last)) = (first, last) else {
             return Ok(result);
         };

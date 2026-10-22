@@ -43,6 +43,17 @@ try {
     assert(directChoices.every(j => rides(j).length === 1))
     assert(directChoices.some(j => rides(j)[0].route.id.id === 'TRAM' && j.arrivalTime === '08:20:00'), `${runtime} lost slower direct service`)
     assert.equal(direct.alternativeSearch.status, 'complete')
+    if (runtime === 'standalone') {
+      const composed = run({ alternatives: undefined, alternativeRanking: undefined,
+        journeyPolicy: 'alternatives-v1', maxTransfers: 3 })
+      const choices = [composed.journey, ...composed.alternatives]
+      for (const independent of directChoices) {
+        assert(choices.some(j => j.arrivalTime === independent.arrivalTime &&
+          JSON.stringify(rides(j).map(l => l.trip)) === JSON.stringify(rides(independent).map(l => l.trip))),
+          'Policy must retain independent direct witnesses even when faster transfers fill ranked slots')
+      }
+      assert.equal(new Set(choices.map(j => JSON.stringify(j.legs))).size, choices.length)
+    }
   }
   console.log('Direct-service alternatives passed for Node and standalone: faster bus retained, slower tram available, no invented transfers.')
 } finally {

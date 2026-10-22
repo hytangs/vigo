@@ -6,7 +6,7 @@ import { createRequire } from 'node:module'
 import { nativeGridFixture, loadGridStreetIndex } from './helpers/native-grid-fixture.mjs'
 
 const require = createRequire(import.meta.url)
-const binding = require('../native/vigo-routing-kernel.node')
+const binding = require('../crates/vigo-runtime/vigo-routing-kernel.node')
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-terminal-access-'))
 try {
   const fixture = nativeGridFixture(directory, 12)
@@ -128,13 +128,54 @@ try {
     const directed = kernel.routeStreetMatrix({
       originCoordinates: origins.flat(), destinationCoordinates: destinations.flat(), maximumDistanceM: 5000,
     })
-    assert.deepEqual(directed.distancesM, origins.flatMap(from => destinations.map(to => {
+    const expectedDirected = origins.flatMap(from => destinations.map(to => {
       const path = query(from, to)
       return path.found ? path.distanceM : Infinity
-    })), 'Matrix orientation must preserve directed private endpoint permissions.')
+    }))
+    for (const [i, distance] of directed.distancesM.entries()) {
+      // Public CCH matrices quantize to 0.1 mm; path projections retain f64.
+      if (Number.isFinite(distance) && Number.isFinite(expectedDirected[i])) {
+        assert(Math.abs(distance - expectedDirected[i]) <= 0.0001)
+      } else assert.equal(distance, expectedDirected[i],
+        'Matrix orientation must preserve directed private endpoint permissions.')
+    }
   }
 
   checkFused()
+
+  // A closer disconnected private parking aisle must not erase an already
+  // valid public coordinate attachment. No new public street edge is added.
+  const besidePublic = [origin[0] + 0.0001, origin[1] - 0.0002]
+  const beforeIsland = [query(besidePublic, target), query(target, besidePublic)]
+  assert(beforeIsland.every(path => path.found))
+  const island = {
+    schemaVersion: 'vigo.street.terminal-access.v1', publicNodeCount: fixture.nodeCount,
+    publicEdgeCount: kernel.diagnostics().edgeCount,
+    nodeLons: [besidePublic[0], besidePublic[0]],
+    nodeLats: [besidePublic[1], besidePublic[1] - 0.0003],
+    publicNodes: [0xffffffff, 0xffffffff],
+    edgeSources: [0, 1], edgeTargets: [1, 0], edgeDistancesM: [33, 33], boundaryComponents: [0],
+  }
+  fs.writeFileSync(file, JSON.stringify(island)); kernel.configureTerminalAccess(file)
+  for (const [i, [from, to]] of [[besidePublic, target], [target, besidePublic]].entries()) {
+    const after = query(from, to)
+    assert.equal(after.found, true, 'Disconnected optional private attachment retains public route')
+    assert.equal(after.distanceM, beforeIsland[i].distanceM)
+    assert(Math.abs(kernel.routeStreetMatrix({ originCoordinates: from, destinationCoordinates: to,
+      maximumDistanceM: 5000 }).distancesM[0] - after.distanceM) <= 0.0001)
+  }
+
+  assert(query(besidePublic, origin, 50).found,
+    'A non-improving cycle beyond the budget does not make an exhausted island truncated')
+
+  // A mapped exit beyond the requested walking budget is not a disconnected
+  // island: keeping the original public snap here would skip its access cost.
+  island.nodeLons.push(origin[0]); island.nodeLats.push(origin[1]); island.publicNodes.push(0)
+  island.edgeSources.push(1, 2); island.edgeTargets.push(2, 1); island.edgeDistancesM.push(300, 300)
+  fs.writeFileSync(file, JSON.stringify(island)); kernel.configureTerminalAccess(file)
+  assert.equal(query(besidePublic, origin, 100).found, false,
+    'Walking limit cannot trigger a free fallback past a mapped terminal exit')
+  assert(query(besidePublic, origin, 1000).found)
 
   // Reject an artifact linked to a different physical public vertex.
   graph.nodeLons[0] += 0.01

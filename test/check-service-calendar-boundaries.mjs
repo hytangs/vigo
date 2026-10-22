@@ -57,7 +57,7 @@ try {
     assert.equal(rust.journey.arrivalTime,arrival)
     const js=await node(q)
     assert.equal(js.status,'ok',JSON.stringify({q,js}))
-    assert.equal(js.journey.arrivalTime,arrival)
+    assert.equal(js.journey.arrivalTime,arrival,JSON.stringify({q,js,rust}))
     assert.equal(js.journey.legs.find(l=>l.type==='transit').trip.id,trip)
     assert.equal(js.journey.clockDate,rust.journey.clockDate)
     assert.deepEqual((await http(q)).journey,rust.journey)

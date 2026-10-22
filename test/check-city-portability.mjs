@@ -6,7 +6,6 @@ import JSZip from 'jszip'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 import { prepareNativeRoutingKernel } from '../src/server/native-routing-kernel.mjs'
 import { prepareNationalOsmDriveStore, disposeNationalOsmStore } from '../src/server/national-osm-store.mjs'
-import { prepareNationalGtfsRoutingContext, disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
 import { processFixtureDirectory } from './helpers/fixture-process.mjs'
 
 const root = await processFixtureDirectory(import.meta.url, 'vigo-portable-')
@@ -72,10 +71,8 @@ async function consume(bytes, index) {
   const drive = prepareNationalOsmDriveStore(street)
   assert.equal(drive.ready, true)
   assert.equal(drive.nativeCch.cchSource, 'existing_mmap')
-  const context = prepareNationalGtfsRoutingContext(path.join(city, 'routing', 'project.sqlite'), { serviceDate: date, serviceDay: 'weekday' })
-  assert.equal(context.activeServiceKernel.persistenceState, 'loaded')
-  assert.equal(context.accessMaterialization.persistenceState, 'loaded')
-  disposeAllNationalGtfsStores()
+  // Query through the shipped Rust runtime below. Opening the retired Node
+  // timetable preparation path would create unrelated legacy cache sidecars.
   disposeNationalOsmStore(street)
   assert.deepEqual(routes(city), JSON.parse(fs.readFileSync(path.join(directory, 'expected.json'), 'utf8')))
   assert.deepEqual(preparedFiles(city), retained, 'Copied City must reuse every prepared artifact without rebuilding or rewriting it')
@@ -117,5 +114,4 @@ try {
     console.log(`City archive, prepared-state reuse and Route parity passed on ${process.platform}:${process.arch}.`)
   }
 } finally {
-  disposeAllNationalGtfsStores()
 }

@@ -97,7 +97,11 @@ impl TimetableKernel {
             ));
         }
         let transfer_buffer_seconds = self.minimum_transfer_buffer_seconds;
+        if self.service.is_some() {
+            return self.service_pareto(&input);
+        }
         let Self {
+            service: _,
             stop_count,
             run_count,
             departure_seconds,

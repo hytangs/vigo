@@ -289,8 +289,20 @@ class VigoPythonTest(unittest.TestCase):
 
     def test_old_runtime_requires_current_engine(self) -> None:
         self.cli.write_text(self.cli.read_text().replace('"0.5.0"', '"0.4.4"'))
-        with self.assertRaisesRegex(vigo.VigoError, "VIGO 0.5 runtime"):
+        with self.assertRaisesRegex(vigo.VigoError, "Engine 0.5 or 1.0 runtime"):
             vigo.resolve_runtime(self.command)
+
+    def test_runtime_accepts_compatible_release_versions(self) -> None:
+        source = self.cli.read_text()
+        for version in ("0.5.0", "1.0.0-rc.1", "1.0.0", "1.0.1+build.2"):
+            with self.subTest(version=version):
+                self.cli.write_text(source.replace('"0.5.0"', f'"{version}"'))
+                self.assertEqual(vigo.resolve_runtime(self.command).product_version, version)
+        for version in ("1.1.0", "2.0.0", "1.0.0garbage", "1.0.0-"):
+            with self.subTest(version=version):
+                self.cli.write_text(source.replace('"0.5.0"', f'"{version}"'))
+                with self.assertRaises(vigo.VigoError):
+                    vigo.resolve_runtime(self.command)
 
     def test_runtime_requires_current_api_schema_and_trace_output(self) -> None:
         source = self.cli.read_text()
@@ -442,6 +454,9 @@ class VigoPythonTest(unittest.TestCase):
             self.assertTrue(route.query["disableCache"])
             matrix = city.matrix(["A"], ["B"], service_date="2026-09-04", disable_cache=True)
             self.assertTrue(matrix.query["disableCache"])
+            self.assertNotIn("walkSpeedKph", matrix.query)
+            walking = city.matrix(["A"], ["B"], mode="walk", walk_speed_kph=5.0, service_date="2026-09-04")
+            self.assertEqual(walking.query["walkSpeedKph"], 5.0)
             with self.assertRaises(vigo.InvalidQuery):
                 city.route("A", "B", disable_cache="true")
             with patch.dict(city.runtime.capabilities, {"queries": []}):

@@ -129,6 +129,12 @@ pub enum AlternativeRanking {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub enum JourneyPolicy {
+    #[serde(rename = "alternatives-v1")]
+    AlternativesV1,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum JourneyFormat {
     Full,
@@ -140,6 +146,8 @@ pub enum JourneyFormat {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ReachFormat {
+    /// Raster only, without polygon construction.
+    Surface,
     Full,
     /// Areas for the full reached extent, without rasters or stop lists.
     Map,
@@ -231,6 +239,13 @@ macro_rules! query_request {
 query_request! {
     /// `POST /v1/route`: journeys between two places.
     RouteRequest {
+        /// Versioned native alternatives selection; transit only.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
+        pub journey_policy: Option<JourneyPolicy>,
+        /// Explicit permission to search for faster alternatives with more walking.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
+        #[schemars(range(min = 0.2, max = 5))]
+        pub expanded_walk_km: Option<Number>,
         /// Include GeoJSON on legs.
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
         #[schemars(extend("default" = true))]
@@ -348,6 +363,9 @@ query_request! {
     /// within cutoffs or, arriving by the requested time, where a
     /// destination is reached from.
     ReachRequest {
+        /// Five-minute streaming aggregation over a service-day window.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
+        pub all_day: Option<AllDayWindow>,
         /// Include GeoJSON on legs.
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
         #[schemars(extend("default" = false))]
@@ -918,6 +936,25 @@ pub struct TrafficObservation {
     pub factor: Option<Number>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub multiplier: Option<Number>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AllDayWindow {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    #[schemars(range(min = 0, max = 1439))]
+    pub start_minutes: Option<u32>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    #[schemars(range(min = 1, max = 1440))]
+    pub end_minutes: Option<u32>,
 }
 
 #[cfg(test)]

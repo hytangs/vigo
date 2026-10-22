@@ -393,7 +393,7 @@
 }
 
 /* macOS owns window chrome in the packaged app. Keep the web header focused on
-   City context and let desktop menu commands control the left sidebar. */
+   City context. */
 [data-vigo-desktop="macos"] .topbar-mark-button {
   display: none;
 }
@@ -408,31 +408,6 @@
 [data-vigo-desktop="macos"] .page-projects .topbar,
 [data-vigo-desktop="macos"] .project-empty .topbar {
   backdrop-filter: none;
-}
-
-.app-shell.page-project.desktop-sidebar-collapsed:not(.project-empty) .app-sidebar {
-  width: 0 !important;
-  visibility: hidden;
-  overflow: hidden;
-  border: 0;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.app-shell.page-project.view-data.desktop-sidebar-collapsed:not(.project-empty) .shell-body {
-  grid-template-columns: 0 minmax(0, 1fr);
-}
-
-@media (min-width: 1181px) {
-  .app-shell.page-project.desktop-sidebar-collapsed:not(.project-empty):not(.view-data) .shell-body {
-    grid-template-columns: 0 minmax(0, 1fr);
-  }
-}
-
-@media (min-width: 621px) and (max-width: 1180px) {
-  .app-shell.page-project.desktop-sidebar-collapsed:not(.project-empty):not(.view-data) .shell-body {
-    grid-template-columns: 0 minmax(0, 1fr);
-  }
 }
 
 /* Shared workbench hierarchy and detail components */

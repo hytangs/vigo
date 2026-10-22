@@ -173,6 +173,7 @@ mod scan {
         sequence: f64,
         board: bool,
         alight: bool,
+        headway: bool,
     }
 
     fn key(value: f64) -> u64 {
@@ -457,7 +458,31 @@ mod scan {
             .collect())
     }
 
-    const COLUMNS: &str = "SELECT departure,arrival,trip_id,route_id,service_id,direction_id,from_stop_id,to_stop_id,stop_sequence FROM connections";
+    fn columns(db: &Connection) -> Result<String> {
+        let headway: bool = db
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='headway_connections')",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(source_error)?;
+        let headway = headway
+            && db
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM headway_connections)",
+                    [],
+                    |r| r.get::<_, bool>(0),
+                )
+                .map_err(source_error)?;
+        let source = if headway {
+            "(SELECT *,0 AS headway FROM connections UNION ALL SELECT *,1 AS headway FROM headway_connections)"
+        } else {
+            "(SELECT *,0 AS headway FROM connections)"
+        };
+        Ok(format!(
+            "SELECT departure,arrival,trip_id,route_id,service_id,direction_id,from_stop_id,to_stop_id,stop_sequence,headway FROM {source}"
+        ))
+    }
 
     fn connect(path: &str) -> Result<Connection> {
         let db = Connection::open_with_flags(
@@ -476,7 +501,7 @@ mod scan {
         (low, high): (Option<&str>, Option<&str>),
     ) -> Result<(Chunk, Vec<Trip>)> {
         let db = connect(&shared.path)?;
-        let mut sql = String::from(COLUMNS);
+        let mut sql = columns(&db)?;
         let mut parameters = vec![];
         for (bound, comparison) in [(low, ">="), (high, "<")] {
             if let Some(bound) = bound {
@@ -504,9 +529,10 @@ mod scan {
     /// Only the given runs of consecutive trips, in primary-key order.
     fn read_runs(shared: &Shared, runs: &[(&str, &str)]) -> Result<(Chunk, Vec<Trip>)> {
         let db = connect(&shared.path)?;
+        let columns = columns(&db)?;
         let mut statement = db
             .prepare(&format!(
-                "{COLUMNS} WHERE trip_id>=?1 AND trip_id<=?2 ORDER BY trip_id,stop_sequence"
+                "{columns} WHERE trip_id>=?1 AND trip_id<=?2 ORDER BY trip_id,stop_sequence"
             ))
             .map_err(source_error)?;
         let mut reader = Reader::new(shared, false);
@@ -649,6 +675,7 @@ mod scan {
                 sequence,
                 board,
                 alight,
+                headway: row.get(9).map_err(source_error)?,
             });
             Ok(())
         }
@@ -751,7 +778,15 @@ mod scan {
                 let Some(instance) = instances(row).iter().find(|i| i.offset == offset) else {
                     continue;
                 };
-                let shift = f64::from(offset);
+                // A headway template is a relative shape, not a scheduled trip.
+                // Keep the full shape across midnight; its actual windows are
+                // resolved separately using the original service-day offset.
+                let shift = f64::from(offset)
+                    + if first.headway {
+                        (-(first.departure + f64::from(offset))).max(0.)
+                    } else {
+                        0.
+                    };
                 let departure = row.departure + shift;
                 if !(departure >= 0.0 && departure <= shared.maximum) {
                     continue;

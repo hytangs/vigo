@@ -63,12 +63,29 @@
       "walkingSeconds": 0
     },
     "meta": {
+      "assumptionsFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
       "cityRevision": "city-revision",
       "computeScope": "query_dispatch_including_materialization",
       "computeUs": 0,
-      "engineVersion": "0.5.2",
+      "engineVersion": "1.0.0-rc.1",
       "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
-      "requestId": "vigo-request"
+      "requestId": "vigo-request",
+      "traffic": {
+        "ageSeconds": 0,
+        "closedEdges": 0,
+        "expiresAt": "2026-07-15T11:05:00.000Z",
+        "matchedEdges": 1,
+        "matchedObservations": 1,
+        "mode": "cch-time-metric",
+        "observations": 1,
+        "observedAt": "2026-07-15T11:00:00.000Z",
+        "rejected": {},
+        "snapshotId": null,
+        "snapshotKey": "0c45a16aac3dc540237d5484ae27d35632cc02ffdbd7d93f41996a7566b3aabb",
+        "source": "traffic-snapshot",
+        "status": "applied",
+        "unmatchedObservations": 0
+      }
     },
     "mode": "drive",
     "query": {

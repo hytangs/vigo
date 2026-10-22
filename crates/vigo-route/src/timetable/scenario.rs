@@ -27,6 +27,10 @@ pub struct ScenarioTimetableInput {
     pub can_alight: U8Buffer,
     pub trip_start: U32Buffer,
     pub canceled: U8Buffer,
+    /// Inclusive sequence ranges removed from a trip without canceling its
+    /// remaining runs. Used for physical trips inside explicit continuations.
+    #[serde(default)]
+    pub canceled_spans: Option<U32Buffer>,
     pub transfer_offset: U32Buffer,
     pub transfer_to: U32Buffer,
     pub transfer_duration: U32Buffer,
@@ -106,6 +110,12 @@ fn validate_base(input: &ScenarioTimetableInput) -> Result<()> {
             .iter()
             .any(|values| values.len() != segments || values.iter().any(|&flag| flag > 1))
         || input.canceled.iter().any(|&flag| flag > 1)
+        || input.canceled_spans.as_ref().is_some_and(|spans| {
+            spans.len() % 3 != 0
+                || spans
+                    .chunks_exact(3)
+                    .any(|s| s[0] as usize >= trips || s[1] > s[2])
+        })
         || input
             .from_stop
             .iter()
@@ -248,23 +258,39 @@ pub fn compile_scenario_timetable(
         }
         let start = input.trip_start[trip] as usize;
         let end = input.trip_start[trip + 1] as usize;
-        departure.extend_from_slice(&input.departure_seconds[start..end]);
-        arrival.extend_from_slice(&input.arrival_seconds[start..end]);
-        from.extend_from_slice(&input.from_stop[start..end]);
-        to.extend_from_slice(&input.to_stop[start..end]);
-        sequence.extend_from_slice(&input.sequence[start..end]);
-        segment_trip.resize(segment_trip.len() + end - start, trip as u32);
-        breaks.extend_from_slice(&input.continuity_break[start..end]);
-        board.extend_from_slice(&input.can_board[start..end]);
-        alight.extend_from_slice(&input.can_alight[start..end]);
+        let spans: Vec<_> = input
+            .canceled_spans
+            .as_deref()
+            .unwrap_or(&[])
+            .chunks_exact(3)
+            .filter(|s| s[0] as usize == trip)
+            .collect();
+        let mut previous = None;
         for index in start..end {
-            if index == start
-                || input.segment_run[index] != input.segment_run[index - 1]
-                || input.continuity_break[index] != 0
+            if spans
+                .iter()
+                .any(|s| (s[1]..=s[2]).contains(&input.sequence[index]))
             {
+                continue;
+            }
+            let new_run = previous != index.checked_sub(1)
+                || index == start
+                || input.segment_run[index] != input.segment_run[index - 1]
+                || input.continuity_break[index] != 0;
+            if new_run {
                 run_count += 1;
             }
+            departure.push(input.departure_seconds[index]);
+            arrival.push(input.arrival_seconds[index]);
+            from.push(input.from_stop[index]);
+            to.push(input.to_stop[index]);
+            sequence.push(input.sequence[index]);
+            segment_trip.push(trip as u32);
             segment_run.push(run_count - 1);
+            breaks.push(u8::from(new_run));
+            board.push(input.can_board[index]);
+            alight.push(input.can_alight[index]);
+            previous = Some(index);
         }
     }
 
@@ -378,6 +404,7 @@ pub fn compile_scenario_timetable(
 pub struct ScenarioPlan {
     pub added_stop_count: u32,
     pub canceled: U8Buffer,
+    pub canceled_spans: Option<U32Buffer>,
     pub pattern_offsets: U32Buffer,
     pub pattern_stops: U32Buffer,
     pub pattern_departure_offsets: U32Buffer,
@@ -426,6 +453,7 @@ impl TimetableKernel {
             can_alight: column(&self.can_alight),
             trip_start: column(&self.trip_start),
             canceled: plan.canceled,
+            canceled_spans: plan.canceled_spans,
             transfer_offset: self.transfer_offset.clone().into(),
             transfer_to: self
                 .transfer_edges
@@ -456,8 +484,12 @@ impl TimetableKernel {
         })?;
         let added_trip_patterns = compiled.added_trip_patterns.clone();
         let added_trip_departures = compiled.added_trip_departures.clone();
+        let mut kernel = compiled_kernel(compiled, self.minimum_transfer_buffer_seconds)?;
+        if let Some(service) = &self.service {
+            kernel.set_service_semantics((*service.data).clone())?;
+        }
         Ok(ScenarioView {
-            kernel: compiled_kernel(compiled, self.minimum_transfer_buffer_seconds)?,
+            kernel,
             added_trip_patterns,
             added_trip_departures,
         })
@@ -520,6 +552,7 @@ mod tests {
             can_alight: u8s(&[1, 1, 1, 1]),
             trip_start: u32s(&[0, 2, 4]),
             canceled: u8s(&[0, 1]),
+            canceled_spans: None,
             transfer_offset: u32s(&[0, 0, 1, 1]),
             transfer_to: u32s(&[2]),
             transfer_duration: u32s(&[60]),
@@ -610,6 +643,7 @@ mod tests {
             .scenario_view(ScenarioPlan {
                 added_stop_count: plan.added_stop_count,
                 canceled: plan.canceled,
+                canceled_spans: plan.canceled_spans,
                 pattern_offsets: plan.pattern_offsets,
                 pattern_stops: plan.pattern_stops,
                 pattern_departure_offsets: plan.pattern_departure_offsets,

@@ -20,15 +20,15 @@ const raw = { status: 'ready', departureMinutes: 480, arrivalMinutes: 500, legs:
 const plan = studioRouteResponse(raw, body).choices[0]
 assert.deepEqual(plan.legs[0].intermediateStops, stops, 'Keep every stop call in order, including revisits')
 plan.sharedLegAlternatives = { options: [], frequencies: [{ legIndex: 0, departureCount: 4, uniqueDepartureCount: 3,
-  status: 'complete', windowStartSeconds: 28800, windowEndSeconds: 30600, meanHeadwaySeconds: 600 }] }
+  departureSeconds: [28800, 29400, 30000], status: 'complete', windowStartSeconds: 28800, windowEndSeconds: 30600, meanHeadwaySeconds: 600 }] }
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-journey-stops-'))
-let previewHtml = '', farePreviewHtml = ''
+let previewHtml = '', farePreviewHtml = '', linkedPreviewHtml = ''
 const server = await createViteTestServer({ configFile: false, cacheDir: path.join(directory, 'cache'),
   plugins: [{ name: 'journey-preview', configureServer(vite) {
     vite.middlewares.use((request, response, next) => {
-      if (!['/journey-check', '/fare-check'].includes(request.url)) return next()
+      if (!['/journey-check', '/fare-check', '/linked-check'].includes(request.url)) return next()
       response.setHeader('Content-Type', 'text/html; charset=utf-8')
-      response.end(`<html><head><meta charset="utf-8"></head><body><main class="app-shell page-project appearance-light">${request.url === '/fare-check' ? farePreviewHtml : previewHtml}</main><script type="module">import '/src/index.css'; import '/src/App.css'; import '/src/styles/routing-fares.css';</script></body></html>`)
+      response.end(`<html><head><meta charset="utf-8"></head><body><main class="app-shell page-project appearance-light">${request.url === '/fare-check' ? farePreviewHtml : request.url === '/linked-check' ? linkedPreviewHtml : previewHtml}</main><script type="module">import '/src/index.css'; import '/src/App.css'; import '/src/styles/routing-fares.css';</script></body></html>`)
     })
   } }], server: { host: '127.0.0.1', port: 0 } })
 await server.listen()
@@ -37,6 +37,22 @@ try {
   const { ReachPointInspector } = await server.ssrLoadModule('/src/components/ReachPointInspector.tsx')
   const result = { request: { ...body, cutoffsMinutes: [30], scenario: { serviceCount: 0 } },
     surface: { raster: { width: 1, height: 1, bounds: [-1, -1, 1, 1], scale: 10, nodata: 65535, baseline: 'AAA=' } } }
+  const linkedRaw = { ...raw, arrivalMinutes: 525, legs: [raw.legs[0], {
+    ...raw.legs[0], tripId: 'T2', fromStopId: 'D', toStopId: 'E',
+    from: { name: 'Destination' }, to: { name: 'End' },
+    departure: 30300, arrival: 31500, departureMinutes: 505, arrivalMinutes: 525,
+    inSeatSeconds: 300,
+  }] }
+  const linked = studioRouteResponse(linkedRaw, body).choices[0]
+  assert.equal(linked.transfers, 0)
+  assert.equal(linked.rideMinutes, 45)
+  assert.equal(linked.waitMinutes, 0)
+  const linkedHtml = renderToStaticMarkup(createElement(RoutingItinerary, { plan: linked }))
+  assert.match(linkedHtml, /Stay aboard/)
+  assert.match(linkedHtml, /onboard layover/)
+  assert.doesNotMatch(linkedHtml, /No time between vehicles|wait at Destination/)
+  const estimated={...plan,legs:plan.legs.map(leg=>({...leg,headwayEstimate:{headwaySeconds:600,expectedWaitSeconds:300,waitingAssumption:'half_headway'}}))}
+  assert.match(renderToStaticMarkup(createElement(RoutingItinerary,{plan:estimated})),/Estimated timing/)
   const routeHtml = renderToStaticMarkup(createElement(RoutingItinerary, { plan }))
   const reachHtml = renderToStaticMarkup(createElement(ReachPointInspector, { inspection: {
     point: destination, source: { id: 'fixture', result }, plan, loading: false, error: '', close() {}, retry() {},
@@ -45,6 +61,7 @@ try {
     assert.match(html, /Stops along the way · 3/)
     assert.match(html, /Market Street<\/li><li[^>]*>Library<\/li><li[^>]*>Market Street/)
     assert.match(html, /<summary>4 departures<\/summary>/)
+    assert.match(html, /aria-label="Departure times"><time[^>]*>08:00<\/time><time[^>]*>08:10<\/time><time[^>]*>08:20<\/time>/)
     assert.doesNotMatch(html, /distinct times|Mean gap/)
   }
   const { RoutingFare } = await server.ssrLoadModule('/src/components/RoutingFare.tsx')
@@ -71,9 +88,12 @@ try {
   farePreviewHtml = `<section style="width:360px;max-width:100%;padding:24px">${fareHtml}</section>`
   const panelHtml = renderToStaticMarkup(createElement(RoutingDetailPanel, { plan, onClose() {} }))
   previewHtml = panelHtml
+  linkedPreviewHtml = renderToStaticMarkup(createElement(RoutingDetailPanel, { plan: linked, onClose() {} }))
   const screenshot = path.join(directory, 'journey-stops.png')
   const main = path.join(directory, 'main.cjs')
   await fs.writeFile(main, `const {app,BrowserWindow}=require('electron');
+// Xvfb has no GPU compositor; capturePage must use software rendering.
+if(process.platform==='linux') app.disableHardwareAcceleration();
 app.setPath('userData',${JSON.stringify(path.join(directory, 'profile'))});
 app.whenReady().then(async()=>{try{
 const w=new BrowserWindow({width:620,height:760,show:true,webPreferences:{sandbox:true,contextIsolation:true}});
@@ -83,6 +103,11 @@ const open=await w.webContents.executeJavaScript(\`document.querySelector('.jour
 if(!open)throw Error('Stop list did not expand');
 await new Promise(r=>setTimeout(r,500));
 require('node:fs').writeFileSync(${JSON.stringify(screenshot)},(await w.webContents.capturePage()).toPNG());
+await w.loadURL(${JSON.stringify(`http://127.0.0.1:${server.httpServer.address().port}/linked-check`)});
+const linked=await w.webContents.executeJavaScript(\`document.body.textContent.includes('Stay aboard') && document.body.textContent.includes('onboard layover') && !document.body.textContent.includes('No time between vehicles')\`);
+if(!linked)throw Error('In-seat continuation instruction missing');
+await new Promise(r=>setTimeout(r,500));
+require('node:fs').writeFileSync(${JSON.stringify(path.join(directory,'linked-trip.png'))},(await w.webContents.capturePage()).toPNG());
 await w.loadURL(${JSON.stringify(`http://127.0.0.1:${server.httpServer.address().port}/fare-check`)});
 await w.webContents.executeJavaScript(\`document.querySelector('.routing-fares > summary').click();\`);
 const fareCheck=await w.webContents.executeJavaScript(\`document.querySelectorAll('.routing-fare-group').length===2 && [...document.querySelectorAll('.routing-fare-options')].every(d=>!d.open) && document.querySelector('.routing-fare-note').textContent.includes('Transfers not calculated')\`);
@@ -96,7 +121,7 @@ const paymentOpen=await w.webContents.executeJavaScript(\`document.querySelector
 if(!paymentOpen)throw Error('Payment details cannot be expanded');
 app.exit(0)}catch(error){console.error(error);app.exit(1)}});`)
   const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE
-  const child = spawn(electronPath, [main], { env, stdio: 'inherit' })
+  const child = spawn(electronPath, [...(process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : []), main], { env, stdio: 'inherit' })
   const timeout = setTimeout(() => child.kill(), 30000)
   try { assert.equal(await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve) }), 0) }
   finally { clearTimeout(timeout) }

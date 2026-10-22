@@ -76,6 +76,26 @@ export interface AlertTrip {
   tripId?: string;
 }
 
+export interface AllDayQuery {
+  endMinutes: number;
+  startMinutes: number;
+  stepMinutes: number;
+}
+
+export interface AllDaySummary {
+  aggregation: string;
+  endExclusive: boolean;
+  meanCondition: string;
+  sampleCount: number;
+  stepMinutes: number;
+  walkingPreparation: string;
+}
+
+export interface AllDayWindow {
+  endMinutes?: number;
+  startMinutes?: number;
+}
+
 export type AlternativeRanking = "pareto" | "ranked";
 
 /**
@@ -361,6 +381,12 @@ export interface GtfsSource {
   name: string | null;
 }
 
+export interface HeadwayEstimate {
+  expectedWaitSeconds: number;
+  headwaySeconds: number;
+  waitingAssumption: string;
+}
+
 export interface HttpCapabilities {
   boundedConnections: boolean;
   boundedQueue: boolean;
@@ -377,6 +403,16 @@ export interface Identifier {
   feed: string | null;
   id: string;
 }
+
+/**
+ * An explicit GTFS continuation from the preceding transit leg.
+ */
+export interface InSeatContinuation {
+  durationSeconds: number;
+  type: InSeatContinuationType;
+}
+
+export type InSeatContinuationType = "stay_aboard";
 
 /**
  * A loaded City: identity, sources, size and limits.
@@ -431,6 +467,7 @@ export interface Journey {
   departureTime: string;
   drivingSeconds?: number;
   durationSeconds: number;
+  expandedWalkingLimitKm?: number;
   legs: Leg[];
   ridingSeconds: number | null;
   transfers: number | null;
@@ -440,6 +477,8 @@ export interface Journey {
 }
 
 export type JourneyFormat = "full" | "compact";
+
+export type JourneyPolicy = "alternatives-v1";
 
 export type Leg = StreetLeg | TransitLeg;
 
@@ -582,6 +621,7 @@ export interface MatrixResult {
  * How this Result was computed and how to reproduce it.
  */
 export interface Meta {
+  assumptionsFingerprint?: string;
   cityRevision: string | null;
   /** `query_dispatch_including_materialization`. */
   computeScope: string;
@@ -736,7 +776,7 @@ export interface ReachCapabilities {
   timePreferences: string[];
 }
 
-export type ReachFormat = "full" | "map";
+export type ReachFormat = "full" | "surface" | "map";
 
 /**
  * Reach covers transit, walking, and driving travel times.
@@ -744,12 +784,13 @@ export type ReachFormat = "full" | "map";
 export type ReachMode = "transit" | "walk" | "drive";
 
 export interface ReachQuery {
+  allDay?: AllDayQuery;
   dataMode: DataMode;
   /** Arrive-by Reach. */
   destination?: QueryPlace;
   /** Depart-at Reach. */
   origin?: QueryPlace;
-  requestedTime: string | null;
+  requestedTime?: string | null;
   serviceDate: string | null;
   timePreference: TimePreference;
 }
@@ -760,6 +801,8 @@ export interface ReachQuery {
  * destination is reached from.
  */
 export interface ReachRequest {
+  /** Five-minute streaming aggregation over a service-day window. */
+  allDay?: AllDayWindow;
   /** Default `true`. */
   allowStreetTransfers?: boolean;
   bounds?: Bounds;
@@ -821,9 +864,10 @@ export interface ReachRequest {
 
 export interface ReachResult {
   accessibility?: Accessibility;
+  allDay?: AllDaySummary;
   /** Areas within each cutoff. With `reachFormat: "map"`, these cover the */
   /** full reached extent. */
-  areas: CutoffFeatures;
+  areas?: CutoffFeatures;
   /** Full reached extent, with `reachFormat: "map"`. */
   bounds?: Bounds;
   contours?: CutoffFeatures;
@@ -868,10 +912,13 @@ export interface ReachSurface {
   /** Reached street intervals, with `includeStreetEdges`. */
   edges?: StreetEdges;
   height: number;
+  meanReachableDurationSeconds?: Array<number | null>;
   /** Reached street nodes, with `includeNodes`. */
   nodes?: SurfaceNode[];
+  reachableSamples?: number[];
+  reachableSamplesByCutoff?: number[][];
   /** Seconds per cell; `null` when unreachable. */
-  valuesSeconds: Array<number | null>;
+  valuesSeconds?: Array<number | null>;
   width: number;
 }
 
@@ -950,6 +997,7 @@ export interface RouteCapabilities {
   arrivalWindows: boolean;
   departureWindows: boolean;
   fareAnnotations: boolean;
+  journeyPolicies?: string[];
   realtime: boolean;
   requestedAlternatives: RequestedAlternatives;
   transferControls: boolean;
@@ -992,6 +1040,8 @@ export interface RouteRequest {
   /** unstable internal `trace`. Default `none`. */
   diagnostics?: DiagnosticsLevel;
   disableCache?: boolean;
+  /** Explicit permission to search for faster alternatives with more walking. */
+  expandedWalkKm?: number;
   /** Default 480. */
   horizonMinutes?: number;
   /** Caller's identifier, echoed as `id` and `meta.requestId`. */
@@ -1000,6 +1050,8 @@ export interface RouteRequest {
   includeGeometry?: boolean;
   /** Add the City's dataset limitations to the Result. Default `false`. */
   includeLimitations?: boolean;
+  /** Versioned native alternatives selection; transit only. */
+  journeyPolicy?: JourneyPolicy;
   /** Query kind on a resident stream. */
   kind?: string;
   /** Default 50. */
@@ -1120,7 +1172,7 @@ export interface ScenarioService {
 
 export type ScheduleMode = "frequency" | "preserve-trips";
 
-export type ScheduleQuality = "timetable" | "source_time_limitations" | "realtime";
+export type ScheduleQuality = "timetable" | "source_time_limitations" | "realtime" | "headway_estimate";
 
 export interface ScheduledTrip {
   arrivalOffsetsSeconds: number[];
@@ -1325,6 +1377,7 @@ export interface TransitLeg {
   /** Service Alerts active during the ride for its trip, route or stops. */
   alerts?: LegAlert[];
   arrivalTime: string | null;
+  continuation?: InSeatContinuation;
   departureTime: string | null;
   directionId: string | null;
   /** Length of the returned line, boarding to alighting stop. */
@@ -1350,6 +1403,7 @@ export interface TransitQuality {
   /** Where the line came from: `gtfs_shape` (aligned to the feed's shape), */
   /** `stop_sequence` (straight lines between stops) or `unknown`. */
   geometry: string;
+  headway?: HeadwayEstimate;
   schedule: ScheduleQuality;
 }
 

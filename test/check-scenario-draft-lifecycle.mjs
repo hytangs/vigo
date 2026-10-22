@@ -10,6 +10,7 @@ const harness = `import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { useScenarioLibrary } from '/src/app/useScenarioLibrary.ts';
+import { updateScenarioNetwork, scenarioNetworkDiffers } from '/src/app/scenarioLibrary.ts';
 import { createScenarioRoadGeometryRequest } from '/src/app/scenarioRoadGeometryRequest.ts';
 // A small in-page stand-in for the City folder: GET and PUT /api/projects/{id}/scenarios.
 // sessionStorage keeps it across the reload check.
@@ -30,7 +31,7 @@ window.fetch = async (input, options = {}) => {
   sessionStorage.setItem(serverKey, JSON.stringify(state));
   return Response.json(state[id]);
 };
-const city = id => ({ id, storagePath: '/library/' + id, name: id, feeds: [{ id: 'feed', importedAt: 'first' }] });
+const city = id => ({ id, storagePath: '/library/' + id, name: id, feeds: [{ id: 'feed', importedAt: 'first' }, { id: 'other', importedAt: 'first' }] });
 let state, root = createRoot(document.getElementById('root'));
 function Component({project}) { state = useScenarioLibrary(project); return React.createElement('div', null, state.scenarioDrafts[0].name); }
 function mount(id) { flushSync(() => root.render(React.createElement(React.StrictMode, null, React.createElement(Component, {project: city(id)})))); }
@@ -39,16 +40,37 @@ async function until(read, text) { for (let i = 0; i < 200; i++) { if (read()) r
 const ready = label => until(() => state.saveState === 'saved', label + ' did not load');
 const savedName = (id, index = 0) => saved()[id]?.library?.scenarios?.[index]?.name;
 window.runTests = async () => { try {
+  const shared = { groups: [{id:'baseline',name:'Baseline',feedIds:['feed']}, {id:'network-a',name:'Shared',feedIds:['feed']}],
+    scenarios: [{id:'a',name:'A',groupId:'network-a',interventions:[]}, {id:'b',name:'B',groupId:'network-a',interventions:[]}] };
+  const changed = updateScenarioNetwork(shared, 'a', 'other', true);
+  check(changed.scenarios[0].groupId !== 'network-a' && changed.scenarios[1].groupId === 'network-a', 'Shared network was edited in place');
+  check(changed.groups.find(group => group.id === 'network-a').feedIds.join() === 'feed', 'Another scenario was changed');
+  check(scenarioNetworkDiffers(changed.groups, changed.scenarios[0].groupId), 'Timetable-only change was missed');
+  const reduced = updateScenarioNetwork(changed, 'a', 'feed', false);
+  check(updateScenarioNetwork(reduced, 'a', 'other', false) === reduced, 'Last timetable was removed');
+  check(!scenarioNetworkDiffers([{id:'baseline',feedIds:['b','a','a']},{id:'same',feedIds:['a','b']}], 'same'), 'Order or duplicates changed network identity');
+  mount('compose'); await ready('Composition City');
+  const composeId = state.scenarioDrafts[0].id;
+  const editFeed = state.setScenarioNetworkFeed;
+  flushSync(() => { editFeed(composeId, 'feed', false); editFeed(composeId, 'feed', true); editFeed(composeId, 'other', false); });
+  const composedGroup = state.grouping.value.groups.find(group => group.id === state.scenarioDrafts[0].groupId);
+  check(composedGroup.feedIds.join() === 'feed', 'Batched network edits lost a selection');
+  check(state.grouping.value.groups.find(group => group.id === 'baseline').feedIds.join() === 'feed,other', 'Composition mutated baseline');
+  await until(() => saved()['compose']?.library?.groups?.some(group => group.id === composedGroup.id && group.feedIds.join() === 'feed'), 'Composed network was not saved');
   mount('A'); await ready('City A');
-  check(state.scenarioDrafts[0].name === 'Scenario A' && state.grouping.value.groups[0].feedIds.join() === 'feed', 'New City defaults');
-  check(window.puts === 0, 'Viewing a City must not write a library');
+  check(state.scenarioDrafts[0].name === 'Current network' && state.grouping.value.groups[0].feedIds.join() === 'feed,other', 'New City defaults');
+  const putsBeforeView = window.puts;
+  await new Promise(resolve => setTimeout(resolve, 500));
+  check(window.puts === putsBeforeView, 'Viewing a City must not write a library');
+  flushSync(() => editFeed(composeId, 'other', true));
+  check(state.grouping.value.groups.length === 1, 'Old City network callback changed new City');
   flushSync(() => state.setScenarioDrafts(current => [{ ...current[0], name: 'Saved A' }]));
   await until(() => savedName('A') === 'Saved A', 'Edit not saved to the City');
   const stale = state.setScenarioDrafts;
   mount('B'); await ready('City B');
-  check(state.scenarioDrafts[0].name === 'Scenario A', 'City isolation');
+  check(state.scenarioDrafts[0].name === 'Current network', 'City isolation');
   flushSync(() => stale(current => [{ ...current[0], name: 'Late old callback' }]));
-  check(state.scenarioDrafts[0].name === 'Scenario A', 'Stale callback changed new City');
+  check(state.scenarioDrafts[0].name === 'Current network', 'Stale callback changed new City');
   mount('A'); await until(() => state.scenarioDrafts[0].name === 'Saved A', 'Switch lost the saved scenario');
   flushSync(() => root.unmount()); root = createRoot(document.getElementById('root')); mount('A');
   await until(() => state.scenarioDrafts[0].name === 'Saved A', 'Remount lost the saved scenario');

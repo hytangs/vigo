@@ -11,7 +11,7 @@ import { loadGridStreetIndex, nativeGridFixture } from './helpers/native-grid-fi
 import { timetableQueryFixture, timetableMatrixRequest } from './helpers/timetable-query-fixture.mjs'
 
 const entry = fileURLToPath(import.meta.url)
-const bindingPath = fileURLToPath(new URL('../native/vigo-routing-kernel.node', import.meta.url))
+const bindingPath = fileURLToPath(new URL('../crates/vigo-runtime/vigo-routing-kernel.node', import.meta.url))
 
 function exerciseNative(directory) {
   const binding = createRequire(import.meta.url)(bindingPath)

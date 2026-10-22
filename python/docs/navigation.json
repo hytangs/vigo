@@ -3,7 +3,7 @@
   "version_file": "pyproject.toml",
   "product": "VIGO Python",
   "label": "Python",
-  "description": "VIGO Python 0.5.2 documentation. Build and reuse transport networks from Python with Route, Matrix, Reach and Scenario.",
+  "description": "VIGO Python 1.0.0rc1 documentation. Build and reuse transport networks from Python with Route, Matrix, Reach and Scenario.",
   "logo": "docs/assets/vigo-wordmark.png",
   "links": [
     {
@@ -150,8 +150,8 @@
     },
     {
       "id": "release",
-      "source": "docs/releases/0.5.2.md",
-      "title": "What’s new in 0.5.2",
+      "source": "docs/releases/1.0.0rc1.md",
+      "title": "What’s new in 1.0.0rc1",
       "group": "Resources"
     },
     {

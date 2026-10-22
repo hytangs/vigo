@@ -4,20 +4,20 @@
 
 VIGO Python is the Python interface to the [VIGO routing engine](https://github.com/hytangs/vigo). Build a City once from GTFS timetables and OpenStreetMap streets, then ask it questions from scripts and notebooks: how to make a journey, how long every trip takes, how far people can get, and what a service change would do. Every answer is a `Result` you can inspect, compare, and export to JSON, GeoJSON, or journey and leg tables.
 
-The package imports as `vigo`. It is versioned separately from the engine: **VIGO Python 0.5.2 requires Engine 0.5** and opens any City built with VIGO 0.5.
+The package imports as `vigo`. It is versioned separately from the engine: **VIGO Python 1.0.0rc1 supports Engine 0.5 and 1.0** and opens any City built with VIGO 0.5.
 
-[Quickstart](docs/guide.md#your-first-python-query) · [Walkthrough notebook](examples/walkthrough.ipynb) · [Guide](docs/guide.md) · [API reference](docs/reference.md) · [Release notes](docs/releases/0.5.2.md)
+[Quickstart](docs/guide.md#your-first-python-query) · [Walkthrough notebook](examples/walkthrough.ipynb) · [Guide](docs/guide.md) · [API reference](docs/reference.md) · [Release notes](docs/releases/1.0.0rc1.md)
 
 ## Install
 
 Python 3.10 or newer. Install the platform wheel for your operating system and CPU from the releases, substituting its filename:
 
 ```bash
-python -m pip install "/path/to/vigo-0.5.2-py3-none-PLATFORM.whl[speed]"
+python -m pip install "/path/to/vigo-1.0.0rc1-py3-none-PLATFORM.whl[speed]"
 python -c "import vigo; print(vigo.__version__, vigo.resolve_runtime().product_version)"
 ```
 
-Platform wheels include the headless engine, so they need no Studio, system Node, or Rust. The optional extras are `speed` (faster JSON decoding with orjson) and `progress` (build progress with tqdm). From a source checkout, `python -m pip install -e .` installs the wrapper alone; point `VIGO_RUNTIME` at an Engine 0.5 runtime, or [build a platform wheel](CONTRIBUTING.md#build-a-headless-wheel). [Runtime selection](docs/guide.md#select-a-runtime) covers every option.
+Platform wheels include the headless engine, so they need no Studio, system Node, or Rust. The optional extras are `speed` (faster JSON decoding with orjson) and `progress` (build progress with tqdm). From a source checkout, `python -m pip install -e .` installs the wrapper alone; point `VIGO_RUNTIME` at a compatible Engine 0.5 or 1.0 runtime, or [build a platform wheel](CONTRIBUTING.md#build-a-headless-wheel). [Runtime selection](docs/guide.md#select-a-runtime) covers every option.
 
 ## Your first journey
 

@@ -6,7 +6,7 @@ import { createRequire } from 'node:module'
 import { nativeGridFixture, loadGridStreetIndex } from './helpers/native-grid-fixture.mjs'
 
 const require = createRequire(import.meta.url)
-const binding = require('../native/vigo-routing-kernel.node')
+const binding = require('../crates/vigo-runtime/vigo-routing-kernel.node')
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-native-matrices-'))
 try {
   const fixture = nativeGridFixture(directory, 12)

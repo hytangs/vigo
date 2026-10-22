@@ -17,7 +17,7 @@ const { values } = parseArgs({ options: {
 const samples = Number(values.samples)
 assert(Number.isInteger(samples) && samples >= 3 && samples <= 100000)
 const require = createRequire(import.meta.url)
-const current = require(path.resolve(values.binding ?? fileURLToPath(new URL('../native/vigo-routing-kernel.node', import.meta.url))))
+const current = require(path.resolve(values.binding ?? fileURLToPath(new URL('../crates/vigo-runtime/vigo-routing-kernel.node', import.meta.url))))
 const reference = values.reference ? require(path.resolve(values.reference)) : null
 const percentile = (values, p) => [...values].sort((a, b) => a - b)[Math.ceil(values.length * p) - 1]
 const results = []

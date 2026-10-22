@@ -33,7 +33,10 @@ export function authorizedEndpointNodeWalkable(tags) {
   if (nationalOsmNodeWalkable(tags)) return true
   if (['no', 'use_sidepath'].includes(foot) || (access === 'no' && foot !== 'private')) return false
   const permitted = authorizedTags(tags)
-  if (gates.has(barrier) && !foot && (!access || access === 'private' || access === 'destination')) permitted.foot = 'yes'
+  // Destination-only gates admit residents/visitors at their own endpoint,
+  // but remain absent from the public graph and cannot become through links.
+  if (gates.has(barrier) && (foot === 'destination'
+    || (!foot && ['', 'private', 'destination'].includes(access)))) permitted.foot = 'yes'
   return nationalOsmNodeWalkable(permitted)
 }
 

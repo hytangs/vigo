@@ -22,21 +22,49 @@ export const maximumScenarios = 24
 export const baselineGroupId = 'baseline'
 
 export function newScenario(index: number, groupId: string): ScenarioDraft {
-  return { id: `scenario-${crypto.randomUUID().slice(0, 8)}`, name: `Scenario ${String.fromCharCode(65 + (index % 26))}`, groupId, interventions: [] }
+  return { id: `scenario-${crypto.randomUUID().slice(0, 8)}`, name: `Scenario ${index + 1}`, groupId, interventions: [] }
 }
 
 /** A new City starts with its whole timetable as the baseline group and one empty scenario. */
 export function initialScenarioLibrary(project: Pick<VigoProject, 'feeds'>): ScenarioLibrary {
   return {
     groups: [{ id: baselineGroupId, name: 'Baseline', feedIds: project.feeds.map(feed => feed.id) }],
-    scenarios: [{ id: 'case-a', name: 'Scenario A', groupId: baselineGroupId, interventions: [] }],
+    scenarios: [{ id: 'case-a', name: 'Current network', groupId: baselineGroupId, interventions: [] }],
   }
+}
+
+/** Copy on write: editing one scenario must not alter another scenario or the baseline. */
+export function updateScenarioNetwork(library: ScenarioLibrary, scenarioId: string, feedId: string, selected: boolean): ScenarioLibrary {
+  const scenario = library.scenarios.find(entry => entry.id === scenarioId)
+  const group = library.groups.find(entry => entry.id === scenario?.groupId)
+  if (!scenario || !group || group.feedIds.includes(feedId) === selected) return library
+  const feedIds = selected ? [...group.feedIds, feedId] : group.feedIds.filter(id => id !== feedId)
+  if (!feedIds.length) return library
+  const exclusive = group.id !== baselineGroupId && !library.scenarios.some(entry => entry.id !== scenarioId && entry.groupId === group.id)
+  if (!exclusive && library.groups.length >= 64) return library
+  let id = group.id
+  if (!exclusive) {
+    const base = `network-${scenarioId}`
+    id = base
+    for (let suffix = 2; library.groups.some(entry => entry.id === id); suffix++) id = `${base}-${suffix}`
+  }
+  const next = { id, name: exclusive ? group.name : `${scenario.name} network`.slice(0, 80), feedIds }
+  return {
+    groups: exclusive ? library.groups.map(entry => entry.id === id ? next : entry) : [...library.groups, next],
+    scenarios: library.scenarios.map(entry => entry.id === scenarioId ? { ...entry, groupId: id } : entry),
+  }
+}
+
+export function scenarioNetworkDiffers(groups: CityDataGroup[], groupId: string | undefined) {
+  const baseline = groups.find(group => group.id === baselineGroupId)
+  const selected = groups.find(group => group.id === groupId)
+  return Boolean(baseline && selected && JSON.stringify([...new Set(baseline.feedIds)].sort()) !== JSON.stringify([...new Set(selected.feedIds)].sort()))
 }
 
 export function libraryFromSaved(saved: SavedScenarioLibrary): ScenarioLibrary {
   return {
     groups: saved.groups.map(group => ({ ...group, feedIds: [...group.feedIds] })),
-    scenarios: saved.scenarios.map(({ id, name, groupId, changes }) => ({ id, name, groupId, interventions: changes })),
+    scenarios: saved.scenarios.map(({ id, name, groupId, changes }) => ({ id, name: id === 'case-a' && name === 'Scenario A' && groupId === baselineGroupId && !changes.length ? 'Current network' : name, groupId, interventions: changes })),
   }
 }
 

@@ -75,15 +75,15 @@ Explore interactively, connect a web application, or run an analysis in Python. 
 
 ## Get started
 
-Build from source with Node.js 24.18+, npm 11.6+ and the Rust toolchain pinned in `rust-toolchain.toml`, or [download](https://github.com/hytangs/vigo/releases) a build for your platform.
+Build from source with Node.js 24.18+, npm 11.6+ and the Rust toolchain pinned in `rust-toolchain.toml`, or [download](https://github.com/hytangs/vigo/releases) a build for your platform. See [automatic build memory selection](docs/build-memory.md) for constrained build hosts.
 
 ```bash
 git clone https://github.com/hytangs/vigo.git && cd vigo
 npm ci
 npm run build:cli-runtime   # the City compiler, public/vigo.mjs
-npm run build:standalone    # the engine, native/target/release/vigo
+npm run build:standalone    # the engine, target/release/vigo
 alias vigo-build="node \"$PWD/public/vigo.mjs\""
-alias vigo="\"$PWD/native/target/release/vigo\""
+alias vigo="\"$PWD/target/release/vigo\""
 ```
 
 Build a City from a GTFS ZIP and an OpenStreetMap extract that covers it:
@@ -130,13 +130,13 @@ One searchable, offline guide, [`docs/guide.html`](docs/guide.html): the page th
 - [VIGO Python](python/README.md), with a [walkthrough notebook](python/examples/walkthrough.ipynb).
 - [Developer resources](docs/developer.md#developer-resources): architecture, performance measurement and routing accuracy.
 
-## VIGO V1
+## VIGO 1.0.0-rc.1
 
 **A faster engine. From build to route.**
 
 VIGO's next chapter brings City compilation, scenario computation and routing into one shared Rust-native engine, built for faster network preparation, larger analyses and the applications you want to create. Follow it at [vigo.city](https://vigo.city/).
 
-The current release is VIGO 0.5.2: [release notes](docs/releases/0.5.2.md) · [changelog](CHANGELOG.md).
+Published 0.5 Cities remain readable without rebuilding; API 1.0, City format 1, and Result schema 1 are unchanged. [Release notes](docs/releases/1.0.0-rc.1.md) · [Changelog](CHANGELOG.md) · [Prepared-data contract](docs/reference/format-0.5.0.md)
 
 ## Contribute
 

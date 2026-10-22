@@ -24,7 +24,7 @@ import { shell } from './state/shell'
 export default function App() {
   countRender('App')
   const layout = useStudioRecord(() => {
-    const { appearance, accent, page, activeRouteTool, dataSection, sidebarCollapsed } = shell.get()
+    const { appearance, accent, page, activeRouteTool, dataSection } = shell.get()
     const project = selectedProject()
     return {
       appearance,
@@ -32,7 +32,6 @@ export default function App() {
       page,
       activeRouteTool,
       dataSection,
-      sidebarCollapsed,
       agencyMapOpen: network.get().agencyMapOpen,
       projectEmpty: isProjectEmpty(),
       routingDetailOpen: routingDetailOpen(),
@@ -46,7 +45,7 @@ export default function App() {
   const settingsOpen = page === 'project' && tool === 'data' && layout.dataSection === 'preferences'
 
   return (
-    <main className={classNames('app-shell', `appearance-${layout.appearance}`, `accent-${layout.accent}`, `page-${page}`, layout.projectEmpty && 'project-empty', hasStage && 'has-stage', page === 'project' && tool === 'data' && 'view-data', tool === 'agency' && 'view-agency', layout.agencyMapOpen && 'agency-map-open', layout.routingDetailOpen && 'routing-detail-open', layout.sidebarCollapsed && 'desktop-sidebar-collapsed')}>
+    <main className={classNames('app-shell', `appearance-${layout.appearance}`, `accent-${layout.accent}`, `page-${page}`, layout.projectEmpty && 'project-empty', hasStage && 'has-stage', page === 'project' && tool === 'data' && 'view-data', tool === 'agency' && 'view-agency', layout.agencyMapOpen && 'agency-map-open', layout.routingDetailOpen && 'routing-detail-open')}>
       <StudioTopbar />
       <RuntimeAlert />
 
