@@ -291,19 +291,7 @@ impl City {
                             continue;
                         }
                         results.push(json!({"status":"ready","mode":"transit","clockDate":q["serviceDate"],"departureMinutes":departure,"arrivalMinutes":arrival,"durationMinutes":arrival-departure,"transfers":boardings-1,"legs":al.iter().chain(bl).collect::<Vec<_>>(),"warnings":[{"code":"flex_estimate","detail":"Conditional service: booking and vehicle availability are not confirmed."}]}));
-                        results.sort_by(|a, b| {
-                            if opt.arrive {
-                                b["departureMinutes"]
-                                    .as_f64()
-                                    .unwrap()
-                                    .total_cmp(&a["departureMinutes"].as_f64().unwrap())
-                            } else {
-                                a["arrivalMinutes"]
-                                    .as_f64()
-                                    .unwrap()
-                                    .total_cmp(&b["arrivalMinutes"].as_f64().unwrap())
-                            }
-                        });
+                        results.sort_by(|a, b| super::flex::compare_journeys(opt.arrive, a, b));
                         results.dedup_by(|a, b| a["legs"] == b["legs"]);
                         results.truncate(9);
                     }

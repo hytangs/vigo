@@ -82,6 +82,47 @@ fn clocks(a: &Value, b: &Value, seconds: f64, opt: &Options) -> Option<(f64, f64
     (departure >= lower && departure <= upper).then_some((departure, departure + seconds))
 }
 
+/// Keep equal-time conditional candidates from displacing a less-walking,
+/// simpler scheduled journey. All Flex entry points use the same ordering.
+pub(super) fn compare_journeys(arrive: bool, a: &Value, b: &Value) -> std::cmp::Ordering {
+    let time = if arrive {
+        b["departureMinutes"]
+            .as_f64()
+            .unwrap_or(0.)
+            .total_cmp(&a["departureMinutes"].as_f64().unwrap_or(0.))
+    } else {
+        a["arrivalMinutes"]
+            .as_f64()
+            .unwrap_or(f64::INFINITY)
+            .total_cmp(&b["arrivalMinutes"].as_f64().unwrap_or(f64::INFINITY))
+    };
+    let walking = |j: &Value| {
+        j["legs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|l| l["kind"] == "walk")
+            .map(|l| l["distanceMeters"].as_f64().unwrap_or(0.))
+            .sum::<f64>()
+    };
+    let conditional = |j: &Value| {
+        j["legs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|l| l["flexEstimate"].is_object())
+            .count()
+    };
+    time.then_with(|| walking(a).total_cmp(&walking(b)))
+        .then_with(|| {
+            a["transfers"]
+                .as_u64()
+                .unwrap_or(0)
+                .cmp(&b["transfers"].as_u64().unwrap_or(0))
+        })
+        .then_with(|| conditional(a).cmp(&conditional(b)))
+}
+
 impl City {
     pub(super) fn route_with_flex(&mut self, q: &Value) -> Result<Value> {
         let flex = self.flex_route(q)?;
@@ -108,19 +149,7 @@ impl City {
             );
         }
         let arrive = Options::parse(q)?.arrive;
-        choices.sort_by(|a, b| {
-            if arrive {
-                b["departureMinutes"]
-                    .as_f64()
-                    .unwrap_or(0.)
-                    .total_cmp(&a["departureMinutes"].as_f64().unwrap_or(0.))
-            } else {
-                a["arrivalMinutes"]
-                    .as_f64()
-                    .unwrap_or(f64::INFINITY)
-                    .total_cmp(&b["arrivalMinutes"].as_f64().unwrap_or(f64::INFINITY))
-            }
-        });
+        choices.sort_by(|a, b| compare_journeys(arrive, a, b));
         choices.dedup_by(|a, b| {
             a["legs"] == b["legs"]
                 && a["departureMinutes"] == b["departureMinutes"]
@@ -660,19 +689,7 @@ impl City {
                 }
             }
         }
-        choices.sort_by(|a, b| {
-            if opt.arrive {
-                b["departureMinutes"]
-                    .as_f64()
-                    .unwrap()
-                    .total_cmp(&a["departureMinutes"].as_f64().unwrap())
-            } else {
-                a["arrivalMinutes"]
-                    .as_f64()
-                    .unwrap()
-                    .total_cmp(&b["arrivalMinutes"].as_f64().unwrap())
-            }
-        });
+        choices.sort_by(|a, b| compare_journeys(opt.arrive, a, b));
         choices.dedup_by(|a, b| {
             a["legs"] == b["legs"]
                 && a["departureMinutes"] == b["departureMinutes"]
