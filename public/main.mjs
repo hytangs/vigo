@@ -419,12 +419,19 @@ function installMenu() {
       ],
     },
     {
-      label: 'View',
+      role: 'windowMenu',
       submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
         { role: 'togglefullscreen' },
+        ...(process.platform === 'darwin' ? [
+          { type: 'separator' },
+          { role: 'front' },
+        ] : [
+          { role: 'close' },
+        ]),
       ],
     },
-    { role: 'windowMenu' },
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }

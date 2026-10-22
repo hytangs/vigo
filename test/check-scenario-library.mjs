@@ -56,6 +56,18 @@ try {
     ['too many scenarios', { ...library, scenarios: Array.from({ length: 49 }, (_, index) => ({ ...library.scenarios[0], id: `s${index}` })) }],
   ]) assert.throws(() => normalizeScenarioLibrary(value), error => error.statusCode === 400, `A library with ${label} is rejected.`)
 
+  const legacy = normalizeScenarioLibrary({...library, scenarios:[library.scenarios[0], {...library.scenarios[0],id:'legacy-copy'}]});
+  assert.notEqual(legacy.scenarios[0].changes[0].id, legacy.scenarios[1].changes[0].id, 'Legacy per-scenario IDs must not silently become shared');
+  const shared = normalizeScenarioLibrary({ ...library, sharedChanges: [{ ...change, headwayMinutes: 6 }],
+    scenarios: [{id:'a',name:'A',groupId:'baseline',changes:[change]}, {id:'b',name:'B',groupId:'baseline',changes:[change]}] });
+  assert(shared.scenarios.every(scenario => scenario.changes[0].headwayMinutes === 6), 'Shared definitions must resolve identically in each scenario');
+  const unused = normalizeScenarioLibrary({...shared, scenarios:shared.scenarios.map(scenario => ({...scenario,changes:[]}))});
+  assert.equal(unused.sharedChanges[0].headwayMinutes, 6, 'Unassigned definitions must survive saving');
+  assert.throws(() => normalizeScenarioLibrary({...library,sharedChanges:[change,change]}), /repeated id/);
+  assert.throws(() => normalizeScenarioLibrary({...library,sharedChanges:[{...change,kind:'invalid'}]}), /kind/);
+  const fullDefinitions = Array.from({length:3072}, (_, index) => ({...change,id:`saved-${index}`}));
+  assert.throws(() => normalizeScenarioLibrary({...library,sharedChanges:fullDefinitions}), /at most 3072/, 'Embedded changes must not create a library that cannot be reopened');
+
   await fs.writeFile(scenarioLibraryPath(directory), '{"damaged":')
   await assert.rejects(readScenarioLibrary(directory), /kept unchanged/)
   await assert.rejects(writeScenarioLibrary(directory, library, 2, writeJsonAtomic), /kept unchanged/, 'A damaged copy is never overwritten.')

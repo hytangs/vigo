@@ -108,6 +108,7 @@
     "test/check-workspace-transitions-runtime.mjs",
     "test/check-street-transfer-selection-ui.mjs",
     "test/check-scenario-draft-lifecycle.mjs",
+    "test/check-scenario-stop-editor.mjs",
     "test/check-map-runtime.mjs",
     "test/check-analysis-origin.mjs",
     "test/check-analysis-settings-runtime.mjs",

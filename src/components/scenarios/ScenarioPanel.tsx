@@ -1,6 +1,7 @@
 import { memo, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { Copy, Navigation2, Plus, Radar, Trash2, TriangleAlert, X } from 'lucide-react'
 import { maximumScenarioChanges, maximumScenarios } from '../../app/scenarioLibrary'
+import { includeScenarioChange } from '../../state/scenarioEditor'
 import { countRender } from '../../app/renderCounts'
 import type { ScenarioSaveState } from '../../app/useScenarioLibrary'
 import { classNames } from '../../domain'
@@ -58,9 +59,7 @@ function ScenarioTimetables({ scenario }: { scenario: ScenarioDraft }) {
   const library = useStudio(scenarioLibrary)
   const project = useStudio(selectedProject)
   const groups = library.grouping.value.groups
-  if (project.feeds.length < 2) {
-    return <p className="scenario-hint">Runs on {project.feeds[0]?.name ?? 'the City timetable'}. Add another GTFS feed in City data to combine timetables.</p>
-  }
+  if (!project.feeds.length) return <p className="scenario-hint">Add a GTFS timetable in City data to use the original network.</p>
   return <>
     <ScenarioNetworkSettings scenarioId={scenario.id} />
     {groups.length > 1 ? <label className="reach-field">
@@ -123,6 +122,8 @@ function AddChangeMenu({ disabled }: { disabled: boolean }) {
 }
 
 function ChangeRow({ change, active }: { change: ScenarioChangeDraft; active: boolean }) {
+  const library = useStudio(scenarioLibrary)
+  const uses = library.scenarioDrafts.filter(scenario => scenario.interventions.some(entry => entry.id === change.id)).length
   const kind = scenarioChangeKind(change.kind)
   const routes = useStudio(scenarioRoutes)
   const route = change.routeId ? routes.find((entry) => entry.id === change.routeId || entry.patternId === change.routeId) : undefined
@@ -138,10 +139,37 @@ function ChangeRow({ change, active }: { change: ScenarioChangeDraft; active: bo
         <small>{kind.label} · {detail}</small>
       </button>
       <button type="button" className="kit-icon-button scenario-change-remove" onClick={() => removeScenarioChange(change.id)}
-        aria-label={`Remove ${change.name || kind.label}`} title="Remove change"><X size={14} aria-hidden="true" /></button>
+        aria-label={`Remove ${change.name || kind.label} from this scenario`} title="Remove from this scenario; keep in change library"><X size={14} aria-hidden="true" /></button>
     </div>
+    {active && uses > 1 ? <p className="scenario-shared-note">Shared by {uses} scenarios · edits update all</p> : null}
     {active ? <ScenarioChangeEditor change={change} /> : null}
   </article>
+}
+
+function ChangeLibrary({ scenario }: { scenario: ScenarioDraft }) {
+  const library = useStudio(scenarioLibrary)
+  if (!library.reusableChanges.length) return null
+  return <details className="scenario-change-library">
+    <summary>Change library <span>{library.reusableChanges.length}</span></summary>
+    <div className="scenario-library-list">
+      {library.reusableChanges.map(change => {
+        const included = scenario.interventions.some(entry => entry.id === change.id)
+        const uses = library.scenarioDrafts.filter(entry => entry.interventions.some(item => item.id === change.id))
+        return <div className="scenario-library-row" key={change.id}>
+          <label>
+            <input type="checkbox" checked={included} aria-label={`Include ${change.name} in ${scenario.name}`}
+              disabled={!included && scenario.interventions.length >= maximumScenarioChanges}
+              onChange={() => included ? removeScenarioChange(change.id) : includeScenarioChange(change.id)} />
+            <span><strong>{change.name}</strong><small>{scenarioChangeKind(change.kind).label} · {uses.length ? `${uses.length} scenario${uses.length === 1 ? '' : 's'}` : 'Not included'}</small></span>
+          </label>
+          <button type="button" className="kit-icon-button scenario-library-delete" disabled={uses.length > 0}
+            aria-label={`Delete ${change.name} from library`}
+            title={uses.length ? 'Remove from its scenarios before deleting the definition' : 'Delete unused change'}
+            onClick={() => library.deleteReusableChange(change.id)}><Trash2 size={13} aria-hidden="true" /></button>
+        </div>
+      })}
+    </div>
+  </details>
 }
 
 /** Whether Route and Reach can run this scenario now, or what to finish first. */
@@ -171,9 +199,10 @@ function ScenarioDetail({ scenario }: { scenario: ScenarioDraft }) {
         <span className="kit-section-title">Changes{scenario.interventions.length ? ` · ${scenario.interventions.length}` : ''}</span>
         <AddChangeMenu disabled={scenario.interventions.length >= maximumScenarioChanges} />
       </div>
+      <ChangeLibrary scenario={scenario} />
       {scenario.interventions.length ? <div className="scenario-changes">
         {scenario.interventions.map((entry) => <ChangeRow key={entry.id} change={entry} active={entry.id === change?.id} />)}
-      </div> : <p className="scenario-empty">This scenario runs its timetables as published. Add a new line, reroute or remove one, or draw a Flex zone.</p>}
+      </div> : <p className="scenario-empty">This scenario runs its timetables as published. Include a saved change from the library, or add a new one.</p>}
       {zones ? <p className="scenario-hint">Flex zones carry riders door to door inside their outline during their hours, and connect to transit at stops inside.</p> : null}
     </section>
     <ScenarioReadiness scenario={scenario} />

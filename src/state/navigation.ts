@@ -183,7 +183,10 @@ export function openAnalyzeView() {
 export function openScenariosView() {
   const project = selectedProject()
   if (!hasOperationsData(project)) return
-  city.set({ openedNetworkProjectId: project.id })
+  // Imported-feed and Network filters use local route IDs. Scenario changes
+  // address routes across the City by feed-qualified ID and apply their own
+  // timetable selection, so always enter with the complete scoped catalog.
+  city.set({ openedNetworkProjectId: project.id, activeFeedId: bundleFeedId })
   shell.set({ activeRouteTool: 'scenarios' })
   network.set({ mapScope: 'network' })
   route.set({ routingEnabled: false })

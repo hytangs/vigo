@@ -3,6 +3,9 @@ import type { VigoProject } from '../domain'
 import type { ScenarioDraft } from '../reach'
 import {
   initialScenarioLibrary,
+  assembleScenarioLibrary,
+  reusableChanges,
+  recoverEmptyBaseline,
   updateScenarioNetwork,
   libraryFromSaved,
   loadScenarioLibrary,
@@ -125,6 +128,17 @@ export function useScenarioLibrary(project: VigoProject) {
     }
   }, [projectId, reloadToken])
 
+  // Feeds may arrive after this hook mounts, or an older saved baseline may
+  // still be empty. Wait for the saved copy before repairing it, then use the
+  // normal revision-checked save path so another window's work stays protected.
+  useEffect(() => {
+    setState(current => {
+      if (current.projectId !== projectId || current.status !== 'ready') return current
+      const library = recoverEmptyBaseline(current.library, project)
+      return library === current.library ? current : { ...current, library, dirty: true, version: current.version + 1 }
+    })
+  }, [projectId, project.feeds, state.library, state.status])
+
   const flush = useCallback(async () => {
     const snapshot = stateRef.current
     if (!snapshot.dirty || snapshot.status !== 'ready' || snapshot.saving) return
@@ -245,13 +259,18 @@ export function useScenarioLibrary(project: VigoProject) {
 
   return {
     scenarioDrafts: scenarios,
+    reusableChanges: reusableChanges(state.library),
+    deleteReusableChange: useCallback((id: string) => update(library => {
+      if (library.scenarios.some(scenario => scenario.interventions.some(change => change.id === id))) return library
+      return { ...library, sharedChanges: reusableChanges(library).filter(change => change.id !== id) }
+    }), [update]),
     setScenarioNetworkFeed: useCallback((scenarioId: string, feedId: string, selected: boolean) => update(library => {
       if (!projectRef.current.feeds.some(feed => feed.id === feedId)) return library
       return updateScenarioNetwork(library, scenarioId, feedId, selected)
     }), [update]),
     setScenarioDrafts: useCallback((action: SetStateAction<ScenarioDraft[]>) => update(library => {
       const next = resolve(action, library.scenarios)
-      return next === library.scenarios ? library : { ...library, scenarios: next.slice(0, maximumScenarios) }
+      return next === library.scenarios ? library : assembleScenarioLibrary(library, next.slice(0, maximumScenarios))
     }), [update]),
     activeScenarioId,
     setActiveScenarioId: useCallback((action: SetStateAction<string>) => select('activeScenarioId', action), [select]),

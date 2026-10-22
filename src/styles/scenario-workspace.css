@@ -8,7 +8,7 @@
  */
 
 .scenario-workspace { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
-.scenario-head { display: flex; align-items: center; gap: 8px; }
+.scenario-head { position: relative; flex: none; display: flex; align-items: center; gap: 8px; }
 .scenario-head > strong { color: var(--text-1); font: 600 var(--type-lg)/1.2 var(--font-ui); letter-spacing: -0.01em; }
 .scenario-save-state { margin-left: auto; color: var(--text-3); font-size: var(--type-xs); }
 .scenario-save-state[data-state="error"],
@@ -88,11 +88,11 @@
 .scenario-change-head > strong { overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .scenario-change-head > small { overflow: hidden; color: var(--text-3); font-size: var(--type-xs); text-overflow: ellipsis; white-space: nowrap; }
 .scenario-change-remove { color: var(--text-3); opacity: 0; transition: opacity var(--duration-base) var(--ease-standard); }
-.scenario-change:is(:hover, :focus-within, .is-active) .scenario-change-remove { opacity: 1; }
+.scenario-change-row:is(:hover, :focus-within) .scenario-change-remove { opacity: 1; }
 .scenario-change-remove:hover:not(:disabled) { color: var(--alert); }
 .scenario-empty { margin: 0; padding: 16px 14px; border-radius: var(--group-radius); color: var(--text-3); background: var(--fill-1); font-size: var(--type-sm); line-height: 1.5; text-align: center; }
 
-.scenario-change-editor { display: grid; gap: 12px; min-width: 0; padding: 2px 12px 14px 45px; }
+.scenario-change-editor { display: grid; gap: 8px; min-width: 0; padding: 2px 10px 10px; }
 
 .sidebar-panel .scenario-change-name {
   width: calc(100% + 8px);
@@ -121,18 +121,14 @@
 .scenario-draw-button { height: 26px; padding: 0 10px; font-size: var(--type-sm); }
 .scenario-placing { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; border-radius: 8px; color: var(--text-2); background: var(--fill-1); font-size: var(--type-xs); }
 .scenario-placing > svg { color: var(--signal-text); }
-.scenario-insert { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
 
-.scenario-stop-list { display: grid; max-height: 248px; margin: 0; padding: 0; overflow: auto; border-radius: 8px; background: var(--fill-1); list-style: none; scrollbar-width: thin; }
-.scenario-stop-list > li { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto auto; align-items: center; gap: 4px; min-height: 36px; padding: 3px 4px 3px 8px; }
+.scenario-stop-list { display: grid; max-height: 192px; margin: 0; padding: 0; overflow: auto; border-radius: 8px; background: var(--fill-1); list-style: none; scrollbar-width: thin; }
+.scenario-stop-list > li { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 4px; height: 32px; min-height: 32px; padding: 3px 6px 3px 10px; }
 .scenario-stop-list > li + li { border-top: 1px solid var(--line-1); }
 .scenario-stop-list > li.is-placing { background: var(--signal-soft); }
-.scenario-stop-list > li.is-edited .scenario-stop-index { color: var(--signal-text); font-weight: 600; }
 .scenario-stop-list .kit-icon-button { width: 24px; height: 24px; }
-.scenario-stop-index { color: var(--text-3); font-size: var(--type-xs); font-variant-numeric: tabular-nums; }
 .scenario-stop-name { display: grid; min-width: 0; }
-.scenario-stop-name > strong { overflow: hidden; color: var(--text-1); font-size: var(--type-sm); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.scenario-stop-name > small { color: var(--text-3); font-size: var(--type-2xs); }
+.scenario-stop-name > strong { color: var(--text-1); font-size: var(--type-sm); font-weight: 500; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .scenario-service,
 .scenario-route-picker { display: grid; gap: 8px; min-width: 0; }
@@ -195,4 +191,60 @@
 @media (prefers-reduced-motion: reduce) {
   .scenario-change-remove { transition: none; }
   :is(.scenario-drawing-bar, .scenario-line-card) { animation: none; }
+}
+
+/* Quiet row actions remain available to keyboard and touch users. */
+.scenario-stop-action { opacity: 0; pointer-events: none; }
+.scenario-stop-list > li:is(:hover, :focus-within, .is-placing) .scenario-stop-action { opacity: 1; pointer-events: auto; }
+.scenario-stop-insert { position: absolute; z-index: 2; bottom: -9px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; justify-content: center; gap: 3px; height: 18px; padding: 0 6px; border: 1px solid var(--line-1); border-radius: 9px; color: var(--text-3); background: var(--ink-2); font: inherit; font-size: var(--type-2xs); cursor: pointer; opacity: 0; }
+.scenario-stop-list > li:is(:hover, :focus-within) .scenario-stop-insert,
+.scenario-stop-insert[aria-pressed="true"] { opacity: 1; }
+.scenario-stop-insert:is(:hover, :focus-visible, [aria-pressed="true"]) { color: var(--signal-text); background: var(--signal-soft); }
+.scenario-stop-insert:focus-visible { outline: 2px solid var(--signal-text); outline-offset: -2px; }
+.scenario-stops-head { flex-wrap: wrap; }
+@media (hover: none) {
+  .scenario-stop-action, .scenario-change-remove, .scenario-stop-insert { opacity: 1; pointer-events: auto; }
+}
+
+/* Reusable definitions are tucked away until composing a scenario. */
+.scenario-change-library { border-radius: 8px; background: var(--fill-1); }
+.scenario-change-library > summary { display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 10px; color: var(--text-2); font-size: var(--type-sm); cursor: pointer; }
+.scenario-change-library > summary::before { content: '›'; transition: transform var(--duration-base); }
+.scenario-change-library[open] > summary::before { transform: rotate(90deg); }
+.scenario-change-library > summary > span { margin-left: auto; color: var(--text-3); font-size: var(--type-xs); }
+.scenario-library-list { max-height: 240px; overflow-y: auto; }
+.scenario-library-row { display: flex; align-items: center; gap: 4px; min-height: 40px; padding: 3px 6px 3px 10px; border-top: 1px solid var(--line-1); }
+.scenario-library-row > label { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; cursor: pointer; }
+.scenario-library-row > label > span { display: grid; min-width: 0; }
+.scenario-library-row strong { overflow: hidden; font-size: var(--type-sm); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.scenario-library-row small { color: var(--text-3); font-size: var(--type-2xs); }
+.scenario-library-delete { opacity: 0; }
+.scenario-library-row:is(:hover, :focus-within) .scenario-library-delete { opacity: 1; }
+.scenario-shared-note { margin: 0; padding: 0 10px 6px; color: var(--text-3); font-size: var(--type-2xs); }
+@media (hover: none) { .scenario-library-delete { opacity: 1; } }
+
+/* Single-height stop rows and a compact two-column service form. */
+.scenario-stop-list > li[draggable="true"] { grid-template-columns: minmax(0, 1fr); cursor: grab; }
+.scenario-stop-list > li[draggable="true"]:active { cursor: grabbing; }
+.scenario-stop-list { scroll-snap-type: y proximity; }
+.scenario-stop-list > li { scroll-snap-align: start; }
+.scenario-service { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 10px; }
+.scenario-service > :is(.reach-field-grid, .reach-check, .reach-field) { grid-column: 1 / -1; }
+.scenario-service .reach-setting-row { display: grid; gap: 3px; }
+.scenario-service .reach-setting-row > span:first-child { font-size: var(--type-xs); color: var(--text-3); }
+.scenario-service .reach-number-input { width: 100%; }
+.scenario-service :is(.reach-number-input > input, select) { height: 28px; }
+.scenario-service .reach-check { min-height: 28px; margin: 0; padding: 2px 0; }
+
+.scenario-stop-list > li[draggable="true"] .scenario-stop-action { position: absolute; }
+.scenario-stop-list > li[draggable="true"] .scenario-stop-action:nth-of-type(1) { right: 78px; }
+.scenario-stop-list > li[draggable="true"] .scenario-stop-action:nth-of-type(2) { right: 54px; }
+.scenario-stop-list > li[draggable="true"] .scenario-stop-action:nth-of-type(3) { right: 30px; }
+.scenario-stop-list > li[draggable="true"] .scenario-stop-action:nth-of-type(4) { right: 6px; }
+.scenario-stop-list > li[draggable="true"]:is(:hover, :focus-within) .scenario-stop-name { padding-right: 100px; }
+.scenario-stop-list .scenario-stop-action:disabled { opacity: 0; }
+.scenario-stop-list > li:is(:hover, :focus-within) .scenario-stop-action:disabled { opacity: 0.35; }
+@media (hover: none) {
+  .scenario-stop-list > li[draggable="true"] .scenario-stop-name { padding-right: 100px; }
+  .scenario-stop-list .scenario-stop-action:disabled { opacity: 0.35; }
 }

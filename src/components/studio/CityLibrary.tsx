@@ -6,7 +6,7 @@ import { orderedProjects } from '../../app/projectState'
 import { cityReadiness } from '../../app/cityReadiness'
 import type { VigoRuntimeConfig } from '../../app/runtimeConfig'
 import { classNames, formatNumber, type VigoProject } from '../../domain'
-import { IconButton, VigoBrandMark } from '../UiPrimitives'
+import { IconButton } from '../UiPrimitives'
 
 /** A small system map drawn on first run: three lines meeting at a transfer. */
 function FirstRunNetwork() {
@@ -186,7 +186,7 @@ export function ProjectsPage({
       ) : !loading && !loadFailed ? (
         <div className={classNames('city-library-empty', !projects.length && 'is-first-run')}>
           {projects.length ? <Map size={36} strokeWidth={1.2} /> : <>
-            <div className="city-first-run-brand"><VigoBrandMark /><span>VIGO</span></div>
+            <img className="city-first-run-brand" src="/vigo-landing-wordmark.png" alt="VIGO" width="2172" height="724" />
             <FirstRunNetwork />
           </>}
           <h2>{projects.length ? 'No matching Cities' : 'Transit routing. In milliseconds.'}</h2>

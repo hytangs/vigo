@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeftRight, CircleDot, Eraser, LoaderCircle, MapPin, MousePointerClick, Pencil, Plus, RotateCcw, Route, Trash2, TriangleAlert, Undo2, X } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { ArrowDown, ArrowUp, ArrowLeftRight, CircleDot, Eraser, LoaderCircle, MapPin, MousePointerClick, Pencil, Plus, RotateCcw, Route, Trash2, TriangleAlert, Undo2, X } from 'lucide-react'
 import { flexZoneAreaKm2, flexZoneSelfIntersects, smoothRailPath } from '../../app/scenarioGeometry'
+import { useScenarioStopNames } from '../../app/useScenarioStopNames'
+import { scenarioLibrary } from '../../state/scenarios'
 import { shallowEqual, useStore } from '../../app/store'
 import { gtfsDirectionLabel, gtfsPatternStops, gtfsPatternTimetable } from '../../app/gtfsPresentation'
 import { classNames, formatNumber, type RouteMetric, type StopMetric } from '../../domain'
@@ -11,7 +13,6 @@ import {
   type ScenarioChangeDraft,
   type ScenarioGeometryMode,
   type ScenarioRouteScope,
-  type ScenarioStopDraft,
 } from '../../reach'
 import { scopedRouteServiceKey } from '../../routeServices'
 import { clock } from '../../state/clock'
@@ -28,6 +29,7 @@ import {
   finishScenarioDrawing,
   inferScenarioRoadGeometry,
   removeScenarioStop,
+  reorderScenarioStop,
   resetScenarioRouteStops,
   reverseScenarioLine,
   scenarioEditor,
@@ -57,14 +59,6 @@ function branchOptionLabel(route: RouteMetric, stops: StopMetric[]) {
 }
 
 const routePatternRank = (route: RouteMetric) => route.patternRank ?? Number.MAX_SAFE_INTEGER
-
-function stopProvenanceLabel(stop: ScenarioStopDraft) {
-  const source = stop.stopId ? 'GTFS stop' : 'Placed point'
-  if (stop.editStatus === 'inserted') return `${source} · inserted`
-  if (stop.editStatus === 'replaced') return `${source} · changed`
-  if (stop.editStatus === 'added') return source
-  return stop.stopId ? 'GTFS baseline' : source
-}
 
 /** The three ways a new line can run between its stops. */
 const alignments = [
@@ -122,14 +116,9 @@ function StopSequence({ change }: { change: ScenarioChangeDraft }) {
   const drawing = useStore(scenarioEditor, (state) => state.drawing)
   const zone = change.kind === 'flex-zone'
   const stops = change.stops
-  const [insertAfterIndex, setInsertAfterIndex] = useState<number | null>(null)
-  const previousCount = useRef(stops.length)
-  const safeInsertAfter = insertAfterIndex === null ? null : Math.min(insertAfterIndex, Math.max(0, stops.length - 2))
-  useEffect(() => {
-    if (stops.length > previousCount.current && safeInsertAfter !== null) setInsertAfterIndex(Math.min(safeInsertAfter + 1, Math.max(0, stops.length - 2)))
-    if (stops.length < 2) setInsertAfterIndex(null)
-    previousCount.current = stops.length
-  }, [safeInsertAfter, stops.length])
+  const project = useStudio(selectedProject)
+  const library = useStudio(scenarioLibrary)
+  useScenarioStopNames(project.id, change, library.setScenarioDrafts)
   const noun = zone ? 'corner' : 'stop'
   const minimum = zone ? 3 : 2
   const drawingHere = drawing && placement?.interventionId === change.id
@@ -160,24 +149,30 @@ function StopSequence({ change }: { change: ScenarioChangeDraft }) {
         : change.routeId ? 'This route has no editable GTFS stop sequence.' : 'Choose a route to load its GTFS stops.'}
     </p> : null}
 
-    {change.kind === 'change-line' && stops.length >= 2 ? <div className="scenario-insert">
-      <select value={safeInsertAfter ?? ''} onChange={(event) => setInsertAfterIndex(event.currentTarget.value === '' ? null : Number(event.currentTarget.value))} aria-label="Insert a stop after">
-        <option value="">Insert a stop after…</option>
-        {stops.slice(0, -1).map((stop, index) => <option key={`${stop.id}-gap`} value={index}>{index + 1} · {stop.label} → {stops[index + 1]?.label}</option>)}
-      </select>
-      <button type="button" className="kit-button" disabled={safeInsertAfter === null || stops.length >= 256}
-        aria-pressed={safeInsertAfter !== null && placement?.mode === 'insert' && placement.index === safeInsertAfter + 1}
-        onClick={() => safeInsertAfter !== null && beginScenarioStopPlacement(change.id, 'insert', safeInsertAfter + 1)}><Plus size={14} aria-hidden="true" />Place</button>
-    </div> : null}
-
     {stops.length && !zone ? <ol className="scenario-stop-list" aria-label={`${change.name} stops`}>
-      {stops.map((stop, index) => <li key={stop.id} className={classNames(placement?.mode === 'replace' && placement.index === index && 'is-placing', stop.editStatus && stop.editStatus !== 'baseline' && 'is-edited')}>
-        <span className="scenario-stop-index">{index + 1}</span>
-        <span className="scenario-stop-name"><strong>{stop.label}</strong><small>{stopProvenanceLabel(stop)}</small></span>
-        <button type="button" className="kit-icon-button" onClick={() => beginScenarioStopPlacement(change.id, 'replace', index)}
+      {stops.map((stop, index) => <li key={stop.id} draggable={change.kind === 'add-line'}
+        onDragStart={event => { event.dataTransfer.setData('application/x-vigo-stop', stop.id); event.dataTransfer.effectAllowed = 'move' }}
+        onDragOver={event => { if (change.kind === 'add-line' && event.dataTransfer.types.includes('application/x-vigo-stop')) { event.preventDefault(); event.dataTransfer.dropEffect = 'move' } }}
+        onDrop={event => { if (change.kind === 'add-line') { event.preventDefault(); reorderScenarioStop(change.id, event.dataTransfer.getData('application/x-vigo-stop'), index) } }}
+        className={classNames(placement?.mode === 'replace' && placement.index === index && 'is-placing', stop.editStatus && stop.editStatus !== 'baseline' && 'is-edited')}>
+
+        <span className="scenario-stop-name"><strong title={stop.label}>{stop.label}</strong></span>
+        {change.kind === 'add-line' ? <>
+          <button type="button" className="kit-icon-button scenario-stop-action" disabled={index === 0}
+            aria-label={`Move ${stop.label} earlier`} title="Move earlier" onClick={() => reorderScenarioStop(change.id, stop.id, index - 1)}><ArrowUp size={13} aria-hidden="true" /></button>
+          <button type="button" className="kit-icon-button scenario-stop-action" disabled={index === stops.length - 1}
+            aria-label={`Move ${stop.label} later`} title="Move later" onClick={() => reorderScenarioStop(change.id, stop.id, index + 1)}><ArrowDown size={13} aria-hidden="true" /></button>
+        </> : null}
+        <button type="button" className="kit-icon-button scenario-stop-action" onClick={() => beginScenarioStopPlacement(change.id, 'replace', index)}
           aria-pressed={placement?.mode === 'replace' && placement.index === index} aria-label={`Change stop ${index + 1}, ${stop.label}`} title="Move to another place"><Pencil size={13} aria-hidden="true" /></button>
-        <button type="button" className="kit-icon-button" onClick={() => removeScenarioStop(change.id, index)} disabled={stops.length <= minimum}
+        <button type="button" className="kit-icon-button scenario-stop-action" onClick={() => removeScenarioStop(change.id, index)} disabled={stops.length <= minimum}
           aria-label={`Remove stop ${index + 1}, ${stop.label}`} title={stops.length <= minimum ? 'A line needs at least two stops.' : 'Remove stop'}><Trash2 size={13} aria-hidden="true" /></button>
+        {index < stops.length - 1 ? <button type="button" className="scenario-stop-insert" disabled={stops.length >= 256}
+          aria-label={`Insert stop between ${index + 1} and ${index + 2}`}
+          aria-pressed={placement?.mode === 'insert' && placement.index === index + 1}
+          onClick={() => beginScenarioStopPlacement(change.id, 'insert', index + 1)}>
+          <Plus size={12} aria-hidden="true" /><span>Add stop</span>
+        </button> : null}
       </li>)}
     </ol> : null}
   </div>
@@ -203,9 +198,9 @@ function ServiceSettings({ change }: { change: ScenarioChangeDraft }) {
     {!keepsTrips ? <label className="reach-check">
       <input type="checkbox" role="switch" checked={change.routeScope === 'edge' ? false : change.bidirectional} disabled={change.routeScope === 'edge'}
         onChange={(event) => updateScenarioChange(change.id, { bidirectional: event.currentTarget.checked })} />
-      <span><strong>{change.kind === 'add-line' ? 'Both directions' : 'Add reverse service'}</strong><small>{change.routeScope === 'edge'
+      <span><strong>{change.kind === 'add-line' ? 'Both directions' : 'Add reverse service'}</strong>{change.kind !== 'add-line' ? <small>{change.routeScope === 'edge'
         ? 'Each matching branch follows its published stop order.'
-        : change.kind === 'add-line' ? 'Run the line in both directions.' : 'Also run this branch reversed. The reverse is not taken from GTFS.'}</small></span>
+        : 'Also run this branch reversed. The reverse is not taken from GTFS.'}</small> : null}</span>
     </label> : null}
   </div>
 }

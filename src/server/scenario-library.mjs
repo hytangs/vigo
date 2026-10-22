@@ -160,11 +160,34 @@ export function normalizeScenarioLibrary(value) {
       ...(typeof scenario.updatedAt === 'string' ? { updatedAt: scenario.updatedAt.slice(0, 40) } : {}),
     }
   }), 'Scenarios')
+  // Legacy per-scenario IDs were only unique within a scenario. Do not turn
+  // unrelated older edits into linked changes merely because their IDs match.
+  if (value.sharedChanges === undefined) {
+    const used = new Set()
+    for (const [scenarioIndex, scenario] of scenarios.entries()) for (const change of scenario.changes) {
+      const original = change.id
+      let suffix = 0
+      while (used.has(change.id)) change.id = `${original.slice(0, 70)}-s${scenarioIndex}-${++suffix}`
+      used.add(change.id)
+    }
+  }
+  // Keep embedded changes for existing readers; shared definitions are canonical.
+  const definitions = new Map()
+  if (value.sharedChanges !== undefined) {
+    if (!Array.isArray(value.sharedChanges) || value.sharedChanges.length > 3072) throw invalid('The change library keeps at most 3072 definitions.')
+    for (const change of unique(value.sharedChanges.map((entry, index) => scenarioChange(entry, `sharedChanges[${index}]`)), 'Shared changes')) definitions.set(change.id, change)
+  }
+  for (const scenario of scenarios) for (const change of scenario.changes) {
+    if (!definitions.has(change.id)) definitions.set(change.id, change)
+  }
+  if (definitions.size > 3072) throw invalid('The change library keeps at most 3072 definitions.')
+  for (const scenario of scenarios) scenario.changes = scenario.changes.map(change => definitions.get(change.id))
   return {
     schemaVersion: scenarioLibrarySchemaVersion,
     revision: Number.isSafeInteger(value.revision) && value.revision >= 0 ? value.revision : 0,
     ...(typeof value.updatedAt === 'string' ? { updatedAt: value.updatedAt.slice(0, 40) } : {}),
     groups,
+    sharedChanges: [...definitions.values()],
     scenarios,
   }
 }

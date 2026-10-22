@@ -216,7 +216,7 @@ export function addScenario(groupId?: string) {
   setActiveScenarioChangeId('')
 }
 
-/** Copy a scenario and its changes; the copy runs on the same timetables. */
+/** Duplicate the composition while keeping shared change definitions. */
 export function duplicateScenario(caseId: string) {
   const { cases } = scenarioValues()
   const source = cases.find((entry) => entry.id === caseId)
@@ -225,11 +225,7 @@ export function duplicateScenario(caseId: string) {
   const copy: ScenarioDraft = {
     ...newScenario(cases.length, source.groupId ?? ''),
     name: `${source.name} copy`.slice(0, 80),
-    interventions: source.interventions.map((change) => ({
-      ...change,
-      id: `intervention-${crypto.randomUUID()}`,
-      geometryStatus: change.geometryStatus === 'loading' ? 'idle' : change.geometryStatus,
-    })),
+    interventions: [...source.interventions],
   }
   scenarioEditor.set({ placement: null, drawing: false })
   const { setScenarioDrafts, setActiveScenarioId, setActiveScenarioChangeId } = setters()
@@ -264,6 +260,17 @@ export function openScenarioCase(caseId: string) {
   selectScenario(caseId)
   setActiveFeedId(bundleFeedId)
   openScenariosView()
+}
+
+/** Include a shared definition; removing membership never deletes its definition. */
+export function includeScenarioChange(changeId: string) {
+  const scenario = activeScenario()
+  const change = setters().reusableChanges.find(entry => entry.id === changeId)
+  if (!scenario || !change || scenario.interventions.length >= maximumScenarioChanges || scenario.interventions.some(entry => entry.id === changeId)) return
+  invalidateAnalyzeResult()
+  setters().setScenarioDrafts(current => current.map(entry => entry.id === scenario.id
+    ? { ...entry, interventions: [...entry.interventions, change] } : entry))
+  selectScenarioChange(changeId)
 }
 
 // Changes within the open scenario.
@@ -590,6 +597,7 @@ export function moveScenarioStopFromMap(index: number, coordinate: [number, numb
         stopId: undefined,
         baselineStopId: addedHere ? undefined : candidateStop.baselineStopId ?? candidateStop.stopId,
         coordinate,
+        label: zone ? candidateStop.label : `${coordinate[1].toFixed(4)}, ${coordinate[0].toFixed(4)}`,
         source: 'map',
         editStatus: addedHere ? candidateStop.editStatus : 'replaced',
       }
@@ -603,6 +611,18 @@ export function removeScenarioStop(interventionId: string, index: number) {
   if (!intervention || intervention.stops.length <= minimum || !intervention.stops[index]) return
   scenarioEditor.set({ placement: null, drawing: false })
   updateScenarioChange(interventionId, { stops: intervention.stops.filter((_, stopIndex) => stopIndex !== index) })
+}
+
+/** Reorder a planned line while preserving each stop's identity and coordinates. */
+export function reorderScenarioStop(interventionId: string, stopId: string, targetIndex: number) {
+  const change = activeScenario()?.interventions.find(entry => entry.id === interventionId)
+  if (!change || change.kind !== 'add-line' || !Number.isInteger(targetIndex) || targetIndex < 0 || targetIndex >= change.stops.length) return
+  const from = change.stops.findIndex(stop => stop.id === stopId)
+  if (from < 0 || from === targetIndex) return
+  const stops = [...change.stops]
+  stops.splice(targetIndex, 0, stops.splice(from, 1)[0])
+  scenarioEditor.set({ placement: null, drawing: false })
+  updateScenarioChange(interventionId, { stops })
 }
 
 /** Run a new line the other way. */

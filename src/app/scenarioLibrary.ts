@@ -8,12 +8,14 @@ export type SavedScenarioLibrary = {
   schemaVersion: 'vigo.studio.scenarios.v1'
   revision: number
   updatedAt?: string
+  sharedChanges?: ScenarioChangeDraft[]
   groups: CityDataGroup[]
   scenarios: Array<{ id: string; name: string; groupId: string; changes: ScenarioChangeDraft[]; updatedAt?: string }>
 }
 
 /** What Studio edits: groups of timetables, and scenarios that run on a group. */
 export type ScenarioLibrary = {
+  sharedChanges?: ScenarioChangeDraft[]
   groups: CityDataGroup[]
   scenarios: ScenarioDraft[]
 }
@@ -35,6 +37,38 @@ export function initialScenarioLibrary(project: Pick<VigoProject, 'feeds'>): Sce
   }
 }
 
+/** A baseline created before the first GTFS import must inherit the City network.
+ * Keep explicit nonempty selections and custom groups exactly as saved. */
+export function recoverEmptyBaseline(library: ScenarioLibrary, project: Pick<VigoProject, 'feeds'>): ScenarioLibrary {
+  if (!project.feeds.length || !library.groups.some(group => group.id === baselineGroupId && !group.feedIds.length)) return library
+  return {
+    ...library,
+    groups: library.groups.map(group => group.id === baselineGroupId && !group.feedIds.length
+      ? { ...group, feedIds: project.feeds.map(feed => feed.id) } : group),
+  }
+}
+
+/** Definitions outlive scenario membership; older libraries migrate without copies. */
+export function reusableChanges(library: ScenarioLibrary): ScenarioChangeDraft[] {
+  const definitions = new Map((library.sharedChanges ?? []).map(change => [change.id, change]))
+  for (const scenario of library.scenarios) for (const change of scenario.interventions) {
+    if (!definitions.has(change.id)) definitions.set(change.id, change)
+  }
+  return [...definitions.values()]
+}
+
+/** Any edited definition is propagated to every scenario that includes its ID. */
+export function assembleScenarioLibrary(library: ScenarioLibrary, scenarios: ScenarioDraft[]): ScenarioLibrary {
+  const definitions = new Map(reusableChanges(library).map(change => [change.id, change]))
+  for (const scenario of scenarios) for (const change of scenario.interventions) {
+    const previous = library.scenarios.find(entry => entry.id === scenario.id)?.interventions.find(entry => entry.id === change.id)
+    if (!definitions.has(change.id) || (previous && JSON.stringify(previous) !== JSON.stringify(change))) definitions.set(change.id, change)
+  }
+  return { ...library, sharedChanges: [...definitions.values()], scenarios: scenarios.map(scenario => ({
+    ...scenario, interventions: scenario.interventions.map(change => definitions.get(change.id)!),
+  })) }
+}
+
 /** Copy on write: editing one scenario must not alter another scenario or the baseline. */
 export function updateScenarioNetwork(library: ScenarioLibrary, scenarioId: string, feedId: string, selected: boolean): ScenarioLibrary {
   const scenario = library.scenarios.find(entry => entry.id === scenarioId)
@@ -52,6 +86,7 @@ export function updateScenarioNetwork(library: ScenarioLibrary, scenarioId: stri
   }
   const next = { id, name: exclusive ? group.name : `${scenario.name} network`.slice(0, 80), feedIds }
   return {
+    ...library,
     groups: exclusive ? library.groups.map(entry => entry.id === id ? next : entry) : [...library.groups, next],
     scenarios: library.scenarios.map(entry => entry.id === scenarioId ? { ...entry, groupId: id } : entry),
   }
@@ -65,6 +100,7 @@ export function scenarioNetworkDiffers(groups: CityDataGroup[], groupId: string 
 
 export function libraryFromSaved(saved: SavedScenarioLibrary): ScenarioLibrary {
   return {
+    sharedChanges: saved.sharedChanges,
     groups: saved.groups.map(group => ({ ...group, feedIds: [...group.feedIds] })),
     scenarios: saved.scenarios.map(({ id, name, groupId, changes }) => ({ id, name: id === 'case-a' && name === 'Scenario A' && groupId === baselineGroupId && !changes.length ? 'Current network' : name, groupId, interventions: changes })),
   }
@@ -73,6 +109,7 @@ export function libraryFromSaved(saved: SavedScenarioLibrary): ScenarioLibrary {
 export function libraryToSaved(library: ScenarioLibrary) {
   return {
     schemaVersion: 'vigo.studio.scenarios.v1' as const,
+    sharedChanges: reusableChanges(library).map(change => change.geometryStatus === 'loading' ? { ...change, geometryStatus: 'idle' as const, geometryError: '' } : change),
     groups: library.groups,
     scenarios: library.scenarios.map(({ id, name, groupId, interventions }) => ({
       id, name, groupId: groupId ?? '',
@@ -86,7 +123,7 @@ export function libraryToSaved(library: ScenarioLibrary) {
 
 /** True when a library holds anything worth keeping beyond the defaults. */
 export function libraryHasWork(library: ScenarioLibrary) {
-  return library.scenarios.some(scenario => scenario.interventions.length)
+  return Boolean(library.sharedChanges?.length) || library.scenarios.some(scenario => scenario.interventions.length)
     || library.scenarios.length > 1
     || library.groups.length > 1
     || library.groups.some(group => group.id !== baselineGroupId)

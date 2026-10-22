@@ -177,7 +177,8 @@
 .city-library-new-icon { display: grid; place-items: center; width: 38px; height: 38px; margin-bottom: 4px; border-radius: 50%; color: var(--signal-ink); background: var(--signal); }
 
 /* First run: what a City is, and the three steps to one. */
-.city-first-run-brand { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--text-1); font-size: 18px; font-weight: 650; letter-spacing: 0.04em; }
+.city-first-run-brand { display: block; width: min(200px, 70%); height: auto; margin-bottom: 8px; }
+.app-shell.appearance-dark .city-first-run-brand { filter: brightness(3); }
 .city-library-empty.is-first-run { gap: 14px; padding: 48px 24px 52px; border-style: solid; border-color: var(--line-1); background: radial-gradient(120% 100% at 50% 0%, var(--ink-2), var(--ink-1)); }
 .city-first-run-art { width: min(300px, 70%); height: auto; margin-bottom: 6px; fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .city-first-run-art path { stroke-width: 4; stroke-dasharray: 320; stroke-dashoffset: 320; animation: city-line-draw 1.6s var(--ease-emphasis) forwards; }

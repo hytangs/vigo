@@ -42,10 +42,11 @@
 .reach-number-field > small { color: var(--text-3); font-size: var(--type-xs); font-weight: 400; line-height: 1.4; }
 .reach-setting-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .reach-setting-row > span:first-child { color: var(--text-2); font-size: var(--type-md); }
-.reach-number-input { position: relative; display: flex; flex: none; align-items: center; }
-.reach-number-input > input { width: 92px; padding-right: 34px; text-align: right; }
-.reach-number-input > span { position: absolute; right: 8px; color: var(--text-3); font-size: var(--type-sm); pointer-events: none; }
-.reach-time-budget .reach-number-input > input { width: 118px; height: 30px; font-size: var(--type-lg); font-weight: 600; }
+.reach-number-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; flex: none; align-items: center; gap: 6px; width: 108px; padding-right: 10px; border-radius: var(--control-radius, 8px); background: var(--fill-2); }
+.reach-number-input > input { width: 100%; min-width: 0; padding-right: 0; text-align: right; background: transparent; }
+.reach-number-input > span { white-space: nowrap; color: var(--text-3); font-size: var(--type-sm); pointer-events: none; }
+.reach-time-budget .reach-number-input { width: 118px; }
+.reach-time-budget .reach-number-input > input { height: 30px; font-size: var(--type-lg); font-weight: 600; }
 .reach-budget-presets > button { padding: 0 4px; font-variant-numeric: tabular-nums; }
 .reach-walking-settings { display: grid; gap: 10px; padding: 2px 2px 10px 20px; }
 .reach-setting-method > select { width: 100%; }

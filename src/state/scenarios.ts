@@ -16,6 +16,7 @@ const pendingLibrary = memoizeLast((project: VigoProject): ScenarioLibraryState 
   return {
     scenarioDrafts: library.scenarios, activeScenarioId: library.scenarios[0]?.id ?? '', activeScenarioChangeId: '',
     setScenarioNetworkFeed: noop, setScenarioDrafts: noop, setActiveScenarioId: noop, setActiveScenarioChangeId: noop,
+    reusableChanges: [], deleteReusableChange: noop,
     draftStorageError: '', saveState: 'loading', retrySave: noop,
     grouping: {
       value: { groups: library.groups, cases: Object.fromEntries(library.scenarios.map(s => [s.id, s.groupId ?? ''])), caseScope: project.id },
