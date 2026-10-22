@@ -201,6 +201,22 @@ try {
   const roundedRoute = readGtfsNetworkOverview(storePath).routes.find(route => route.id === 'R2')
   assert.equal(roundedRoute.serviceHours, Number((450 / 3600).toFixed(2)), 'Exact-half service hours retain JS decimal rounding')
   assert.equal(roundedRoute.spanHours, 0.13)
+  // A lexically first short turn with valid shape geometry must not hide the
+  // main line's stops and southern/northern extent from the network tiles.
+  const shortTurnDb = new DatabaseSync(storePath)
+  shortTurnDb.exec(`
+    INSERT INTO trips VALUES('000-SHORT', 'R1A', 'WKD', '0');
+    INSERT INTO trip_shapes VALUES('000-SHORT', 'SHORT');
+    INSERT INTO shape_points VALUES('SHORT', 1, 42.35, -71.05), ('SHORT', 2, 42.40, -71.00);
+    INSERT INTO connections VALUES(21600, 22080, '000-SHORT', 'R1A', 'WKD', '0', 'B', 'C', 1);
+  `)
+  shortTurnDb.close()
+  for (const result of [readGtfsNetworkOverview(storePath), await readGtfsNetworkOverviewAsync(storePath)]) {
+    const route = result.routes.find(route => route.id === 'R1A')
+    assert.deepEqual(route.stopIds, ['A', 'B', 'C'], 'Short turns must not truncate the overview')
+    assert.equal(route.shapeId, 'S1')
+    assert.deepEqual(route.coordinates[0], [-71.10, 42.30])
+  }
   console.log(`GTFS analysis store check passed (${overview.routes.length} complete services, ${analysis.routes.length + branchAnalysis.routes.length} focused patterns).`)
 } finally {
   await fs.rm(temporaryDirectory, { recursive: true, force: true })

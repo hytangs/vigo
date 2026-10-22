@@ -1,16 +1,19 @@
-// Read-only queries moved from gtfs-analysis-store.mjs at e2fa31a.
+// Overview geometry represents the longest stop sequence, not the first trip ID.
+// A lexically early depot run or short turn must not hide the rest of a line.
 pub(super) const REPRESENTATIVE_TRIP: &str = r#"SELECT trip.trip_id, trip.direction_id, shape.shape_id
       FROM trips AS trip INDEXED BY trips_route
       LEFT JOIN trip_shapes AS shape ON shape.trip_id=trip.trip_id
       WHERE trip.route_id=?
-      ORDER BY CASE WHEN shape.shape_id IS NULL OR shape.shape_id='' THEN 1 ELSE 0 END, trip.trip_id
+      ORDER BY (SELECT COUNT(*) FROM connections WHERE trip_id=trip.trip_id) DESC,
+        CASE WHEN shape.shape_id IS NULL OR shape.shape_id='' THEN 1 ELSE 0 END, trip.trip_id
       LIMIT 1"#;
 
 pub(super) const CANDIDATE_TRIPS: &str = r#"SELECT trip.trip_id, trip.direction_id, shape.shape_id
       FROM trips AS trip INDEXED BY trips_route
       LEFT JOIN trip_shapes AS shape ON shape.trip_id=trip.trip_id
       WHERE trip.route_id=?
-      ORDER BY CASE WHEN shape.shape_id IS NULL OR shape.shape_id='' THEN 1 ELSE 0 END, trip.trip_id
+      ORDER BY (SELECT COUNT(*) FROM connections WHERE trip_id=trip.trip_id) DESC,
+        CASE WHEN shape.shape_id IS NULL OR shape.shape_id='' THEN 1 ELSE 0 END, trip.trip_id
       LIMIT 12"#;
 
 pub(super) const CONNECTIONS: &str = r#"SELECT connection.departure, connection.arrival, connection.stop_sequence,

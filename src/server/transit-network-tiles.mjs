@@ -11,7 +11,7 @@ import {
 // route geometry stays on the server and arrives tile by tile.
 
 export const bundleNetworkScope = '__bundle__'
-const tileSchemaVersion = 'vigo.network-tiles.v1'
+const tileSchemaVersion = 'vigo.network-tiles.v2'
 const uiScopeDelimiter = '::'
 const notRegistered = 'TRANSIT_NETWORK_NOT_REGISTERED'
 const maxRegisteredNetworks = 8
