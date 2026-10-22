@@ -57,28 +57,24 @@ pub(super) fn load(
         let (a, b) = row?;
         parents.insert(a, b);
     }
-    let stops = |id: &str| -> Vec<u32> {
-        names
-            .stop_ids
-            .iter()
-            .enumerate()
-            .filter_map(|(i, stop)| {
-                let mut current = stop.as_str();
-                let mut remaining = parents.len() + 1;
-                while remaining > 0 {
-                    if current == id {
-                        return Some(i as u32);
-                    }
-                    let Some(parent) = parents.get(current) else {
-                        break;
-                    };
-                    current = parent;
-                    remaining -= 1;
-                }
-                None
-            })
-            .collect()
-    };
+    // Index every stop under itself and each ancestor station once, with its
+    // parent hops, so a rule resolves its selectors without scanning stops.
+    let mut members = HashMap::<&str, Vec<(u32, u8)>>::new();
+    for (i, stop) in names.stop_ids.iter().enumerate() {
+        let mut current = stop.as_str();
+        let mut remaining = parents.len() + 1;
+        let mut depth = 0u8;
+        while remaining > 0 {
+            members.entry(current).or_default().push((i as u32, depth));
+            let Some(parent) = parents.get(current) else {
+                break;
+            };
+            current = parent;
+            depth = depth.saturating_add(1);
+            remaining -= 1;
+        }
+    }
+    let stops = |id: &str| members.get(id).map_or(&[][..], Vec::as_slice);
     let mut origins = HashMap::<String, String>::new();
     if db.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='trip_origins')",
@@ -91,16 +87,18 @@ pub(super) fn load(
             origins.insert(trip, source);
         }
     }
-    let trips = |id: &Option<String>| -> Vec<Option<u32>> {
-        match id {
-            None => vec![None],
-            Some(id) => names
-                .trip_ids
-                .iter()
-                .enumerate()
-                .filter_map(|(i, t)| (origins.get(t).unwrap_or(t) == id).then_some(Some(i as u32)))
-                .collect(),
-        }
+    // Dated trip instances share their source trip's identity.
+    let mut instances = HashMap::<&str, Vec<Option<u32>>>::new();
+    for (i, trip) in names.trip_ids.iter().enumerate() {
+        instances
+            .entry(origins.get(trip).unwrap_or(trip).as_str())
+            .or_default()
+            .push(Some(i as u32));
+    }
+    let any_trip = [None];
+    let trips = |id: &Option<String>| match id {
+        None => &any_trip[..],
+        Some(id) => instances.get(id.as_str()).map_or(&[][..], Vec::as_slice),
     };
     let mut rules = Vec::new();
     let mut stmt=db.prepare("SELECT from_stop_id,to_stop_id,from_route_id,to_route_id,from_trip_id,to_trip_id,transfer_type,min_transfer_time FROM transfer_rules WHERE transfer_type<4")?;
@@ -125,10 +123,10 @@ pub(super) fn load(
         if (fr.is_some() && from_route.is_none()) || (tr.is_some() && to_route.is_none()) {
             continue;
         }
-        for from_stop in stops(&from) {
-            for to_stop in stops(&to) {
-                for from_trip in trips(&ft) {
-                    for to_trip in trips(&tt) {
+        for &(from_stop, from_depth) in stops(&from) {
+            for &(to_stop, to_depth) in stops(&to) {
+                for &from_trip in trips(&ft) {
+                    for &to_trip in trips(&tt) {
                         if rules.len() >= 1_000_000 {
                             return Err(
                                 "Expanded transfer rules exceed the native rule budget".into()
@@ -143,6 +141,7 @@ pub(super) fn load(
                             to_trip,
                             kind,
                             minimum,
+                            stop_depth: from_depth.saturating_add(to_depth),
                         });
                     }
                 }

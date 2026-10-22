@@ -16,6 +16,9 @@ pub struct TransferRule {
     pub to_trip: Option<u32>,
     pub kind: u8,
     pub minimum: u32,
+    /// Parent-station hops from the matched stops up to the rule's stop
+    /// selectors; 0 when the rule names both stops directly.
+    pub stop_depth: u8,
 }
 impl TransferRule {
     /// Resolve matching selectors identically for scheduled and conditional legs.
@@ -41,8 +44,10 @@ impl TransferRule {
         }
         Ok(best)
     }
-    fn specificity(&self) -> u8 {
-        match (
+    /// GTFS ranks trip and route selectors. Among equal selectors, a rule
+    /// naming the platforms overrides one inherited from their station.
+    fn specificity(&self) -> (u8, std::cmp::Reverse<u8>) {
+        let selectors = match (
             self.from_trip.is_some(),
             self.to_trip.is_some(),
             self.from_route.is_some(),
@@ -54,7 +59,8 @@ impl TransferRule {
             (_, _, true, true) => 3,
             (_, _, true, _) | (_, _, _, true) => 2,
             _ => 1,
-        }
+        };
+        (selectors, std::cmp::Reverse(self.stop_depth))
     }
 }
 #[derive(Clone, Debug)]
@@ -73,13 +79,49 @@ pub struct ServiceSemantics {
     pub physical_trips: Vec<Vec<(u32, u32)>>,
     pub headways: Vec<HeadwayWindow>,
 }
+/// The rules of one stop pair, keyed by their trip selectors so a transfer
+/// check reads only rules that can match its two trips.
+#[derive(Default)]
+struct PairRules {
+    general: Vec<usize>,
+    from_trip: HashMap<u32, Vec<usize>>,
+    to_trip: HashMap<u32, Vec<usize>>,
+}
+impl PairRules {
+    fn insert(&mut self, i: usize, rule: &TransferRule) {
+        match (rule.from_trip, rule.to_trip) {
+            (Some(trip), _) => self.from_trip.entry(trip).or_default().push(i),
+            (None, Some(trip)) => self.to_trip.entry(trip).or_default().push(i),
+            (None, None) => self.general.push(i),
+        }
+    }
+    fn candidates(&self, from_trip: u32, to_trip: u32) -> impl Iterator<Item = usize> + '_ {
+        self.general
+            .iter()
+            .chain(self.from_trip.get(&from_trip).into_iter().flatten())
+            .chain(self.to_trip.get(&to_trip).into_iter().flatten())
+            .copied()
+    }
+    fn heap_bytes(&self) -> usize {
+        let keyed = |map: &HashMap<u32, Vec<usize>>| {
+            map.capacity() * std::mem::size_of::<(u32, Vec<usize>)>()
+                + map
+                    .values()
+                    .map(|v| v.capacity() * std::mem::size_of::<usize>())
+                    .sum::<usize>()
+        };
+        self.general.capacity() * std::mem::size_of::<usize>()
+            + keyed(&self.from_trip)
+            + keyed(&self.to_trip)
+    }
+}
 pub(super) struct ServiceIndex {
     pub(super) data: Arc<ServiceSemantics>,
     departures: Vec<Vec<usize>>,
     arrivals: Vec<Vec<usize>>,
     headway_departures: Vec<Vec<usize>>,
     headway_arrivals: Vec<Vec<usize>>,
-    rules: HashMap<(u32, u32), Vec<usize>>,
+    rules: HashMap<(u32, u32), PairRules>,
     windows: HashMap<u32, Vec<usize>>,
     extra_forward: Vec<Vec<u32>>,
     extra_reverse: Vec<Vec<u32>>,
@@ -110,12 +152,16 @@ impl ServiceIndex {
             + (self.forward_classes.capacity() + self.reverse_classes.capacity()) * 4
             + self.forward_identity_stops.capacity()
             + self.reverse_identity_stops.capacity()
-            + self.rules.capacity() * std::mem::size_of::<((u32, u32), Vec<usize>)>()
-            + self.windows.capacity() * std::mem::size_of::<(u32, Vec<usize>)>()
+            + self.rules.capacity() * std::mem::size_of::<((u32, u32), PairRules)>()
             + self
                 .rules
                 .values()
-                .chain(self.windows.values())
+                .map(PairRules::heap_bytes)
+                .sum::<usize>()
+            + self.windows.capacity() * std::mem::size_of::<(u32, Vec<usize>)>()
+            + self
+                .windows
+                .values()
                 .map(|v| v.capacity() * std::mem::size_of::<usize>())
                 .sum::<usize>()
     }
@@ -248,7 +294,7 @@ impl TimetableKernel {
                 .rules
                 .entry((r.from_stop, r.to_stop))
                 .or_default()
-                .push(i);
+                .insert(i, r);
             if r.kind != 3 && r.from_stop != r.to_stop {
                 index.extra_forward[r.from_stop as usize].push(r.to_stop);
                 index.extra_reverse[r.to_stop as usize].push(r.from_stop);
@@ -336,8 +382,8 @@ impl TimetableKernel {
             s.rules
                 .get(&(from, to))
                 .into_iter()
-                .flatten()
-                .map(|&i| &s.data.rules[i])
+                .flat_map(|pair| pair.candidates(from_trip, to_trip))
+                .map(|i| &s.data.rules[i])
                 .filter(|r| {
                     !r.from_trip.is_some_and(|t| t != from_trip)
                         && !r.to_trip.is_some_and(|t| t != to_trip)
@@ -1421,6 +1467,7 @@ mod tests {
             to_trip: Some(2),
             kind,
             minimum,
+            stop_depth: 0,
         }
     }
     fn query(reverse: bool) -> TimetableMatrixQueryInput {
@@ -1799,6 +1846,38 @@ mod tests {
             // other: reporting the feed ambiguity is still required.
             assert!(kernel.transfer_rule(1, 1, 0, 2).is_err());
         }
+    }
+    #[test]
+    fn platform_rules_override_rules_inherited_from_their_station() {
+        let mut station = rule(None, 2, 120);
+        station.to_trip = None;
+        station.stop_depth = 2;
+        let mut platform = station.clone();
+        platform.minimum = 240;
+        platform.stop_depth = 0;
+        let mut route = station.clone();
+        route.from_route = Some(0);
+        route.minimum = 60;
+        for rules in [
+            vec![station.clone(), platform.clone()],
+            vec![platform.clone(), station.clone()],
+        ] {
+            let selected = TransferRule::select_most_specific(&rules).unwrap().unwrap();
+            assert_eq!(selected.minimum, 240);
+        }
+        // A route selector still outranks a platform-level stop selector.
+        let rules = [platform.clone(), route];
+        assert_eq!(
+            TransferRule::select_most_specific(&rules)
+                .unwrap()
+                .unwrap()
+                .minimum,
+            60
+        );
+        // Equal selectors at equal depth remain a feed ambiguity.
+        let mut other = platform.clone();
+        other.minimum = 300;
+        assert!(TransferRule::select_most_specific(&[platform, other]).is_err());
     }
     #[test]
     fn half_headway_wait_has_forward_reverse_witness() {

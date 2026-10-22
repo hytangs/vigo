@@ -31,21 +31,20 @@ impl City {
         let (Some(a), Some(b)) = (from["toStopId"].as_str(), to["fromStopId"].as_str()) else {
             return Ok(Some(0.));
         };
-        let matches_stop = |selector: &str, initial: &str| {
+        // The parent-station hops from the stop to the selector, if it matches.
+        let matches_stop = |selector: &str, initial: &str| -> Option<u8> {
             let mut id = initial.to_owned();
             let mut seen = BTreeSet::new();
             loop {
                 if selector == id {
-                    return true;
+                    return Some(u8::try_from(seen.len()).unwrap_or(u8::MAX));
                 }
                 if !seen.insert(id.clone()) {
-                    return false;
+                    return None;
                 }
-                let Ok(stop) = self.stop(&id) else {
-                    return false;
-                };
+                let stop = self.stop(&id).ok()?;
                 if stop.parent.is_empty() {
-                    return false;
+                    return None;
                 }
                 id = stop.parent.clone();
             }
@@ -73,9 +72,10 @@ impl City {
             ))
         })? {
             let (s, t, fr, tr, ft, tt, kind, minimum) = row?;
-            if !matches_stop(&s, a) || !matches_stop(&t, b) {
+            let (Some(from_depth), Some(to_depth)) = (matches_stop(&s, a), matches_stop(&t, b))
+            else {
                 continue;
-            }
+            };
             if [
                 (&fr, &from["routeId"]),
                 (&tr, &to["routeId"]),
@@ -96,6 +96,7 @@ impl City {
                 to_trip: tt.map(|_| 0),
                 kind,
                 minimum,
+                stop_depth: from_depth.saturating_add(to_depth),
             });
         }
         let rule = TransferRule::select_most_specific(&matching)?;
