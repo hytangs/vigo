@@ -144,9 +144,10 @@ pub(super) struct ServiceIndex {
     reverse_classes: Vec<u32>,
     forward_identity_stops: Vec<bool>,
     reverse_identity_stops: Vec<bool>,
-    /// Alighting events at which the ordinary scan may lose transfer semantics.
-    forward_guard_events: Vec<(u32, u32)>,
-    reverse_guard_events: Vec<(u32, u32)>,
+    /// Alighting events at which the ordinary scan may lose transfer semantics,
+    /// as (clock, stop, slack): an event matters while the buffer exceeds slack.
+    forward_guard_events: Vec<(u32, u32, i64)>,
+    reverse_guard_events: Vec<(u32, u32, i64)>,
     forward_certificate: Option<ForwardCertificate>,
     ordinary_searches: Cell<u64>,
     stateful_searches: Cell<u64>,
@@ -173,8 +174,8 @@ impl ServiceIndex {
             + (self.forward_classes.capacity() + self.reverse_classes.capacity()) * 4
             + self.forward_identity_stops.capacity()
             + self.reverse_identity_stops.capacity()
-            + self.forward_guard_events.capacity() * std::mem::size_of::<(u32, u32)>()
-            + self.reverse_guard_events.capacity() * std::mem::size_of::<(u32, u32)>()
+            + self.forward_guard_events.capacity() * std::mem::size_of::<(u32, u32, i64)>()
+            + self.reverse_guard_events.capacity() * std::mem::size_of::<(u32, u32, i64)>()
             + self
                 .forward_certificate
                 .as_ref()
@@ -444,6 +445,91 @@ impl TimetableKernel {
                 reverse_guarded.entry(rule.to_stop).or_default().push(rule);
             }
         }
+        // A timed transfer between two named trips only waives the transfer
+        // buffer for that vehicle pair. Where the ordinary transfer already
+        // reaches the next departure of the second trip, the waiver changes
+        // nothing. Each guard event records the smallest such slack, in
+        // seconds; it matters only while the query buffer exceeds that slack.
+        // Other exceptional rules keep `i64::MIN` and always matter.
+        let timed_pair = |rule: &TransferRule| -> Option<(i64, i64)> {
+            let (Some(_), Some(_)) = (rule.from_trip, rule.to_trip) else {
+                return None;
+            };
+            if rule.kind != 1 || ambiguous.contains(&(rule.from_stop, rule.to_stop)) {
+                return None;
+            }
+            let from = rule.from_stop as usize;
+            if rule.from_stop == rule.to_stop {
+                (self.forbidden_same_stop[from] == 0)
+                    .then(|| (0, i64::from(self.same_stop_transfer_minimum[from])))
+            } else {
+                self.transfer_edges
+                    [self.transfer_offset[from] as usize..self.transfer_offset[from + 1] as usize]
+                    .iter()
+                    .find(|edge| edge.stop() == rule.to_stop as usize)
+                    .map(|edge| (i64::from(edge.duration()), i64::from(edge.duration())))
+            }
+        };
+        let physical_of = |i: usize| {
+            let trip = self.segment_trip.view()[i];
+            index
+                .data
+                .physical_trips
+                .get(trip as usize)
+                .and_then(|parts| {
+                    parts
+                        .iter()
+                        .rev()
+                        .find(|(first, _)| *first <= self.sequence.view()[i])
+                })
+                .map_or(trip, |(_, physical)| *physical)
+        };
+        // Scheduled clocks of the named trips at the named stops.
+        let mut boards = HashMap::<(u32, u32), Vec<i64>>::new();
+        let mut alights = HashMap::<(u32, u32), Vec<i64>>::new();
+        for rule in guarded.values().flatten() {
+            if timed_pair(rule).is_some() {
+                boards.insert((rule.to_trip.unwrap(), rule.to_stop), vec![]);
+                alights.insert((rule.from_trip.unwrap(), rule.from_stop), vec![]);
+            }
+        }
+        if !boards.is_empty() {
+            for i in 0..self.departure_seconds.len() {
+                let physical = physical_of(i);
+                if self.can_board.view()[i] != 0
+                    && let Some(times) = boards.get_mut(&(physical, self.from_stop.view()[i]))
+                {
+                    times.push(i64::from(self.departure_seconds.view()[i]));
+                }
+                if self.can_alight.view()[i] != 0
+                    && let Some(times) = alights.get_mut(&(physical, self.to_stop.view()[i]))
+                {
+                    times.push(i64::from(self.arrival_seconds.view()[i]));
+                }
+            }
+            for times in boards.values_mut().chain(alights.values_mut()) {
+                times.sort_unstable();
+            }
+        }
+        // Slack after alighting at `arrival`: the next departure the waiver
+        // could reach, minus the ordinary ready time without the buffer.
+        let forward_slack = |rule: &TransferRule, arrival: i64| match timed_pair(rule) {
+            None => i64::MIN,
+            Some((walk, base)) => {
+                let times = &boards[&(rule.to_trip.unwrap(), rule.to_stop)];
+                let next = times.partition_point(|&d| d < arrival + walk);
+                times.get(next).map_or(i64::MAX, |&d| d - (arrival + base))
+            }
+        };
+        let reverse_slack = |rule: &TransferRule, departure: i64| match timed_pair(rule) {
+            None => i64::MIN,
+            Some((walk, base)) => {
+                let times = &alights[&(rule.from_trip.unwrap(), rule.from_stop)];
+                let last = times.partition_point(|&a| a + walk <= departure);
+                last.checked_sub(1)
+                    .map_or(i64::MAX, |p| departure - (times[p] + base))
+            }
+        };
         for i in 0..self.arrival_seconds.len() {
             if self.can_alight.view()[i] == 0 {
                 continue;
@@ -452,30 +538,26 @@ impl TimetableKernel {
             let Some(rules) = guarded.get(&stop) else {
                 continue;
             };
-            let trip = self.segment_trip.view()[i];
-            let physical = index
-                .data
-                .physical_trips
-                .get(trip as usize)
-                .and_then(|parts| {
-                    parts
-                        .iter()
-                        .rev()
-                        .find(|(first, _)| *first <= self.sequence.view()[i])
-                })
-                .map_or(trip, |(_, physical)| *physical);
+            let physical = physical_of(i);
             let route = index.data.trip_routes.get(physical as usize).copied();
-            if rules.iter().any(|rule| {
-                !rule.from_trip.is_some_and(|id| id != physical)
-                    && !rule.from_route.is_some_and(|id| Some(id) != route)
-            }) {
-                index
-                    .forward_guard_events
-                    .push((self.arrival_seconds.view()[i], stop));
+            let arrival = self.arrival_seconds.view()[i];
+            let slack = rules
+                .iter()
+                .filter(|rule| {
+                    !rule.from_trip.is_some_and(|id| id != physical)
+                        && !rule.from_route.is_some_and(|id| Some(id) != route)
+                })
+                .map(|rule| forward_slack(rule, i64::from(arrival)))
+                .min();
+            if let Some(slack) = slack {
+                index.forward_guard_events.push((arrival, stop, slack));
             }
         }
         index.forward_guard_events.sort_unstable();
-        index.forward_guard_events.dedup();
+        // Sorted by slack within an event, so the first copy is the tightest.
+        index
+            .forward_guard_events
+            .dedup_by_key(|&mut (time, stop, _)| (time, stop));
         for i in 0..self.departure_seconds.len() {
             if self.can_board.view()[i] == 0 {
                 continue;
@@ -484,30 +566,25 @@ impl TimetableKernel {
             let Some(rules) = reverse_guarded.get(&stop) else {
                 continue;
             };
-            let trip = self.segment_trip.view()[i];
-            let physical = index
-                .data
-                .physical_trips
-                .get(trip as usize)
-                .and_then(|parts| {
-                    parts
-                        .iter()
-                        .rev()
-                        .find(|(first, _)| *first <= self.sequence.view()[i])
-                })
-                .map_or(trip, |(_, physical)| *physical);
+            let physical = physical_of(i);
             let route = index.data.trip_routes.get(physical as usize).copied();
-            if rules.iter().any(|r| {
-                !r.to_trip.is_some_and(|id| id != physical)
-                    && !r.to_route.is_some_and(|id| Some(id) != route)
-            }) {
-                index
-                    .reverse_guard_events
-                    .push((self.departure_seconds.view()[i], stop));
+            let departure = self.departure_seconds.view()[i];
+            let slack = rules
+                .iter()
+                .filter(|r| {
+                    !r.to_trip.is_some_and(|id| id != physical)
+                        && !r.to_route.is_some_and(|id| Some(id) != route)
+                })
+                .map(|rule| reverse_slack(rule, i64::from(departure)))
+                .min();
+            if let Some(slack) = slack {
+                index.reverse_guard_events.push((departure, stop, slack));
             }
         }
         index.reverse_guard_events.sort_unstable();
-        index.reverse_guard_events.dedup();
+        index
+            .reverse_guard_events
+            .dedup_by_key(|&mut (time, stop, _)| (time, stop));
         self.service = Some(index);
         Ok(())
     }
@@ -1066,10 +1143,15 @@ impl TimetableKernel {
         }) {
             return Ok(true);
         }
+        let buffer = i64::from(self.minimum_transfer_buffer_seconds);
         let events = &service.forward_guard_events;
-        let first = events.partition_point(|&(time, _)| f64::from(time) < departure);
-        let last = events.partition_point(|&(time, _)| f64::from(time) <= horizon);
-        let events = events[first..last].to_vec();
+        let first = events.partition_point(|&(time, ..)| f64::from(time) < departure);
+        let last = events.partition_point(|&(time, ..)| f64::from(time) <= horizon);
+        let events: Vec<_> = events[first..last]
+            .iter()
+            .filter(|&&(.., slack)| slack < buffer)
+            .map(|&(time, stop, _)| (time, stop))
+            .collect();
         if events.is_empty() {
             return Ok(true);
         }
@@ -1119,10 +1201,15 @@ impl TimetableKernel {
         if !service.windows.is_empty() {
             return Ok(false);
         }
+        let buffer = i64::from(self.minimum_transfer_buffer_seconds);
         let events = &service.reverse_guard_events;
-        let first = events.partition_point(|&(time, _)| f64::from(time) < earliest);
-        let last = events.partition_point(|&(time, _)| f64::from(time) <= deadline);
-        let events = events[first..last].to_vec();
+        let first = events.partition_point(|&(time, ..)| f64::from(time) < earliest);
+        let last = events.partition_point(|&(time, ..)| f64::from(time) <= deadline);
+        let events: Vec<_> = events[first..last]
+            .iter()
+            .filter(|&&(.., slack)| slack < buffer)
+            .map(|&(time, stop, _)| (time, stop))
+            .collect();
         if events.is_empty() {
             return Ok(true);
         }
@@ -1164,22 +1251,29 @@ impl TimetableKernel {
             return Ok(None);
         }
         if input.maximum_boardings.is_some() {
-            if !self.ordinary_forward_is_safe(
-                &input.origin_stops,
-                &input.origin_walk_seconds,
-                input.departure,
-                input.horizon,
-                input.allow_pre_ride_transfers,
-                input.maximum_boardings,
-                &[],
-            )? {
-                return Ok(None);
-            }
+            // Certify only up to the capped candidate's arrival, as for an
+            // uncapped scan. A capped journey's prefix keeps the cap, so the
+            // capped bulk scan still bounds its first exceptional transfer.
+            // Certifying the whole horizon rejected nearly every capped query.
             let service = self.service.take();
             let result = self.route_scalar_csa_impl::<true>(input);
             self.service = service;
+            let result = result?;
+            if !result.supported
+                || !self.ordinary_forward_is_safe(
+                    &input.origin_stops,
+                    &input.origin_walk_seconds,
+                    input.departure,
+                    result.best_arrival.unwrap_or(input.horizon),
+                    input.allow_pre_ride_transfers,
+                    input.maximum_boardings,
+                    &[],
+                )?
+            {
+                return Ok(None);
+            }
             self.record_ordinary_search();
-            return result.map(Some);
+            return Ok(Some(result));
         }
         let service = self.service.take();
         let result = self.route_scalar_csa_impl::<true>(input);
@@ -1189,11 +1283,15 @@ impl TimetableKernel {
             return Ok(None);
         }
         let bound = result.best_arrival.unwrap_or(input.horizon);
+        let buffer = i64::from(self.minimum_transfer_buffer_seconds);
         let events = &self.service.as_ref().unwrap().forward_guard_events;
-        let first = events.partition_point(|&(time, _)| f64::from(time) < input.departure);
-        let last = events.partition_point(|&(time, _)| f64::from(time) <= bound);
+        let first = events.partition_point(|&(time, ..)| f64::from(time) < input.departure);
+        let last = events.partition_point(|&(time, ..)| f64::from(time) <= bound);
         let workspace = &self.query.workspace;
-        for &(time, stop) in &events[first..last] {
+        for &(time, stop, slack) in &events[first..last] {
+            if slack >= buffer {
+                continue;
+            }
             // Use every post-ride state, including a prior transfer. This is
             // conservative: its earliest arrival need not use the selected trip.
             for flags in 4..STATE_STRIDE {
