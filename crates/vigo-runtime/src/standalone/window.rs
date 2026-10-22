@@ -107,6 +107,20 @@ fn minutes(v: &Value, key: &str) -> f64 {
         .as_f64()
         .map_or(f64::INFINITY, |m| (m * 1000.).round() / 1000.)
 }
+/// The requested departure clock, when a depart-at Route states one.
+fn departure_minutes(q: &Value) -> Option<f64> {
+    if q["timePreference"]
+        .as_str()
+        .is_some_and(|p| p != "depart_at")
+    {
+        return None;
+    }
+    if let Some(m) = q["timeMinutes"].as_f64().or_else(|| q["time"].as_f64()) {
+        return Some(m);
+    }
+    let (h, m) = q["time"].as_str()?.split_once(':')?;
+    Some(h.parse::<f64>().ok()? * 60. + m.get(..2)?.parse::<f64>().ok()?)
+}
 fn depart(v: &Value) -> f64 {
     minutes(v, "departureMinutes")
 }
@@ -898,17 +912,15 @@ impl City {
     pub(super) fn route_journeys(&mut self, q: &Value) -> Result<Value> {
         validate(q)?;
         let evidence = flag(q, "includeEarliestTransit", false)?;
-        let mut result = self.journeys_once(q, evidence)?;
-        let Some(km) = q
+        let km = q
             .get("expandedWalkKm")
             .map(|_| number(q, "expandedWalkKm", 2.4, 0.2, 5.))
-            .transpose()?
-        else {
-            return Ok(result);
+            .transpose()?;
+        let Some(km) = km.filter(|_| {
+            q["mode"].as_str().unwrap_or("transit") == "transit" && q["wheelchair"] != true
+        }) else {
+            return self.journeys_once(q, evidence);
         };
-        if q["mode"].as_str().unwrap_or("transit") != "transit" || q["wheelchair"] == true {
-            return Ok(result);
-        }
         let mut wider = q.clone();
         let object = wider.as_object_mut().unwrap();
         object.remove("expandedWalkKm");
@@ -918,8 +930,33 @@ impl City {
         object.insert("allowLongWalk".into(), json!(false));
         // A failed wider search leaves the ordinary choices unchanged.
         let Ok(wider) = self.journeys_once(&wider, false) else {
-            return Ok(result);
+            return self.journeys_once(q, evidence);
         };
+        // Search the preferred walking limit only as far as a choice could
+        // still matter: arriving more than one wider journey (at least 30
+        // minutes) after the best wider arrival is never worth the saved
+        // walk. Without this bound a sparse late service at the walking limit
+        // was listed hours after a slightly longer walk, and every window
+        // sample searched the whole default horizon to find it.
+        let deadline = wider["choices"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|p| p["status"] == "ready" && rides(p).next().is_some())
+            .map(|p| arrive(p) + minutes(p, "durationMinutes").max(30.))
+            .fold(f64::INFINITY, f64::min);
+        let mut preferred = q.clone();
+        if let Some(time) = departure_minutes(q)
+            && deadline.is_finite()
+        {
+            let horizon = number(q, "horizonMinutes", 480., 1., 2880.)?;
+            let bounded = (deadline - time).ceil().clamp(60., horizon);
+            preferred["horizonMinutes"] = json!(bounded);
+        }
+        let mut result = self.journeys_once(&preferred, evidence)?;
+        if let Some(choices) = result["choices"].as_array_mut() {
+            choices.retain(|plan| plan["status"] != "ready" || arrive(plan) <= deadline);
+        }
         // The same vehicles left or reached at other minutes are another choice.
         let key = |plan: &Value| format!("{}-{}@{}", depart(plan), arrive(plan), witness(plan));
         let mut baseline: Vec<Value> = vec![];
@@ -934,23 +971,78 @@ impl City {
             .iter()
             .map(|p| minutes(p, "durationMinutes"))
             .fold(f64::INFINITY, f64::min);
+        // The wider search also finds journeys within the preferred limit,
+        // often the same vehicles retimed to another window minute. Those
+        // are not walking tradeoffs: drop repeated vehicle chains and mark
+        // only journeys whose first or last walk exceeds the preferred limit.
+        let preferred_m = number(q, "maxWalkKm", 1.2, 0., 100.)? * 1000.;
+        let vehicles: HashSet<_> = baseline.iter().map(witness).collect();
+        let walk_m = |leg: Option<&Value>| {
+            leg.filter(|leg| leg["kind"] == "walk")
+                .and_then(|leg| leg["distanceMeters"].as_f64())
+                .unwrap_or(0.)
+        };
         let mut extra = vec![];
         for plan in wider["choices"].as_array().into_iter().flatten() {
             if plan["status"] != "ready" || rides(plan).next().is_none() || !seen.insert(key(plan))
             {
                 continue;
             }
+            let expanded = walk_m(legs(plan).first()).max(walk_m(legs(plan).last())) > preferred_m;
+            if !expanded && vehicles.contains(&witness(plan)) {
+                continue;
+            }
             if arrive(plan) < best_arrival || minutes(plan, "durationMinutes") < best_duration {
                 let mut plan = plan.clone();
                 plan["recommended"] = json!(false);
-                plan["expandedWalkingLimitKm"] = json!(km);
+                if expanded {
+                    plan["expandedWalkingLimitKm"] = json!(km);
+                }
                 extra.push(plan);
             }
         }
         if extra.is_empty() {
             return Ok(result);
         }
-        let combined: Vec<Value> = baseline.into_iter().chain(extra).collect();
+        // The preferred walking limit is the rider's rule: its journeys stay
+        // and one of them is selected. Wider walking only adds the earliest
+        // arrival, the shortest journey and the fewest boardings it makes
+        // possible, rather than crowding the list with every line that a
+        // longer walk reaches.
+        let by = |key: fn(&Value) -> f64| {
+            move |l: &&Value, r: &&Value| {
+                key(l)
+                    .total_cmp(&key(r))
+                    .then(depart(r).total_cmp(&depart(l)))
+            }
+        };
+        let (wider_only, within): (Vec<_>, Vec<_>) = extra
+            .into_iter()
+            .partition(|plan| plan["expandedWalkingLimitKm"].is_number());
+        let fewest = baseline.iter().map(boardings).min().unwrap_or(usize::MAX);
+        let mut kept: Vec<&Value> = vec![];
+        for plan in [
+            wider_only.iter().min_by(by(arrive)),
+            wider_only
+                .iter()
+                .min_by(by(|p| minutes(p, "durationMinutes"))),
+            wider_only
+                .iter()
+                .filter(|p| boardings(p) < fewest)
+                .min_by(by(|p| boardings(p) as f64 * 1e4 + arrive(p))),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if !kept.iter().any(|k| std::ptr::eq(*k, plan)) {
+                kept.push(plan);
+            }
+        }
+        let combined: Vec<Value> = baseline
+            .into_iter()
+            .chain(within)
+            .chain(kept.into_iter().cloned())
+            .collect();
         let mut choices: Vec<Value> = merge_services(&combined, MAXIMUM_MERGED_CHOICES)
             .into_iter()
             .map(|i| combined[i].clone())
@@ -960,8 +1052,12 @@ impl City {
                 .total_cmp(&arrive(r))
                 .then(minutes(l, "durationMinutes").total_cmp(&minutes(r, "durationMinutes")))
         });
+        let selected = choices
+            .iter()
+            .position(|plan| !plan["expandedWalkingLimitKm"].is_number())
+            .unwrap_or(0);
         result["choices"] = json!(choices);
-        result["selectedChoice"] = json!(0);
+        result["selectedChoice"] = json!(selected);
         Ok(result)
     }
 
