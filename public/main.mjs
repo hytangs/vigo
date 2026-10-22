@@ -215,7 +215,8 @@ async function requestEngine(request, signal) {
   const pathname = String(request.path ?? '').split('?')[0]
   const phase = pathname === '/api/health' ? 'health'
     : pathname === '/api/projects' && request.method === 'GET' ? 'city-list'
-    : /^\/api\/projects\/[^/]+$/.test(pathname) && request.method === 'GET' ? 'city-open'
+    : /^\/api\/projects\/[^/]+$/.test(pathname) && request.method === 'GET' ? (String(request.path).includes('detail=catalog') ? 'city-catalog' : 'city-open')
+    : pathname.includes('/network-tiles/') ? 'first-transit-tile'
     : pathname.endsWith('/national-ready') ? 'first-routing-readiness'
     : pathname.endsWith('/routing-residency') ? 'first-city-preparation'
     : pathname.endsWith('/national-route') ? 'first-route' : null
@@ -365,6 +366,15 @@ function installDesktopBridge() {
         mainWindow.setTitle(message.title.trim() || 'VIGO Studio')
       }
       return
+    }
+    if (action === 'mapReady' && !launchRequests.has('first-map-render')) {
+      launchRequests.add('first-map-render')
+      recordLaunch('first-map-render', {
+        routeFeatures: Number(message.routeFeatures) || 0,
+        stopFeatures: Number(message.stopFeatures) || 0,
+        timings: Object.fromEntries(Object.entries(message.timings ?? {})
+          .filter(([key, value]) => /Ms$/.test(key) && Number.isFinite(value))),
+      })
     }
     if (['mapPhase', 'mapReady', 'mapFailed'].includes(action)) {
       console.log(`VIGO_${action.toUpperCase()} ${JSON.stringify(message)}`)

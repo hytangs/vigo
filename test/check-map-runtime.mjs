@@ -37,6 +37,8 @@ try {
   store.close()
   await fs.writeFile(path.join(temporary, 'fixture.mjs'), `
 import { Map, AttributionControl } from '../../src/app/mapRuntime.ts';
+import { checkCityFirstRender } from '../../test/fixtures/city-first-render.tsx';
+window.checkCityFirstRender = checkCityFirstRender;
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { setMapSourceData, setStreetMapSourceData } from '../../src/app/mapSourceUpdates.ts';
 import { ensureVehicleDirectionSprite, vehicleHeadingLayer, vehicleMarkerLayer } from '../../src/app/mapDirections.ts';
@@ -202,7 +204,7 @@ app.setPath('userData', ${JSON.stringify(path.join(temporary, 'profile'))});
 protocol.registerSchemesAsPrivileged([{scheme:'vigo',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true}}]);
 app.whenReady().then(async()=>{
  try {
-  protocol.handle('vigo', request=>net.fetch(pathToFileURL(path.join(${JSON.stringify(dist)},new URL(request.url).pathname === '/' ? 'index.html' : decodeURIComponent(new URL(request.url).pathname))).href));
+  protocol.handle('vigo', request=>new URL(request.url).pathname.startsWith('/pending-basemap/') ? new Promise(()=>{}) : net.fetch(pathToFileURL(path.join(${JSON.stringify(dist)},new URL(request.url).pathname === '/' ? 'index.html' : decodeURIComponent(new URL(request.url).pathname))).href));
   const window=new BrowserWindow({show:true,webPreferences:{backgroundThrottling:false,sandbox:true,contextIsolation:true,nodeIntegration:false}});
   const externalRequests=[];
   window.webContents.session.webRequest.onBeforeRequest({urls:['http://*/*','https://*/*']},(details,callback)=>{externalRequests.push(details.url);callback({cancel:true})});
@@ -215,6 +217,8 @@ app.whenReady().then(async()=>{
   await window.webContents.executeJavaScript('window.localPreviewDark()');
   if(previewDirectory) await fs.writeFile(path.join(previewDirectory,'local-map-dark.png'),(await window.webContents.capturePage({x:8,y:8,width:512,height:512})).toPNG());
   await window.webContents.executeJavaScript('window.localPreviewDispose()');
+  console.log(JSON.stringify(await window.webContents.executeJavaScript('window.checkCityFirstRender()')));
+  console.log(JSON.stringify(await window.webContents.executeJavaScript('window.checkCityFirstRender(true)')));
   if(externalRequests.length) throw Error('Offline map fixture attempted external requests: '+externalRequests.join(', '));
   app.exit(0);
  } catch(error) {console.error(error);app.exit(1);}

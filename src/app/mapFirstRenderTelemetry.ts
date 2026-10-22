@@ -38,7 +38,15 @@ function roundedDuration(start: number | undefined, end: number | undefined) {
   return Number(Math.max(0, Number(end) - Number(start)).toFixed(3))
 }
 
+let cityNavigationStartedAt: number | undefined
+
+/** Measure City opening from the selection, not from the age of the app window. */
+export function markCityNavigation(at = performance.now()) {
+  cityNavigationStartedAt = at
+}
+
 export function browserNavigationStart() {
+  if (cityNavigationStartedAt !== undefined) return cityNavigationStartedAt
   if (typeof performance === 'undefined') return 0
   const navigation = performance.getEntriesByType?.('navigation')?.[0]
   return Number.isFinite(navigation?.startTime) ? navigation.startTime : 0

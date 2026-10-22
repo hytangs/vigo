@@ -3,6 +3,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { NationalRouteWorkerPool } from '../src/server/runtime/route-worker-pool.mjs'
 import { importTestModules } from './helpers/import-test-modules.mjs'
 import { readGtfsNetworkOverview, readGtfsNetworkOverviewAsync, readGtfsRouteAnalysis } from '../src/server/gtfs-analysis-store.mjs'
 
@@ -146,6 +147,19 @@ try {
 
   const datedAnalysis = readGtfsRouteAnalysis(storePath, 'R1A', { serviceDate: '2026-09-04' })
   assert(datedAnalysis)
+  const analysisPool = new NationalRouteWorkerPool(1, new URL('../src/server/national-route-worker.mjs', import.meta.url))
+  try {
+    assert.deepEqual(await analysisPool.dispatch(storePath, 'gtfs-route-analysis', { routeId: 'R1A', serviceDate: '2026-09-04' }), datedAnalysis, 'Background analysis retains every pattern, stop, geometry and scheduled departure.')
+    const pendingAnalysis = analysisPool.dispatch(storePath, 'gtfs-route-analysis', { routeId: 'R1A', serviceDate: '2026-09-04' })
+    await analysisPool.retire(storePath, { idleOnly: true })
+    assert.deepEqual(await pendingAnalysis, datedAnalysis, 'Preparation cleanup must not cancel an active analysis.')
+    assert.equal(await analysisPool.dispatch(storePath, 'gtfs-route-analysis', { routeId: 'missing' }), null)
+    await analysisPool.retire(storePath, { idleOnly: true })
+    assert.equal(analysisPool.snapshot().workerCount, 0, 'An idle preparation/analysis worker can be released.')
+    const cancelled = new AbortController()
+    cancelled.abort()
+    await assert.rejects(analysisPool.dispatch(storePath, 'gtfs-route-analysis', { routeId: 'R1A' }, cancelled.signal), /abort|cancel/i)
+  } finally { await analysisPool.closeAll() }
   assert.equal(datedAnalysis.routes[0].analysisServiceDate, '2026-09-04')
   assert.equal(datedAnalysis.routes[0].scheduledTrips.length, 2, 'Playback must load only trips active on the selected date.')
   assert.deepEqual(datedAnalysis.routes[0].scheduledTrips.map((trip) => trip.tripId), ['T1', 'T2'])

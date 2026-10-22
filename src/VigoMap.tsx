@@ -174,30 +174,21 @@ function scheduleMapFrameUpdate(
     if (!cancelled) update()
   }
   const schedule = () => {
-    map.off('styledata', scheduleWhenReady)
-    map.off('load', schedule)
+    map.off('style.load', schedule)
     if (frame) window.cancelAnimationFrame(frame)
     frame = window.requestAnimationFrame(run)
   }
-  const scheduleWhenReady = () => {
-    if (map.isStyleLoaded()) schedule()
-  }
 
-  if (ready || map.loaded() || map.isStyleLoaded()) schedule()
-  else {
-    // Source loading can postpone `load`; local updates and raster startup only
-    // require a style. Subscribe before that transition so neither waits on data.
-    map.on('styledata', scheduleWhenReady)
-    map.once('load', schedule)
-  }
+  // getStyle() is available once the style can be edited. isStyleLoaded()
+  // also waits for source tiles, so it can block local updates behind an
+  // online basemap when the City's catalog arrives after that source starts.
+  if (ready || map.getStyle()) schedule()
+  else map.once('style.load', schedule)
 
   return () => {
     cancelled = true
     if (frame) window.cancelAnimationFrame(frame)
-    if (!removed()) {
-      map.off('load', schedule)
-      map.off('styledata', scheduleWhenReady)
-    }
+    if (!removed()) map.off('style.load', schedule)
   }
 }
 
@@ -1224,11 +1215,9 @@ export function VigoMap({
       const presentation = layerPresentationRef.current
       applyLayerVisibility(map, presentation.layers, presentation)
     }
-    if (mapReadyRef.current) update()
-    else map.once('load', update)
-    return () => {
-      if (!mapRemovedRef.current) map.off('load', update)
-    }
+    // An online basemap can keep `load` pending until remote tiles arrive.
+    // Local transit tiles only need the style and must start independently.
+    return scheduleMapFrameUpdate(map, mapReadyRef.current, update, () => mapRemovedRef.current)
   }, [networkDisplayMode, networkModeStopIds, contextRouteFilter, focusTileRouteIds, networkTileMode, networkTileRevision, networkTileScope, projectId, resolvedSelectedStopId])
 
   useEffect(() => {

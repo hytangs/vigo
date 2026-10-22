@@ -915,16 +915,19 @@ export class NationalRouteWorkerPool {
     }
   }
 
-  async retire(storePath) {
-    this.residencyLeases.delete(storePath)
-    for (const warmup of this.prewarmInFlight.values()) {
-      if (warmup.storePath === storePath) warmup.controller.abort()
-    }
-    for (const warmup of this.routingAccessPrewarmInFlight.values()) {
-      if (warmup.storePath === storePath) warmup.controller.abort()
-    }
+  async retire(storePath, { idleOnly = false } = {}) {
     await this.#withLock(async () => {
       const client = this.clients.get(storePath)
+      // Releasing a preparation worker must not interrupt queued read-only
+      // analysis. Destructive source replacement still retires unconditionally.
+      if (idleOnly && client && !client.isIdle) return
+      this.residencyLeases.delete(storePath)
+      for (const warmup of this.prewarmInFlight.values()) {
+        if (warmup.storePath === storePath) warmup.controller.abort()
+      }
+      for (const warmup of this.routingAccessPrewarmInFlight.values()) {
+        if (warmup.storePath === storePath) warmup.controller.abort()
+      }
       if (!client) return
       this.clients.delete(storePath)
       await client.close()

@@ -254,7 +254,12 @@ parentPort.on('message', async (message) => {
   operationCounts[operation] = Number(operationCounts[operation] ?? 0) + 1
   try {
     let result
-    if (operation === 'prepare-street') {
+    if (operation === 'gtfs-route-analysis') {
+      const { readGtfsRouteAnalysis } = await import('./gtfs-analysis-store.mjs')
+      result = readGtfsRouteAnalysis(storePath, request.routeId, {
+        sourceScope: request.sourceScope, serviceDate: request.serviceDate,
+      })
+    } else if (operation === 'prepare-street') {
       const streetStore = await prepareStreetStore(request, (progress) => parentPort.postMessage({ type: 'progress', id, progress, workerInstance }))
       result = {
         ready: true,

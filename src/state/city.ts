@@ -1,4 +1,5 @@
 import { apiJson } from '../app/api'
+import { markCityNavigation } from '../app/mapFirstRenderTelemetry'
 import type { PreparationTask } from '../app/preparation'
 import { bundleFeedId, mergeProjectDetail, mergeProjectState, needsProjectDetail } from '../app/projectState'
 import { createStore } from '../app/store'
@@ -145,6 +146,7 @@ export function startCitySelection(projectId: string, applySelection: (projectId
   const selectionVersion = citySelectionVersion + 1
   citySelectionVersion = selectionVersion
   activeCityProjectId = projectId
+  markCityNavigation()
   applySelection(projectId)
   city.set({ cityPreviewLoadingProjectId: projectId })
 

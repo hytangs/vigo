@@ -355,6 +355,10 @@ const scheduleFrame = serviceVehicles.buildServiceVehicleFrame({
 assert.equal(scheduleFrame.vehicles[0].source, 'schedule')
 assert.equal(scheduleFrame.vehicles[0].card.journey.nextStop, 'Stop B')
 assert.equal(scheduleFrame.vehicles[0].card.journey.arrivalLabel, 'Scheduled arrival')
+firstRenderTelemetry.markCityNavigation(100)
+assert.equal(firstRenderTelemetry.browserNavigationStart(), 100, 'Opening a City starts its own render clock.')
+firstRenderTelemetry.markCityNavigation(250)
+assert.equal(firstRenderTelemetry.browserNavigationStart(), 250, 'A later City does not inherit the app launch time.')
 const tracker = firstRenderTelemetry.createMapFirstRenderTracker({
   key: 'dc:first-render',
   basemap: 'dark',

@@ -490,7 +490,9 @@ mod scan {
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )
         .map_err(source_error)?;
-        db.execute_batch("PRAGMA mmap_size=0; PRAGMA cache_size=-8192;")
+        // Bound the file mapping independently of the SQLite page cache.
+        // The OS can reclaim these shared, file-backed pages.
+        db.execute_batch("PRAGMA mmap_size=268435456; PRAGMA cache_size=-8192;")
             .map_err(source_error)?;
         Ok(db)
     }
@@ -1321,6 +1323,32 @@ mod tests {
                         "scan: instances={instances}, permissions={permissions}, horizon={horizon:?}"
                     );
                 }
+            }
+        }
+        // Changing dates must not hide service after a cached read. Repeated
+        // reads exercise both cold loading and the cached trip ranges.
+        for services in [
+            vec!["weekday"],
+            vec!["weekend"],
+            vec![],
+            vec!["weekday", "weekend"],
+            vec!["weekday"],
+        ] {
+            for _ in 0..2 {
+                let input = || ServiceTimetableInput {
+                    store_path: path.to_str().unwrap().to_owned(),
+                    stop_ids: vec!["fixed".into(), "s2".into()],
+                    service_ids: services.iter().map(|s| (*s).into()).collect(),
+                    has_connection_permissions: true,
+                    segment_count: None,
+                    service_instances: None,
+                    maximum_departure_seconds: Some(108_000),
+                };
+                assert_eq!(
+                    serde_json::to_value(read_service_timetable(input()).unwrap()).unwrap(),
+                    serde_json::to_value(read_service_timetable_ordered(input(), false).unwrap())
+                        .unwrap()
+                );
             }
         }
         std::fs::remove_file(path).unwrap();

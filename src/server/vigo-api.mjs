@@ -22,7 +22,7 @@ import { Duplex, PassThrough } from 'node:stream'
 import { PreparationProcess } from './runtime/preparation-process.mjs'
 import { vigoCapabilities } from '../capabilities.mjs'
 import { createAgencyService } from './agency-api.mjs'
-import { readGtfsNetworkOverviewAsync, readGtfsRouteAnalysis } from './gtfs-analysis-store.mjs'
+import { readGtfsNetworkOverviewAsync } from './gtfs-analysis-store.mjs'
 import { applyLocalCors, assertLocalBindHost, localRequestAccess } from './local-http-security.mjs'
 import {
   disposeNationalGtfsStore,
@@ -1161,7 +1161,7 @@ async function gtfsAnalysisStoreContext(projectId, feedId) {
   }
 }
 
-async function analyzeGtfsRoute(projectId, body = {}) {
+async function analyzeGtfsRoute(projectId, body = {}, signal) {
   const feedId = String(body.feedId || '').trim()
   const routeId = String(body.routeId || '').trim()
   const serviceDate = String(body.serviceDate || '').trim()
@@ -1175,10 +1175,12 @@ async function analyzeGtfsRoute(projectId, body = {}) {
   const cacheKey = [context.storePath, storeStats.size, storeStats.mtimeMs, context.sourceScope, routeId, serviceDate].join(':')
   let analysis = gtfsRouteAnalysisCache.get(cacheKey)
   if (!analysis) {
-    analysis = readGtfsRouteAnalysis(context.storePath, routeId, {
-      sourceScope: context.sourceScope,
+    // Full-day pattern traversal must not block map tiles, readiness or routing.
+    // Reuse the bounded preparation pool; no second analysis runtime is needed.
+    analysis = await nationalRouteWorkerPool.dispatch(context.storePath, 'gtfs-route-analysis', {
+      routeId, sourceScope: context.sourceScope,
       serviceDate: serviceDate || undefined,
-    })
+    }, signal)
     if (!analysis) {
       const error = new Error('No scheduled service patterns were found for this route.')
       error.statusCode = 404
@@ -3142,7 +3144,7 @@ async function queryNativeCity(selection, request, signal, { afterPreparation = 
       },
     })
     // The prepared files are on disk; the JavaScript worker need not stay resident.
-    await nationalRouteWorkerPool.retire(selection.storePath)
+    await nationalRouteWorkerPool.retire(selection.storePath, { idleOnly: true })
     return nativeRuntime.query(selection.layout, request, signal)
   }
 }
@@ -3613,7 +3615,7 @@ async function preloadNationalBuiltStore({
       }
       // The import's derived files are on disk and the native City routes
       // from them; the JavaScript worker that wrote them need not stay.
-      await nationalRouteWorkerPool.retire(storePath)
+      await nationalRouteWorkerPool.retire(storePath, { idleOnly: true })
       return {
         serviceDate: context.serviceDate,
         serviceDay: context.serviceDay,
@@ -3967,7 +3969,7 @@ async function prepareStudioStreets(preparation, drive) {
     if (signal?.aborted) throw error
     // Driving writes its derived network on first use.
     await prepareInWorker()
-    await nationalRouteWorkerPool.retire(workerStorePath)
+    await nationalRouteWorkerPool.retire(workerStorePath, { idleOnly: true })
     await warm()
   }
 }
@@ -4545,7 +4547,10 @@ async function route(request, response) {
     }
 
     if (request.method === 'POST' && action === 'gtfs-route-analysis') {
-      sendJson(response, 200, await analyzeGtfsRoute(projectId, await readBody(request)))
+      const body = await readBody(request)
+      await withRequestAbort(request, response, async signal => {
+        sendJson(response, 200, await analyzeGtfsRoute(projectId, body, signal))
+      })
       return true
     }
 

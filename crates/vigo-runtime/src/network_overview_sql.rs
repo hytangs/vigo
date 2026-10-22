@@ -38,7 +38,9 @@ pub(super) const SHAPE_POINTS: &str = r#"SELECT lon, lat
       WHERE shape_id=?
       ORDER BY sequence"#;
 
-pub(super) const SERVICE_STATS: &str = r#"WITH trip_bounds AS (
+// Reuse each trip's endpoint clocks across aggregates instead of repeating the
+// correlated connection lookups for every MIN/MAX/SUM expression.
+pub(super) const SERVICE_STATS: &str = r#"WITH trip_bounds AS MATERIALIZED (
         SELECT trip.service_id,
           (
             SELECT connection.departure
