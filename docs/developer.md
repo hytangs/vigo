@@ -744,7 +744,7 @@ whole store.
 
 ### Conditional GTFS Flex journeys
 
-Route and Matrix accept `"flex": {}` to include conditional direct service from
+Route and Matrix accept `"flex": {}` to include conditional service from
 GTFS location groups, Polygon/MultiPolygon zones, pickup/drop-off windows and
 booking rules. A zone-only feed can omit `stops.txt`. Rebuild a City to import
 these optional source records; existing Cities remain readable.
@@ -769,17 +769,34 @@ URLs and notice requirements. `bookingStatus: "required"` means the journey is
 conditional: VIGO has neither made a booking nor verified the booking deadline
 or available capacity. `bookingConfirmed: true` records only the caller's claim.
 
-This is direct-service support, not a complete demand-responsive assignment
-model. It does not compose Flex-to-transit transfers, continuous boarding,
-vehicle dispatch or routes through mandatory intermediate fixed calls. Explicit
-wheelchair, realtime, scenario, journey-window and alternative-policy requests
-are rejected with Flex. Matrix is limited to 4,096 cells and each search to
-4,096 candidate endpoint pairs. Reach does not accept Flex. Returned estimates
-must not be presented as guaranteed departures or confirmed reservations.
+Rust composes a conditional service leg with a scheduled journey in either
+order, including arrive-by searches. It applies trip/route-scoped transfer
+restrictions, published minimum times, the request transfer buffer and boarding
+limit. Matrix uses the same composition as Route. Search work is bounded at
+4,096 interchange stops, candidate endpoint pairs and connection retries;
+exceeding a bound returns an error instead of silently pruning it.
 
-Public synthetic coverage is in `test/check-flex.mjs`: conditional fixed stops,
-zones, location groups, pure-Flex feeds, windows, arrive-by, zero walking limits,
-booking metadata, independent Drive duration and Matrix/Route agreement.
+Continuous pickup/drop-off follows the directed GTFS shape and stop-time
+permission overrides. Intermediate clocks are interpolated by shape distance
+and labeled `interpolated_shape`, not published departures. Type 2 retains
+booking requirements; type 3 retains driver-coordination requirements.
+Wheelchair requests require a City built with `--wheelchair`: only explicitly
+accessible vehicles and published accessible fixed stops are used, with the
+strict OSM walking graph. Roadside coordinate attachments retain the City's
+published accessibility limitations; no live lift or capacity guarantee is made.
+
+Vehicle dispatch and routes through mandatory intermediate fixed calls are
+not modeled. Realtime, scenario, journey-window and alternative-policy requests
+are rejected with Flex. Matrix is limited to 4,096 cells. Reach does not accept
+Flex. Returned estimates must not be presented as guaranteed departures or
+confirmed reservations.
+
+Public synthetic coverage is in `test/check-flex.mjs` and
+`test/check-flex-interchanges.mjs`: conditional fixed stops, zones, location
+groups, pure-Flex feeds, windows, arrive-by, zero walking limits, booking
+metadata, independent Drive duration, transfer restrictions, later feasible
+connections, continuous permissions, wheelchair filtering and Matrix/Route
+agreement.
 
 ### Semantic coverage written to store metadata
 

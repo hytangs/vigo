@@ -96,14 +96,15 @@ String clocks support service-day hours through `29:59`. For example, `depart_at
 
 Opt-in alternatives use `alternatives=3` (0–9), `alternative_ranking="pareto"` or `"ranked"`, and `alternative_slack_minutes=15` (0–120). Ranking and slack require a nonzero alternatives count; omitted values use engine defaults. Alternatives require a runtime advertising canonical detailed alternatives and depart-at transit without waypoints or a departure window. `result.value` stays the primary journey; `result.choices` returns independent copies of the engine-selected choices, and `result.alternative_search` retains search coverage and completion metadata. `iter_journeys()` and `iter_legs()` still describe the primary Route; use `choices` or full JSON to inspect alternatives.
 
-Route and Matrix accept `flex={}` to include conditional direct GTFS Flex
+Route and Matrix accept `flex={}` to include conditional GTFS Flex
 journeys on a runtime advertising that capability. The mapping uses the Engine
 option names: `durationFactor`, `durationOffsetSeconds` and `bookingConfirmed`.
 Booking requirements remain in each detailed transit leg's `flexEstimate` record
 (and in `quality.flex` in the Engine public JSON). VIGO
 does not book a vehicle, confirm capacity or evaluate booking deadlines.
-Flex-to-transit transfers, continuous boarding and wheelchair Flex are not yet
-supported. See the [Engine Flex contract](https://github.com/hytangs/vigo/blob/main/docs/developer.md#conditional-gtfs-flex-journeys).
+Flex can connect to scheduled transit in either order. Continuous boarding uses
+explicitly labeled shape-time estimates. Wheelchair Flex requires a strict
+wheelchair City and an explicitly accessible vehicle. See the [Engine Flex contract](https://github.com/hytangs/vigo/blob/main/docs/developer.md#conditional-gtfs-flex-journeys).
 
 Transit Route and Matrix compare a feasible direct walk by default. Use `require_transit_ride=True` to require a vehicle boarding, or `mode="walk"` for a walking journey. `horizon_minutes` sets the transit search horizon (1–2880 minutes; default 480).
 

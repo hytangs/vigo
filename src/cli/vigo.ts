@@ -1311,10 +1311,10 @@ function startJsonCompiler(command: string, compilerArguments: string[], label: 
   }
 }
 
-function startOsmCompiler(osmPbf: string, outputPath: string, streetModes: string, wheelchair = false) {
+function startOsmCompiler(osmPbf: string, outputPath: string, streetModes: string, wheelchair = false, flexDriving = false) {
   return startJsonCompiler(
     '_build-osm-store',
-    [`--osm-pbf=${osmPbf}`, `--output-store=${outputPath}`, `--street-modes=${streetModes}`, `--wheelchair=${wheelchair}`],
+    [`--osm-pbf=${osmPbf}`, `--output-store=${outputPath}`, `--street-modes=${streetModes}`, `--wheelchair=${wheelchair}`, `--flex-driving=${flexDriving}`],
     'OSM compiler',
   )
 }
@@ -1356,7 +1356,8 @@ async function runOsmCompiler(args: CliArguments) {
   const result = await buildNationalOsmStore({
     pbfPath: osmPbf,
     outputPath,
-    includeDriving: value(args, 'street-modes', 'walk,drive') === 'walk,drive',
+    includeDriving: value(args, 'street-modes', 'walk,drive') === 'walk,drive' || enabled(args, 'flex-driving'),
+    flexDriving: enabled(args, 'flex-driving'),
     wheelchair: enabled(args, 'wheelchair'),
     onProgress: buildProgress('osm'),
   })
@@ -1437,7 +1438,7 @@ async function runBuildScenarios(args: CliArguments) {
         ...scenario.feeds.map(feed => `--gtfs=${feed.path}`),
         ...scenario.feeds.map(feed => `--gtfs-scope=${feed.scope}`),
         ...prepareDates.map(date => `--prepare-date=${date}`),
-        `--osm=${osm.path}`, `--street-modes=${streetModes}`, `--wheelchair=${wheelchair}`, `--private-access=${privateAccess}`,
+        `--osm=${osm.path}`, `--street-modes=${streetModes}`, `--wheelchair=${wheelchair}`, `--flex-driving=${wheelchair}`, `--private-access=${privateAccess}`,
         ...(firstCity ? [`--streets-from=${firstCity}`] : []),
         `--output=${compilerStage}`, `--city-name=${scenario.name}`,
       ], `Scenario ${scenario.id}`)
@@ -1553,7 +1554,7 @@ async function runCityCompiler(args: CliArguments) {
   const gtfsInputBytes = gtfs.reduce((sum, feed) => sum + fs.statSync(feed.path).size, 0)
   const osmInputBytes = fs.statSync(osmPbf).size
   const rawConcurrency = rawCompilerConcurrency(gtfsInputBytes, osmInputBytes)
-  const parallelRawBuild = !sharedCity && rawConcurrency.enabled
+  const parallelRawBuild = !wheelchair && !sharedCity && rawConcurrency.enabled
 
   const stagingDirectory = outputDirectory
   if (fs.readdirSync(stagingDirectory).length) {
@@ -1596,11 +1597,24 @@ async function runCityCompiler(args: CliArguments) {
     if ('error' in gtfsOutcome) throw gtfsOutcome.error
     gtfsBuildMs = performance.now() - gtfsStarted
 
+    // On-demand vehicle durations need roads even when pedestrian access is
+    // restricted to the strict wheelchair graph. This does not enable Drive
+    // queries on a wheelchair City.
+    let flexDriving = enabled(args, 'flex-driving')
+    if (wheelchair && !flexDriving) {
+      const source = new DatabaseSync(stagedRoutingStore, { readOnly: true })
+      try {
+        if (source.prepare("SELECT 1 FROM sqlite_master WHERE name='flex_catalog'").get()) {
+          flexDriving = Boolean(source.prepare("SELECT 1 FROM flex_catalog,json_each(data,'$.trips') WHERE json_extract(value,'$.onDemand')=1 LIMIT 1").get())
+        }
+      } finally { source.close() }
+    }
+
     let streetResult: Record<string, unknown>
     if (sharedCityPath) {
       streetResult = readNationalOsmStoreMetadata(path.join(sharedCityPath, 'osm', 'street-index.sqlite')) as Record<string, unknown>
     } else {
-      osmCompiler ??= startOsmCompiler(osmPbf, stagedStreetStore, streetModes, wheelchair)
+      osmCompiler ??= startOsmCompiler(osmPbf, stagedStreetStore, streetModes, wheelchair, flexDriving)
       const outcome = await osmCompiler.outcome
       if ('error' in outcome) throw outcome.error
       streetResult = outcome.result
@@ -1706,6 +1720,7 @@ async function runCityCompiler(args: CliArguments) {
       cityFormatVersion,
       preparationPolicy: 'vigo.city.prepare.v2',
       modes: streetModes === 'walk' ? ['transit', 'walk'] : ['transit', 'walk', 'drive'],
+      ...(flexDriving ? { flexVehicleEstimates: true } : {}),
       validation: { schemaVersion: 'vigo.preparation.validation.v1', routingLimitations: routingMetadata.routingLimitations ?? [], blockingRoutingFeatures: routingMetadata.blockingRoutingFeatures ?? [], excludedTripCount: routingMetadata.featureInventory?.excludedTripCount ?? 0 },
       kind: 'city',
       name: value(args, 'city-name', path.basename(outputDirectory)),

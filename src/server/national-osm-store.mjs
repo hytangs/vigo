@@ -346,8 +346,9 @@ export async function buildNationalOsmStore({
   buildDrivingProfile = process.env.VIGO_BUILD_DRIVE_ACCELERATOR === '1',
   includeDriving = true,
   wheelchair = false,
+  flexDriving = false,
 }) {
-  if (wheelchair && includeDriving) throw new Error('Wheelchair Cities require walk street preparation')
+  if (wheelchair && includeDriving && !flexDriving) throw new Error('Wheelchair Cities require walk street preparation')
   const wayAllowed = tags => nationalOsmWayWalkable(tags) && (!wheelchair || wheelchairWayAllowed(tags))
   const platformAllowed = tags => nationalOsmPlatformAreaWalkable(tags) && (!wheelchair || wheelchairWayAllowed(tags))
   const nodeAllowed = tags => nationalOsmNodeWalkable(tags) && (!wheelchair || wheelchairNodeAllowed(tags))

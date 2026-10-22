@@ -1497,6 +1497,8 @@ impl City {
         if self.manifest["modes"]
             .as_array()
             .is_some_and(|m| !m.iter().any(|v| v == "drive"))
+            && !(self.manifest["flexVehicleEstimates"] == true
+                && self.metadata["accessibility"]["profile"] == "wheelchair-strict-v1")
         {
             return fail(
                 "Driving is not prepared in this City; rebuild with street-modes walk,drive",

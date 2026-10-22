@@ -230,6 +230,11 @@ impl RoadIndex {
                     };
                     let (x, y) = (a[0] + fraction * dx, a[1] + fraction * dy);
                     let distance = (x * x + y * y).sqrt();
+                    // OSM integer coordinates and decimal query coordinates can
+                    // differ by a few floating-point ulps. Normalize sub-micron
+                    // projection noise so a zero walking limit still permits
+                    // an endpoint exactly on its road.
+                    let distance = if distance <= 1e-6 { 0. } else { distance };
                     if distance <= radius {
                         // The same point along the edge, exact at its ends,
                         // so a leg ending at a node meets the next one there.

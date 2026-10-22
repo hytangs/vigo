@@ -35,7 +35,7 @@ fn ring_contains(ring: &[Value], p: [f64; 2]) -> bool {
     }
     inside
 }
-fn contains(geometry: &Value, p: [f64; 2]) -> bool {
+pub(super) fn contains(geometry: &Value, p: [f64; 2]) -> bool {
     let polygon = |value: &Value| {
         value.as_array().is_some_and(|rings| {
             rings
@@ -94,7 +94,7 @@ impl City {
         } else {
             self.flex_direct_walk(q)?
         };
-        let mut choices = vec![];
+        let mut choices = self.flex_transfers(q)?;
         for mut result in [scheduled, flex] {
             if result["status"] != "ready" {
                 continue;
@@ -120,6 +120,11 @@ impl City {
                     .unwrap_or(f64::INFINITY)
                     .total_cmp(&b["arrivalMinutes"].as_f64().unwrap_or(f64::INFINITY))
             }
+        });
+        choices.dedup_by(|a, b| {
+            a["legs"] == b["legs"]
+                && a["departureMinutes"] == b["departureMinutes"]
+                && a["arrivalMinutes"] == b["arrivalMinutes"]
         });
         let mut result = choices
             .first()
@@ -161,11 +166,7 @@ impl City {
                 let mut request = q.clone();
                 request["origin"] = a.clone();
                 request["destination"] = b.clone();
-                let journey = if scheduled {
-                    self.flex_route(&request)?
-                } else {
-                    self.route_with_flex(&request)?
-                };
+                let journey = self.route_with_flex(&request)?;
                 if journey["status"] != "ready" {
                     continue;
                 }
@@ -211,14 +212,14 @@ impl City {
         }
         Ok(route)
     }
-    fn has_scheduled_connections(&self) -> Result<bool> {
+    pub(super) fn has_scheduled_connections(&self) -> Result<bool> {
         Ok(self.db.query_row(
             "SELECT EXISTS(SELECT 1 FROM connections) OR EXISTS(SELECT 1 FROM headway_connections)",
             [],
             |r| r.get(0),
         )?)
     }
-    fn flex_catalogs(&mut self) -> Result<std::sync::Arc<Value>> {
+    pub(super) fn flex_catalogs(&mut self) -> Result<std::sync::Arc<Value>> {
         if self.flex_catalog.get().is_none() {
             let exists: bool = self.db.query_row(
                 "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='flex_catalog')",
@@ -292,10 +293,21 @@ impl City {
         } else {
             vec![location]
         };
-        stops
-            .into_iter()
-            .map(|id| self.point(&json!({"stopId":id})))
-            .collect()
+        let mut points = Vec::new();
+        for id in stops {
+            if self.metadata["accessibility"]["profile"] == "wheelchair-strict-v1" {
+                let accessible = self.db.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM wheelchair_stops WHERE stop_id=? AND boarding=1)",
+                    [id],
+                    |r| r.get::<_, bool>(0),
+                )?;
+                if !accessible {
+                    continue;
+                }
+            }
+            points.push(self.point(&json!({"stopId":id}))?);
+        }
+        Ok(points)
     }
     fn flex_walk(&mut self, q: &Value, a: &Point, b: &Point, opt: &Options) -> Result<Value> {
         if a.coordinate == b.coordinate {
@@ -335,9 +347,6 @@ impl City {
         }
         if q["mode"].as_str().unwrap_or("transit") != "transit" {
             return fail("Flex requires transit mode");
-        }
-        if q["wheelchair"] == true || self.manifest["accessibility"]["profile"].is_string() {
-            return fail("Flex wheelchair vehicle availability is not established");
         }
         let opt = Options::parse(q)?;
         let date = NaiveDate::parse_from_str(
@@ -397,6 +406,11 @@ impl City {
                     .into_iter()
                     .flat_map(|o| o.values())
                 {
+                    if self.metadata["accessibility"]["profile"] == "wheelchair-strict-v1"
+                        && trip["wheelchair"] != 1
+                    {
+                        continue;
+                    }
                     let service = trip["service_id"].as_str().ok_or("Invalid Flex service")?;
                     if !active.contains(service) {
                         continue;
@@ -433,6 +447,11 @@ impl City {
                     }) {
                         continue;
                     }
+                    let shape = trip["shapeId"]
+                        .as_str()
+                        .and_then(|id| catalog["shapes"].get(id))
+                        .unwrap_or(&Value::Null);
+                    self.continuous_calls(shape, &mut calls, &origin, &destination)?;
                     for (i, a) in calls.iter().enumerate() {
                         if a["pickup"] == 1 {
                             continue;
@@ -451,16 +470,24 @@ impl City {
                             {
                                 continue;
                             }
-                            let from = self.flex_points(
-                                catalog,
-                                a["location"].as_str().ok_or("Invalid Flex location")?,
-                                &origin,
-                            )?;
-                            let to = self.flex_points(
-                                catalog,
-                                b["location"].as_str().ok_or("Invalid Flex location")?,
-                                &destination,
-                            )?;
+                            let from = if a["continuous"] == true {
+                                vec![self.point(&json!({"coordinate":a["coordinate"]}))?]
+                            } else {
+                                self.flex_points(
+                                    catalog,
+                                    a["location"].as_str().ok_or("Invalid Flex location")?,
+                                    &origin,
+                                )?
+                            };
+                            let to = if b["continuous"] == true {
+                                vec![self.point(&json!({"coordinate":b["coordinate"]}))?]
+                            } else {
+                                self.flex_points(
+                                    catalog,
+                                    b["location"].as_str().ok_or("Invalid Flex location")?,
+                                    &destination,
+                                )?
+                            };
                             for board in &from {
                                 for alight in &to {
                                     if board.coordinate == alight.coordinate {
@@ -494,7 +521,9 @@ impl City {
                                                 .ceil();
                                         (road, duration, factor, offset)
                                     } else {
-                                        if a["pickup"] != 2
+                                        if a["continuous"] != true
+                                            && b["continuous"] != true
+                                            && a["pickup"] != 2
                                             && b["dropoff"] != 2
                                             && !a["pickupBooking"].is_string()
                                             && !b["dropoffBooking"].is_string()
@@ -506,14 +535,21 @@ impl City {
                                         if duration < 0. {
                                             continue;
                                         }
-                                        let coordinates: Vec<_> = calls[i..]
-                                            .iter()
-                                            .take_while(|c| {
-                                                c["sequence"].as_u64() <= b["sequence"].as_u64()
-                                            })
-                                            .filter_map(|c| self.stop(c["location"].as_str()?).ok())
-                                            .map(|s| [s.lon, s.lat])
-                                            .collect();
+                                        let coordinates =
+                                            super::flex_continuous::geometry(shape, a, b)
+                                                .unwrap_or_else(|| {
+                                                    calls[i..]
+                                                        .iter()
+                                                        .take_while(|c| {
+                                                            c["sequence"].as_f64()
+                                                                <= b["sequence"].as_f64()
+                                                        })
+                                                        .filter_map(|c| {
+                                                            self.stop(c["location"].as_str()?).ok()
+                                                        })
+                                                        .map(|s| [s.lon, s.lat])
+                                                        .collect()
+                                                });
                                         (
                                             json!({"legs":[{"coordinates":coordinates}]}),
                                             duration,
@@ -592,8 +628,8 @@ impl City {
                                     let route: Value = self.db.query_row("SELECT short_name,long_name,route_type,color FROM routes WHERE route_id=?", [route_id], |r| Ok(json!({"shortName":r.get::<_,String>(0)?,"longName":r.get::<_,String>(1)?,"type":r.get::<_,i64>(2)?,"color":r.get::<_,String>(3)?})))?;
                                     legs.push(json!({"kind":"ride","routeId":route_id,"route":route,"tripId":trip["trip_id"],"serviceId":service,"serviceDate":service_date.to_string(),
                                 "fromStopId":board.stop,"toStopId":alight.stop,"from":{"coordinate":board.coordinate},"to":{"coordinate":alight.coordinate},
-                                "departureMinutes":departure/60.,"arrivalMinutes":arrival/60.,"durationMinutes":duration/60.,"distanceMeters":road["distanceMeters"],"coordinates":coordinates,"geometrySource":if trip["onDemand"] == true {"osm"} else {"stop_sequence"},
-                                "flexEstimate":{"durationFactor":factor,"durationOffsetSeconds":offset,"assumption":if trip["onDemand"] != true {"published_timetable"} else if trip["factor"].is_number() && trip["offset"].is_number(){"gtfs_safe_duration"}else{"configured_driving_estimate"},
+                                "departureMinutes":departure/60.,"arrivalMinutes":arrival/60.,"durationMinutes":duration/60.,"distanceMeters":road["distanceMeters"],"coordinates":coordinates,"geometrySource":if trip["onDemand"] == true {"osm"} else if shape.is_array() {"gtfs_shape"} else {"stop_sequence"},
+                                "flexEstimate":{"durationFactor":factor,"durationOffsetSeconds":offset,"driverCoordination":a["driverCoordination"] == true || b["driverCoordination"] == true,"assumption":if a["continuous"] == true || b["continuous"] == true {"interpolated_shape"} else if trip["onDemand"] != true {"published_timetable"} else if trip["factor"].is_number() && trip["offset"].is_number(){"gtfs_safe_duration"}else{"configured_driving_estimate"},
                                 "bookingStatus":if confirmed {"caller_confirmed"} else if requirements.is_empty(){"not_required"} else {"required"},"bookingRequirements":requirements}}));
                                     if egress_s > 0. {
                                         legs.extend(retime(&mut egress, arrival));
@@ -619,6 +655,11 @@ impl City {
                     .unwrap()
                     .total_cmp(&b["arrivalMinutes"].as_f64().unwrap())
             }
+        });
+        choices.dedup_by(|a, b| {
+            a["legs"] == b["legs"]
+                && a["departureMinutes"] == b["departureMinutes"]
+                && a["arrivalMinutes"] == b["arrivalMinutes"]
         });
         let mut result = choices
             .first()

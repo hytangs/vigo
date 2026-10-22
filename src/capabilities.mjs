@@ -33,7 +33,7 @@ const unavailable = 'unavailable'
 const queryFamilies = Object.freeze([
   Object.freeze({
     id: 'route',
-    flex: Object.freeze({ optIn: true, directOnly: true, conditionalBooking: true, confirmsAvailability: false }),
+    flex: Object.freeze({ optIn: true, directOnly: false, transitTransfers: true, continuousStopping: true, wheelchair: true, conditionalBooking: true, confirmsAvailability: false }),
     suppliedTraffic: true,
     resident: true,
     transitStreetCacheControl: true,
@@ -62,7 +62,7 @@ const queryFamilies = Object.freeze([
   }),
   Object.freeze({
     id: 'matrix',
-    flex: Object.freeze({ optIn: true, directOnly: true, conditionalBooking: true, maximumCells: 4096 }),
+    flex: Object.freeze({ optIn: true, directOnly: false, transitTransfers: true, continuousStopping: true, wheelchair: true, conditionalBooking: true, maximumCells: 4096 }),
     suppliedTraffic: true,
     transitStreetCacheControl: true,
     requireTransitRide: Object.freeze({ default: false }),

@@ -419,7 +419,7 @@ function transitPlan(raw, trace, body, context, substitute = false) {
         || legs.at(-1).streetPathVerified === true,
       searchProfile: raw.windowSample ? 'pareto' : 'fastest', searchStrategy: 'exact',
       algorithm: conditional ? 'rust_gtfs_flex_and_osm' : 'rust_standalone_connection_scan',
-      optimality: conditional ? 'conditional_direct_flex_with_declared_time_model' : substitute ? 'feasible_shared_leg_substitution'
+      optimality: conditional ? 'conditional_flex_with_declared_time_model' : substitute ? 'feasible_shared_leg_substitution'
         : `lexicographic_${objective}_then_boardings_then_walking_within_active_service_and_access_model`,
       methodRequested: 'rust_standalone_runtime',
       methodUsed: 'rust_standalone_runtime',

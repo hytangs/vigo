@@ -18,6 +18,29 @@ pub struct TransferRule {
     pub minimum: u32,
 }
 impl TransferRule {
+    /// Resolve matching selectors identically for scheduled and conditional legs.
+    pub fn select_most_specific<'a>(
+        rules: impl IntoIterator<Item = &'a Self>,
+    ) -> Result<Option<&'a Self>> {
+        let mut best: Option<&Self> = None;
+        let mut conflicting = false;
+        for r in rules {
+            if best.is_none_or(|b| r.specificity() > b.specificity()) {
+                best = Some(r);
+                conflicting = false;
+            } else if best.is_some_and(|b| {
+                r.specificity() == b.specificity() && (r.kind != b.kind || r.minimum != b.minimum)
+            }) {
+                conflicting = true;
+            }
+        }
+        if conflicting {
+            return Err(Error::from_reason(
+                "Conflicting equally specific GTFS transfer rules",
+            ));
+        }
+        Ok(best)
+    }
     fn specificity(&self) -> u8 {
         match (
             self.from_trip.is_some(),
@@ -309,32 +332,19 @@ impl TimetableKernel {
     ) -> Result<Option<&TransferRule>> {
         let s = self.service.as_ref().unwrap();
         let route = |trip: u32| s.data.trip_routes.get(trip as usize).copied();
-        let mut best: Option<&TransferRule> = None;
-        let mut conflicting = false;
-        for &i in s.rules.get(&(from, to)).into_iter().flatten() {
-            let r = &s.data.rules[i];
-            if r.from_trip.is_some_and(|t| t != from_trip)
-                || r.to_trip.is_some_and(|t| t != to_trip)
-                || r.from_route.is_some_and(|v| Some(v) != route(from_trip))
-                || r.to_route.is_some_and(|v| Some(v) != route(to_trip))
-            {
-                continue;
-            }
-            if best.is_none_or(|b| r.specificity() > b.specificity()) {
-                best = Some(r);
-                conflicting = false;
-            } else if best.is_some_and(|b| {
-                r.specificity() == b.specificity() && (r.kind != b.kind || r.minimum != b.minimum)
-            }) {
-                conflicting = true;
-            }
-        }
-        if conflicting {
-            return Err(Error::from_reason(
-                "Conflicting equally specific GTFS transfer rules",
-            ));
-        }
-        Ok(best)
+        TransferRule::select_most_specific(
+            s.rules
+                .get(&(from, to))
+                .into_iter()
+                .flatten()
+                .map(|&i| &s.data.rules[i])
+                .filter(|r| {
+                    !r.from_trip.is_some_and(|t| t != from_trip)
+                        && !r.to_trip.is_some_and(|t| t != to_trip)
+                        && !r.from_route.is_some_and(|v| Some(v) != route(from_trip))
+                        && !r.to_route.is_some_and(|v| Some(v) != route(to_trip))
+                }),
+        )
     }
     #[allow(clippy::too_many_arguments)]
     fn service_search(

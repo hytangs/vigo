@@ -1199,7 +1199,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
         const factor = row.safe_duration_factor ? Number(row.safe_duration_factor) : null
         const offset = row.safe_duration_offset ? Number(row.safe_duration_offset) : null
         if ((factor !== null && (!Number.isFinite(factor) || factor < 0)) || (offset !== null && (!Number.isFinite(offset) || offset < 0))) throw new Error('Invalid GTFS safe duration model')
-        if (factor !== null || offset !== null) flexTripModels.set(row.trip_id, { factor, offset })
+        if (wheelchair || factor !== null || offset !== null) flexTripModels.set(row.trip_id, { factor, offset, wheelchair: requiredGtfsEnum(row.wheelchair_accessible, [0, 1, 2], 'wheelchair_accessible', row.trip_id, 0) })
         insertTripOperations.run(row.trip_id, String(row.block_id ?? '').trim() || null, requiredGtfsEnum(row.bikes_allowed, [0, 1, 2], 'bikes_allowed', row.trip_id, 0))
         insertTripDetails.run(row.trip_id, row.trip_headsign || null, row.trip_short_name || null)
         if (String(row.block_id ?? '').trim()) featureInventory.blockTripCount += 1
@@ -1378,8 +1378,9 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
           dropOffType,
         ]
       })
-    if (flexTripIds.size || bookingTripIds.size) {
-      await importFlexCatalog({ archive, streamTable, db, prefix, budget: zipImportBudget, windows: new Set([...flexTripIds, ...bookingTripIds]), tripModels: flexTripModels })
+    const continuousPresent = featureInventory.routeContinuousRuleCount + featureInventory.continuousPickupStopTimeCount + featureInventory.continuousDropOffStopTimeCount > 0
+    if (flexTripIds.size || bookingTripIds.size || continuousPresent) {
+      await importFlexCatalog({ archive, streamTable, db, prefix, budget: zipImportBudget, windows: new Set([...flexTripIds, ...bookingTripIds]), tripModels: flexTripModels, continuousPresent })
       const remove = stage.prepare('DELETE FROM stop_times WHERE trip_id=?')
       runTransaction(stage, () => { for (const id of flexTripIds) remove.run(id) })
       featureInventory.flexTripCount = flexTripIds.size
@@ -1546,7 +1547,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
       exactness: 'conditional', detail: 'Fixed-stop pickup_type/drop_off_type=3 is routable. Riders must signal or notify the driver to board or alight; service assumes this coordination.',
     })
     limitFeature('continuous_pickup_or_drop_off', featureInventory.routeContinuousRuleCount + featureInventory.tripContinuousRuleCount + featureInventory.continuousPickupStopTimeCount + featureInventory.continuousDropOffStopTimeCount,
-      'Fixed-stop service is retained, but continuous pickup or drop-off between scheduled stops is not represented by the point-to-point router.')
+      'Fixed-stop service is retained. Opt-in Flex requests support continuous stopping on directed GTFS shapes with interpolated clocks and source permission overrides.')
 
     limitFeature('block_interlining', featureInventory.blockTripCount,
       'Rust infers consecutive same-terminal block continuations within one service_id and service day. Different-terminal, cross-service and ambiguous block continuations still require explicit linked trips.')
