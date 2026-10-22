@@ -32,6 +32,8 @@ import {
   setRoutingAllowStreetTransfers,
   setRoutingMaxTransfers,
   setRoutingWheelchair,
+  prepareRoutingWheelchair,
+  wheelchairSelectionKey,
   setRoutingMinimumTransferBuffer,
   toggleRouting,
   wheelchairAvailable,
@@ -96,6 +98,9 @@ function SidebarRouteBox() {
     routingAllowLongWalk: state.routingAllowLongWalk,
     routingAllowStreetTransfers: state.routingAllowStreetTransfers,
     routingWheelchair: state.routingWheelchair,
+    wheelchairPrepareKey: state.wheelchairPrepareKey,
+    wheelchairBuildingKey: state.wheelchairBuildingKey,
+    wheelchairReason: state.wheelchairReason,
     routingMinimumTransferBufferMinutes: state.routingMinimumTransferBufferMinutes,
     routingPointError: state.routingPointError,
     routingPickIndex: state.routingPickIndex,
@@ -132,6 +137,9 @@ function SidebarRouteBox() {
       routingAllowStreetTransfers={settings.routingAllowStreetTransfers}
       routingWheelchair={showWheelchair && settings.routingWheelchair}
       routingWheelchairAvailable={showWheelchair}
+      routingWheelchairReason={settings.wheelchairReason}
+      routingWheelchairPreparing={Boolean(settings.wheelchairBuildingKey)}
+      onPrepareWheelchair={settings.wheelchairPrepareKey === wheelchairSelectionKey() ? prepareRoutingWheelchair : undefined}
       onRoutingWheelchairChange={setRoutingWheelchair}
       routingMinimumTransferBufferMinutes={settings.routingMinimumTransferBufferMinutes}
       routingActivity={activity}

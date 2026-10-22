@@ -119,12 +119,23 @@ export async function reconnectPreparation(task: PreparationTask) {
   } catch { /* The task panel retains the last status and connection error. */ }
 }
 
+export async function prepareWheelchair(projectId: string, request: Record<string, unknown>) {
+  const { id } = await startPreparation(projectId, 'wheelchair-prepare', 'Wheelchair routing', async () => {
+    const result = await apiJson<{ job: JobRecord }>(`/api/projects/${encodeURIComponent(projectId)}/wheelchair-prepare`, {
+      method: 'POST', body: JSON.stringify(request),
+    })
+    return result.job
+  })
+  await waitForImportJob(projectId, id, () => {}, 'Wheelchair preparation failed')
+}
+
 /** Follow every running import of the selected City until it settles. */
 export function followActivePreparationJobs() {
   const projectId = selectedProject().id
   const generation = preparationGeneration
   for (const job of preparationJobs().filter((entry) => isPreparationJob(entry) && isActiveTask(entry))) {
     if (importPollingPromises.has(pollingKey(projectId, job.id))) continue
+    if (job.kind === 'wheelchair-prepare') { void reconnectPreparation(job); continue }
     const kind = job.kind === 'national-osm-import' ? 'osm' : 'gtfs'
     void waitForImportJob(
       projectId,

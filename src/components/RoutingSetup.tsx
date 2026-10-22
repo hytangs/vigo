@@ -10,6 +10,7 @@ type RoutingSetupProps = Pick<SidebarPathfinderBoxProps,
   'routingMode' | 'routingNetwork' | 'routingDataMode' | 'routingTimePreference' | 'routingServiceDate'
   | 'routingServiceCoverage' | 'routingServiceDateAvailability' | 'scheduleTimeMinutes' | 'routingWaypoints'
   | 'routingWheelchair' | 'routingWheelchairAvailable' | 'onRoutingWheelchairChange'
+  | 'routingWheelchairReason' | 'routingWheelchairPreparing' | 'onPrepareWheelchair'
   | 'routingDepartureWindowMinutes' | 'routingMaxTransfers' | 'routingMinimumTransferBufferMinutes'
   | 'routingMaxWalkKm' | 'routingAllowStreetTransfers' | 'routingAllowLongWalk'
   | 'onRoutingDataModeChange' | 'onRoutingTimePreferenceChange' | 'onRoutingServiceDateChange'
@@ -24,6 +25,7 @@ type RoutingSetupProps = Pick<SidebarPathfinderBoxProps,
 export function RoutingSetup(props: RoutingSetupProps) {
   const {
     routingWheelchair = false, routingWheelchairAvailable = false, onRoutingWheelchairChange,
+    routingWheelchairReason, routingWheelchairPreparing, onPrepareWheelchair,
     routingMode, routingNetwork, routingDataMode, routingTimePreference, routingServiceDate,
     routingServiceCoverage, routingServiceDateAvailability, scheduleTimeMinutes, routingWaypoints,
     routingDepartureWindowMinutes, routingMaxTransfers, routingMinimumTransferBufferMinutes,
@@ -47,7 +49,7 @@ export function RoutingSetup(props: RoutingSetupProps) {
   const realtimeAvailable = !routingNetwork?.selectedId
   const realtimeUnavailableReason = routingNetwork?.selectedId ? 'Scenarios run on the published timetable.' : undefined
   // Wheelchair networks are prepared from the published timetable; live service carries no accessibility data.
-  const wheelchairReason = !routingWheelchairAvailable ? 'No prepared wheelchair network for this selection'
+  const wheelchairReason = !routingWheelchairAvailable ? routingWheelchairReason || 'Prepare wheelchair routing for this City'
     : departNow ? 'Wheelchair routing uses the published timetable' : ''
   const transferLimitUnavailable = routingWaypoints.length > 0
   const maxTransfers = transferLimitUnavailable ? undefined : routingMaxTransfers
@@ -79,8 +81,10 @@ export function RoutingSetup(props: RoutingSetupProps) {
     <header className="routing-setup-header">
     <span className="routing-setup-title"><SlidersHorizontal size={14} aria-hidden="true" />Journey settings</span>
       {onRoutingWheelchairChange ? <button type="button" className="kit-icon-button routing-wheelchair" aria-pressed={routingWheelchair}
-        disabled={Boolean(wheelchairReason)} aria-label="Wheelchair routing" title={wheelchairReason || 'Wheelchair routing'}
-        onClick={() => onRoutingWheelchairChange(!routingWheelchair)}><Accessibility size={15} aria-hidden="true" /></button> : null}
+        disabled={routingWheelchairPreparing || (Boolean(wheelchairReason) && !onPrepareWheelchair)}
+        aria-label={routingWheelchairPreparing ? 'Preparing wheelchair routing' : !routingWheelchairAvailable && onPrepareWheelchair ? 'Prepare wheelchair routing' : 'Wheelchair routing'}
+        title={!routingWheelchairAvailable && onPrepareWheelchair ? 'Prepare accessible streets and transit from this City’s source files' : wheelchairReason || 'Wheelchair routing'}
+        onClick={() => !routingWheelchairAvailable && onPrepareWheelchair ? onPrepareWheelchair() : onRoutingWheelchairChange(!routingWheelchair)}><Accessibility size={15} aria-hidden="true" /></button> : null}
       <button type="button" className="routing-setup-fold" aria-expanded={!collapsed} aria-controls={`${id}-content`}
         aria-label={collapsed ? 'Expand journey settings' : 'Collapse journey settings'}
         title={collapsed ? 'Expand journey settings' : 'Collapse journey settings'} onClick={() => setCollapsed(value => !value)}>

@@ -45,7 +45,7 @@ export function BackgroundTasks({ tasks, open, onOpenChange, onOpenData, onRecon
                 <details open={working || task.status === 'failed' || Boolean(task.statusError)}>
                 <summary className="background-task-heading">
                   {task.statusError || task.status === 'failed' ? <AlertCircle size={16} /> : task.status === 'complete' ? <CheckCircle2 size={16} /> : working ? <LoaderCircle size={16} className="task-spinner" /> : <Clock3 size={16} />}
-                  <strong>{task.kind === 'vehicle-schedules' ? 'Static vehicle schedules' : task.kind === 'street-runtime-prepare' ? 'Street routing' : task.kind === 'city-data-load' ? 'Loading City' : task.kind === 'national-osm-import' ? 'OSM street networks' : task.kind === 'national-gtfs-merge' ? 'Combining transit feeds' : 'GTFS schedules'}</strong>
+                  <strong>{task.kind === 'wheelchair-prepare' ? 'Wheelchair routing' : task.kind === 'vehicle-schedules' ? 'Static vehicle schedules' : task.kind === 'street-runtime-prepare' ? 'Street routing' : task.kind === 'city-data-load' ? 'Loading City' : task.kind === 'national-osm-import' ? 'OSM street networks' : task.kind === 'national-gtfs-merge' ? 'Combining transit feeds' : 'GTFS schedules'}</strong>
                   <span>{status}</span>
                 </summary>
                 <div className="background-task-details">

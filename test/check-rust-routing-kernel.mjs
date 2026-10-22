@@ -35,7 +35,7 @@ const bindingPath = path.join(
 )
 const headerBytes = 4096
 
-function buildAndLoadStreetCch(kernel, temporaryDirectory, name, orderStrategy = 'degree') {
+function buildAndLoadStreetCch(kernel, temporaryDirectory, name, orderStrategy = 'balanced') {
   const structurePath = path.join(temporaryDirectory, `${name}.cch.structure`)
   const metricPath = path.join(temporaryDirectory, `${name}.cch.metric`)
   const built = kernel.buildStreetCchIndex({

@@ -638,7 +638,10 @@ fn merge_services(plans: &[Value], limit: usize) -> Vec<usize> {
         }
         let candidate = &plans[i];
         let candidate_trips = ride_trips(candidate);
-        !candidates_dominate(plans, i, |other| {
+        !plans.iter().enumerate().any(|(j, other)| {
+            if j == i || other["status"] != "ready" {
+                return false;
+            }
             let simpler = ride_trips(other);
             let dominates = arrive(other) <= arrive(candidate)
                 && walking(other) <= walking(candidate)
@@ -647,6 +650,26 @@ fn merge_services(plans: &[Value], limit: usize) -> Vec<usize> {
                 && (arrive(other) < arrive(candidate)
                     || walking(other) < walking(candidate)
                     || simpler.len() < candidate_trips.len());
+            // Stop variants on the same public lines often trade seconds of
+            // walking against seconds of arrival. Keep one when those changes
+            // disappear at the minute precision of the journey cards. This
+            // only selects optional alternatives; exact clocks and the primary
+            // witness above remain untouched.
+            if family(other) == family(candidate) {
+                let metrics =
+                    |v: &Value| [arrive(v).floor(), walking(v).round(), -depart(v).floor()];
+                let (a, b) = (metrics(other), metrics(candidate));
+                let no_worse =
+                    a.iter().zip(b).all(|(a, b)| *a <= b) && simpler.len() <= candidate_trips.len();
+                let preferred_tie = arrive(other)
+                    .total_cmp(&arrive(candidate))
+                    .then(walking(other).total_cmp(&walking(candidate)))
+                    .then(depart(candidate).total_cmp(&depart(other)))
+                    .then(j.cmp(&i))
+                    .is_lt();
+                return no_worse
+                    && (a != b || simpler.len() < candidate_trips.len() || preferred_tie);
+            }
             if !dominates {
                 return false;
             }
@@ -658,7 +681,7 @@ fn merge_services(plans: &[Value], limit: usize) -> Vec<usize> {
                 && simpler
                     .iter()
                     .all(|trip| trip.is_string() && candidate_trips.contains(trip));
-            returns || needless_change || family(other) == family(candidate)
+            returns || needless_change
         })
     });
     candidates.sort_by(|&a, &b| {
@@ -698,13 +721,6 @@ fn merge_services(plans: &[Value], limit: usize) -> Vec<usize> {
     selected.sort_by_key(|i| candidates.iter().position(|c| c == i).unwrap());
     selected
 }
-fn candidates_dominate(plans: &[Value], index: usize, dominates: impl Fn(&Value) -> bool) -> bool {
-    plans
-        .iter()
-        .enumerate()
-        .any(|(j, other)| j != index && other["status"] == "ready" && dominates(other))
-}
-
 /// The earliest first boarding among ready transit plans.
 fn earliest_transit<'a>(plans: impl IntoIterator<Item = &'a Value>) -> Option<Value> {
     let mut earliest: Option<(f64, f64, f64, Value)> = None;
@@ -1474,6 +1490,38 @@ mod tests {
             ],
         );
         assert_eq!(merge_services(&[best, worse, less_walk], 10), vec![0, 2]);
+    }
+
+    #[test]
+    fn merged_services_collapse_subminute_variants_without_changing_primary() {
+        let primary = plan(
+            480.,
+            vec![ride("a", "15", "A", "B", 481., 500.), walk(500., 510.4)],
+        );
+        let variant = plan(
+            480.,
+            vec![ride("a", "15", "A", "C", 481., 500.5), walk(500.5, 510.6)],
+        );
+        let later = plan(
+            482.,
+            vec![ride("b", "15", "A", "B", 483., 502.), walk(502., 512.4)],
+        );
+        let less_walk = plan(
+            480.,
+            vec![ride("a", "15", "A", "D", 481., 503.), walk(503., 511.)],
+        );
+        let other_line = plan(
+            480.,
+            vec![ride("c", "17", "A", "C", 481., 500.5), walk(500.5, 510.6)],
+        );
+        let duplicate = primary.clone();
+        assert_eq!(
+            merge_services(
+                &[primary, variant, later, less_walk, other_line, duplicate],
+                10
+            ),
+            vec![0, 4, 3, 2]
+        );
     }
 
     #[test]

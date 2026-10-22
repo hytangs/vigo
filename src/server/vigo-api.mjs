@@ -1,5 +1,6 @@
 import { wheelchairDescription } from './wheelchair-policy.mjs'
 import { studioWheelchairAvailability, studioWheelchairSelection } from './studio-wheelchair.mjs'
+import { buildStudioWheelchair, wheelchairBuildSources } from './studio-wheelchair-build.mjs'
 import { routingResultStatus } from './gtfs/route-results.mjs'
 import { cityCaseFeedIds, assertCaseRouteSources } from './gtfs/source-selection.mjs'
 import packageJson from '../../package.json' with { type: 'json' }
@@ -2263,7 +2264,8 @@ function recoverableNationalJob(job) {
   return Boolean(
     job?.retrySourcePath
     || job?.sourcePath
-    || job?.kind === 'national-gtfs-merge',
+    || job?.kind === 'national-gtfs-merge'
+    || job?.kind === 'wheelchair-prepare',
   )
 }
 
@@ -2298,7 +2300,7 @@ function reserveNationalImportProject(projectId, kind, { duringMaintenance = fal
   if (cityMaintenance.has(projectId) && !duringMaintenance) throw Object.assign(new Error('City cleanup is in progress. Retry the import when it finishes.'), { statusCode: 409 })
   const activeKinds = nationalImportProjects.get(projectId) ?? new Set()
   if (activeKinds.has(kind)) {
-    const label = kind === 'osm' ? 'OSM' : 'GTFS'
+    const label = kind === 'osm' ? 'OSM' : kind === 'wheelchair' ? 'wheelchair' : 'GTFS'
     const error = new Error(`This project already has a ${label} import in progress.`)
     error.statusCode = 409
     throw error
@@ -2896,6 +2898,37 @@ async function startNationalOsmImport(projectId, body) {
   return job
 }
 
+async function startWheelchairPreparation(projectId, request) {
+  const project = await readProjectMetadata(projectId)
+  const directory = projectMetaDir(projectId)
+  const sources = await wheelchairBuildSources(directory, project, request).catch(error => { throw Object.assign(error, { statusCode: 409 }) })
+  const existing = activeNationalProjectJob(projectId, 'wheelchair-prepare')
+  if (existing?.feedId === sources.feedId) return existing
+  reserveNationalImportProject(projectId, 'wheelchair')
+  const controller = new AbortController()
+  const job = { schemaVersion: jobSchemaVersion, id: makeId('wheelchair'), kind: 'wheelchair-prepare',
+    label: 'Wheelchair routing', projectId, feedId: sources.feedId, status: 'running',
+    phase: 'Preparing accessible streets and transit', progress: 0, createdAt: now(), retryable: true }
+  try { await persistNationalJob(projectId, job) } catch (error) { releaseNationalImportProject(projectId, 'wheelchair'); throw error }
+  const completed = buildStudioWheelchair({ directory, sources, signal: controller.signal,
+    beforePublish: () => retireRouting(path.join(directory, 'wheelchair', 'routing', 'project.sqlite')),
+    readProject: () => readProjectMetadata(projectId), onProgress: phase => {
+      if (controller.signal.aborted) return
+      Object.assign(job, { phase, updatedAt: now() })
+      void persistNationalJobProgress(projectId, job)
+    },
+  }).then(result => Object.assign(job, { status: 'complete', phase: 'Wheelchair routing ready', result, progress: 1 }))
+    .catch(error => Object.assign(job, { status: controller.signal.aborted ? 'cancelled' : 'failed',
+      phase: 'Wheelchair preparation stopped', error: error.message }))
+    .finally(async () => {
+      Object.assign(job, { finishedAt: now(), updatedAt: now() })
+      releaseNationalImportProject(projectId, 'wheelchair')
+      await persistNationalJob(projectId, job)
+    })
+  Object.defineProperty(job, 'cancel', { value: async () => { controller.abort(); await completed; return job } })
+  return job
+}
+
 async function readNationalImportJob(projectId, jobId) {
   const memoryJob = nationalImportJobs.get(jobId)
   if (memoryJob?.projectId === projectId) return memoryJob
@@ -2943,6 +2976,7 @@ async function retryNationalImportJob(projectId, jobId) {
     error.statusCode = 409
     throw error
   }
+  if (previous.kind === 'wheelchair-prepare') return startWheelchairPreparation(projectId, { feedId: previous.feedId })
   if (previous.kind === 'national-gtfs-merge') {
     const retriedMerge = await startNationalGtfsMerge(projectId, {
       preloadServiceDate: previous.preloadServiceDate,
@@ -4556,7 +4590,18 @@ async function route(request, response) {
     if (request.method === 'POST' && action === 'wheelchair-availability') {
       const body = await readBody(request)
       const project = await readProjectMetadata(projectId)
-      sendJson(response, 200, studioWheelchairAvailability(projectMetaDir(projectId), project, body))
+      const directory = projectMetaDir(projectId)
+      const availability = studioWheelchairAvailability(directory, project, body)
+      if (!availability.available) {
+        try { await wheelchairBuildSources(directory, project, body); availability.canPrepare = true }
+        catch (error) { availability.reason = error.message }
+      }
+      sendJson(response, 200, availability)
+      return true
+    }
+
+    if (request.method === 'POST' && action === 'wheelchair-prepare') {
+      sendJson(response, 202, { job: await startWheelchairPreparation(projectId, await readBody(request)) })
       return true
     }
 

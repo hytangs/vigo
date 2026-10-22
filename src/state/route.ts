@@ -28,6 +28,7 @@ import { parseRoutingCommand } from '../routingUi'
 import { city } from './city'
 import { clock } from './clock'
 import { network } from './network'
+import { prepareWheelchair } from './preparation'
 import { routingScope, selectedProject, preview } from './scope'
 import { setActiveRouteTool, setQuery, shell } from './shell'
 
@@ -59,6 +60,9 @@ export type RouteState = {
   routingAllowStreetTransfers: boolean
   routingWheelchair: boolean
   wheelchairAvailableKey: string
+  wheelchairPrepareKey: string
+  wheelchairBuildingKey: string
+  wheelchairReason: string
   routingMinimumTransferBufferMinutes: number
   selectedRoutingPlanId: string
   routingDetailsVisible: boolean
@@ -92,6 +96,9 @@ const initialRouteState = (): RouteState => ({
   routingAllowStreetTransfers: false,
   routingWheelchair: false,
   wheelchairAvailableKey: '',
+  wheelchairPrepareKey: '',
+  wheelchairBuildingKey: '',
+  wheelchairReason: '',
   routingMinimumTransferBufferMinutes: 1,
   selectedRoutingPlanId: '',
   routingDetailsVisible: false,
@@ -456,6 +463,21 @@ const networkOptionsOf = memoizeLast((cases: ScenarioDraft[], selectedId: string
 export const routingNetwork = () => networkOptionsOf(scenarioLibrary().scenarioDrafts, route.get().routeScenarioId, routeScenario().error, selectedProject())
 
 export const setRoutingWheelchair = (routingWheelchair: boolean) => route.set({ routingWheelchair, ...(routingWheelchair ? { routingDataMode: 'scheduled' as const } : {}) })
+
+export async function prepareRoutingWheelchair() {
+  const key = wheelchairSelectionKey()
+  if (route.get().wheelchairPrepareKey !== key || route.get().wheelchairBuildingKey) return
+  const projectId = selectedProject().id
+  const feedId = routingScope().nationalRoutingFeed?.id
+  route.set({ wheelchairBuildingKey: key, wheelchairReason: '' })
+  try {
+    const selection = routeScenario().request
+    await prepareWheelchair(projectId, { ...(selection ? { feedIds: selection.feedIds } : { feedId }), mode: route.get().routingMode })
+    if (wheelchairSelectionKey() === key) route.set({ wheelchairAvailableKey: key, routingWheelchair: true, routingDataMode: 'scheduled' })
+  } catch (error) {
+    if (wheelchairSelectionKey() === key) route.set({ wheelchairReason: error instanceof Error ? error.message : 'Wheelchair preparation failed.' })
+  } finally { route.set({ wheelchairBuildingKey: '' }) }
+}
 
 /** A capability belongs to exactly one source selection and routing mode. */
 export function wheelchairSelectionKey() {

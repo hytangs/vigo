@@ -100,7 +100,9 @@ export const scheduleLoadRequests = new Map<string, ScheduleLoadRequest>()
 
 export function retryScheduleLoad(taskId: string) {
   const request = scheduleLoadRequests.get(taskId)
-  if (request) network.set(({ scheduleLoadRetry }) => ({ scheduleLoadRequest: request, scheduleLoadRetry: scheduleLoadRetry + 1 }))
+  if (!request || request.projectId !== selectedProject().id) return
+  setActiveRouteTool('agency')
+  network.set(({ scheduleLoadRetry }) => ({ vehicleMode: 'schedule', scheduleLoadRequest: request, scheduleLoadRetry: scheduleLoadRetry + 1 }))
 }
 
 const selectedRouteOf = memoizeLast((routes: RouteMetric[], routeId: string) => routeId ? findNetworkRoute(routes, routeId) : undefined)

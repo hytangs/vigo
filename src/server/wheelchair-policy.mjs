@@ -34,7 +34,7 @@ export function wheelchairBoardingValues(stops) {
 }
 
 export function wheelchairPathwaySeconds(row) {
-  for (const field of ['stair_count', 'max_slope', 'min_width', 'wheelchair_traversal_time']) {
+  for (const field of ['stair_count', 'max_slope', 'min_width', 'wheelchair_traversal_time', 'wheelchair_length']) {
     if (tag(row[field]) !== '' && suppliedNumber(row[field]) == null) return null
   }
   const mode = Number(row.pathway_mode)
@@ -47,6 +47,12 @@ export function wheelchairPathwaySeconds(row) {
     || (width != null && width < 0.9)) return null
   const wheelchairTime = suppliedNumber(row.wheelchair_traversal_time)
   if (wheelchairTime != null) return wheelchairTime > 0 ? wheelchairTime : null
+  // Some feeds publish wheelchair distance instead of wheelchair time. Accept
+  // that positive accessibility evidence, using the same 4.8 km/h cost as other
+  // prepared pedestrian paths. It cannot override stairs, slope or width bans.
+  const wheelchairLength = suppliedNumber(row.wheelchair_length)
+  if (wheelchairLength != null) return wheelchairLength > 0 && mode !== 5
+    ? Math.ceil(wheelchairLength / (4.8 / 3.6)) : null
   // Missing dimensions cannot establish a usable walkway, gate or elevator.
   if (width == null || (mode !== 5 && slope == null)) return null
   const time = suppliedNumber(row.traversal_time)

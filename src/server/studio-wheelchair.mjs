@@ -53,7 +53,7 @@ export function studioWheelchairAvailability(directory, project, request) {
     studioWheelchairSelection(directory, project, { ...request, wheelchair: true, routingDataMode: 'scheduled', departNow: false })
     return { available: true }
   } catch (error) {
-    if (error.statusCode === 400 || error.code === 'wheelchair_profile_unavailable') return { available: false }
+    if (error.statusCode === 400 || error.code === 'wheelchair_profile_unavailable') return { available: false, reason: error.message }
     throw error
   }
 }

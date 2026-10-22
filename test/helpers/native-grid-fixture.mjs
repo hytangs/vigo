@@ -97,6 +97,6 @@ export function loadGridStreetIndex(binding, fixture, directory) {
     structurePath: path.join(directory, 'grid.cch.structure'),
     metricPath: path.join(directory, 'grid.cch.metric'),
   }
-  kernel.buildStreetCchIndex({ ...paths, orderStrategy: 'inertial' })
+  kernel.buildStreetCchIndex({ ...paths, orderStrategy: 'balanced' })
   return binding.CoordinateKernel.openPrepared(fixture.snapshotPath, paths)
 }

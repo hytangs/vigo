@@ -59,6 +59,13 @@ import { resolveServiceDay } from '../server/service-day.mjs'
 import type { ServiceDay } from '../domain'
 import type { RoutingExecutionStatus, RoutingPlan, RoutingPoint, RoutingTimePreference } from '../routingModel'
 
+// Studio preparation owns this process tree. Closing the parent must release
+// importer heaps and stop nested compilers, including during cancellation.
+if (process.send) {
+  process.once('disconnect', () => process.exit(1))
+  process.channel?.unref()
+}
+
 type CliArguments = Map<string, string[]>
 type RouteResult = {
   plan: RoutingPlan | undefined
@@ -1273,12 +1280,15 @@ function startJsonCompiler(command: string, compilerArguments: string[], label: 
     command,
     ...compilerArguments,
   ], {
-    stdio: ['ignore', 'pipe', 'inherit'],
+    stdio: ['ignore', 'pipe', 'inherit', 'ipc'],
   })
+  const stopChild = () => { child.kill() }
+  process.once('exit', stopChild)
+  child.once('close', () => process.removeListener('exit', stopChild))
   let stdout = ''
   let settled = false
-  child.stdout.setEncoding('utf8')
-  child.stdout.on('data', (chunk: string) => {
+  child.stdout!.setEncoding('utf8')
+  child.stdout!.on('data', (chunk: string) => {
     stdout += chunk
     if (stdout.length > 16 * 1024 * 1024) child.kill()
   })

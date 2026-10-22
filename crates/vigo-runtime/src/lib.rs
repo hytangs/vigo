@@ -4754,10 +4754,10 @@ impl CoordinateKernel {
                 .collect(),
         };
         let order_started = Instant::now();
-        let order_strategy = input.order_strategy.as_deref().unwrap_or("inertial");
+        let order_strategy = input.order_strategy.as_deref().unwrap_or("balanced");
         let order = match order_strategy {
             "degree" => cch::degree_order(&graph),
-            "inertial" => {
+            "inertial" | "balanced" => {
                 let mut tail = Vec::with_capacity(edge_targets.len());
                 for node in 0..self.snapshot.header.node_count {
                     tail.extend(std::iter::repeat_n(
@@ -4773,7 +4773,12 @@ impl CoordinateKernel {
                     .iter()
                     .map(|value| *value as f32)
                     .collect::<Vec<_>>();
-                cch::inertial_order(
+                let compute = if order_strategy == "balanced" {
+                    cch::order::balanced_inertial_order
+                } else {
+                    cch::inertial_order
+                };
+                compute(
                     self.snapshot.header.node_count as u32,
                     &tail,
                     edge_targets,
@@ -4783,7 +4788,7 @@ impl CoordinateKernel {
             }
             _ => {
                 return Err(Error::from_reason(
-                    "Street CCH orderStrategy must be inertial or degree.",
+                    "Street CCH orderStrategy must be balanced, inertial or degree.",
                 ));
             }
         };

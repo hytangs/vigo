@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync, spawn } from 'node:child_process'
+import { buildStudioWheelchair, wheelchairBuildSources } from '../src/server/studio-wheelchair-build.mjs'
 import { studioWheelchairAvailability, studioWheelchairSelection } from '../src/server/studio-wheelchair.mjs'
 import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
 import { once } from 'node:events'
@@ -24,6 +25,15 @@ for (const row of [
   { pathway_mode: 1, wheelchair_traversal_time: 20, max_slope: -.2 },
 ]) assert.equal(wheelchairPathwaySeconds(row), null)
 assert.equal(wheelchairPathwaySeconds({ pathway_mode: 5, wheelchair_traversal_time: 40 }), 40)
+assert.equal(wheelchairPathwaySeconds({ pathway_mode: 1, wheelchair_length: 40 }), 30)
+for (const row of [
+  { pathway_mode: 2, wheelchair_length: 40 }, { pathway_mode: 5, wheelchair_length: 40 },
+  { pathway_mode: 1, wheelchair_length: 40, stair_count: 1 },
+  { pathway_mode: 1, wheelchair_length: 40, max_slope: .2 },
+  { pathway_mode: 1, wheelchair_length: 40, min_width: .5 },
+  { pathway_mode: 1, wheelchair_length: 0 }, { pathway_mode: 1, wheelchair_length: -1 },
+  { pathway_mode: 1, wheelchair_length: 'invalid' }, { pathway_mode: 6 },
+]) assert.equal(wheelchairPathwaySeconds(row), null)
 assert.equal(wheelchairPathwaySeconds({ pathway_mode: 1, traversal_time: 15, max_slope: .02, min_width: 1.2 }), 15)
 assert.equal(wheelchairWayAllowed({ highway: 'footway', wheelchair: 'yes' }), true)
 for (const tags of [{ highway: 'footway' }, { highway: 'steps', wheelchair: 'yes' }, { wheelchair: 'limited' }, { wheelchair: 'yes', incline: '20%' }]) assert.equal(wheelchairWayAllowed(tags), false)
@@ -77,8 +87,19 @@ try {
     feeds: [{ id: 'feed', routingStore: { status: 'ready', fileName: 'feed.sqlite', sourceFingerprint: manifest.sources.gtfs[0].sha256 } }],
     osmStreetIndex: { status: 'ready', sourceFingerprint: manifest.sources.osm.sha256 } }
   fs.writeFileSync(path.join(studio, 'project.json'), JSON.stringify(project))
+  fs.mkdirSync(path.join(studio, 'jobs'))
+  fs.writeFileSync(path.join(studio, 'jobs', 'gtfs.json'), JSON.stringify({ kind: 'national-gtfs-import', status: 'complete', createdAt: '2026-07-01',
+    sourcePath: gtfsPath, result: { feedId: 'feed', store: { sourceFingerprint: manifest.sources.gtfs[0].sha256 } } }))
+  fs.writeFileSync(path.join(studio, 'jobs', 'osm.json'), JSON.stringify({ kind: 'national-osm-import', status: 'complete', createdAt: '2026-07-01',
+    sourcePath: osmPath, result: { sourceFingerprint: manifest.sources.osm.sha256 } }))
+  const sources = await wheelchairBuildSources(studio, project, { feedId: 'feed' })
+  assert.deepEqual(sources, { gtfs: gtfsPath, osm: osmPath, feedId: 'feed' })
+  await assert.rejects(wheelchairBuildSources(studio, project, { scenario: {} }), /one source timetable/)
+  await assert.rejects(wheelchairBuildSources(studio, { ...project, osmStreetIndex: { sourceFingerprint: 'changed' } }, {}), /Original source files/)
+  await assert.rejects(buildStudioWheelchair({ directory: studio, sources, readProject: async () => project,
+    signal: AbortSignal.abort(), onProgress: () => {} }), /abort/i)
   assert.throws(() => studioWheelchairSelection(studio, project, { wheelchair: true }), /no prepared wheelchair/)
-  assert.deepEqual(studioWheelchairAvailability(studio, project, {}), { available: false })
+  assert.equal(studioWheelchairAvailability(studio, project, {}).available, false)
   const attach = () => execFileSync(process.execPath, ['scripts/attach-studio-wheelchair.mjs', path.dirname(studio), accessible], { cwd: root })
   attach(); attach()
   assert(fs.readdirSync(studio).some(name => name.startsWith('wheelchair-backup-')))
@@ -88,12 +109,27 @@ try {
   assert.throws(() => studioWheelchairSelection(studio, { ...project, osmStreetIndex: {} }, { wheelchair: true }), /must match/)
   assert.deepEqual(studioWheelchairAvailability(studio, project, { feedId: 'feed' }), { available: true })
   for (const request of [{ feedId: 'unrelated' }, { mode: 'drive' }, { waypoints: [{}] }, { scenario: {} }]) {
-    assert.deepEqual(studioWheelchairAvailability(studio, project, request), { available: false })
+    assert.equal(studioWheelchairAvailability(studio, project, request).available, false)
   }
-  assert.deepEqual(studioWheelchairAvailability(studio, { ...project, osmStreetIndex: {} }, {}), { available: false })
+  assert.equal(studioWheelchairAvailability(studio, { ...project, osmStreetIndex: {} }, {}).available, false)
   const api = await startInMemoryVigoApi({ repositoryRoot: root, environment: {
     VIGO_PROJECTS_DIR: path.join(folder, 'cities'), VIGO_CONFIG_DIR: path.join(folder, 'config'), VIGO_ROUTE_PROJECT_PREWARM: '0' } })
   try {
+    fs.renameSync(path.join(studio, 'wheelchair'), path.join(studio, 'wheelchair-test-backup'))
+    const preparation = await api.requestJson('/api/projects/fixture/wheelchair-availability', { method: 'POST', body: { feedId: 'feed' } })
+    assert.equal(preparation.body.available, false)
+    assert.equal(preparation.body.canPrepare, true)
+    const started = await api.requestJson('/api/projects/fixture/wheelchair-prepare', { method: 'POST', body: { feedId: 'feed' } })
+    assert.equal(started.status, 202, JSON.stringify(started.body))
+    const deadline = Date.now() + 60000
+    let job
+    do {
+      await new Promise(resolve => setTimeout(resolve, 50))
+      const response = await api.requestJson(`/api/projects/fixture/national-gtfs-job?jobId=${started.body.job.id}`)
+      job = response.body.job
+    } while (['queued', 'running'].includes(job?.status) && Date.now() < deadline)
+    assert.equal(job?.status, 'complete', JSON.stringify(job))
+    assert(studioWheelchairSelection(studio, project, { wheelchair: true }))
     for (const [feedId, available] of [['feed', true], ['unrelated', false]]) {
       const capability = await api.requestJson('/api/projects/fixture/wheelchair-availability', { method: 'POST', body: { feedId } })
       assert.equal(capability.status, 200)

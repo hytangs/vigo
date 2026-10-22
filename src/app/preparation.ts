@@ -2,7 +2,7 @@ import type { JobRecord, VigoProject } from '../domain'
 
 export type PreparationTask = Omit<JobRecord, 'progress'> & { progress?: number; statusError?: string }
 export const isActiveTask = (task: Pick<JobRecord, 'status'>) => task.status === 'queued' || task.status === 'running'
-export const isPreparationJob = (job: JobRecord) => ['national-gtfs-import', 'national-osm-import', 'national-gtfs-merge'].includes(job.kind)
+export const isPreparationJob = (job: JobRecord) => ['national-gtfs-import', 'national-osm-import', 'national-gtfs-merge', 'wheelchair-prepare'].includes(job.kind)
 
 export function updateProjectJob(projects: VigoProject[], projectId: string, job: JobRecord) {
   return projects.map((project) => project.id === projectId

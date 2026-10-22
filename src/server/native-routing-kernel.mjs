@@ -1285,7 +1285,7 @@ export function buildNativeStreetCchIndex(storePath, options = {}) {
   const built = record.kernel.buildStreetCchIndex({
     structurePath: record.cchPaths.structurePath,
     metricPath: record.cchPaths.metricPath,
-    orderStrategy: String(options.orderStrategy ?? 'inertial'),
+    orderStrategy: String(options.orderStrategy ?? 'balanced'),
   })
   publishCchManifest({
     kind: 'street',
@@ -1305,6 +1305,7 @@ export function buildNativeStreetCchIndex(storePath, options = {}) {
     format: nativeStreetCchFormat,
     ...record.cchPaths,
     ...built,
+    orderStrategy: String(options.orderStrategy ?? 'balanced'),
     loaded: record.streetCch,
   }
 }

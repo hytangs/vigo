@@ -44,7 +44,7 @@ import { followActivePreparationJobs, registerStreetRetry, resetPreparation, syn
 import { registerRouteEngineReset, resetRoute, route, routeDateAlignment, routingStreetState, routeScenario } from './route'
 import { resetScenarioEditor } from './scenarioEditor'
 import { activeScenarioChange, cityGroupsValue, resetScenarios, scenarios, scenarioLibrary } from './scenarios'
-import { activePreparationJobIds, importJobs, preview, routingScope, selectedProject } from './scope'
+import { activePreparationJobIds, importJobs, preparationJobs, preview, routingScope, selectedProject } from './scope'
 import { navigation, resetShell, routeToolStorageKey, setApiError, shell } from './shell'
 
 /**
@@ -293,9 +293,10 @@ function NetworkRuntime() {
   const activeFeedId = useStore(city, (state) => state.activeFeedId)
   const cityPreviewLoading = useStore(city, (state) => Boolean(state.cityPreviewLoadingProjectId))
   const serviceDate = useStore(clock, (state) => state.serviceDate)
-  const { mapScope, vehicleMode, selectedRouteId, selectedStopId, realtimeRequest, scheduleLoadRequest, scheduleLoadRetry } = useStore(network, (state) => ({
+  const { mapScope, vehicleMode, isRealtimeLoading, selectedRouteId, selectedStopId, realtimeRequest, scheduleLoadRequest, scheduleLoadRetry } = useStore(network, (state) => ({
     mapScope: state.mapScope,
     vehicleMode: state.vehicleMode,
+    isRealtimeLoading: state.isRealtimeLoading,
     selectedRouteId: state.selectedRouteId,
     selectedStopId: state.selectedStopId,
     realtimeRequest: state.realtimeRequest,
@@ -303,20 +304,24 @@ function NetworkRuntime() {
     scheduleLoadRetry: state.scheduleLoadRetry,
   }), shallowEqual)
   const requestsKey = useStudio(scheduleRequestsKey)
+  const needsSchedules = page === 'project' && activeRouteTool === 'agency'
+    && vehicleMode === 'schedule' && !cityPreviewLoading && !isRealtimeLoading
+  const allSchedulesReady = currentPreview.routes.length > 0
+    && currentPreview.routes.every(entry => routeHasCompleteGtfsAnalysis(entry, currentPreview, serviceDate))
 
   // Network shows a full day of scheduled vehicles; load every route's day at once.
   useEffect(() => {
-    if (page !== 'project' || activeRouteTool !== 'agency' || vehicleMode !== 'schedule') return
+    if (!needsSchedules || allSchedulesReady) return
     const requests = (JSON.parse(requestsKey) as Array<{ feedId: string; routeId: string }>).filter((request) => request.feedId)
     if (!requests.length) return
     const key = JSON.stringify([projectId, serviceDate, requestsKey])
     network.set(({ scheduleLoadRequest: current }) => ({
       scheduleLoadRequest: current?.key === key ? current : { key, projectId, label: projectName, serviceDate, requests },
     }))
-  }, [page, activeRouteTool, vehicleMode, projectId, projectName, serviceDate, requestsKey])
+  }, [needsSchedules, allSchedulesReady, projectId, projectName, serviceDate, requestsKey])
 
   useEffect(() => {
-    if (!scheduleLoadRequest || scheduleLoadRequest.projectId !== projectId) return
+    if (!needsSchedules || allSchedulesReady || !scheduleLoadRequest || scheduleLoadRequest.projectId !== projectId) return
     const { label, requests } = scheduleLoadRequest
     const requestProjectId = scheduleLoadRequest.projectId
     const requestServiceDate = scheduleLoadRequest.serviceDate
@@ -357,10 +362,12 @@ function NetworkRuntime() {
     return () => {
       controller.abort()
       worker.terminate()
-      updatePendingPreparations((current) => current[taskKey]?.createdAt === task.createdAt && current[taskKey]?.status === 'running'
-        ? { ...current, [taskKey]: { ...current[taskKey], status: 'cancelled', phase: 'Schedule loading cancelled' } } : current)
+      updatePendingPreparations((current) => {
+        if (current[taskKey]?.createdAt !== task.createdAt || current[taskKey]?.status !== 'running') return current
+        const next = { ...current }; delete next[taskKey]; return next
+      })
     }
-  }, [scheduleLoadRequest, projectId, scheduleLoadRetry])
+  }, [needsSchedules, allSchedulesReady, scheduleLoadRequest, projectId, scheduleLoadRetry])
 
   // A focused route in Network shows every pattern; load its full analysis.
   useEffect(() => {
@@ -435,21 +442,27 @@ function RouteRuntime() {
   const wheelchairKey = useStudio(wheelchairSelectionKey)
   const availableKey = useStore(route, state => state.wheelchairAvailableKey)
   const wheelchairReady = wheelchairKey === availableKey
+  const checkedWheelchairKey = useRef('')
+  const wheelchairCompleted = useStudio(() => preparationJobs().filter(job => job.kind === 'wheelchair-prepare' && job.status === 'complete').map(job => job.id).join(','))
   useEffect(() => {
     const controller = new AbortController()
-    route.set({ wheelchairAvailableKey: '', routingWheelchair: false })
+    if (checkedWheelchairKey.current !== wheelchairKey) {
+      checkedWheelchairKey.current = wheelchairKey
+      route.set({ wheelchairAvailableKey: '', wheelchairPrepareKey: '', wheelchairReason: '', routingWheelchair: false })
+    }
     if (!project.id || !nationalRoutingFeed || (settings.routeScenarioId && !scenario.request)) return
-    void apiJson<{ available: boolean }>(`/api/projects/${encodeURIComponent(project.id)}/wheelchair-availability`, {
+    void apiJson<{ available: boolean; canPrepare?: boolean; reason?: string }>(`/api/projects/${encodeURIComponent(project.id)}/wheelchair-availability`, {
       method: 'POST', signal: controller.signal,
       body: JSON.stringify({ ...(scenario.request ? { feedIds: scenario.request.feedIds, scenario: scenario.request.scenario } : { feedId: nationalRoutingFeed.id }),
         mode: settings.routingMode, waypoints: settings.routingWaypoints }),
     }).then(result => {
       if (!controller.signal.aborted && wheelchairSelectionKey() === wheelchairKey) {
-        route.set({ wheelchairAvailableKey: result.available ? wheelchairKey : '' })
+        route.set({ wheelchairAvailableKey: result.available ? wheelchairKey : '',
+          wheelchairPrepareKey: result.canPrepare ? wheelchairKey : '', wheelchairReason: result.reason ?? '' })
       }
     }).catch(() => { /* Unknown capability stays hidden; routing still validates every request. */ })
     return () => controller.abort()
-  }, [wheelchairKey])
+  }, [wheelchairKey, wheelchairCompleted])
 
   const engine = useNationalRouting({
     active: Boolean(page === 'project' && nationalRoutingFeed && activeRouteTool === 'pathfinder'),

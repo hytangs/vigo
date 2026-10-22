@@ -38,6 +38,7 @@ The engine, the compiler, and Python open the same City directories. For the sam
 
 Every answer carries its evidence. A Route Result says whether each walk follows mapped streets or a schematic station link. A Matrix keeps unreachable pairs `null`, never zero. A Reach surface records its grid so that two runs can be compared cell by cell. [Known limits](#known-limits) state plainly what the model does not establish.
 
+- **Transfer correctness.** Fast scans and exceptional transfer searches share the same restrictions. See [transfer search and its conservative guards](reference/transfer-search.md).
 - **Stable data.** Compatible prepared Cities stay readable in V1 without rebuilding. See the [prepared-data contract](reference/city-format.md).
 - **Stable results.** The public `vigo.route.v1`, `vigo.matrix.v1`, and `vigo.reach.v1` schemas only gain optional fields. See [Read a Result](reference/results.md).
 - **Offline by default.** Queries never fetch anything. This guide works offline too: press `/` to search, and open saved Results in the [Result viewer](#inspect-a-saved-result).

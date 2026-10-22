@@ -17,6 +17,23 @@ alternative feeds. Selecting a different network does not reuse that wheelchair
 profile. Query-time scenario changes still require their own accessibility
 preparation; ordinary routes are never substituted for wheelchair requests.
 
+An ordinary City rebuild does not create a wheelchair profile. In Route's
+Journey settings, choose **Prepare wheelchair routing** to build one from the
+selected timetable's original GTFS ZIP and the City's original OSM PBF. Studio
+shows progress in Tasks and enables wheelchair routing after preparation. The
+ordinary City remains usable. Source fingerprints are checked before publication;
+changing either input requires preparing the profile again. If the original
+files have moved or were temporary uploads, reimport them from local files first.
+Unknown accessibility is excluded, so a prepared profile may still report no
+accessible journey. It must never substitute an ordinary walking route.
+
+When supplied, the optional `wheelchair_length` extension provides a wheelchair
+path distance; VIGO estimates its travel time at 4.8 km/h. A published wheelchair
+time takes precedence. Neither field overrides stairs, excessive slopes or narrow
+passages. Elevators still need a time, and unqualified gates remain excluded.
+For example, [MBTA documents these optional fields](https://github.com/mbta/gtfs-documentation/blob/master/reference/gtfs.md#pathwaystxt);
+they are not required for feeds using standard pathway dimensions and times.
+
 ## Timetable quality during preparation
 
 Preparation repairs small backward arrival or departure times with a cumulative
@@ -36,6 +53,12 @@ low-level compiler retains strict rejection by default; preparation explicitly
 selects the bounded repair policy.
 
 ## Walking access in prepared streets
+
+New pedestrian indexes use the same balanced inertial CCH ordering strategy as
+driving. The ordering controls preprocessing cost and shortcut count; it does not
+remove streets, change weights or approximate shortest paths. Existing indexes
+remain usable without rebuilding. Full inertial and degree ordering remain
+available to native callers for controlled comparisons.
 
 Walking preparation follows OSM mode-specific access precedence. An explicit
 pedestrian permission overrides general access restrictions, including general

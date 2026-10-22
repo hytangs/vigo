@@ -1419,7 +1419,9 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
           const chord = from && to && [from.lon, from.lat, to.lon, to.lat].every(Number.isFinite)
             ? haversineKm([from.lon, from.lat], [to.lon, to.lat]) * 1000 : null
           // Co-located station levels do not establish a zero-time connection.
-          const distanceM = wheelchair && seconds == null ? null : optionalCost(row.length, 'length') ?? (chord > 0 ? chord : null)
+          const distanceM = wheelchair && seconds == null ? null
+            : (wheelchair ? optionalCost(row.wheelchair_length, 'wheelchair_length') : null)
+              ?? optionalCost(row.length, 'length') ?? (chord > 0 ? chord : null)
           if (seconds == null && distanceM == null) {
             featureInventory.unpricedPathwayCount = (featureInventory.unpricedPathwayCount ?? 0) + 1
           }
