@@ -1222,6 +1222,17 @@ impl City {
             self.install_query_workspace();
             return Ok(());
         }
+        // Block adjacency is defined within a service_id. Read every static
+        // trip in those calendars, not every calendar stored in the City and
+        // not just the trips surviving realtime or the query horizon.
+        let linked_services: Vec<String> = instances
+            .as_ref()
+            .map_or_else(
+                || services.iter().cloned().collect::<BTreeSet<_>>(),
+                |items| items.iter().map(|i| i.service_id.clone()).collect(),
+            )
+            .into_iter()
+            .collect();
         let calendar_ms = started.elapsed().as_secs_f64() * 1000.;
         let source_started = std::time::Instant::now();
         let mut source_reused = false;
@@ -1307,9 +1318,15 @@ impl City {
             (arrays, names, Value::Null)
         };
         let linked_started = std::time::Instant::now();
-        let linked_candidates_reused = self.linked_candidates.is_some();
-        if self.linked_candidates.is_none() {
-            self.linked_candidates = Some(super::linked_trips::load_candidates(&self.db)?);
+        let linked_candidates_reused = self
+            .linked_candidates
+            .as_ref()
+            .is_some_and(|c| c.matches_services(&linked_services));
+        if !linked_candidates_reused {
+            self.linked_candidates = Some(super::linked_trips::load_candidates(
+                &self.db,
+                &linked_services,
+            )?);
         }
         let linked_candidates_ms = linked_started.elapsed().as_secs_f64() * 1000.;
         let links = super::linked_trips::compile(
@@ -1378,7 +1395,26 @@ impl City {
         }
         let index_ms = index_started.elapsed().as_secs_f64() * 1000.;
         let kernel_started = std::time::Instant::now();
-        let semantics = super::service::load(&self.db, &names, &links, &source, &service_offsets)?;
+        let permitted_paths = (!allow
+            || self.metadata["accessibility"]["profile"] == "wheelchair-strict-v1")
+            .then(|| {
+                (0..n)
+                    .flat_map(|from| {
+                        p.transfer_to
+                            [p.transfer_offset[from] as usize..p.transfer_offset[from + 1] as usize]
+                            .iter()
+                            .map(move |&to| (from as u32, to))
+                    })
+                    .collect::<HashSet<_>>()
+            });
+        let semantics = super::service::load(
+            &self.db,
+            &names,
+            &links,
+            &source,
+            &service_offsets,
+            permitted_paths.as_ref(),
+        )?;
         let mut kernel = TimetableKernel::new(TimetableKernelInput {
             stop_count: source.stop_count,
             run_count: source.run_count,

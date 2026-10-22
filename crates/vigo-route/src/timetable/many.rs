@@ -17,7 +17,6 @@ impl TimetableKernel {
         &mut self,
         input: &TimetableArriveByManyQueryInput,
     ) -> Result<TimetableArriveByManyQueryResult> {
-        let forbidden_same_stop = self.forbidden_same_stop.as_ref();
         let started = Instant::now();
         let origin_count = input.origin_offsets.len().saturating_sub(1);
         if origin_count == 0
@@ -54,8 +53,28 @@ impl TimetableKernel {
             ));
         }
         if self.service.is_some() {
-            return self.service_arrive_many(input);
+            let safe = self.ordinary_reverse_is_safe(
+                &input.destination_stops,
+                &input.destination_walk_seconds,
+                input.earliest,
+                input.deadline,
+                input.allow_post_ride_transfers.unwrap_or(true),
+                input.maximum_boardings,
+                &input.excluded_trips,
+            )?;
+            let mut result = if safe {
+                let service = self.service.take();
+                let result = self.route_arrive_by_many_csa_impl(input);
+                self.service = service;
+                self.record_ordinary_search();
+                result?
+            } else {
+                self.service_arrive_many(input)?
+            };
+            result.query_ns = started.elapsed().as_nanos() as f64;
+            return Ok(result);
         }
+        let forbidden_same_stop = self.forbidden_same_stop.as_ref();
         let maximum_layer = boarding_layers(input.maximum_boardings)?;
         let first_layer = usize::from(input.maximum_boardings.is_some());
         let workspace = &mut self.query.workspace;
@@ -191,15 +210,18 @@ impl TimetableKernel {
                                 boarding.generation = epoch;
                                 boarding.arrival = departure;
                             }
-                            if forbidden_same_stop[base_stop] == 0 {
+                            if transfer_allowed(forbidden_same_stop[base_stop] != 0, None, false) {
                                 relax_reverse_post_ride_deadline(
                                     workspace,
                                     epoch,
                                     &mut stats,
                                     stop,
-                                    departure
-                                        - f64::from(self.same_stop_transfer_minimum[base_stop])
-                                        - f64::from(self.minimum_transfer_buffer_seconds),
+                                    transfer_ready_time::<true>(
+                                        departure,
+                                        departure,
+                                        self.same_stop_transfer_minimum[base_stop],
+                                        self.minimum_transfer_buffer_seconds,
+                                    ),
                                     input.earliest,
                                 );
                             }
@@ -345,7 +367,26 @@ impl TimetableKernel {
         }
 
         if self.service.is_some() {
-            return self.service_many(input);
+            let safe = self.ordinary_forward_is_safe(
+                &input.origin_stops,
+                &input.origin_walk_seconds,
+                input.departure,
+                input.horizon,
+                input.allow_pre_ride_transfers,
+                input.maximum_boardings,
+                &input.excluded_trips,
+            )?;
+            let mut result = if safe {
+                let service = self.service.take();
+                let result = self.route_many_csa_impl(input);
+                self.service = service;
+                self.record_ordinary_search();
+                result?
+            } else {
+                self.service_many(input)?
+            };
+            result.query_ns = started.elapsed().as_nanos() as f64;
+            return Ok(result);
         }
         let maximum_layer = boarding_layers(input.maximum_boardings)?;
         let first_layer = usize::from(input.maximum_boardings.is_some());
@@ -583,7 +624,11 @@ impl TimetableKernel {
                                 let has_ride = state_flags & 4 != 0;
                                 if has_ride
                                     && state_flags & 1 != 0
-                                    && forbidden_same_stop[base_stop] == 1
+                                    && !transfer_allowed(
+                                        forbidden_same_stop[base_stop] != 0,
+                                        None,
+                                        false,
+                                    )
                                 {
                                     continue;
                                 }

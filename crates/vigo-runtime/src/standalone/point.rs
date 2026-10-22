@@ -610,7 +610,7 @@ fn reconstruct(
         let ride = chain.kinds[i] == 2;
         let arrival = chain.arrivals[i];
         let start = if ride {
-            if kernel.service_enabled() {
+            if kernel.is_headway_trip(chain.trips[i] as u32) {
                 arrival - f64::from(chain.durations[i])
             } else {
                 kernel.ride_departure(chain.trips[i] as u32, chain.board[i])?
@@ -736,6 +736,43 @@ mod tests {
             certified.forward_searches, 2,
             "scalar scan, then certification"
         );
+    }
+
+    #[test]
+    fn scoped_city_fast_witness_preserves_scheduled_ride_clocks() {
+        for arrive_by in [false, true] {
+            let mut kernel = kernel();
+            kernel
+                .set_service_semantics(vigo_route::timetable::ServiceSemantics {
+                    trip_routes: vec![0, 1, 2],
+                    rules: vec![vigo_route::timetable::TransferRule {
+                        from_stop: 1,
+                        to_stop: 1,
+                        from_trip: Some(0),
+                        to_trip: Some(1),
+                        from_route: None,
+                        to_route: None,
+                        kind: 2,
+                        minimum: 0,
+                        stop_depth: 0,
+                    }],
+                    ..Default::default()
+                })
+                .unwrap();
+            let result = route(
+                &mut kernel,
+                &TimetableMatrixQueryInput {
+                    arrive_by,
+                    ..input(None)
+                },
+            )
+            .unwrap()
+            .unwrap();
+            let journey = result.journeys.unwrap().remove(0).unwrap();
+            let ride = journey.legs.iter().find(|l| l.kind == "ride").unwrap();
+            assert_eq!((ride.departure, ride.arrival), (12., 40.));
+            assert_eq!(journey.ride_seconds, 28.);
+        }
     }
 
     #[test]

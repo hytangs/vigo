@@ -962,6 +962,9 @@ pub fn format_owned(kind: &str, request: &Value, mut raw: Value) -> Value {
         profile(&raw["timing"], "timing", &mut timings);
         profile(&plan["diagnostics"], "diagnostics", &mut timings);
         out["profile"] = json!({"timingsUs":timings,"note":"Measured scopes may overlap. Compute excludes public formatting, JSON serialization, queueing and network time."});
+        if raw["timing"]["routingDispatch"].is_object() {
+            out["profile"]["routingDispatch"] = raw["timing"]["routingDispatch"].clone();
+        }
     }
     if request["includeLimitations"] == true {
         out["datasetLimitations"] = raw.get("warnings").cloned().unwrap_or(json!([]));

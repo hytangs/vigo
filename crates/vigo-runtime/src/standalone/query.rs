@@ -178,7 +178,9 @@ impl City {
         if matches!(command, "route" | "matrix" | "reach" | "isochrone") {
             Options::parse_limited(&query, 4319.)?;
         }
-        let clock_date = if matches!(command, "route" | "matrix" | "reach" | "isochrone") {
+        let clock_date = if matches!(command, "route" | "matrix" | "reach" | "isochrone")
+            || (command == "native" && query["operation"] == "timetable.prepare")
+        {
             self.shift_early_arrival(command, &mut query)?
         } else {
             None
@@ -213,6 +215,10 @@ impl City {
             && matches!(request["diagnostics"].as_str(), Some("profile" | "trace"))
         {
             raw["timing"]["timetableActivationMs"] = json!(self.timetable_activation_ms);
+            raw["timing"]["routingDispatch"] = self.timetable.as_ref()
+                .and_then(|t| t.kernel.service_search_counts())
+                .map_or(json!({"semantics":"ordinary"}), |[ordinary, stateful]|
+                    json!({"semantics":"scoped","ordinarySearches":ordinary,"statefulSearches":stateful,"counts":"resident_timetable_cumulative"}));
             if !self.timetable_preparation_profile.is_null() {
                 raw["timing"]["timetablePreparation"] = self.timetable_preparation_profile.clone();
             }
@@ -1812,6 +1818,9 @@ impl City {
                 self.activate(q)?;
                 let t = self.timetable.as_mut().unwrap();
                 match operation {
+                    "timetable.prepare" => json!({"ready":true,
+                        "activationMs":self.timetable_activation_ms,
+                        "preparation":self.timetable_preparation_profile}),
                     "timetable.identifiers" => {
                         json!({"stopIds":&*t.stop_ids,"tripIds":&*t.trip_ids,"routeIds":&*t.route_ids,"accessMemberStopIds":self.members})
                     }

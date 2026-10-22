@@ -314,7 +314,10 @@ impl Labels {
         let source = self.arena[index];
         // In reverse, this is the next original boarding stop. A forbidden
         // interchange can still be a terminal access target, handled below.
-        if self.reverse && !initial && kernel.forbidden_same_stop[source.stop] != 0 {
+        if self.reverse
+            && !initial
+            && !transfer_allowed(kernel.forbidden_same_stop[source.stop] != 0, None, false)
+        {
             return Ok(());
         }
         let (offsets, edges) = if self.reverse {
@@ -937,7 +940,7 @@ impl TimetableKernel {
         for &i in candidates {
             let label = &labels.arena[i];
             if label.boardings > 0
-                && self.forbidden_same_stop[stop] != 0
+                && !transfer_allowed(self.forbidden_same_stop[stop] != 0, None, false)
                 && (!labels.reverse || !label.transfer)
             {
                 continue;

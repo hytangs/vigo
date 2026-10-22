@@ -642,6 +642,7 @@ fn merge_services(plans: &[Value], limit: usize) -> Vec<usize> {
             let simpler = ride_trips(other);
             let dominates = arrive(other) <= arrive(candidate)
                 && walking(other) <= walking(candidate)
+                && depart(other) >= depart(candidate)
                 && simpler.len() <= candidate_trips.len()
                 && (arrive(other) < arrive(candidate)
                     || walking(other) < walking(candidate)
@@ -654,12 +655,10 @@ fn merge_services(plans: &[Value], limit: usize) -> Vec<usize> {
             let returns = candidate["returnedStationCycle"].is_object();
             let needless_change = !simpler.is_empty()
                 && simpler.len() < candidate_trips.len()
-                && simpler.last().unwrap().is_string()
-                && simpler.last() == candidate_trips.last()
                 && simpler
                     .iter()
                     .all(|trip| trip.is_string() && candidate_trips.contains(trip));
-            returns || needless_change
+            returns || needless_change || family(other) == family(candidate)
         })
     });
     candidates.sort_by(|&a, &b| {
@@ -1443,6 +1442,59 @@ mod tests {
             ],
         );
         assert_eq!(merge_services(&[primary, detour], 10), vec![0]);
+    }
+
+    #[test]
+    fn merged_services_drop_dominated_stop_variants_but_keep_walking_tradeoffs() {
+        let best = plan(
+            480.,
+            vec![
+                ride("bus", "86", "A", "X", 481., 495.),
+                ride("rail", "Red", "X", "Y", 499., 520.),
+                ride("last", "15", "Y", "B", 522., 540.),
+                walk(540., 550.),
+            ],
+        );
+        let worse = plan(
+            480.,
+            vec![
+                ride("bus", "86", "A", "X", 481., 495.),
+                ride("rail", "Red", "X", "Y", 499., 520.),
+                ride("later", "15", "Y", "C", 524., 544.),
+                walk(544., 556.),
+            ],
+        );
+        let less_walk = plan(
+            480.,
+            vec![
+                ride("bus", "86", "A", "X", 481., 495.),
+                ride("rail", "Red", "X", "Y", 499., 520.),
+                ride("closest", "15", "Y", "D", 524., 550.),
+                walk(550., 552.),
+            ],
+        );
+        assert_eq!(merge_services(&[best, worse, less_walk], 10), vec![0, 2]);
+    }
+
+    #[test]
+    fn merged_services_drop_useless_extra_rides_but_keep_later_departures() {
+        let best = plan(
+            480.,
+            vec![ride("bus", "14", "A", "B", 481., 500.), walk(500., 510.)],
+        );
+        let extra = plan(
+            480.,
+            vec![
+                ride("bus", "14", "A", "B", 481., 500.),
+                ride("extra", "22", "B", "C", 502., 505.),
+                walk(505., 515.),
+            ],
+        );
+        let later = plan(
+            490.,
+            vec![ride("later", "14", "A", "B", 491., 505.), walk(505., 515.)],
+        );
+        assert_eq!(merge_services(&[best, extra, later], 10), vec![0, 2]);
     }
 
     #[test]

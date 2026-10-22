@@ -39,6 +39,44 @@ impl TimetableKernel {
                 "Rust timetable matrix arrays or size are inconsistent.",
             ));
         }
+        if self.service.is_some() {
+            // The union of endpoint candidates is an optimistic bound for
+            // every cell. Certify the entire request before either its bound
+            // searches or journey reconstruction can use the ordinary kernel.
+            let safe = if input.arrive_by {
+                self.ordinary_reverse_is_safe(
+                    &input.destination_stops,
+                    &input.destination_walk_seconds,
+                    input.departure,
+                    input.horizon,
+                    input
+                        .allow_post_ride_transfers
+                        .as_ref()
+                        .is_none_or(|a| a.iter().any(|x| *x)),
+                    input.maximum_boardings,
+                    &[],
+                )?
+            } else {
+                self.ordinary_forward_is_safe(
+                    &input.origin_stops,
+                    &input.origin_walk_seconds,
+                    input.departure,
+                    input.horizon,
+                    input.allow_pre_ride_transfers.iter().any(|x| *x),
+                    input.maximum_boardings,
+                    &[],
+                )?
+            };
+            if safe {
+                let service = self.service.take();
+                let result = self.route_matrix_csa(input);
+                self.service = service;
+                self.record_ordinary_search();
+                let mut result = result?;
+                result.query_ns = started.elapsed().as_nanos() as f64;
+                return Ok(result);
+            }
+        }
         let mut output = TimetableMatrixQueryResult {
             journeys: None,
             times: vec![

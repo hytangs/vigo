@@ -31,7 +31,27 @@ impl TimetableKernel {
         }
 
         if self.service.is_some() {
-            return self.service_arrive(&input);
+            let service = self.service.take();
+            let ordinary = self.route_arrive_by_csa(input.clone());
+            self.service = service;
+            let ordinary = ordinary?;
+            let safe = self.ordinary_reverse_is_safe(
+                &input.destination_stops,
+                &input.destination_walk_seconds,
+                ordinary.latest_departure.unwrap_or(input.earliest),
+                input.deadline,
+                input.allow_post_ride_transfers.unwrap_or(true),
+                input.maximum_boardings,
+                &[],
+            )?;
+            let mut result = if safe {
+                self.record_ordinary_search();
+                ordinary
+            } else {
+                self.service_arrive(&input)?
+            };
+            result.query_ns = started.elapsed().as_nanos() as f64;
+            return Ok(result);
         }
         if let Some(cap) = input.maximum_boardings {
             boarding_layers(Some(cap))?;
@@ -322,15 +342,18 @@ impl TimetableKernel {
                             }
                         }
 
-                        if forbidden_same_stop[stop] == 0 {
+                        if transfer_allowed(forbidden_same_stop[stop] != 0, None, false) {
                             relax_reverse_post_ride_deadline(
                                 workspace,
                                 epoch,
                                 &mut stats,
                                 stop,
-                                departure
-                                    - f64::from(same_stop_transfer_minimum[stop])
-                                    - f64::from(transfer_buffer_seconds),
+                                transfer_ready_time::<true>(
+                                    departure,
+                                    departure,
+                                    same_stop_transfer_minimum[stop],
+                                    transfer_buffer_seconds,
+                                ),
                                 input.earliest,
                             );
                         }

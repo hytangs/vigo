@@ -3122,7 +3122,7 @@ const nativePreparations = new Map()
 const preparingLayouts = new Map()
 const warmStops = new Map()
 
-/** A served stop of the store; a route from it to itself activates a date. */
+/** A served stop used to locate the driving network. */
 function warmStopId(storePath) {
   if (!warmStops.has(storePath)) {
     const db = new DatabaseSync(storePath, { readOnly: true })
@@ -3152,15 +3152,15 @@ function prepareNativeCity(selection, context) {
     nativePreparationStats.started += 1
     preparation = (async () => {
       const started = performance.now()
-      const stopId = context.serviceDate ? warmStopId(selection.storePath) : null
-      const request = stopId
-        ? { kind: 'route', mode: 'transit', origin: { stopId }, destination: { stopId }, serviceDate: context.serviceDate,
-            timeMinutes: 1439, maxWalkKm: 0, ...settings, ...(selection.wheelchair ? { wheelchair: true } : {}) }
+      const activate = Boolean(context.serviceDate)
+      const request = activate
+        ? { kind: 'native', operation: 'timetable.prepare', serviceDate: context.serviceDate,
+            timeMinutes: 1439, ...settings, ...(selection.wheelchair ? { wheelchair: true } : {}) }
         : { kind: 'info' }
       const trace = await queryNativeCity(selection, request, undefined, { afterPreparation: false })
       // An arrive-by deadline within the search horizon of midnight runs on the
       // preceding service day's clock: open that timetable too.
-      if (stopId && arriving) {
+      if (activate && arriving) {
         await queryNativeCity(selection, { ...request, timePreference: 'arrive_by', timeMinutes: 479 }, undefined,
           { afterPreparation: false })
       }
@@ -3169,8 +3169,8 @@ function prepareNativeCity(selection, context) {
         ready: true,
         runtime: 'rust',
         serviceDate: context.serviceDate ?? null,
-        timetableActivated: Boolean(stopId),
-      precedingDayActivated: Boolean(stopId && arriving),
+        timetableActivated: activate,
+        precedingDayActivated: activate && arriving,
         preparationMs: Number((performance.now() - started).toFixed(1)),
         cityRevision: trace?.cityRevision ?? trace?.revisionId ?? null,
       }

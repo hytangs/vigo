@@ -14,7 +14,7 @@ let records = 0
 const corpus = process.env.VIGO_SERVICE_CORPUS
 if (corpus) fs.mkdirSync(corpus, { recursive: true })
 try {
-  for (const variant of ['scoped', 'headway', 'headway-only', 'headway-overnight']) {
+  for (const variant of ['scoped', 'scoped-street', 'headway', 'headway-only', 'headway-overnight']) {
     const folder = path.join(dir, variant)
     fs.mkdirSync(folder)
     const inputs = await writeCliFixtureInputs(folder)
@@ -25,6 +25,11 @@ try {
       'trip_id,arrival_time,departure_time,stop_id,stop_sequence\nT0,07:59:00,07:59:00,A,1\nT0,08:09:00,08:09:00,X,2\nT1,08:00:00,08:00:00,A,1\nT1,08:10:00,08:10:00,X,2\nT2,08:15:00,08:15:00,X,1\nT2,08:30:00,08:30:00,B,2\n'
     )
     zip.file('transfers.txt', 'from_stop_id,to_stop_id,from_trip_id,to_trip_id,transfer_type\nX,X,T0,T2,3\n')
+    if (variant === 'scoped-street') {
+      zip.file('stops.txt', (await zip.file('stops.txt').async('string')) + 'Y,Separate street stop,38.905,-77.039\n')
+      zip.file('stop_times.txt', (await zip.file('stop_times.txt').async('string')).replace('T2,08:15:00,08:15:00,X,1', 'T2,08:15:00,08:15:00,Y,1'))
+      zip.file('transfers.txt', 'from_stop_id,to_stop_id,from_trip_id,to_trip_id,transfer_type,min_transfer_time\nX,Y,T0,T2,3,0\nX,Y,T1,T2,2,120\n')
+    }
     if (variant.startsWith('headway'))
       zip.file(
         'frequencies.txt',
@@ -106,6 +111,16 @@ try {
           r.journey.legs.filter((l) => l.type === 'transit').at(-1).quality.schedule,
           'headway_estimate'
         )
+    }
+    if (variant === 'scoped-street') {
+      for (const reverse of [false, true]) {
+        const blocked = await run({ ...base, allowStreetTransfers: false,
+          ...(reverse ? { timePreference: 'arrive_by', timeMinutes: 510 } : {}) })
+        assert.equal(blocked.status, 'not_found', JSON.stringify(blocked))
+      }
+      const restored = await run({ ...base, allowStreetTransfers: true })
+      assert.equal(restored.status, 'ok')
+      assert.deepEqual(restored.journey.legs.filter(l => l.type === 'transit').map(l => l.trip.id), ['T1', 'T2'])
     }
     const expected = variant === 'headway-only' ? 2220 : 1920
     const matrix = await run({

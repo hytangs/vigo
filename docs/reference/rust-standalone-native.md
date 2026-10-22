@@ -7,6 +7,7 @@ Use the [native operation reference](../guides/rust-standalone.md#18-native-oper
 | Operation | Input | Result |
 | --- | --- | --- |
 | `timetable.identifiers` | No input object | Active identifier arrays |
+| `timetable.prepare` | Service date and query settings; no input object | Ready state and preparation timing; no search |
 | `places.describe` | [DescribePlacesInput](#describeplacesinput) | [DescribePlacesResult](#describeplacesresult) |
 | `timetable.route` | [TimetableQueryInput](#timetablequeryinput) | [TimetableQueryResult](#timetablequeryresult) |
 | `timetable.arrive_by` | [TimetableArriveByQueryInput](#timetablearrivebyqueryinput) | [TimetableArriveByQueryResult](#timetablearrivebyqueryresult) |

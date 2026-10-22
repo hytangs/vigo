@@ -2013,7 +2013,10 @@ fn execute_marked_run_round(
         let mut earliest_ready = f64::INFINITY;
         let mut minimum_walking = f64::INFINITY;
         for flags in 0..STATE_STRIDE {
-            if flags & 4 != 0 && flags & 1 != 0 && forbidden_same_stop[stop] == 1 {
+            if flags & 4 != 0
+                && flags & 1 != 0
+                && !transfer_allowed(forbidden_same_stop[stop] != 0, None, false)
+            {
                 continue;
             }
             let state = stop * STATE_STRIDE + flags;
@@ -2084,7 +2087,10 @@ fn execute_marked_run_round(
                 let mut candidate = NO_STATE;
                 let mut candidate_walking = predecessor_walking;
                 for flags in 0..STATE_STRIDE {
-                    if flags & 4 != 0 && flags & 1 != 0 && forbidden_same_stop[stop] == 1 {
+                    if flags & 4 != 0
+                        && flags & 1 != 0
+                        && !transfer_allowed(forbidden_same_stop[stop] != 0, None, false)
+                    {
                         continue;
                     }
                     let state = stop * STATE_STRIDE + flags;
@@ -3226,6 +3232,32 @@ fn build_exact_deadline_corridor(
     }
 }
 
+/// Shared connection policy for every search strategy. The prepared graph
+/// owns physical paths and accessibility; a matched rule may change boarding
+/// permission, the minimum connection interval or the ordinary buffer.
+#[inline]
+fn transfer_allowed(forbidden: bool, kind: Option<u8>, require_rule: bool) -> bool {
+    match kind {
+        Some(3) => false,
+        Some(_) => true,
+        None => !forbidden && !require_rule,
+    }
+}
+
+#[inline]
+fn transfer_ready_time<const REVERSE: bool>(
+    clock: f64,
+    anchor: f64,
+    minimum: u32,
+    buffer: u32,
+) -> f64 {
+    if REVERSE {
+        clock.min(anchor - f64::from(minimum)) - f64::from(buffer)
+    } else {
+        clock.max(anchor + f64::from(minimum)) + f64::from(buffer)
+    }
+}
+
 fn boarding_ready_time(
     arrival: f64,
     has_ride: bool,
@@ -3233,18 +3265,17 @@ fn boarding_ready_time(
     minimum: u32,
     transfer_buffer_seconds: u32,
 ) -> f64 {
-    arrival
-        + if has_ride && transfer_episode_state {
-            f64::from(minimum)
-        } else {
-            0.0
-        }
-        + if has_ride {
-            f64::from(transfer_buffer_seconds)
-        } else {
-            0.0
-        }
+    if !has_ride {
+        return arrival;
+    }
+    transfer_ready_time::<false>(
+        arrival,
+        arrival,
+        if transfer_episode_state { minimum } else { 0 },
+        transfer_buffer_seconds,
+    )
 }
+
 pub struct TimetableKernel {
     service: Option<service::ServiceIndex>,
     stop_count: usize,

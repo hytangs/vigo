@@ -225,7 +225,7 @@ def native_contracts():
         register(response, True)
     lines = ['# Native Rust field reference', '', f'Generated for VIGO {VERSION} from public Rust structs. Regenerate with `npm run docs:standalone`.', '',
              'Use the [native operation reference](../guides/rust-standalone.md#18-native-operation-reference) for units, index domains, and examples. In requests, an optional field accepts omission or null. Result objects include every listed field; an unavailable optional value is null. Native arrays become JSON arrays, and non-finite result numbers become null. The runtime also checks compatible array lengths, indices, and values.', '',
-             '| Operation | Input | Result |', '| --- | --- | --- |', '| `timetable.identifiers` | No input object | Active identifier arrays |']
+             '| Operation | Input | Result |', '| --- | --- | --- |', '| `timetable.identifiers` | No input object | Active identifier arrays |', '| `timetable.prepare` | Service date and query settings; no input object | Ready state and preparation timing; no search |']
     for op, (request, response) in OPERATIONS.items():
         lines.append(f'| `{op}` | [{request}](#{request.lower()}) | [{response}](#{response.lower()}) |')
     for name in sorted(schemas):
@@ -312,6 +312,7 @@ def specification(native):
         'destination':ref('Point')},[],allOf=[{'oneOf':[{'required':['allDay']},clock_rule]},transit_date,mode_rule,{'oneOf':[{'required':['origin']},{'required':['destination']}]}])
     schemas['CompareRequest'] = obj({'kind':text(),'id':{},'before':ref('ReachResult'),'after':ref('ReachResult')},['before','after'])
     cases = [obj({'operation':{'const':'timetable.identifiers'},'serviceDate':{'type':'string','format':'date'},'kind':text(),'id':{}},['operation','serviceDate'],strict=False)]
+    cases.append(obj({'operation':{'const':'timetable.prepare'},'serviceDate':{'type':'string','format':'date'},'time':text(),'timeMinutes':number(0),'timePreference':text('depart_at','arrive_by'),'allowStreetTransfers':boolean(True),'minimumTransferBufferMinutes':number(0,60,0,integer=True),'kind':text(),'id':{}},['operation','serviceDate'],strict=False))
     for op,(request,response) in OPERATIONS.items():
         required=['operation','input'] + (['serviceDate'] if op.startswith('timetable.') else [])
         cases.append(obj({'operation':{'const':op},'input':ref(request),'serviceDate':{'type':'string','format':'date'},'kind':text(),'id':{},'allowStreetTransfers':boolean(True),'minimumTransferBufferMinutes':number(0,60,0,integer=True),'requireCompleteServiceCoverage':boolean()},required,strict=False))
@@ -381,7 +382,8 @@ def specification(native):
         'areas':ref('ReachAreas'),'fullAreas':ref('ReachAreas'),'contours':ref('ReachContours'),'fullContours':ref('ReachContours'),
         'diagnostics':{'type':'object'},'warnings':{}},['surface','stops'],strict=False)]}
     schemas['CompareResult'] = {'allOf':[ref('QueryMetadata'),obj({'schemaVersion':{'const':'vigo.standalone.comparison.v1'},'commonCells':number(0,integer=True),'newlyReachableCells':number(0,integer=True),'noLongerReachableCells':number(0,integer=True),'meanChangeMinutes':nullable_number,'deltaMinutes':array(nullable_number),'sign':{'const':'after-minus-before'},'bounds':array(number(),4,4),'width':number(1,integer=True),'height':number(1,integer=True)},['deltaMinutes','commonCells','newlyReachableCells','noLongerReachableCells'],strict=False)]}
-    schemas['NativeResult'] = {'allOf':[ref('QueryMetadata'),{'oneOf':[obj({'operation':{'const':op},'result':ref(response)},['operation','result'],strict=False) for op,(_,response) in OPERATIONS.items()]+[obj({'operation':{'const':'timetable.identifiers'},'result':obj({k:array(text()) for k in ['stopIds','tripIds','routeIds','accessMemberStopIds']},strict=False)},['operation','result'],strict=False)]}]}
+    schemas['TimetablePreparation'] = obj({'ready':boolean(),'activationMs':number(0),'preparation':{}},['ready','activationMs','preparation'],strict=False)
+    schemas['NativeResult'] = {'allOf':[ref('QueryMetadata'),{'oneOf':[obj({'operation':{'const':op},'result':ref(response)},['operation','result'],strict=False) for op,(_,response) in OPERATIONS.items()]+[obj({'operation':{'const':'timetable.prepare'},'result':ref('TimetablePreparation')},['operation','result'],strict=False),obj({'operation':{'const':'timetable.identifiers'},'result':obj({k:array(text()) for k in ['stopIds','tripIds','routeIds','accessMemberStopIds']},strict=False)},['operation','result'],strict=False)]}]}
     # Public projection is independent of the native witness schemas above.
     seconds = {'type':'integer','minimum':0}
     nullable_seconds = {'type':['integer','null'],'minimum':0}

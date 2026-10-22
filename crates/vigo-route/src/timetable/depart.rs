@@ -35,7 +35,13 @@ impl TimetableKernel {
         }
 
         if self.service.is_some() {
-            return self.service_scalar(input);
+            let mut result = if let Some(result) = self.guarded_scalar(input)? {
+                result
+            } else {
+                self.service_scalar(input)?
+            };
+            result.query_ns = started.elapsed().as_nanos() as f64;
+            return Ok(result);
         }
         if let Some(maximum) = input.maximum_boardings {
             boarding_layers(Some(maximum))?;
@@ -394,7 +400,10 @@ impl TimetableKernel {
                             active_states &= active_states - 1;
                             let state = stop * STATE_STRIDE + flags;
                             let has_ride = flags & 4 != 0;
-                            if has_ride && flags & 1 != 0 && forbidden_same_stop[stop] == 1 {
+                            if has_ride
+                                && flags & 1 != 0
+                                && !transfer_allowed(forbidden_same_stop[stop] != 0, None, false)
+                            {
                                 continue;
                             }
                             let needs_board_slack = flags & 1 != 0;

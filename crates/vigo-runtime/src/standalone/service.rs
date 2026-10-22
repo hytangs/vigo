@@ -2,7 +2,7 @@
 use super::{Result, linked_trips::Links};
 use crate::realtime::TimetableNames;
 use rusqlite::Connection;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use vigo_route::timetable::{HeadwayWindow, ServiceSemantics, TransferRule};
 
 pub(super) fn present(db: &Connection) -> Result<bool> {
@@ -31,6 +31,7 @@ pub(super) fn load(
     links: &Links,
     source: &vigo_format::ServiceTimetableResult,
     service_offsets: &HashMap<String, i32>,
+    permitted_paths: Option<&HashSet<(u32, u32)>>,
 ) -> Result<Option<ServiceSemantics>> {
     if !present(db)? {
         return Ok(None);
@@ -125,6 +126,15 @@ pub(super) fn load(
         }
         for &(from_stop, from_depth) in stops(&from) {
             for &(to_stop, to_depth) in stops(&to) {
+                // A transfer rule controls a connection; it cannot restore a
+                // street edge disabled by the caller or invent wheelchair
+                // access absent from the prepared physical graph.
+                if kind != 3
+                    && from_stop != to_stop
+                    && permitted_paths.is_some_and(|paths| !paths.contains(&(from_stop, to_stop)))
+                {
+                    continue;
+                }
                 for &from_trip in trips(&ft) {
                     for &to_trip in trips(&tt) {
                         if rules.len() >= 1_000_000 {

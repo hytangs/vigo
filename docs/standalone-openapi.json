@@ -8545,6 +8545,51 @@
             "type": "object",
             "properties": {
               "operation": {
+                "const": "timetable.prepare"
+              },
+              "serviceDate": {
+                "type": "string",
+                "format": "date"
+              },
+              "time": {
+                "type": "string"
+              },
+              "timeMinutes": {
+                "type": "number",
+                "minimum": 0
+              },
+              "timePreference": {
+                "type": "string",
+                "enum": [
+                  "depart_at",
+                  "arrive_by"
+                ]
+              },
+              "allowStreetTransfers": {
+                "type": "boolean",
+                "default": true
+              },
+              "minimumTransferBufferMinutes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 60,
+                "default": 0
+              },
+              "kind": {
+                "type": "string"
+              },
+              "id": {}
+            },
+            "required": [
+              "operation",
+              "serviceDate"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
                 "const": "places.describe"
               },
               "input": {
@@ -10554,6 +10599,26 @@
         ],
         "additionalProperties": true
       },
+      "TimetablePreparation": {
+        "type": "object",
+        "properties": {
+          "ready": {
+            "type": "boolean",
+            "default": false
+          },
+          "activationMs": {
+            "type": "number",
+            "minimum": 0
+          },
+          "preparation": {}
+        },
+        "required": [
+          "ready",
+          "activationMs",
+          "preparation"
+        ],
+        "additionalProperties": true
+      },
       "NativeResult": {
         "allOf": [
           {
@@ -10825,6 +10890,22 @@
                   },
                   "result": {
                     "$ref": "#/components/schemas/RealtimeTimetableResult"
+                  }
+                },
+                "required": [
+                  "operation",
+                  "result"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "operation": {
+                    "const": "timetable.prepare"
+                  },
+                  "result": {
+                    "$ref": "#/components/schemas/TimetablePreparation"
                   }
                 },
                 "required": [

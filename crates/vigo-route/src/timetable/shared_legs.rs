@@ -82,6 +82,41 @@ mod tests {
     }
 
     #[test]
+    fn scoped_transfers_do_not_erase_scheduled_departures() {
+        let mut kernel = kernel(4);
+        kernel
+            .set_service_semantics(ServiceSemantics {
+                trip_routes: vec![0; 4],
+                rules: vec![TransferRule {
+                    from_stop: 1,
+                    to_stop: 1,
+                    from_trip: Some(0),
+                    to_trip: Some(1),
+                    from_route: None,
+                    to_route: None,
+                    kind: 3,
+                    minimum: 0,
+                    stop_depth: 0,
+                }],
+                ..Default::default()
+            })
+            .unwrap();
+        let result = kernel.shared_ride_options(query()).unwrap();
+        assert_eq!(
+            result
+                .departures
+                .iter()
+                .map(|v| v.departure)
+                .collect::<Vec<_>>(),
+            [10., 11., 12., 13.]
+        );
+        assert!(
+            result.options.is_empty(),
+            "Segment evidence alone cannot certify scoped interchange replacements"
+        );
+    }
+
+    #[test]
     fn frequency_counts_segment_departures_independently_of_feasible_replacements() {
         let kernel = kernel(258);
         let mut q = query();
@@ -203,9 +238,6 @@ impl TimetableKernel {
             departures: vec![],
             departures_truncated: false,
         };
-        if self.service.is_some() {
-            return Ok(result);
-        }
         let (Some(first), Some(last)) = (first, last) else {
             return Ok(result);
         };
@@ -239,7 +271,10 @@ impl TimetableKernel {
             }
             let run = event.run as usize;
             for start in self.run_start[run] as usize..self.run_end[run] as usize {
-                if from[start] != stop as u32 || dep[start] != event.departure || board[start] == 0
+                if from[start] != stop as u32
+                    || dep[start] != event.departure
+                    || board[start] == 0
+                    || self.is_headway_trip(trips[start])
                 {
                     continue;
                 }
@@ -273,6 +308,11 @@ impl TimetableKernel {
                     result.departures.push(candidate.clone());
                 }
                 if candidate.arrival <= latest
+                    // Segment frequency is independent of interchange rules.
+                    // A replacement journey, however, needs its incoming and
+                    // onward scoped permissions checked as well. Do not claim
+                    // such a replacement from this segment-only query.
+                    && !self.service_enabled()
                     && !(trips[start] == q.trip && sequence[start] as f64 == q.board_sequence)
                 {
                     if result.options.len() == 256 {

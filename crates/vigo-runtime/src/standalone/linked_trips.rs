@@ -74,8 +74,9 @@ fn paths(
     Ok(())
 }
 
-/// Immutable source adjacency; active dates and realtime continuity are checked
-/// again for every timetable. Owned by the City and charged to its heap budget.
+/// Static adjacency for the requested service calendars. Each calendar includes
+/// all its source trips, including canceled trips, so filtering calendars cannot
+/// create a continuation across a missing vehicle.
 struct Candidate {
     from: String,
     to: String,
@@ -84,11 +85,16 @@ struct Candidate {
     first: Option<u32>,
 }
 
-pub(super) struct Candidates(Vec<Candidate>);
+pub(super) struct Candidates(Vec<Candidate>, Vec<String>);
 
 impl Candidates {
+    pub(super) fn matches_services(&self, services: &[String]) -> bool {
+        self.1 == services
+    }
     pub(super) fn estimated_bytes(&self) -> usize {
         self.0.capacity() * std::mem::size_of::<Candidate>()
+            + self.1.capacity() * std::mem::size_of::<String>()
+            + self.1.iter().map(String::capacity).sum::<usize>()
             + self
                 .0
                 .iter()
@@ -97,9 +103,9 @@ impl Candidates {
     }
 }
 
-pub(super) fn load_candidates(db: &Connection) -> Result<Candidates> {
+pub(super) fn load_candidates(db: &Connection, services: &[String]) -> Result<Candidates> {
     if !present(db)? {
-        return Ok(Candidates(Vec::new()));
+        return Ok(Candidates(Vec::new(), services.to_vec()));
     }
     let mut candidates = Vec::new();
     if has_table(db, "trip_links")? {
@@ -151,7 +157,8 @@ pub(super) fn load_candidates(db: &Connection) -> Result<Candidates> {
           SELECT t.trip_id,t.service_id,o.block_id,MIN(c.departure) AS departure,
             MAX(c.arrival) AS arrival,MAX(c.stop_sequence) AS terminal
           FROM trip_operations o JOIN trips t USING(trip_id) JOIN connections c USING(trip_id)
-          WHERE o.block_id IS NOT NULL GROUP BY t.trip_id
+          WHERE o.block_id IS NOT NULL
+            AND t.service_id IN (SELECT value FROM json_each(?1)) GROUP BY t.trip_id
         ), ordered AS (
           SELECT *,LEAD(trip_id) OVER w AS next,LEAD(departure) OVER w AS next_departure,
             LEAD(departure,2) OVER w AS following_departure,LAG(departure) OVER w AS previous_departure,
@@ -162,7 +169,7 @@ pub(super) fn load_candidates(db: &Connection) -> Result<Candidates> {
           AND (previous_departure IS NULL OR previous_departure<departure)
           AND (following_departure IS NULL OR next_departure<following_departure)
           AND (previous_arrival IS NULL OR previous_arrival<=departure)")?;
-        for row in statement.query_map([], |r| {
+        for row in statement.query_map([serde_json::to_string(services)?], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
@@ -199,7 +206,7 @@ pub(super) fn load_candidates(db: &Connection) -> Result<Candidates> {
             first,
         });
     }
-    Ok(Candidates(indexed))
+    Ok(Candidates(indexed, services.to_vec()))
 }
 
 pub(super) fn compile(
@@ -484,7 +491,12 @@ mod tests {
             &[86400, 87600],
             &["2026-07-15", "2026-07-16"],
         );
-        let links = compile(&load_candidates(&db).unwrap(), &mut a, &mut names).unwrap();
+        let links = compile(
+            &load_candidates(&db, &["S".into()]).unwrap(),
+            &mut a,
+            &mut names,
+        )
+        .unwrap();
         assert_eq!(links.len(), 1);
         assert_eq!(&*a.departure_seconds, &[85800, 86700, 85800, 86700]);
         assert_eq!(&*a.sequence, &[1, 1, 1, 2]);
@@ -499,18 +511,26 @@ mod tests {
         ] {
             let (db, mut a, mut names) = fixture(&departures, &arrivals, &dates);
             assert!(
-                compile(&load_candidates(&db).unwrap(), &mut a, &mut names)
-                    .unwrap()
-                    .is_empty()
+                compile(
+                    &load_candidates(&db, &["S".into()]).unwrap(),
+                    &mut a,
+                    &mut names
+                )
+                .unwrap()
+                .is_empty()
             );
             assert_eq!(a.run_count, 2);
         }
         let (db, mut a, mut names) = fixture(&[100, 200], &[200, 300], &["2026-07-15"; 2]);
         a.from_stop[1] = 0;
         assert_eq!(
-            compile(&load_candidates(&db).unwrap(), &mut a, &mut names)
-                .unwrap()
-                .len(),
+            compile(
+                &load_candidates(&db, &["S".into()]).unwrap(),
+                &mut a,
+                &mut names
+            )
+            .unwrap()
+            .len(),
             1
         );
     }
@@ -550,7 +570,12 @@ mod tests {
             if other_stop {
                 a.from_stop[1] = 0;
             }
-            let links = compile(&load_candidates(&db).unwrap(), &mut a, &mut names).unwrap();
+            let links = compile(
+                &load_candidates(&db, &["S".into()]).unwrap(),
+                &mut a,
+                &mut names,
+            )
+            .unwrap();
             assert_eq!(
                 links.len(),
                 usize::from(!forbidden && !other_date && !other_stop)
@@ -576,6 +601,7 @@ mod tests {
             ("J", "overlap", "S", 550, 600),
             ("K", "overlap", "S", 650, 700),
             ("L", "valid", "other", 200, 300),
+            ("M", "valid", "other", 400, 500),
         ] {
             db.execute("INSERT INTO trips VALUES(?,?)", (id, service))
                 .unwrap();
@@ -587,7 +613,7 @@ mod tests {
             )
             .unwrap();
         }
-        let candidates = load_candidates(&db).unwrap();
+        let candidates = load_candidates(&db, &["S".into()]).unwrap();
         let mut pairs: Vec<_> = candidates
             .0
             .iter()
@@ -595,6 +621,11 @@ mod tests {
             .collect();
         pairs.sort_unstable();
         assert_eq!(pairs, [("A", "B"), ("B", "C"), ("J", "K")]);
+        assert!(candidates.matches_services(&["S".into()]));
+        assert!(!candidates.matches_services(&["other".into()]));
+        let other = load_candidates(&db, &["other".into()]).unwrap();
+        assert_eq!(other.0.len(), 1);
+        assert_eq!((&*other.0[0].from, &*other.0[0].to), ("L", "M"));
     }
 
     #[test]
@@ -604,6 +635,13 @@ mod tests {
         a.to_stop = vec![0, 0].into();
         db.execute("INSERT INTO trip_links VALUES('B','A',4)", [])
             .unwrap();
-        assert!(compile(&load_candidates(&db).unwrap(), &mut a, &mut names).is_err());
+        assert!(
+            compile(
+                &load_candidates(&db, &["S".into()]).unwrap(),
+                &mut a,
+                &mut names
+            )
+            .is_err()
+        );
     }
 }
