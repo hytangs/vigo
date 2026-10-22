@@ -63,7 +63,7 @@ export function resetScenarioEditor() {
   roadTrace?.abort()
   roadTrace = null
   roadTraceRequestId += 1
-  window.clearTimeout(autoTraceTimer)
+  globalThis.clearTimeout(autoTraceTimer)
   scenarioEditor.set({ placement: null, drawing: false, pickedRouteId: '' })
 }
 
@@ -375,7 +375,7 @@ export function updateScenarioChange(interventionId: string, patch: Partial<Scen
  * keep the explicit Trace action: their path mixes GTFS shape and roads.
  */
 function scheduleAutoTrace(interventionId: string) {
-  window.clearTimeout(autoTraceTimer)
+  globalThis.clearTimeout(autoTraceTimer)
   autoTraceTimer = window.setTimeout(() => {
     if (scenarioEditor.get().drawing) return
     const change = activeScenario()?.interventions.find((entry) => entry.id === interventionId)

@@ -136,13 +136,13 @@ try {
     await read('{const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value").set;for(const [type,value] of [["time","14:25"],["date","2026-10-20"]]){const input=document.querySelector("[type="+type+"]");set.call(input,value);input.dispatchEvent(new Event("input",{bubbles:true}))}}');
     await until(()=>read('document.querySelector("[type=time]").value==="14:25"&&document.querySelector("[type=date]").value==="2026-10-20"'));
 
-    await read('{const select=document.querySelector("[id$=-network]");select.value="";select.dispatchEvent(new Event("change",{bubbles:true}))}');
+    await read('{const select=document.querySelector("select[aria-label^=Route]");select.value="";select.dispatchEvent(new Event("change",{bubbles:true}))}');
     await until(()=>read('[...document.querySelectorAll("button")].find(button=>button.textContent==="Now").disabled===false'));
-    await read('{const select=document.querySelector("[id$=-network]");select.value="feed:alternative";select.dispatchEvent(new Event("change",{bubbles:true}))}');
+    await read('{const select=document.querySelector("select[aria-label^=Route]");select.value="feed:alternative";select.dispatchEvent(new Event("change",{bubbles:true}))}');
     await until(()=>read('window.selectionRequests.at(-1).feedIds?.[0]==="alternative"'));
     assert.equal(await read('window.selectionRequests.at(-1).feedId'),undefined);
     assert.equal(await read('window.readinessRequests.at(-1).feedIds[0]'),'alternative','Readiness and routing must use the same network');
-    await read('{const select=document.querySelector("[id$=-network]");select.value="";select.dispatchEvent(new Event("change",{bubbles:true}))}');
+    await read('{const select=document.querySelector("select[aria-label^=Route]");select.value="";select.dispatchEvent(new Event("change",{bubbles:true}))}');
     await until(()=>read('window.selectionRequests.at(-1).feedId==="fixture"'));
     for(const appearance of ['dark','light']) {
       await read('document.querySelector("main").className="app-shell appearance-'+appearance+' accent-graphite page-project view-pathfinder"; document.documentElement.dataset.appearance="'+appearance+'"');

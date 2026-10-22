@@ -624,6 +624,16 @@ fn returned_station_cycle(city: &City, v: &Value) -> Option<Value> {
     None
 }
 
+// Match the displayed feasible leave time: defer a leading walk to the
+// first boarding, without altering the exact query or returned leg clocks.
+fn choice_depart(v: &Value) -> f64 {
+    if legs(v).first().is_some_and(|leg| leg["kind"] == "walk") {
+        latest_catch(v).unwrap_or_else(|| depart(v)).max(depart(v))
+    } else {
+        depart(v)
+    }
+}
+
 /// Distinct, nondominated services from a window's choices and ranked
 /// alternatives. The first plan, the exact primary witness, always stays.
 fn merge_services(plans: &[Value], limit: usize) -> Vec<usize> {
@@ -645,7 +655,7 @@ fn merge_services(plans: &[Value], limit: usize) -> Vec<usize> {
             let simpler = ride_trips(other);
             let dominates = arrive(other) <= arrive(candidate)
                 && walking(other) <= walking(candidate)
-                && depart(other) >= depart(candidate)
+                && choice_depart(other) >= choice_depart(candidate)
                 && simpler.len() <= candidate_trips.len()
                 && (arrive(other) < arrive(candidate)
                     || walking(other) < walking(candidate)
@@ -656,15 +666,20 @@ fn merge_services(plans: &[Value], limit: usize) -> Vec<usize> {
             // only selects optional alternatives; exact clocks and the primary
             // witness above remain untouched.
             if family(other) == family(candidate) {
-                let metrics =
-                    |v: &Value| [arrive(v).floor(), walking(v).round(), -depart(v).floor()];
+                let metrics = |v: &Value| {
+                    [
+                        arrive(v).round(),
+                        walking(v).round(),
+                        -choice_depart(v).round(),
+                    ]
+                };
                 let (a, b) = (metrics(other), metrics(candidate));
                 let no_worse =
                     a.iter().zip(b).all(|(a, b)| *a <= b) && simpler.len() <= candidate_trips.len();
                 let preferred_tie = arrive(other)
                     .total_cmp(&arrive(candidate))
                     .then(walking(other).total_cmp(&walking(candidate)))
-                    .then(depart(candidate).total_cmp(&depart(other)))
+                    .then(choice_depart(candidate).total_cmp(&choice_depart(other)))
                     .then(j.cmp(&i))
                     .is_lt();
                 return no_worse
@@ -935,7 +950,11 @@ impl City {
         if extra.is_empty() {
             return Ok(result);
         }
-        let mut choices: Vec<Value> = baseline.into_iter().chain(extra).collect();
+        let combined: Vec<Value> = baseline.into_iter().chain(extra).collect();
+        let mut choices: Vec<Value> = merge_services(&combined, MAXIMUM_MERGED_CHOICES)
+            .into_iter()
+            .map(|i| combined[i].clone())
+            .collect();
         choices.sort_by(|l, r| {
             arrive(l)
                 .total_cmp(&arrive(r))
@@ -1496,11 +1515,11 @@ mod tests {
     fn merged_services_collapse_subminute_variants_without_changing_primary() {
         let primary = plan(
             480.,
-            vec![ride("a", "15", "A", "B", 481., 500.), walk(500., 510.4)],
+            vec![ride("a", "15", "A", "B", 481., 500.), walk(500., 510.2)],
         );
         let variant = plan(
             480.,
-            vec![ride("a", "15", "A", "C", 481., 500.5), walk(500.5, 510.6)],
+            vec![ride("a", "15", "A", "C", 481., 500.5), walk(500.5, 510.4)],
         );
         let later = plan(
             482.,
@@ -1512,7 +1531,7 @@ mod tests {
         );
         let other_line = plan(
             480.,
-            vec![ride("c", "17", "A", "C", 481., 500.5), walk(500.5, 510.6)],
+            vec![ride("c", "17", "A", "C", 481., 500.5), walk(500.5, 510.4)],
         );
         let duplicate = primary.clone();
         assert_eq!(
@@ -1521,6 +1540,32 @@ mod tests {
                 10
             ),
             vec![0, 4, 3, 2]
+        );
+    }
+
+    #[test]
+    fn merged_services_compare_displayed_leave_times_and_rounded_clocks() {
+        let primary = plan(480., vec![ride("p", "Rail", "A", "B", 480., 530.)]);
+        let more_walk = plan(
+            480.,
+            vec![
+                walk(480., 482.),
+                ride("a", "51", "A", "B", 490., 534.9),
+                walk(534.9, 549.9),
+            ],
+        );
+        let less_walk = plan(
+            488.,
+            vec![
+                walk(488., 490.),
+                ride("a", "51", "A", "C", 490., 542.1),
+                walk(542.1, 550.1),
+            ],
+        );
+        assert_eq!(choice_depart(&more_walk), choice_depart(&less_walk));
+        assert_eq!(
+            merge_services(&[primary, more_walk, less_walk], 10),
+            vec![0, 2]
         );
     }
 

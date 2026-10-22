@@ -15,7 +15,7 @@ const config = { schemaVersion: 'vigo.config.v1', configured: true, setupRequire
 let savedScenarios = { library: null, revision: 0 }
 window.fetch = async (input, options = {}) => {
   const url = String(input)
-  if (url === '/api/health') return Response.json({ ok: true, version: '0.5.0', config, offline: config.offline })
+  if (url === '/api/health') return Response.json({ ok: true, version: '1.0.0-rc.1', config, offline: config.offline })
   if (url === '/api/config') return Response.json({ config })
   if (url === '/api/projects') return Response.json({ projects: [project] })
   if (url === '/api/projects/test-city') return Response.json({ project })
@@ -68,14 +68,20 @@ window.checkAnalysisRequest = async () => {
   flushSync(() => document.querySelector('.reach-run').click())
   await until(() => requests.length === 1 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
   assert(!document.querySelector('.reach-mode-tabs'), 'Retired Compare switch is still visible')
-  document.querySelector('.reach-scenario-builder').open = true
+  const openView = name => flushSync(() => document.querySelector('.sidebar-rail [aria-label="' + name + '"]').click())
+  openView('Scenarios')
+  await until(() => document.querySelector('.scenario-network-settings'))
   const feedBox = () => [...document.querySelectorAll('.scenario-network-settings label')].find(label => label.textContent === 'first').querySelector('input')
   flushSync(() => feedBox().click())
+  openView('Analyze')
   await until(() => !document.querySelector('.reach-run').disabled)
   flushSync(() => document.querySelector('.reach-run').click())
   await until(() => requests.length === 2 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
   assert(requests[1].feedIds.join() === 'second' && requests[1].baselineFeedIds.join() === 'first,second', 'Network remix lost its baseline or selected feeds')
+  openView('Scenarios')
+  await until(() => document.querySelector('.scenario-network-settings'))
   flushSync(() => feedBox().click())
+  openView('Analyze')
   for (const request of requests) {
     assert(JSON.stringify(request.cutoffsMinutes) === '[10,20,30,37.25]', 'Reach must band below the exact budget')
   }

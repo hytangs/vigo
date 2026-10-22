@@ -12,8 +12,8 @@ const until = async read => { const deadline = Date.now()+5000; while(Date.now()
 const click = selector => { const node=document.querySelector(selector); assert(node,'Missing '+selector); flushSync(()=>node.click()) }
 const type = (selector,value) => { const element=document.querySelector(selector); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(element,value); flushSync(()=>element.dispatchEvent(new Event('input',{bubbles:true}))) }
 function openData() {
-  document.querySelector('.reach-scenario-builder').open=true
-  click('.city-case-group-link')
+  click('.sidebar-rail [aria-label="Scenarios"]')
+  click('.scenario-section[aria-label="Timetables"] button')
 }
 window.checkCaseRequest = async () => {
   await window.checkAnalysisRequest()
@@ -27,6 +27,7 @@ window.checkCaseRequest = async () => {
   select.value=[...select.options].find(option=>option.textContent==='Second timetable').value
   flushSync(()=>select.dispatchEvent(new Event('change',{bubbles:true})))
   click('.city-case-entry > button')
+  click('.sidebar-rail [aria-label="Analyze"]')
   await until(()=>document.querySelector('.reach-run') && !document.querySelector('.reach-run').disabled)
   const before=requests.length
   click('.reach-run')
@@ -38,6 +39,7 @@ window.checkCaseRequest = async () => {
   click('.city-data-actions > .city-data-text-action')
   click('.city-group-feed:nth-of-type(2) input'); click('.city-group-dialog button[type=submit]')
   click('.city-data-switch button:last-child'); click('.city-case-entry > button')
+  click('.sidebar-rail [aria-label="Analyze"]')
   await until(()=>document.querySelector('.reach-run'))
   const count=requests.length
   click('.reach-run')

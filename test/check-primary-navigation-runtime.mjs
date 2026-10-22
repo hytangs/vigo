@@ -21,7 +21,7 @@ function Fixture(){
   React.createElement('header',{className:'topbar'},'Synthetic City'),
   React.createElement('div',{className:'shell-body'},
    React.createElement('aside',{className:'app-sidebar'},
-    React.createElement(PrimaryNav,{page:'project',activeRouteTool:view,hasActiveData:true,onOpenNetwork:()=>setView('agency'),onOpenRouting:()=>setView('pathfinder'),onOpenAnalyze:()=>setView('analyze'),onOpenSettings:()=>setView('data')}),
+    React.createElement(PrimaryNav,{page:'project',activeRouteTool:view,hasActiveData:true,onOpenNetwork:()=>setView('agency'),onOpenRouting:()=>setView('pathfinder'),onOpenAnalyze:()=>setView('analyze'),onOpenScenarios:()=>setView('scenarios'),onOpenSettings:()=>setView('data')}),
     ['pathfinder','analyze'].includes(view)?React.createElement('section',{className:'sidebar-panel'},React.createElement('h2',null,view),React.createElement('label',null,'Fixture input',React.createElement('input'))):null),
    React.createElement('div',{className:'app-frame'},React.createElement('section',{className:'project-workbench'},'Workspace'))));
 }
@@ -30,7 +30,7 @@ window.checkNavigation=async()=>{
  const nav=document.querySelector('.sidebar-rail');
  if(!nav) throw Error('Navigation missing');
  const buttons=[...nav.querySelectorAll('button')],names=buttons.map(b=>b.getAttribute('aria-label'));
- if(names.join(',')!=='Network,Route,Analyze,Settings') throw Error('Unexpected destinations');
+ if(names.join(',')!=='Network,Route,Analyze,Scenarios,Settings') throw Error('Unexpected destinations');
  for(const button of buttons){
   const name=button.getAttribute('aria-label');
   if(button.textContent.trim()||!button.querySelector('svg')) throw Error('Primary navigation must stay icon-only');
