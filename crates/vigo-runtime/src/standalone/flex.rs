@@ -133,8 +133,11 @@ impl City {
         let destinations = q["destinations"]
             .as_array()
             .ok_or("destinations required")?;
-        if origins.len().saturating_mul(destinations.len()) > 4096 {
-            return fail("Flex Matrix supports at most 4096 cells");
+        if origins.is_empty()
+            || destinations.is_empty()
+            || origins.len().saturating_mul(destinations.len()) > 4096
+        {
+            return fail("Flex Matrix must contain 1..4096 cells");
         }
         let mut ordinary = q.clone();
         ordinary.as_object_mut().unwrap().remove("flex");

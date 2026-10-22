@@ -41,6 +41,9 @@ try {
   const {origin,destination,...options}=base
   const matrix=query('matrix',{...options,origins:[origin],destinations:[destination],includeJourneys:true})
   assert.equal(matrix.trace.durationsMinutes[0][0],route.trace.arrivalMinutes-480)
+  for (const [origins,destinations] of [[[],[destination]],[[origin],[]]]) {
+    assert.throws(()=>query('matrix',{...options,origins,destinations}),/1\.\.4096/)
+  }
   const reverse=query('route',{...base,time:'09:00',timePreference:'arrive_by'})
   assert.equal(reverse.trace.status,'ready')
   assert(reverse.trace.arrivalMinutes<=540)
