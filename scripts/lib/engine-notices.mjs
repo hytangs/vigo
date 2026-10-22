@@ -38,8 +38,9 @@ export async function engineNotices(root, rustTarget) {
   // HTTP uses only Node built-ins and the same resident CLI protocol.
   for (const dependency of ['jszip', 'papaparse', 'pbf']) await npm(dependency, root)
   const cargo = process.env.VIGO_CARGO || path.join(os.homedir(), '.cargo', 'bin', process.platform === 'win32' ? 'cargo.exe' : 'cargo')
-  // All features: packages ship both the Node addon and the `vigo` executable.
-  const result = await run(cargo, ['metadata', '--locked', '--offline', '--all-features', '--filter-platform', rustTarget, '--format-version=1'], {
+  // Select shipped runtime features, not every optional feature in the workspace.
+  // Both the Node addon and standalone executable have already been built.
+  const result = await run(cargo, ['metadata', '--locked', '--offline', '--no-default-features', '--features', 'node,standalone', '--filter-platform', rustTarget, '--format-version=1'], {
     cwd: path.join(root, 'crates/vigo-runtime'), timeout: 60000, maxBuffer: 16 * 1024 * 1024,
   })
   const metadata = JSON.parse(result.stdout)
