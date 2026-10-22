@@ -16,10 +16,7 @@
     },
     "dataPreparation": "Load a prepared City. Raw GTFS/OSM import remains a separate build step.",
     "flex": {
-      "commands": [
-        "route",
-        "matrix"
-      ],
+      "commands": ["route","matrix"],
       "conditionalBooking": true,
       "confirmsAvailability": false,
       "continuousStopping": true,
@@ -43,7 +40,7 @@
       "traffic": true
     },
     "modes": ["transit","walk","drive"],
-    "nativeOperations": ["places.describe","timetable.identifiers","timetable.route","timetable.arrive_by","timetable.matrix","timetable.many","timetable.arrive_by_many","timetable.pareto","timetable.overlay","access.endpoint","access.endpoints","street.path","street.matrix","street.surface","street.connectors","drive.route","drive.matrix","realtime.compile"],
+    "nativeOperations": ["places.describe","timetable.identifiers","timetable.prepare","timetable.route","timetable.arrive_by","timetable.matrix","timetable.many","timetable.arrive_by_many","timetable.pareto","timetable.overlay","access.endpoint","access.endpoints","street.path","street.matrix","street.surface","street.connectors","drive.route","drive.matrix","realtime.compile"],
     "output": {
       "clock": "service-day HH:MM:SS; hours can exceed 23",
       "diagnostics": ["none","summary","profile","trace"],

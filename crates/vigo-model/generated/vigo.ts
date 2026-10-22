@@ -768,6 +768,7 @@ export interface PreparedTraffic {
  */
 export interface Profile {
   note: string;
+  routingDispatch?: RoutingDispatch;
   /** Dotted scope names to integer microseconds. */
   timingsUs: Record<string, number>;
 }
@@ -1152,6 +1153,19 @@ export interface RouteResult {
   /** Qualifications of the returned journey. */
   warnings?: Notice[];
 }
+
+/**
+ * Result-search dispatch for the resident timetable, excluding certificate scans.
+ */
+export type RoutingDispatch = {
+  semantics: "ordinary";
+} | {
+  /** `resident_timetable_cumulative`; resets when the timetable is replaced. */
+  counts: string;
+  ordinarySearches: number;
+  semantics: "scoped";
+  statefulSearches: number;
+};
 
 export interface SampledAlternatives {
   coverage: string;

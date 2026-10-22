@@ -99,3 +99,22 @@ fn corpus_round_trips_through_the_model() {
         "{checked} records round-trip; {rejected_requests} invalid requests rejected by both"
     );
 }
+
+#[test]
+fn routing_profile_preserves_absent_ordinary_and_scoped_dispatch() {
+    for dispatch in [
+        None,
+        Some(serde_json::json!({"semantics": "ordinary"})),
+        Some(serde_json::json!({
+            "semantics": "scoped", "ordinarySearches": 7, "statefulSearches": 2,
+            "counts": "resident_timetable_cumulative"
+        })),
+    ] {
+        let mut profile = serde_json::json!({"timingsUs": {}, "note": "Scopes may overlap."});
+        if let Some(dispatch) = dispatch {
+            profile["routingDispatch"] = dispatch;
+        }
+        let changes = round_trip::<vigo_model::Profile>(&profile).unwrap();
+        assert!(changes.is_empty(), "{}", changes.join("\n"));
+    }
+}

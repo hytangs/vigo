@@ -182,6 +182,9 @@
     "mode": "transit",
     "profile": {
       "note": "Measured scopes may overlap. Compute excludes public formatting, JSON serialization, queueing and network time.",
+      "routingDispatch": {
+        "semantics": "ordinary"
+      },
       "timingsUs": {
         "diagnostics.surface.envelopeUs": 0,
         "diagnostics.surface.propagationUs": 0,

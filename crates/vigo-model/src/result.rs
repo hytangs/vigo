@@ -274,6 +274,23 @@ pub struct Profile {
     /// Dotted scope names to integer microseconds.
     pub timings_us: BTreeMap<String, i64>,
     pub note: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing_dispatch: Option<RoutingDispatch>,
+}
+
+/// Result-search dispatch for the resident timetable, excluding certificate scans.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "semantics", rename_all = "snake_case")]
+pub enum RoutingDispatch {
+    Ordinary,
+    Scoped {
+        #[serde(rename = "ordinarySearches")]
+        ordinary_searches: u64,
+        #[serde(rename = "statefulSearches")]
+        stateful_searches: u64,
+        /// `resident_timetable_cumulative`; resets when the timetable is replaced.
+        counts: String,
+    },
 }
 
 /// How a place attached to the street network, reported when access fails.

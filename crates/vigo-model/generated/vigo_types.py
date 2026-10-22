@@ -404,17 +404,6 @@ OutputCapabilities = TypedDict(
     },
 )
 
-# Measured timings, with `diagnostics: "profile"` or `"trace"`. Scopes can
-# overlap; do not add them.
-Profile = TypedDict(
-    "Profile",
-    {
-        "note": str,
-        # Dotted scope names to integer microseconds.
-        "timingsUs": dict[str, int],
-    },
-)
-
 QueryStatus = Literal["ok"] | Literal["not_found"]
 
 ReachCapabilities = TypedDict(
@@ -461,6 +450,9 @@ ResourcePolicy = TypedDict(
         "swapCountsAsRam": bool,
     },
 )
+
+# Result-search dispatch for the resident timetable, excluding certificate scans.
+RoutingDispatch = dict[str, Any]
 
 SampledAlternatives = TypedDict(
     "SampledAlternatives",
@@ -808,6 +800,18 @@ PreparedTraffic = TypedDict(
         "source": NotRequired[str],
         "streetSourceFingerprint": str,
         "ttlSeconds": NotRequired[float],
+    },
+)
+
+# Measured timings, with `diagnostics: "profile"` or `"trace"`. Scopes can
+# overlap; do not add them.
+Profile = TypedDict(
+    "Profile",
+    {
+        "note": str,
+        "routingDispatch": NotRequired[RoutingDispatch],
+        # Dotted scope names to integer microseconds.
+        "timingsUs": dict[str, int],
     },
 )
 

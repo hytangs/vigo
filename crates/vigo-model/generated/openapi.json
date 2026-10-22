@@ -2406,6 +2406,9 @@
           "note": {
             "type": "string"
           },
+          "routingDispatch": {
+            "$ref": "#/components/schemas/RoutingDispatch"
+          },
           "timingsUs": {
             "additionalProperties": {
               "format": "int64",
@@ -3642,6 +3645,52 @@
           "journey"
         ],
         "type": "object"
+      },
+      "RoutingDispatch": {
+        "description": "Result-search dispatch for the resident timetable, excluding certificate scans.",
+        "oneOf": [
+          {
+            "properties": {
+              "semantics": {
+                "const": "ordinary",
+                "type": "string"
+              }
+            },
+            "required": [
+              "semantics"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "counts": {
+                "description": "`resident_timetable_cumulative`; resets when the timetable is replaced.",
+                "type": "string"
+              },
+              "ordinarySearches": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "semantics": {
+                "const": "scoped",
+                "type": "string"
+              },
+              "statefulSearches": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "semantics",
+              "ordinarySearches",
+              "statefulSearches",
+              "counts"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "SampledAlternatives": {
         "properties": {
