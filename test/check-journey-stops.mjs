@@ -60,7 +60,7 @@ try {
   for (const html of [routeHtml, reachHtml]) {
     assert.match(html, /Stops along the way · 3/)
     assert.match(html, /Market Street<\/li><li[^>]*>Library<\/li><li[^>]*>Market Street/)
-    assert.match(html, /<summary>4 departures<\/summary>/)
+    assert.doesNotMatch(html, /<summary>4 departures<\/summary>|journey-combined-frequency/)
     assert.match(html, /aria-label="Departure times"><time[^>]*>08:00<\/time><time[^>]*>08:10<\/time><time[^>]*>08:20<\/time>/)
     assert.doesNotMatch(html, /distinct times|Mean gap/)
   }
@@ -98,7 +98,7 @@ app.setPath('userData',${JSON.stringify(path.join(directory, 'profile'))});
 app.whenReady().then(async()=>{try{
 const w=new BrowserWindow({width:620,height:760,show:true,webPreferences:{sandbox:true,contextIsolation:true}});
 await w.loadURL(${JSON.stringify(`http://127.0.0.1:${server.httpServer.address().port}/journey-check`)});
-await w.webContents.executeJavaScript(\`document.querySelector('.journey-stops summary').click(); document.querySelector('.journey-shared-services summary').click();\`);
+await w.webContents.executeJavaScript(\`document.querySelector('.journey-stops summary').click();\`);
 const open=await w.webContents.executeJavaScript(\`document.querySelector('.journey-stops').open && document.querySelectorAll('.journey-stops li').length===3\`);
 if(!open)throw Error('Stop list did not expand');
 await new Promise(r=>setTimeout(r,500));
@@ -127,8 +127,8 @@ app.exit(0)}catch(error){console.error(error);app.exit(1)}});`)
   finally { clearTimeout(timeout) }
   console.log(`Screenshots: ${screenshot}, ${path.join(directory, "fare-summary.png")}`)
   plan.sharedLegAlternatives.frequencies[0].status = 'incomplete'
-  assert.match(renderToStaticMarkup(createElement(RoutingItinerary, { plan })), /At least 4 departures/)
+  assert.match(renderToStaticMarkup(createElement(RoutingItinerary, { plan })), /More departures may be available in this window/)
   delete plan.legs[0].intermediateStops
   assert.doesNotMatch(renderToStaticMarkup(createElement(RoutingItinerary, { plan })), /Stops along the way/)
-  console.log('Route and Reach retain ordered stop calls, expose stop disclosures, and use plain departure counts.')
+  console.log('Route and Reach retain ordered stop calls, expose stop disclosures, and show departure times without a redundant disclosure.')
 } finally { await server.close(); await Promise.all(['cache', 'profile'].map(name => fs.rm(path.join(directory, name), { recursive: true, force: true }))) }
