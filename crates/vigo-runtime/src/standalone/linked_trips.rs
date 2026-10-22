@@ -27,6 +27,15 @@ fn has_table(db: &Connection, name: &str) -> Result<bool> {
     )?)
 }
 
+fn has_block_trips(db: &Connection) -> Result<bool> {
+    Ok(has_table(db, "trip_operations")?
+        && db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM trip_operations WHERE block_id IS NOT NULL)",
+            [],
+            |r| r.get::<_, bool>(0),
+        )?)
+}
+
 pub(super) fn present(db: &Connection) -> Result<bool> {
     let explicit = has_table(db, "trip_links")?
         && db.query_row(
@@ -34,13 +43,7 @@ pub(super) fn present(db: &Connection) -> Result<bool> {
             [],
             |r| r.get::<_, bool>(0),
         )?;
-    let blocks = has_table(db, "trip_operations")?
-        && db.query_row(
-            "SELECT EXISTS(SELECT 1 FROM trip_operations WHERE block_id IS NOT NULL)",
-            [],
-            |r| r.get::<_, bool>(0),
-        )?;
-    Ok(explicit || blocks)
+    Ok(explicit || has_block_trips(db)?)
 }
 
 fn paths(
@@ -85,16 +88,20 @@ struct Candidate {
     first: Option<u32>,
 }
 
-pub(super) struct Candidates(Vec<Candidate>, Vec<String>);
+// Only inferred block adjacency depends on the selected calendars. Explicit
+// links are static; compile still checks the active trip instances on each date.
+pub(super) struct Candidates(Vec<Candidate>, Option<Vec<String>>);
 
 impl Candidates {
     pub(super) fn matches_services(&self, services: &[String]) -> bool {
-        self.1 == services
+        self.1.as_ref().is_none_or(|saved| saved == services)
     }
     pub(super) fn estimated_bytes(&self) -> usize {
         self.0.capacity() * std::mem::size_of::<Candidate>()
-            + self.1.capacity() * std::mem::size_of::<String>()
-            + self.1.iter().map(String::capacity).sum::<usize>()
+            + self.1.as_ref().map_or(0, |services| {
+                services.capacity() * std::mem::size_of::<String>()
+                    + services.iter().map(String::capacity).sum::<usize>()
+            })
             + self
                 .0
                 .iter()
@@ -105,11 +112,19 @@ impl Candidates {
 
 pub(super) fn load_candidates(db: &Connection, services: &[String]) -> Result<Candidates> {
     if !present(db)? {
-        return Ok(Candidates(Vec::new(), services.to_vec()));
+        return Ok(Candidates(Vec::new(), None));
     }
     let mut candidates = Vec::new();
     if has_table(db, "trip_links")? {
-        let mut statement = db.prepare("SELECT l.from_trip_id,l.to_trip_id,MAX(c.stop_sequence) FROM trip_links l JOIN connections c ON c.trip_id=l.from_trip_id WHERE l.transfer_type=4 GROUP BY l.from_trip_id,l.to_trip_id ORDER BY l.from_trip_id,l.to_trip_id")?;
+        // The (trip_id, stop_sequence) key answers MAX with an endpoint lookup.
+        // Joining every connection before grouping repeatedly scanned entire
+        // trips just to find their terminal sequence.
+        let mut statement = db.prepare(
+            "SELECT l.from_trip_id,l.to_trip_id,
+          (SELECT MAX(stop_sequence) FROM connections WHERE trip_id=l.from_trip_id) AS terminal
+          FROM trip_links l WHERE l.transfer_type=4 AND terminal IS NOT NULL
+          GROUP BY l.from_trip_id,l.to_trip_id ORDER BY l.from_trip_id,l.to_trip_id",
+        )?;
         for row in statement.query_map([], |r| {
             Ok((
                 r.get::<_, String>(0)?,
@@ -121,7 +136,8 @@ pub(super) fn load_candidates(db: &Connection, services: &[String]) -> Result<Ca
             candidates.push(row?);
         }
     }
-    if has_table(db, "trip_operations")? {
+    let has_blocks = has_block_trips(db)?;
+    if has_blocks {
         // Derive adjacency from the static schedule, never from the surviving
         // realtime trips: canceling the middle vehicle must not bridge a gap.
         // Shared service_id establishes a common calendar. Other block models
@@ -206,7 +222,7 @@ pub(super) fn load_candidates(db: &Connection, services: &[String]) -> Result<Ca
             first,
         });
     }
-    Ok(Candidates(indexed, services.to_vec()))
+    Ok(Candidates(indexed, has_blocks.then(|| services.to_vec())))
 }
 
 pub(super) fn compile(
@@ -483,6 +499,33 @@ mod tests {
         assert!(error.to_string().contains("memory budget"));
         assert!(chains.iter().map(Vec::len).sum::<usize>() <= 1_000_000);
         assert!(chains.len() < 200_000);
+    }
+    #[test]
+    fn explicit_candidates_preserve_terminals_missing_trips_and_calendar_reuse() {
+        let (db, _, _) = fixture(&[100, 200], &[200, 300], &["2026-07-15"; 2]);
+        db.execute_batch("INSERT INTO connections VALUES('A',9),('A',3),('B',7);
+          INSERT INTO trip_links VALUES('A','B',4),('missing','B',4),('A','missing',4),('B','A',5);").unwrap();
+        let candidates = load_candidates(&db, &["S".into()]).unwrap();
+        let actual: Vec<_> = candidates
+            .0
+            .iter()
+            .map(|c| (c.from.as_str(), c.to.as_str(), c.terminal, c.first))
+            .collect();
+        // Duplicate links stay deduplicated, absent source trips are excluded,
+        // absent targets stay unusable, and type 5 never creates a continuation.
+        assert_eq!(actual, [("A", "B", 9, Some(1)), ("A", "missing", 9, None)]);
+        assert!(candidates.matches_services(&["different-calendar".into()]));
+        assert!(candidates.matches_services(&[]));
+        db.execute_batch(
+            "CREATE TABLE trip_operations(trip_id TEXT,block_id TEXT);
+          INSERT INTO trip_operations VALUES('A',NULL),('B',NULL);",
+        )
+        .unwrap();
+        assert!(
+            load_candidates(&db, &["S".into()])
+                .unwrap()
+                .matches_services(&[])
+        );
     }
     #[test]
     fn keeps_next_service_day_clocks_and_original_sequences() {
