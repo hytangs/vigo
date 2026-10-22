@@ -3,14 +3,41 @@ import { gtfsTableEntry, readGtfsZipJson } from '../gtfs-zip-reader.mjs'
 // Optional source tables remain separate from scheduled connection records.
 // The importer retains service semantics; Rust resolves geometry, clocks and
 // conditional booking metadata at query time. No synthetic scheduled departures.
-export async function importFlexCatalog({ archive, streamTable, db, prefix, budget, windows, tripModels, continuousPresent = false }) {
+//
+// The catalog is optional and resident at query time, so it has a fixed budget.
+// Fixed-route trips (continuous stopping, phone-booked stops) keep their
+// scheduled import; past the budget they leave the catalog first, then
+// on-demand trips. The build succeeds and reports what was omitted.
+export const flexCatalogLimitBytes = 32 * 1024 * 1024
+export async function importFlexCatalog({ archive, streamTable, db, prefix, budget, windows, onDemandTrips = new Set(), tripModels, continuousPresent = false }) {
   db.exec(`CREATE TABLE IF NOT EXISTS flex_catalog(scope TEXT PRIMARY KEY, data TEXT NOT NULL);`)
-  let retainedBytes = 0
+  const bytes = { shared: 0, onDemand: 0, fixed: 0 }
+  let fixedOmitted = false, onDemandOmitted = false
+  const sizeOf = value => Buffer.byteLength(JSON.stringify(value)) + 16
+  const total = () => bytes.shared + bytes.onDemand + bytes.fixed
+  // Zones, groups and booking rules define the Flex service itself.
   const retain = value => {
-    retainedBytes += Buffer.byteLength(JSON.stringify(value)) + 16
-    if (retainedBytes > 32 * 1024 * 1024) throw new Error('GTFS Flex catalog exceeds 32 MiB')
+    bytes.shared += sizeOf(value)
+    if (bytes.shared > flexCatalogLimitBytes) throw new Error('GTFS Flex location and booking definitions exceed 32 MiB')
     return value
   }
+  const omitted = id => onDemandOmitted || (fixedOmitted && !onDemandTrips.has(id))
+  const omitNext = () => {
+    if (fixedOmitted) onDemandOmitted = true
+    fixedOmitted = true
+    for (const id of Object.keys(catalog.trips)) if (omitted(id)) delete catalog.trips[id]
+    for (const [id, owner] of shapeOwners) if (omitted(owner)) shapes.delete(id)
+    bytes.fixed = 0
+    if (onDemandOmitted) bytes.onDemand = 0
+  }
+  // Returns whether the trip is still retained after accounting for value.
+  const retainTrip = (id, value) => {
+    if (omitted(id)) return false
+    bytes[onDemandTrips.has(id) ? 'onDemand' : 'fixed'] += sizeOf(value)
+    while (total() > flexCatalogLimitBytes) omitNext()
+    return !omitted(id)
+  }
+  const shapes = new Map(), shapeOwners = new Map()
   const catalog = Object.fromEntries(['groups','locations','bookings','trips','shapes'].map(key => [key, Object.create(null)]))
   const read = async (name, visit) => {
     const entry = gtfsTableEntry(archive, name)
@@ -109,24 +136,26 @@ export async function importFlexCatalog({ archive, streamTable, db, prefix, budg
     for (const key of ['pickup_booking_rule_id','drop_off_booking_rule_id']) if (row[key] && !catalog.bookings[row[key]]) throw new Error('Unknown GTFS Flex booking rule')
     const sequence = Number(row.stop_sequence)
     if (!String(row.stop_sequence ?? '').trim() || !Number.isSafeInteger(sequence) || sequence < 0) throw new Error('Invalid GTFS Flex stop sequence')
-    if (!catalog.trips[row.trip_id]) retain(row.trip_id)
-    const record = catalog.trips[row.trip_id] ?? retain({ ...trip, ...tripModels.get(row.trip_id), ...models.get(row.trip_id), calls: [] })
+    const record = catalog.trips[row.trip_id] ?? { ...trip, ...tripModels.get(row.trip_id), ...models.get(row.trip_id), calls: [] }
     if (record.calls.some(c => c.sequence === sequence)) throw new Error('Duplicate GTFS Flex stop sequence')
     const continuousPickup = continuous(row.continuous_pickup) ?? record.continuousPickup ?? 1
     const continuousDropoff = continuous(row.continuous_drop_off) ?? record.continuousDropoff ?? 1
     if (window && (continuousPickup !== 1 || continuousDropoff !== 1)) throw new Error('GTFS Flex windows cannot have continuous stopping')
     const shapeDistance = row.shape_dist_traveled ? Number(row.shape_dist_traveled) : null
     if (shapeDistance != null && (!Number.isFinite(shapeDistance) || shapeDistance < 0)) throw new Error('Invalid shape distance')
-    record.calls.push(retain({ sequence, continuousPickup, continuousDropoff, shapeDistance, location: id, start: window ? start : seconds(row.departure_time || row.arrival_time),
+    const call = { sequence, continuousPickup, continuousDropoff, shapeDistance, location: id, start: window ? start : seconds(row.departure_time || row.arrival_time),
       end: window ? end : seconds(row.arrival_time || row.departure_time), window, pickup, dropoff,
-      pickupBooking: row.pickup_booking_rule_id || null, dropoffBooking: row.drop_off_booking_rule_id || null }))
+      pickupBooking: row.pickup_booking_rule_id || null, dropoffBooking: row.drop_off_booking_rule_id || null }
+    if (!retainTrip(row.trip_id, catalog.trips[row.trip_id] ? call : { record, call })) return
+    record.calls.push(call)
     catalog.trips[row.trip_id] = record
   })
-  const shapes = new Map()
   for (const trip of Object.values(catalog.trips)) {
     if (trip.calls.some(c => c.continuousPickup !== 1 || c.continuousDropoff !== 1)) {
       if (!trip.shapeId) throw new Error('GTFS continuous stopping requires a shape')
       shapes.set(trip.shapeId, [])
+      // A shape used by any on-demand trip stays as long as that trip does.
+      if (!shapeOwners.has(trip.shapeId) || onDemandTrips.has(trip.trip_id)) shapeOwners.set(trip.shapeId, trip.trip_id)
     }
   }
   if (shapes.size) await read('shapes.txt', row => {
@@ -134,14 +163,13 @@ export async function importFlexCatalog({ archive, streamTable, db, prefix, budg
     if (!points) return
     const point = [Number(row.shape_pt_lon), Number(row.shape_pt_lat), Number(row.shape_pt_sequence), row.shape_dist_traveled ? Number(row.shape_dist_traveled) : null]
     if (!point.slice(0,3).every(Number.isFinite) || Math.abs(point[0]) > 180 || Math.abs(point[1]) > 90 || (point[3] != null && (!Number.isFinite(point[3]) || point[3] < 0))) throw new Error('Invalid continuous stopping shape')
-    points.push(retain(point))
+    if (retainTrip(shapeOwners.get(row.shape_id), point)) points.push(point)
   })
   for (const points of shapes.values()) {
     points.sort((a,b) => a[2]-b[2])
     if (points.length < 2 || points.some((p,i) => i && (p[2] === points[i-1][2] || (p[3] != null && points[i-1][3] != null && p[3] < points[i-1][3])))) throw new Error('Invalid continuous stopping shape order')
   }
   for (const trip of Object.values(catalog.trips)) {
-    if (shapes.has(trip.shapeId)) catalog.shapes[trip.shapeId] = shapes.get(trip.shapeId)
     trip.calls.sort((a,b) => a.sequence-b.sequence)
     trip.onDemand = trip.calls.some(c => c.window)
     if (trip.onDemand && trip.calls.some(c => c.start == null || c.end == null)) throw new Error('GTFS Flex trip needs timed fixed calls or windows')
@@ -150,12 +178,25 @@ export async function importFlexCatalog({ archive, streamTable, db, prefix, budg
     trip.calls = trip.calls.filter(c => c.start != null && c.end != null)
     if (trip.calls.length < 2) delete catalog.trips[trip.trip_id]
   }
-  if (Object.keys(catalog.trips).length) {
-    const data = JSON.stringify(catalog)
-    if (Buffer.byteLength(data) > 32*1024*1024) throw new Error('GTFS Flex catalog exceeds 32 MiB')
-    db.prepare('INSERT INTO flex_catalog VALUES(?,?)').run(prefix, data)
+  const serialize = () => {
+    catalog.shapes = Object.create(null)
+    for (const trip of Object.values(catalog.trips)) if (shapes.has(trip.shapeId)) catalog.shapes[trip.shapeId] = shapes.get(trip.shapeId)
+    return JSON.stringify(catalog)
   }
-  return new Set(Object.keys(catalog.trips))
+  // The streaming estimate bounds memory; the stored document is checked exactly.
+  let data = serialize()
+  while (Buffer.byteLength(data) > flexCatalogLimitBytes && !onDemandOmitted) {
+    omitNext()
+    data = serialize()
+  }
+  if (Buffer.byteLength(data) > flexCatalogLimitBytes) throw new Error('GTFS Flex location and booking definitions exceed 32 MiB')
+  if (Object.keys(catalog.trips).length) db.prepare('INSERT INTO flex_catalog VALUES(?,?)').run(prefix, data)
+  const omittedTripIds = [...windows].filter(omitted)
+  return {
+    tripIds: new Set(Object.keys(catalog.trips)),
+    omittedFixedTripCount: omittedTripIds.filter(id => !onDemandTrips.has(id)).length,
+    omittedOnDemandTripCount: omittedTripIds.filter(id => onDemandTrips.has(id)).length,
+  }
 }
 
 export function copyFlexCatalogs(db, alias, prefix) {

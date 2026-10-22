@@ -1380,10 +1380,11 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
       })
     const continuousPresent = featureInventory.routeContinuousRuleCount + featureInventory.continuousPickupStopTimeCount + featureInventory.continuousDropOffStopTimeCount > 0
     if (flexTripIds.size || bookingTripIds.size || continuousPresent) {
-      await importFlexCatalog({ archive, streamTable, db, prefix, budget: zipImportBudget, windows: new Set([...flexTripIds, ...bookingTripIds]), tripModels: flexTripModels, continuousPresent })
+      const flex = await importFlexCatalog({ archive, streamTable, db, prefix, budget: zipImportBudget, windows: new Set([...flexTripIds, ...bookingTripIds]), onDemandTrips: flexTripIds, tripModels: flexTripModels, continuousPresent })
       const remove = stage.prepare('DELETE FROM stop_times WHERE trip_id=?')
       runTransaction(stage, () => { for (const id of flexTripIds) remove.run(id) })
-      featureInventory.flexTripCount = flexTripIds.size
+      featureInventory.flexTripCount = flexTripIds.size - flex.omittedOnDemandTripCount
+      featureInventory.flexCatalogOmittedTripCount = flex.omittedFixedTripCount + flex.omittedOnDemandTripCount
     }
     featureInventory.excludedTripCount = excludedTripIds.size
 
@@ -1540,6 +1541,8 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
     featureInventory.exactFrequencyExpandedConnectionCount = exactFrequencyExpandedConnectionCount
     if (featureInventory.inexactFrequencyCount) routingLimitations.push({code:'frequency_based_service',count:featureInventory.inexactFrequencyCount,exactness:'approximate',detail:'Rust headway routing assumes half a headway of waiting, rounded up to whole seconds, after service opens. Times are estimates, not scheduled departures.'})
     if (featureInventory.flexTripCount) routingLimitations.push({code: 'flex_service', count: featureInventory.flexTripCount, exactness: 'conditional', detail: 'Flex service requires an explicit flex request and OSM driving estimates. Booking and vehicle availability are not confirmed.'})
+    if (featureInventory.flexCatalogOmittedTripCount) routingLimitations.push({ code: 'flex_catalog_limit', count: featureInventory.flexCatalogOmittedTripCount, exactness: 'unsupported',
+      detail: 'Conditional trip details exceed the 32 MiB Flex catalog. Fixed-route continuous-stopping and booking trips are omitted first, then on-demand trips; scheduled service is unaffected.' })
     limitFeature('on_demand_boarding_or_alighting', featureInventory.onDemandPickupStopTimeCount + featureInventory.onDemandDropOffStopTimeCount,
       'pickup_type/drop_off_type value 2 requires booking. Omitted by default; flex requests may return conditional journeys with booking instructions.')
     if (featureInventory.driverCoordinatedStopTimeCount) routingLimitations.push({

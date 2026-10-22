@@ -119,7 +119,7 @@ impl Options {
     }
 }
 impl City {
-    fn direct_walk_limit(&self, q: &Value, opt: &Options) -> Result<f64> {
+    pub(super) fn direct_walk_limit(&self, q: &Value, opt: &Options) -> Result<f64> {
         // Explicit Walk is bounded by street distance, not the transit scan
         // horizon or the transit endpoint walking allowance.
         if q["mode"] == "walk" {

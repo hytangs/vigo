@@ -791,12 +791,21 @@ are rejected with Flex. Matrix is limited to 4,096 cells. Reach does not accept
 Flex. Returned estimates must not be presented as guaranteed departures or
 confirmed reservations.
 
-Public synthetic coverage is in `test/check-flex.mjs` and
-`test/check-flex-interchanges.mjs`: conditional fixed stops, zones, location
+Flex work is bounded without failing the request. Pickup and drop-off
+candidates beyond the walking limit are skipped before any street search. A
+search stops after 4,096 walkable pickup/drop-off pairs and returns the
+journeys found, scheduled results included, with a `flex_search_truncated`
+warning. Each feed's Flex catalog is limited to 32 MiB: past it, the build
+omits fixed-route continuous-stopping and booking trips first, then on-demand
+trips, and reports them as `flex_catalog_limit`. Scheduled service is
+unaffected.
+
+Public synthetic coverage is in `test/check-flex.mjs`,
+`test/check-flex-interchanges.mjs` and `test/check-flex-limits.mjs`: conditional fixed stops, zones, location
 groups, pure-Flex feeds, windows, arrive-by, zero walking limits, booking
 metadata, independent Drive duration, transfer restrictions, later feasible
-connections, continuous permissions, wheelchair filtering and Matrix/Route
-agreement.
+connections, continuous permissions, wheelchair filtering, Matrix/Route
+agreement, catalog budgets and bounded pair searches.
 
 ### Semantic coverage written to store metadata
 

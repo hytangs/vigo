@@ -123,9 +123,30 @@ pub(super) fn compare_journeys(arrive: bool, a: &Value, b: &Value) -> std::cmp::
         .then_with(|| conditional(a).cmp(&conditional(b)))
 }
 
+/// Walkable board/alight pairs one Flex search evaluates before it stops.
+const FLEX_PAIR_LIMIT: usize = 4096;
+
+fn push_truncation_warning(result: &mut Value) {
+    if !result["warnings"].is_array() {
+        result["warnings"] = json!([]);
+    }
+    let warnings = result["warnings"].as_array_mut().unwrap();
+    if !warnings
+        .iter()
+        .any(|w| w["code"] == "flex_search_truncated")
+    {
+        warnings.push(json!({"code":"flex_search_truncated","detail":format!("Flex search stopped after {FLEX_PAIR_LIMIT} walkable pickup/drop-off pairs; other conditional journeys may exist.")}));
+    }
+}
+
 impl City {
     pub(super) fn route_with_flex(&mut self, q: &Value) -> Result<Value> {
-        let flex = self.flex_route(q)?;
+        let mut flex = self.flex_route(q)?;
+        let truncated = flex
+            .as_object_mut()
+            .unwrap()
+            .remove("flexSearchTruncated")
+            .is_some();
         let mut ordinary = q.clone();
         ordinary.as_object_mut().unwrap().remove("flex");
         let scheduled = if self.has_scheduled_connections()? {
@@ -160,6 +181,9 @@ impl City {
             .cloned()
             .unwrap_or(json!({"status":"blocked","reason":"no_service","mode":"transit"}));
         result["choices"] = json!(choices.into_iter().take(9).collect::<Vec<_>>());
+        if truncated {
+            push_truncation_warning(&mut result);
+        }
         Ok(result)
     }
     pub(super) fn matrix_with_flex(&mut self, q: &Value, evidence: bool) -> Result<Value> {
@@ -190,12 +214,16 @@ impl City {
         self.indexed_matrix_journeys = indexed;
         let mut result = base?;
         let opt = Options::parse(q)?;
+        let mut truncated = false;
         for (i, a) in origins.iter().enumerate() {
             for (j, b) in destinations.iter().enumerate() {
                 let mut request = q.clone();
                 request["origin"] = a.clone();
                 request["destination"] = b.clone();
                 let journey = self.route_with_flex(&request)?;
+                truncated |= journey["warnings"]
+                    .as_array()
+                    .is_some_and(|w| w.iter().any(|w| w["code"] == "flex_search_truncated"));
                 if journey["status"] != "ready" {
                     continue;
                 }
@@ -219,6 +247,9 @@ impl City {
             result["warnings"] = json!([]);
         }
         result["warnings"].as_array_mut().unwrap().push(json!({"code":"flex_estimate","detail":"Includes conditional Flex journeys; booking and vehicle availability are not confirmed."}));
+        if truncated {
+            push_truncation_warning(&mut result);
+        }
         Ok(result)
     }
     fn flex_direct_walk(&mut self, q: &Value) -> Result<Value> {
@@ -445,7 +476,18 @@ impl City {
         let fallback_offset = number(&q["flex"], "durationOffsetSeconds", 300., 0., 7200.)?;
         let mut choices = vec![];
         let mut evaluated = 0usize;
-        for catalog in catalogs.as_array().into_iter().flatten() {
+        let mut truncated = false;
+        // Street paths are never shorter than the great circle, so endpoints
+        // beyond the walking limit cannot yield a journey and need no search.
+        let mut walkq = q.clone();
+        walkq["allowLongWalk"] = json!(false);
+        let walk_limit = self.direct_walk_limit(&walkq, &opt)?;
+        let walkable = |from: &Point, to: &Point| {
+            from.coordinate == to.coordinate
+                || (opt.walk_m > 0.
+                    && super::query::haversine(from.coordinate, to.coordinate) <= walk_limit)
+        };
+        'search: for catalog in catalogs.as_array().into_iter().flatten() {
             for (service_date, offset, active) in &days {
                 for trip in catalog["trips"]
                     .as_object()
@@ -516,7 +558,7 @@ impl City {
                             {
                                 continue;
                             }
-                            let from = if a["continuous"] == true {
+                            let mut from = if a["continuous"] == true {
                                 vec![self.point(&json!({"coordinate":a["coordinate"]}))?]
                             } else {
                                 self.flex_points(
@@ -525,7 +567,7 @@ impl City {
                                     &origin,
                                 )?
                             };
-                            let to = if b["continuous"] == true {
+                            let mut to = if b["continuous"] == true {
                                 vec![self.point(&json!({"coordinate":b["coordinate"]}))?]
                             } else {
                                 self.flex_points(
@@ -534,16 +576,19 @@ impl City {
                                     &destination,
                                 )?
                             };
+                            from.retain(|board| walkable(&origin, board));
+                            to.retain(|alight| walkable(alight, &destination));
                             for board in &from {
                                 for alight in &to {
                                     if board.coordinate == alight.coordinate {
                                         continue;
                                     }
                                     evaluated += 1;
-                                    if evaluated > 4096 {
-                                        return fail(
-                                            "Flex endpoint pairs exceed the 4096 query limit",
-                                        );
+                                    // Bound the work without discarding the
+                                    // journeys found or the scheduled result.
+                                    if evaluated > FLEX_PAIR_LIMIT {
+                                        truncated = true;
+                                        break 'search;
                                     }
                                     let (mut road, duration, factor, offset) = if trip["onDemand"]
                                         == true
@@ -603,8 +648,6 @@ impl City {
                                             0.,
                                         )
                                     };
-                                    let mut walkq = q.clone();
-                                    walkq["allowLongWalk"] = json!(false);
                                     let mut access =
                                         self.flex_walk(&walkq, &origin, board, &opt)?;
                                     let mut egress =
@@ -700,6 +743,10 @@ impl City {
             .cloned()
             .unwrap_or(json!({"status":"blocked","reason":"no_flex_service","mode":"transit"}));
         result["choices"] = json!(choices.into_iter().take(9).collect::<Vec<_>>());
+        if truncated {
+            result["flexSearchTruncated"] = json!(true);
+            push_truncation_warning(&mut result);
+        }
         Ok(result)
     }
 }
