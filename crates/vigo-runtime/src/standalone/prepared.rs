@@ -136,6 +136,7 @@ impl City {
             .map(|(i, s)| (s.clone(), i as u32))
             .collect();
         Ok(Timetable {
+            heap: Default::default(),
             links: Default::default(),
             kernel,
             index: index.into(),

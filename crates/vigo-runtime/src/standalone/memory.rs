@@ -127,7 +127,7 @@ fields!(
     station_paths
 );
 fields!(
-    Timetable,
+    TimetableFields<'_>,
     links,
     stop_ids,
     index,
@@ -137,6 +137,20 @@ fields!(
     key,
     realtime
 );
+
+/// Measures a timetable's fields; [`Timetable`] memoizes the result.
+struct TimetableFields<'a>(&'a Timetable);
+impl std::ops::Deref for TimetableFields<'_> {
+    type Target = Timetable;
+    fn deref(&self) -> &Timetable {
+        self.0
+    }
+}
+impl Heap for Timetable {
+    fn heap_bytes(&self) -> usize {
+        *self.heap.get_or_init(|| TimetableFields(self).heap_bytes())
+    }
+}
 
 pub(crate) fn sqlite_bytes(db: &rusqlite::Connection) -> usize {
     let mut total = 0;
@@ -189,11 +203,7 @@ impl City {
             .sum::<usize>();
         let cache = inactive_timetables
             + self.timetable_cache.source_heap_bytes()
-            + self
-                .linked_candidates
-                .iter()
-                .map(super::linked_trips::Candidates::estimated_bytes)
-                .sum::<usize>()
+            + self.linked_candidates.estimated_bytes()
             + self.shape_cache.retained_bytes()
             + self.route_metadata.heap_bytes()
             + self.trip_shape_ids.heap_bytes()

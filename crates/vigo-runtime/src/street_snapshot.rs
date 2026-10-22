@@ -47,10 +47,21 @@ pub(crate) struct Snapshot {
     unindexed_long_edges: Vec<([u32; 2], [f64; 4])>,
     /// Edge lengths in reverse adjacency order, built on first use.
     reverse_edge_distances: OnceLock<Vec<f64>>,
+    /// Heap of the indexes fixed at opening. Scenario collections take a
+    /// memory ledger after queries; walking every cell each time cost more
+    /// than many routes.
+    fixed_heap_bytes: usize,
 }
 
 impl Snapshot {
     pub(crate) fn heap_bytes(&self) -> usize {
+        self.fixed_heap_bytes
+            + self
+                .reverse_edge_distances
+                .get()
+                .map_or(0, |v| v.capacity() * size_of::<f64>())
+    }
+    fn measure_fixed_heap_bytes(&self) -> usize {
         self.long_edges_by_cell.capacity() * (size_of::<((i32, i32), Vec<[u32; 2]>)>() + 1)
             + self
                 .long_edges_by_cell
@@ -65,10 +76,6 @@ impl Snapshot {
                 .iter()
                 .map(|(k, v)| k.capacity() + v.type_name.capacity())
                 .sum::<usize>()
-            + self
-                .reverse_edge_distances
-                .get()
-                .map_or(0, |v| v.capacity() * size_of::<f64>())
     }
     pub(crate) fn open(snapshot_path: &str) -> napi::Result<Self> {
         let file = File::open(snapshot_path).map_err(|error| {
@@ -149,9 +156,11 @@ impl Snapshot {
             long_edges_by_cell: HashMap::new(),
             unindexed_long_edges: Vec::new(),
             reverse_edge_distances: OnceLock::new(),
+            fixed_heap_bytes: 0,
         };
         snapshot.validate()?;
         snapshot.index_long_edges()?;
+        snapshot.fixed_heap_bytes = snapshot.measure_fixed_heap_bytes();
         Ok(snapshot)
     }
 

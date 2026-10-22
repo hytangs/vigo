@@ -156,6 +156,8 @@ pub(crate) struct Timetable {
     /// Trips whose calls carry realtime predictions, ascending.
     pub realtime_trips: Arc<[u32]>,
     pub alerts: Option<Arc<crate::realtime::alerts::Alerts>>,
+    /// Heap of the fields above, which never change once built.
+    pub heap: OnceLock<usize>,
 }
 /// Stop-domain inputs of timetable index preparation. They depend only on the
 /// City's stops and access context, never on the active service, so every
@@ -314,9 +316,8 @@ pub struct City {
     pub(crate) scenario_views: HashMap<String, Arc<super::scenario_route::ScenarioPresentation>>,
     /// A scenario Route keeps its view for the whole request.
     pub(crate) pinned_timetable: bool,
-    /// Linked-trip candidates for the most recently used calendar sets, newest
-    /// first. Date switches alternate between a few weekday/weekend calendars.
-    pub(super) linked_candidates: Vec<super::linked_trips::Candidates>,
+    /// Linked-trip candidates retained across timetables and date switches.
+    pub(super) linked_candidates: super::linked_trips::CandidateCache,
     pub(crate) timetable_cache: super::timetable_cache::TimetableCache,
     pub(crate) query_workspace: Option<crate::timetable::TimetableQueryWorkspace>,
     pub(crate) timetable_preparations: u64,
@@ -706,7 +707,7 @@ impl City {
             scenario_view: None,
             scenario_views: HashMap::new(),
             pinned_timetable: false,
-            linked_candidates: Vec::new(),
+            linked_candidates: Default::default(),
             static_heap_bytes: OnceLock::new(),
             timetable_cache: super::timetable_cache::TimetableCache::from_env()?,
             query_workspace: None,
@@ -1324,21 +1325,11 @@ impl City {
             (arrays, names, Value::Null)
         };
         let linked_started = std::time::Instant::now();
-        let reused = self
+        let (candidates, linked_candidates_reused) = self
             .linked_candidates
-            .iter()
-            .position(|c| c.matches_services(&linked_services));
-        let linked_candidates_reused = reused.is_some();
-        let candidates = match reused {
-            Some(index) => self.linked_candidates.remove(index),
-            None => super::linked_trips::load_candidates(&self.db, &linked_services)?,
-        };
-        self.linked_candidates.insert(0, candidates);
-        self.linked_candidates
-            .truncate(super::linked_trips::RETAINED_CALENDAR_SETS);
+            .candidates(&self.db, &linked_services)?;
         let linked_candidates_ms = linked_started.elapsed().as_secs_f64() * 1000.;
-        let links =
-            super::linked_trips::compile(&self.linked_candidates[0], &mut source, &mut names)?;
+        let links = super::linked_trips::compile(&candidates, &mut source, &mut names)?;
         let linked_ms = linked_started.elapsed().as_secs_f64() * 1000.;
         let source_ms = source_started.elapsed().as_secs_f64() * 1000.;
         let index_started = std::time::Instant::now();
@@ -1448,6 +1439,7 @@ impl City {
             "linkedCandidatesReused":linked_candidates_reused,"linkedCandidatesMs":linked_candidates_ms,"linkedTripsMs":linked_ms,
             "indexMs":index_ms,"kernelMs":kernel_started.elapsed().as_secs_f64()*1000.});
         self.timetable = Some(Timetable {
+            heap: Default::default(),
             kernel,
             links,
             stop_ids: names.stop_ids,
