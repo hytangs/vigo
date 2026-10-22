@@ -165,7 +165,13 @@ fn leg(v: &mut Value, geometry: bool) -> Value {
             );
         }
         // Realtime predictions replace the source times of the whole ride.
-        let schedule = if !v["headwayEstimate"].is_null() {
+        let schedule = if !v["flexEstimate"].is_null() {
+            if v["flexEstimate"]["assumption"] == "published_timetable" {
+                "timetable"
+            } else {
+                "flex_estimate"
+            }
+        } else if !v["headwayEstimate"].is_null() {
             "headway_estimate"
         } else if v["realtimeTrip"] == true {
             "realtime"
@@ -177,6 +183,9 @@ fn leg(v: &mut Value, geometry: bool) -> Value {
             "timetable"
         };
         out["quality"] = json!({"geometry":source,"schedule":schedule});
+        if let Some(estimate) = v.get("flexEstimate") {
+            out["quality"]["flex"] = estimate.clone();
+        }
         if let Some(estimate) = v.get("headwayEstimate") {
             out["quality"]["headway"] = estimate.clone();
         }

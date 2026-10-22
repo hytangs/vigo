@@ -52,7 +52,7 @@ export function nativeRouteRequest(body, context = {}) {
       timePreference: arrive ? 'arrive_by' : 'depart_at',
     }),
     ...Object.fromEntries(['maxWalkKm', 'maxStreetKm', 'maxTransfers', 'allowLongWalk', 'allowStreetTransfers',
-      'minimumTransferBufferMinutes', 'horizonMinutes']
+      'minimumTransferBufferMinutes', 'horizonMinutes', 'flex']
       .filter(key => body[key] !== undefined && body[key] !== null).map(key => [key, body[key]])),
   }
   if (transit) {
@@ -119,6 +119,8 @@ function transferSemantics(legs) {
 
 function timingDetail(durationMinutes, { scheduleMode, unverifiedStationAccessLegs, bridgedUntimedGapCount, sourceEqualTimeRideCount }) {
   const station = unverifiedStationAccessLegs > 0 ? ' / station access unverified' : ''
+  if (scheduleMode === 'conditional-booking') return `${Math.round(durationMinutes)} min / booking required / published timetable${station}`
+  if (scheduleMode === 'flex-estimate') return `${Math.round(durationMinutes)} min / conditional booking / estimated on-demand timing${station}`
   if (bridgedUntimedGapCount) {
     return `${Math.round(durationMinutes)} min / interpolated stop-time gap / degraded timing precision${station}`
   }
@@ -176,7 +178,7 @@ function studioLeg(leg, index, count, body) {
     call.arrival === calls[previous].departure && call.stopId !== calls[previous].stopId)).length
   return {
     type: 'ride', travelMode: 'transit',
-    scheduleMode: leg.realtimeTrip ? 'realtime-adjusted' : leg.bridgedUntimedGapCount ? 'interpolated-stop-time-gap' : 'exact',
+    scheduleMode: leg.flexEstimate ? leg.flexEstimate.assumption === 'published_timetable' ? 'conditional-booking' : 'flex-estimate' : leg.realtimeTrip ? 'realtime-adjusted' : leg.bridgedUntimedGapCount ? 'interpolated-stop-time-gap' : 'exact',
     fromStopId: leg.fromStopId, toStopId: leg.toStopId,
     ...(leg.fromStationGroupId ? { fromStationGroupId: leg.fromStationGroupId } : {}),
     ...(leg.toStationGroupId ? { toStationGroupId: leg.toStationGroupId } : {}),
@@ -186,6 +188,7 @@ function studioLeg(leg, index, count, body) {
     tripId: leg.tripId, directionId: leg.directionId ?? undefined,
     headsign: leg.headsign ?? undefined,
     ...(leg.headwayEstimate ? { headwayEstimate: leg.headwayEstimate } : {}),
+    ...(leg.flexEstimate ? { flexEstimate: leg.flexEstimate } : {}),
     ...(leg.inSeatSeconds != null ? { inSeatSeconds: leg.inSeatSeconds } : {}),
     ...shared, stopIds: leg.stopIds, stopCount: leg.stopCount,
     ...(leg.intermediateStops ? { intermediateStops: leg.intermediateStops } : {}),
@@ -365,7 +368,8 @@ function transitPlan(raw, trace, body, context, substitute = false) {
   const waitMinutes = Math.max(0, minutes(durationMinutes - walkMinutes - rideMinutes))
   const bridgedUntimedGapCount = rides.reduce((sum, leg) => sum + (leg.bridgedUntimedGapCount ?? 0), 0)
   const sourceEqualTimeRideCount = rides.filter(leg => leg.sourceEqualTime).length
-  const scheduleMode = rides.some(leg => leg.realtimeTrip) ? 'realtime-adjusted'
+  const conditional = rides.some(leg => leg.flexEstimate)
+  const scheduleMode = conditional ? rides.some(leg => leg.flexEstimate && leg.flexEstimate.assumption !== 'published_timetable') ? 'flex-estimate' : 'conditional-booking' : rides.some(leg => leg.realtimeTrip) ? 'realtime-adjusted'
     : bridgedUntimedGapCount ? 'interpolated-stop-time-gap' : 'exact'
   const stationAccessLegs = legs.filter(leg => leg.stationAccessStatus).length
   const unverifiedStationAccessLegs = legs.filter(leg => leg.stationAccessStatus === 'unverified').length
@@ -407,15 +411,15 @@ function transitPlan(raw, trace, body, context, substitute = false) {
       ...resultDiagnostics(trace, body, context),
       ...windowDiagnostics(trace, raw),
       scheduleMode,
-      timingPrecision: bridgedUntimedGapCount ? 'degraded' : sourceEqualTimeRideCount ? 'source-equal-time' : 'exact',
+      timingPrecision: conditional ? 'estimated' : bridgedUntimedGapCount ? 'degraded' : sourceEqualTimeRideCount ? 'source-equal-time' : 'exact',
       sourceEqualTimeRideCount,
       bridgedUntimedGapCount,
       originStreetPathVerified: legs[0].type !== 'walk' || legs[0].walkSource === 'station-selection' || legs[0].streetPathVerified === true,
       destinationStreetPathVerified: legs.at(-1).type !== 'walk' || legs.at(-1).walkSource === 'station-selection'
         || legs.at(-1).streetPathVerified === true,
       searchProfile: raw.windowSample ? 'pareto' : 'fastest', searchStrategy: 'exact',
-      algorithm: 'rust_standalone_connection_scan',
-      optimality: substitute ? 'feasible_shared_leg_substitution'
+      algorithm: conditional ? 'rust_gtfs_flex_and_osm' : 'rust_standalone_connection_scan',
+      optimality: conditional ? 'conditional_direct_flex_with_declared_time_model' : substitute ? 'feasible_shared_leg_substitution'
         : `lexicographic_${objective}_then_boardings_then_walking_within_active_service_and_access_model`,
       methodRequested: 'rust_standalone_runtime',
       methodUsed: 'rust_standalone_runtime',

@@ -8,6 +8,8 @@ use std::collections::{BinaryHeap, HashSet};
 #[serde(rename_all = "camelCase")]
 pub struct TransferPathInput {
     pub eligible: U8Buffer,
+    /// Logical platform endpoints may start/end a path, never join two areas.
+    pub terminal_only: Option<U8Buffer>,
     pub from: U32Buffer,
     pub to: U32Buffer,
     pub seconds: U32Buffer,
@@ -26,6 +28,10 @@ pub struct TransferPathResult {
 }
 pub fn compile_transfer_paths(input: TransferPathInput) -> Result<TransferPathResult> {
     let n = input.eligible.len();
+    let terminal = input.terminal_only.as_ref();
+    if terminal.is_some_and(|v| v.len() != n || v.iter().any(|x| *x > 1)) {
+        return Err(Error::from_reason("Invalid terminal-only station mask"));
+    }
     let m = input.from.len();
     if n > u32::MAX as usize / 2
         || m > u32::MAX as usize
@@ -75,6 +81,9 @@ pub fn compile_transfer_paths(input: TransferPathInput) -> Result<TransferPathRe
         queue.push(Reverse((0_u64, source)));
         while let Some(Reverse((cost, state))) = queue.pop() {
             if cost != distance[state] {
+                continue;
+            }
+            if state % n != source && terminal.is_some_and(|v| v[state % n] == 1) {
                 continue;
             }
             let used = state >= n;

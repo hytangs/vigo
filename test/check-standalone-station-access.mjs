@@ -12,7 +12,7 @@ const root = path.resolve(import.meta.dirname, '..')
 import { standaloneBinary as binary } from './helpers/standalone-runtime.mjs'
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-station-evidence-'))
 try {
-  for (const kind of ['transfer', 'pathway', 'missing_coordinate', 'timed_unlocated', 'unpriced']) {
+  for (const kind of ['transfer', 'pathway', 'missing_coordinate', 'timed_unlocated', 'unpriced', 'boarding_area']) {
     const folder = path.join(directory, kind)
     fs.mkdirSync(folder)
     const { gtfsPath, osmPath } = await writeCliFixtureInputs(folder)
@@ -28,6 +28,10 @@ try {
       if (kind === 'missing_coordinate') zip.file('pathways.txt', 'pathway_id,from_stop_id,to_stop_id,pathway_mode,is_bidirectional,length,traversal_time\nfirst,X,N,3,0,40,1\nsecond,N,Y,3,0,50,1\n')
       if (kind === 'timed_unlocated') zip.file('pathways.txt', 'pathway_id,from_stop_id,to_stop_id,pathway_mode,is_bidirectional,length,traversal_time\nfirst,X,N,1,0,,12\nsecond,N,Y,1,0,,18\n')
       if (kind === 'unpriced') zip.file('pathways.txt', 'pathway_id,from_stop_id,to_stop_id,pathway_mode,is_bidirectional,length,traversal_time\nfirst,X,N,1,0,,\nsecond,N,Y,1,0,,\n')
+    }
+    if (kind === 'boarding_area') {
+      zip.file('stops.txt', (await zip.file('stops.txt').async('string')) + 'D,Boarding area,,,4,Y\n')
+      zip.file('pathways.txt', 'pathway_id,from_stop_id,to_stop_id,pathway_mode,is_bidirectional,length,traversal_time\nslow,X,D,1,0,90,90\narea,X,D,1,0,90,30\n')
     }
     fs.writeFileSync(gtfsPath, await zip.generateAsync({ type: 'nodebuffer' }))
     const city = path.join(folder, 'city')
@@ -68,10 +72,10 @@ try {
       assert.equal(walk.streetPathVerified, false, 'Published transfer time does not establish an interior OSM path')
     } else {
       const unknown = ['missing_coordinate', 'timed_unlocated'].includes(kind)
-      const seconds = kind === 'timed_unlocated' ? 30 : unknown ? 2 : 1
+      const seconds = ['timed_unlocated', 'boarding_area'].includes(kind) ? 30 : unknown ? 2 : 1
       const distanceKm = kind === 'timed_unlocated' ? 0 : .09
-      assert.deepEqual(walk.accessCost.station.stopIds, unknown ? ['X', 'N', 'Y'] : ['X', 'Y'])
-      assert.deepEqual(walk.accessCost.station.sources, unknown ? ['gtfs_pathway', 'gtfs_pathway'] : ['gtfs_pathway'])
+      assert.deepEqual(walk.accessCost.station.stopIds, kind === 'boarding_area' ? ['X', 'D', 'Y'] : unknown ? ['X', 'N', 'Y'] : ['X', 'Y'])
+      assert.deepEqual(walk.accessCost.station.sources, kind === 'boarding_area' ? ['gtfs_pathway', 'gtfs_boarding_area'] : unknown ? ['gtfs_pathway', 'gtfs_pathway'] : ['gtfs_pathway'])
       assert.equal(walk.accessCost.station.seconds, seconds)
       assert.equal(walk.accessCost.station.distanceKm, distanceKm)
       assert.equal(walk.stationAccessStatus, 'source_path')
@@ -79,7 +83,7 @@ try {
       assert(Math.abs(walk.distanceMeters / 1000 - walk.accessCost.street.distanceKm - distanceKm) < 1e-8)
       assert(walk.accessCost.street.seconds >= walk.accessCost.street.distanceKm / 4.8 * 3600)
       assert.equal(walk.geometrySource, 'osm_and_station_path')
-      if (unknown) {
+      if (unknown || kind === 'boarding_area') {
         assert.equal(walk.stationGeometryStatus, 'incomplete')
         assert(walk.coordinates.every(([lon, lat]) => lon < -70 && lat > 35), 'Missing interior coordinates cannot become (0, 0).')
         const routing = path.join(city, 'routing/project.sqlite')
@@ -90,7 +94,7 @@ try {
         const nodeWalk = node.legs.find(leg => leg.accessCost)
         assert.equal(nodeWalk.stationGeometryStatus, 'incomplete')
         assert(nodeWalk.coordinates.every(([lon, lat]) => lon < -70 && lat > 35))
-        assert.deepEqual(nodeWalk.accessCost.station.stopIds, ['X', 'N', 'Y'])
+        assert.deepEqual(nodeWalk.accessCost.station.stopIds, kind === 'boarding_area' ? ['X', 'D', 'Y'] : ['X', 'N', 'Y'])
         assert.equal(nodeWalk.accessCost.station.seconds, seconds)
         if (kind === 'timed_unlocated') {
           assert.equal(walk.stationDistanceStatus, 'lower_bound')

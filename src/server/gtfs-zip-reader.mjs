@@ -24,6 +24,7 @@ const recognizedGtfsTables = new Set([
   'frequencies.txt',
   'shapes.txt',
   'pathways.txt',
+  'location_groups.txt', 'location_group_stops.txt', 'locations.geojson', 'booking_rules.txt',
   'fare_attributes.txt', 'fare_rules.txt', 'fare_products.txt', 'fare_media.txt',
   'rider_categories.txt', 'fare_leg_rules.txt', 'fare_leg_join_rules.txt',
   'fare_transfer_rules.txt', 'timeframes.txt', 'areas.txt', 'stop_areas.txt',
@@ -453,9 +454,11 @@ async function openGtfsEntryStream(archive, entry) {
     start: dataOffset,
     end: dataOffset + entry.compressedBytes - 1,
   })
-  return entry.compressionMethod === 8
-    ? compressed.pipe(createInflateRaw())
-    : compressed
+  if (entry.compressionMethod !== 8) return compressed
+  const inflated = createInflateRaw()
+  compressed.once('error', error => inflated.destroy(error))
+  inflated.once('close', () => compressed.destroy())
+  return compressed.pipe(inflated)
 }
 
 function streamCompletion(stream) {
@@ -637,4 +640,25 @@ export async function streamGtfsZipCsv(archive, entry, onRow, options = {}) {
   } finally {
     if (timer) clearTimeout(timer)
   }
+}
+
+// GeoJSON is bounded separately from streaming CSVs; never extract arbitrary
+// archive paths or trust the advertised expanded size without checking it.
+export async function readGtfsZipJson(archive, entry, maximumBytes = 32 * 1024 * 1024) {
+  if (!entry) return null
+  if (gtfsTableEntry(archive, entry.name.split('/').at(-1)) !== entry || entry.uncompressedBytes > maximumBytes) throw new Error('GTFS JSON entry exceeds admission limits')
+  const source = await openGtfsEntryStream(archive, entry)
+  const chunks = []
+  let bytes = 0, crc = 0
+  const timer = setTimeout(() => source.destroy(new Error('GTFS JSON extraction timed out')), 30000)
+  try {
+    for await (const chunk of source) {
+      bytes += chunk.length
+      if (bytes > maximumBytes || bytes > entry.uncompressedBytes) throw new Error('GTFS JSON expanded size exceeds limits')
+      crc = updateCrc32(chunk, crc)
+      chunks.push(chunk)
+    }
+    if (bytes !== entry.uncompressedBytes || crc !== entry.crc32) throw new Error('GTFS JSON size or CRC32 mismatch')
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)))
+  } finally { clearTimeout(timer); source.destroy() }
 }

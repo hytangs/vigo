@@ -320,6 +320,7 @@ pub struct City {
     pub(crate) timetable_preparations: u64,
     pub(crate) timetable_activation_ms: f64,
     pub(crate) timetable_preparation_profile: Value,
+    pub(crate) flex_catalog: OnceLock<Arc<Value>>,
     pub(crate) calendar: std::sync::OnceLock<super::calendar::CalendarIndex>,
     pub(crate) transfer_inputs: OnceLock<Arc<TransferInputs>>,
     pub(crate) route_types: OnceLock<Arc<HashMap<String, i64>>>,
@@ -706,6 +707,7 @@ impl City {
             timetable_preparations: 0,
             timetable_activation_ms: 0.,
             timetable_preparation_profile: Value::Null,
+            flex_catalog: Default::default(),
             calendar: Default::default(),
             transfer_inputs: OnceLock::new(),
             route_types: OnceLock::new(),
@@ -759,7 +761,25 @@ impl City {
         }
         Ok(self.calendar.get().unwrap())
     }
-    fn services_on(&self, date: NaiveDate) -> Result<BTreeSet<String>> {
+    pub(super) fn complete_service_coverage(
+        &self,
+        services: &BTreeSet<String>,
+        scopes: &Option<BTreeSet<String>>,
+    ) -> Result<bool> {
+        Ok(match scopes {
+            // Every selected source must run on the date.
+            Some(selected) => {
+                selected.len() <= 1
+                    || selected.iter().all(|scope| {
+                        services
+                            .iter()
+                            .any(|id| id.split_once('\u{1f}').is_some_and(|(s, _)| s == scope))
+                    })
+            }
+            None => self.calendar()?.complete(services),
+        })
+    }
+    pub(super) fn services_on(&self, date: NaiveDate) -> Result<BTreeSet<String>> {
         Ok(self.calendar()?.services_on(date))
     }
     fn service_instances(
@@ -1010,7 +1030,7 @@ impl City {
         Ok(())
     }
     /// The requested source feeds of a merged City, or None for all of them.
-    fn selected_scopes(&self, request: &Value) -> Result<Option<BTreeSet<String>>> {
+    pub(super) fn selected_scopes(&self, request: &Value) -> Result<Option<BTreeSet<String>>> {
         let Some(value) = request.get("sourceScopes") else {
             return Ok(None);
         };
@@ -1183,18 +1203,7 @@ impl City {
         self.timetable_preparations += 1;
         let mut services = self.services_on(date)?;
         services.retain(|id| scoped(id));
-        let complete_service_coverage = match &scopes {
-            // Every selected source must run on the date.
-            Some(selected) => {
-                selected.len() <= 1
-                    || selected.iter().all(|scope| {
-                        services
-                            .iter()
-                            .any(|id| id.split_once('\u{1f}').is_some_and(|(s, _)| s == scope))
-                    })
-            }
-            None => self.calendar()?.complete(&services),
-        };
+        let complete_service_coverage = self.complete_service_coverage(&services, &scopes)?;
         if complete_coverage && !complete_service_coverage {
             return fail("Incomplete service coverage across source feeds on the requested date");
         }

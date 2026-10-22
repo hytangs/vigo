@@ -926,6 +926,9 @@ impl City {
         (unique, indices)
     }
     pub fn route(&mut self, q: &Value) -> Result<Value> {
+        if q.get("flex").is_some() {
+            return self.route_with_flex(q);
+        }
         if q.get("journeyPolicy").is_some() {
             return self.planner_route(q);
         }
@@ -1297,6 +1300,9 @@ impl City {
     /// A Matrix; without `evidence`, unreached endpoints are not explained,
     /// as a caller reading durations alone (a Reach grid) needs no reasons.
     pub(super) fn matrix_with(&mut self, q: &Value, evidence: bool) -> Result<Value> {
+        if q.get("flex").is_some() {
+            return self.matrix_with_flex(q, evidence);
+        }
         let opt = Options::parse(q)?;
         let origins = q["origins"]
             .as_array()
@@ -1948,6 +1954,7 @@ fn validate_request(command: &str, q: &Value, polling: bool, live: bool) -> Resu
     let common = [
         "kind",
         "wheelchair",
+        "flex",
         "id",
         "serviceDate",
         "serviceDay",
@@ -2021,6 +2028,12 @@ fn validate_request(command: &str, q: &Value, polling: bool, live: bool) -> Resu
     for key in q.as_object().unwrap().keys() {
         if !common.contains(&key.as_str()) && !specific.contains(&key.as_str()) {
             return fail(format!("Unknown {command} option: {key}"));
+        }
+    }
+    if let Some(flex) = q.get("flex") {
+        let _: vigo_model::FlexOptions = serde_json::from_value(flex.clone())?;
+        if !matches!(command, "route" | "matrix") {
+            return fail("Flex currently supports Route and Matrix; Reach is not yet supported");
         }
     }
     for (left, right) in [

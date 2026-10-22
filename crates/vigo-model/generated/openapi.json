@@ -1208,6 +1208,28 @@
         ],
         "type": "object"
       },
+      "FlexOptions": {
+        "additionalProperties": false,
+        "description": "Include conditional GTFS Flex journeys. Booking is never performed by VIGO.",
+        "properties": {
+          "bookingConfirmed": {
+            "type": "boolean"
+          },
+          "durationFactor": {
+            "description": "Fallback multiplier when the feed omits safe_duration_factor. Default 1.5.",
+            "maximum": 10,
+            "minimum": 1,
+            "type": "number"
+          },
+          "durationOffsetSeconds": {
+            "description": "Fallback addition when safe_duration_offset is absent. Default 300 seconds.",
+            "maximum": 7200,
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
       "GtfsSource": {
         "properties": {
           "feed": {
@@ -1770,6 +1792,10 @@
           "disableCache": {
             "default": false,
             "type": "boolean"
+          },
+          "flex": {
+            "$ref": "#/components/schemas/FlexOptions",
+            "description": "Include conditional direct Flex journeys with explicit booking and timing assumptions."
           },
           "horizonMinutes": {
             "default": 480,
@@ -3315,6 +3341,10 @@
             "minimum": 0.2,
             "type": "number"
           },
+          "flex": {
+            "$ref": "#/components/schemas/FlexOptions",
+            "description": "Include conditional direct Flex journeys with explicit booking and timing assumptions."
+          },
           "horizonMinutes": {
             "default": 480,
             "description": "Default 480.",
@@ -3751,6 +3781,11 @@
           {
             "const": "headway_estimate",
             "description": "Expected timing under the declared headway waiting model.",
+            "type": "string"
+          },
+          {
+            "const": "flex_estimate",
+            "description": "On-demand timing estimated from OSM driving and explicit duration factors.",
             "type": "string"
           }
         ]
@@ -4508,6 +4543,7 @@
       },
       "TransitQuality": {
         "properties": {
+          "flex": true,
           "geometry": {
             "description": "Where the line came from: `gtfs_shape` (aligned to the feed's shape),\n`stop_sequence` (straight lines between stops) or `unknown`.",
             "type": "string"

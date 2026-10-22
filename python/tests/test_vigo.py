@@ -99,7 +99,7 @@ elif command == "stream":
             unexpected = set(request) - {
                 "id", "kind", "origin", "destination", "mode", "time", "timePreference",
                 "objective", "maxWalkKm", "maxTransfers", "departureWindowMinutes", "waypoints",
-                "requireTransitRide", "horizonMinutes", "disableCache",
+                "requireTransitRide", "horizonMinutes", "disableCache", "flex",
             }
             if unexpected:
                 raise SystemExit(f"unexpected route fields: {sorted(unexpected)}")
@@ -444,6 +444,19 @@ class VigoPythonTest(unittest.TestCase):
                 matrix = city.matrix(["A"], ["B"], depart_at="08:00", service_date="2026-09-04", **options)
                 self.assertEqual(route.query["requireTransitRide"], required is True)
                 self.assertEqual(matrix.query["requireTransitRide"], required is True)
+
+    def test_conditional_flex_options_are_forwarded(self) -> None:
+        with vigo.open(self.city_path, runtime=self.command) as city:
+            self.assertFalse(city.supports(vigo.Route("A", "B", flex={})).supported)
+            with self.assertRaises(vigo.InvalidQuery):
+                city.route("A", "B", flex=True)
+            queries = [dict(item, flex={"optIn": True}) for item in city.runtime.capabilities["queries"]]
+            with patch.dict(city.runtime.capabilities, {"queries": queries}):
+                options = {"durationFactor": 1.5, "durationOffsetSeconds": 300}
+                route = city.route("A", "B", depart_at="08:00", service_date="2026-09-04", flex=options)
+                matrix = city.matrix(["A"], ["B"], service_date="2026-09-04", flex={})
+                self.assertEqual(route.query["flex"], options)
+                self.assertEqual(matrix.query["flex"], {})
 
     def test_transit_policy_and_horizon_are_query_parameters(self) -> None:
         with vigo.open(self.city_path, runtime=self.command) as city:

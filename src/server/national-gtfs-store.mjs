@@ -1,3 +1,5 @@
+import { importFlexCatalog, copyFlexCatalogs } from './gtfs/flex.mjs'
+import { stationHierarchyMembers } from './gtfs/station-hierarchy.mjs'
 import { compileNativeGtfsConnections } from './native-routing-kernel.mjs'
 import { MatrixJourneyCache } from './gtfs/matrix-materialization.mjs'
 import { wheelchairProfile, wheelchairDescription, wheelchairBoardingValues, wheelchairPathwaySeconds } from './wheelchair-policy.mjs'
@@ -1016,14 +1018,14 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
   const prefix = scope ? `${scope}\u001f` : ''
   const streamTable = (entry, onRow, options) => streamGtfsZipCsv(archive, entry, prefix
     ? (row) => {
-        for (const field of ['stop_id', 'route_id', 'trip_id', 'service_id', 'shape_id', 'block_id', 'from_stop_id', 'to_stop_id', 'from_trip_id', 'to_trip_id', 'from_route_id', 'to_route_id']) {
+        for (const field of ['stop_id', 'route_id', 'trip_id', 'service_id', 'shape_id', 'block_id', 'from_stop_id', 'to_stop_id', 'from_trip_id', 'to_trip_id', 'from_route_id', 'to_route_id', 'location_id', 'location_group_id', 'booking_rule_id', 'pickup_booking_rule_id', 'drop_off_booking_rule_id', 'prior_notice_service_id']) {
           if (String(row[field] ?? '').trim()) row[field] = prefix + row[field]
         }
         if (row.parent_station) row.parent_station = prefix + row.parent_station
         return onRow(row)
       }
     : onRow, options)
-  for (const required of ['stops.txt', 'routes.txt', 'trips.txt', 'stop_times.txt']) {
+  for (const required of ['routes.txt', 'trips.txt', 'stop_times.txt', ...(gtfsTableEntry(archive, 'locations.geojson') ? [] : ['stops.txt'])]) {
     if (!gtfsTableEntry(archive, required)) throw new Error(`GTFS is missing ${required}.`)
   }
   if (!gtfsTableEntry(archive, 'calendar.txt') && !gtfsTableEntry(archive, 'calendar_dates.txt')) {
@@ -1093,6 +1095,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
     CREATE TABLE IF NOT EXISTS wheelchair_transfer_minimum(from_stop_id TEXT NOT NULL, to_stop_id TEXT NOT NULL, min_transfer_time INTEGER NOT NULL, PRIMARY KEY(from_stop_id,to_stop_id));
   `)
   const excludedTripIds = new Set()
+  const flexTripIds = new Set(), bookingTripIds = new Set(), flexTripModels = new Map()
   const zipImportBudget = createGtfsZipImportBudget()
   const importTable = async (name, progress, insertSql, values) => {
     const entry = gtfsTableEntry(archive, name)
@@ -1193,6 +1196,10 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
     await importTable('trips.txt', 0.14,
       'INSERT INTO trips VALUES(?,?,?,?)',
       (row) => {
+        const factor = row.safe_duration_factor ? Number(row.safe_duration_factor) : null
+        const offset = row.safe_duration_offset ? Number(row.safe_duration_offset) : null
+        if ((factor !== null && (!Number.isFinite(factor) || factor < 0)) || (offset !== null && (!Number.isFinite(offset) || offset < 0))) throw new Error('Invalid GTFS safe duration model')
+        if (factor !== null || offset !== null) flexTripModels.set(row.trip_id, { factor, offset })
         insertTripOperations.run(row.trip_id, String(row.block_id ?? '').trim() || null, requiredGtfsEnum(row.bikes_allowed, [0, 1, 2], 'bikes_allowed', row.trip_id, 0))
         insertTripDetails.run(row.trip_id, row.trip_headsign || null, row.trip_short_name || null)
         if (String(row.block_id ?? '').trim()) featureInventory.blockTripCount += 1
@@ -1325,11 +1332,16 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
     await importTable('stop_times.txt', 0.32,
       'INSERT INTO stop_times VALUES(?,?,?,?,?,?,?,?,?)',
       (row) => {
+        if (row.location_id || row.location_group_id || row.start_pickup_drop_off_window || row.end_pickup_drop_off_window) {
+          flexTripIds.add(row.trip_id)
+          return null
+        }
         const context = `trip ${row.trip_id || '(missing trip_id)'} stop_sequence ${row.stop_sequence || '(missing sequence)'}`
         const pickupType = requiredGtfsEnum(row.pickup_type, [0, 1, 2, 3], 'pickup_type', context, 0)
         const dropOffType = requiredGtfsEnum(row.drop_off_type, [0, 1, 2, 3], 'drop_off_type', context, 0)
         // Type 3 is a fixed flag stop: the rider signals the driver.
         // Type 2 requires advance agency coordination and remains unavailable.
+        if (pickupType === 2 || dropOffType === 2) bookingTripIds.add(row.trip_id)
         const restrictedPickup = pickupType === 1 || pickupType === 2
         const restrictedDropOff = dropOffType === 1 || dropOffType === 2
         const continuousPickup = Boolean(String(row.continuous_pickup ?? '').trim()) && numeric(row.continuous_pickup, 1) !== 1
@@ -1366,6 +1378,12 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
           dropOffType,
         ]
       })
+    if (flexTripIds.size || bookingTripIds.size) {
+      await importFlexCatalog({ archive, streamTable, db, prefix, budget: zipImportBudget, windows: new Set([...flexTripIds, ...bookingTripIds]), tripModels: flexTripModels })
+      const remove = stage.prepare('DELETE FROM stop_times WHERE trip_id=?')
+      runTransaction(stage, () => { for (const id of flexTripIds) remove.run(id) })
+      featureInventory.flexTripCount = flexTripIds.size
+    }
     featureInventory.excludedTripCount = excludedTripIds.size
 
     const pathwaysEntry = gtfsTableEntry(archive, 'pathways.txt')
@@ -1373,11 +1391,11 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
       report(onProgress, 'Reading pathways.txt', 0.31)
       const insertPathway = db.prepare('INSERT OR IGNORE INTO transfers VALUES(?,?,0,?)')
       const insertPathwayProvenance = db.prepare('INSERT OR IGNORE INTO transfer_provenance VALUES(?,?,?,NULL,?)')
-      const existingPathway = wheelchair ? db.prepare(`SELECT min_transfer_time,transfer_type,provenance FROM transfers
-        JOIN transfer_provenance USING(from_stop_id,to_stop_id) WHERE from_stop_id=? AND to_stop_id=?`) : null
+      const existingPathway = db.prepare(`SELECT min_transfer_time,transfer_type,provenance,path_distance_m FROM transfers
+        JOIN transfer_provenance USING(from_stop_id,to_stop_id) WHERE from_stop_id=? AND to_stop_id=?`)
       const wheelchairMinimum = wheelchair ? db.prepare('SELECT min_transfer_time FROM wheelchair_transfer_minimum WHERE from_stop_id=? AND to_stop_id=?') : null
-      const replacePathway = wheelchair ? db.prepare('INSERT OR REPLACE INTO transfers VALUES(?,?,0,?)') : null
-      const replacePathwayProvenance = wheelchair ? db.prepare("INSERT OR REPLACE INTO transfer_provenance VALUES(?,?,'gtfs_pathway',NULL,?)") : null
+      const replacePathway = db.prepare('INSERT OR REPLACE INTO transfers VALUES(?,?,0,?)')
+      const replacePathwayProvenance = db.prepare('INSERT OR REPLACE INTO transfer_provenance VALUES(?,?,?,NULL,?)')
       const pathwayStop = db.prepare('SELECT lon, lat FROM stops WHERE stop_id=?')
       let pathwayBatch = 0
       db.exec('BEGIN IMMEDIATE')
@@ -1413,8 +1431,17 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
               if (existing?.provenance === 'gtfs_pathway' && existing.min_transfer_time != null
                 && (duration == null || existing.min_transfer_time <= duration)) return
               replacePathway.run(fromId, toId, duration)
-              replacePathwayProvenance.run(fromId, toId, distanceM)
+              replacePathwayProvenance.run(fromId, toId, 'gtfs_pathway', distanceM)
             } else {
+              const existing = existingPathway.get(fromId, toId)
+              const candidate = { min_transfer_time: seconds, provenance, path_distance_m: distanceM }
+              const duration = transferDurationSeconds(candidate)
+              if (['gtfs_pathway', 'gtfs_pathway_estimated'].includes(existing?.provenance)
+                && duration != null && (transferDurationSeconds(existing) == null || duration < transferDurationSeconds(existing))) {
+                replacePathway.run(fromId, toId, seconds)
+                replacePathwayProvenance.run(fromId, toId, provenance, distanceM)
+                return
+              }
               const inserted = insertPathway.run(fromId, toId, seconds)
               if (Number(inserted.changes ?? 0)) insertPathwayProvenance.run(fromId, toId, provenance, distanceM)
             }
@@ -1511,8 +1538,9 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
     featureInventory.exactFrequencyExpandedTripCount = exactFrequencyExpandedTripCount
     featureInventory.exactFrequencyExpandedConnectionCount = exactFrequencyExpandedConnectionCount
     if (featureInventory.inexactFrequencyCount) routingLimitations.push({code:'frequency_based_service',count:featureInventory.inexactFrequencyCount,exactness:'approximate',detail:'Rust headway routing assumes half a headway of waiting, rounded up to whole seconds, after service opens. Times are estimates, not scheduled departures.'})
+    if (featureInventory.flexTripCount) routingLimitations.push({code: 'flex_service', count: featureInventory.flexTripCount, exactness: 'conditional', detail: 'Flex service requires an explicit flex request and OSM driving estimates. Booking and vehicle availability are not confirmed.'})
     limitFeature('on_demand_boarding_or_alighting', featureInventory.onDemandPickupStopTimeCount + featureInventory.onDemandDropOffStopTimeCount,
-      'pickup_type/drop_off_type value 2 requires advance agency coordination; those events remain unavailable.')
+      'pickup_type/drop_off_type value 2 requires booking. Omitted by default; flex requests may return conditional journeys with booking instructions.')
     if (featureInventory.driverCoordinatedStopTimeCount) routingLimitations.push({
       code: 'driver_coordinated_stops', count: featureInventory.driverCoordinatedStopTimeCount,
       exactness: 'conditional', detail: 'Fixed-stop pickup_type/drop_off_type=3 is routable. Riders must signal or notify the driver to board or alight; service assumes this coordination.',
@@ -1816,6 +1844,7 @@ export async function mergeNationalGtfsStores({ stores, outputPath, onProgress, 
       db.exec(`ATTACH DATABASE ${sqlLiteral(descriptor.storePath)} AS ${alias}`)
       runTransaction(db, () => {
         copyGtfsFareCatalogs(db, alias, descriptor.scope)
+        copyFlexCatalogs(db, alias, prefix)
         db.exec(`
           INSERT INTO stops
             SELECT ${prefixSql} || stop_id, name, lat, lon,
@@ -2331,22 +2360,14 @@ function buildNationalStoreAccessMaterialization(store) {
       ON provenance.from_stop_id=transfer.from_stop_id
       AND provenance.to_stop_id=transfer.to_stop_id
   `
-  const stationMembers = new Map()
   const stopRecords = new Map()
   const wheelchair = store.metadata.accessibility?.profile === wheelchairProfile
   const accessibility = wheelchair ? new Map(db.prepare('SELECT stop_id,boarding FROM wheelchair_stops').all().map(row => [row.stop_id, row.boarding])) : null
   for (const stop of db.prepare('SELECT stop_id, name, lat, lon, parent_station, location_type FROM stops ORDER BY stop_id').all()) {
     if (wheelchair) stop.wheelchair_boarding = accessibility.get(stop.stop_id) ?? 0
     stopRecords.set(stop.stop_id, stop)
-    if (stop.parent_station) {
-      const list = stationMembers.get(stop.parent_station) ?? []
-      list.push(stop.stop_id)
-      stationMembers.set(stop.parent_station, list)
-    }
   }
-  for (const [parentStation, members] of stationMembers) {
-    if (stopRecords.has(parentStation) && !members.includes(parentStation)) members.unshift(parentStation)
-  }
+  const stationMembers = stationHierarchyMembers(stopRecords)
   const {
     transfers,
     rawTransferCount,

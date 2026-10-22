@@ -172,7 +172,11 @@ impl City {
             + self.street_bounds.heap_bytes()
             + self.context.header.heap_bytes()
             + tt.map_or(0, Heap::heap_bytes)
-            + self.calendar.get().map_or(0, |c| c.heap_bytes());
+            + self.calendar.get().map_or(0, |c| c.heap_bytes())
+            + self
+                .flex_catalog
+                .get()
+                .map_or(0, |c| c.as_ref().heap_bytes());
         let inactive_timetables = self
             .timetable_cache
             .entries()

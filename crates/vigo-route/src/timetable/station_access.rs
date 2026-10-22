@@ -22,6 +22,8 @@ pub struct StationGroup {
 pub struct StationPathsInput {
     pub coordinates: F64Buffer,
     pub platforms: U8Buffer,
+    /// Logical platform endpoints may start/end a path, never join two areas.
+    pub terminal_only: Option<U8Buffer>,
     pub edges: Vec<StationEdge>,
     pub groups: Vec<StationGroup>,
     pub forbidden_from: U32Buffer,
@@ -77,6 +79,10 @@ fn distance_km(coords: &[f64], from: usize, to: usize) -> f64 {
 }
 pub fn compile_station_paths(input: StationPathsInput) -> Result<StationPathsResult> {
     let n = input.platforms.len();
+    let terminal = input.terminal_only.as_ref();
+    if terminal.is_some_and(|v| v.len() != n || v.iter().any(|x| *x > 1)) {
+        return Err(Error::from_reason("Invalid terminal-only station mask"));
+    }
     if input.coordinates.len() != n * 2
         || input.forbidden_from.len() != input.forbidden_to.len()
         || input.platforms.iter().any(|v| *v > 1)
@@ -196,7 +202,10 @@ pub fn compile_station_paths(input: StationPathsInput) -> Result<StationPathsRes
         let mut discovered = vec![origin];
         let mut cursor = 0;
         while cursor < labels.len() {
-            if labels[cursor].active {
+            if labels[cursor].active
+                && (labels[cursor].to == origin
+                    || !terminal.is_some_and(|v| v[labels[cursor].to] == 1))
+            {
                 for edge in &graph[labels[cursor].to] {
                     let time = labels[cursor].seconds + edge.seconds;
                     let meters = labels[cursor].distance + edge.distance;

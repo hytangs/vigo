@@ -417,6 +417,7 @@ async function computeRouteRequest(
     streetStorePath,
     requireTransitRide: request.requireTransitRide,
     sharedLegs: request.sharedLegs,
+    flex: request.flex,
     __disableNativeStreetPathCache: request.disableCache === true,
     horizonMinutes: options.horizonMinutes,
     allowLongWalk: request.allowLongWalk !== false,
@@ -949,7 +950,7 @@ async function computePreparedMatrix(
     routingDataMode: options.routingDataMode,
   }
   for (const key of ['requireTransitRide', 'allowLongWalk', 'disableCache', 'allowStreetTransfers',
-    'minimumTransferBufferMinutes', 'arrivalBufferMinutes', 'includeJourneys', 'includeGeometry', 'walkSpeedKph']) {
+    'minimumTransferBufferMinutes', 'arrivalBufferMinutes', 'includeJourneys', 'includeGeometry', 'walkSpeedKph', 'flex']) {
     if (request[key] !== undefined) nativeRequest[key] = request[key]
   }
   if (options.routingDataMode === 'realtime' && mode === 'drive') nativeRequest.traffic = request.traffic

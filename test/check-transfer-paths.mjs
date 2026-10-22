@@ -60,3 +60,12 @@ const store = { stopRecords: new Map(['A', 'X', 'B'].map(id => [id, {}])),
     ['X', [edge('X', 'B', 20, 'gtfs_pathway')]]]) }
 assert.equal(prepareServiceTransfers(store).size, 0, 'A faster pathway chain cannot undercut the published transfer minimum.')
 console.log('Transfer composition: 120 independent graph checks, directed witnesses, one external edge, published minima and invalid inputs passed.')
+
+// Two boarding areas share a train platform, not a free indoor walking link.
+const areas = typed(5, [[0,1,10,1],[1,2,0,1],[2,1,0,1],[2,3,0,1],[3,2,0,1],[3,4,20,1]])
+areas.terminalOnly = Uint8Array.of(0,0,1,0,0)
+const areaPaths = compileNativeTransferPaths(areas)
+const hasPath = (a,b) => Array.from(areaPaths.from).some((from,i) => from === a && areaPaths.to[i] === b)
+assert(hasPath(0,2), 'Entrance can reach the train through its boarding area')
+assert(hasPath(2,4), 'Train can exit through its boarding area')
+assert(!hasPath(0,4), 'A platform cannot teleport walkers between disconnected boarding areas')

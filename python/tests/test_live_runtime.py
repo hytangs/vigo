@@ -10,6 +10,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -51,6 +52,31 @@ class LiveRuntimeTest(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.city.close()
         cls.temporary.cleanup()
+
+    def test_conditional_booking_survives_route_and_matrix(self) -> None:
+        inputs = Path(os.environ["VIGO_TEST_INPUTS"])
+        gtfs = Path(self.temporary.name) / "booking.zip"
+        with zipfile.ZipFile(inputs / "fixture.zip") as source, zipfile.ZipFile(gtfs, "w") as target:
+            for name in source.namelist():
+                if name in {"trips.txt", "stop_times.txt"}:
+                    continue
+                target.writestr(name, source.read(name))
+            target.writestr("trips.txt", "route_id,service_id,trip_id,direction_id\nR1,WKD,BOOKED,0\n")
+            target.writestr("stop_times.txt", "trip_id,arrival_time,departure_time,stop_id,stop_sequence,pickup_type,drop_off_type\n"
+                            "BOOKED,08:00:00,08:00:00,A,1,2,1\nBOOKED,08:20:00,08:20:00,B,2,1,2\n")
+        with vigo.build(Path(self.temporary.name) / "booking-city", gtfs=gtfs,
+                        osm=inputs / "fixture.osm.pbf", runtime=self.city.runtime) as city:
+            options = {"depart_at": "07:59", "service_date": "2026-07-15",
+                       "require_transit_ride": True, "max_walk_km": 0}
+            self.assertIsNone(city.route("A", "B", **options).duration_minutes)
+            route = city.route("A", "B", flex={}, **options)
+            matrix = city.matrix(["A"], ["B"], flex={}, include_journeys=True, **options)
+            for journey in (route.value, matrix.rows[0]["journey"]):
+                ride = next(leg for leg in journey["legs"] if leg["type"] == "ride")
+                self.assertEqual(ride["flexEstimate"]["bookingStatus"], "required")
+                self.assertEqual(ride["flexEstimate"]["assumption"], "published_timetable")
+                self.assertEqual(ride["startMinutes"], 480)
+                self.assertEqual(ride["endMinutes"], 500)
 
     def test_parallel_batch_preserves_order_dates_and_full_journeys(self) -> None:
         queries = [vigo.Matrix({"a": "A"}, {"b": "B"}, include_journeys=True,

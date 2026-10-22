@@ -455,7 +455,7 @@ impl City {
                 !sources.is_empty()
                     && sources
                         .iter()
-                        .all(|s| matches!(s.as_str(), Some("gtfs_pathway")))
+                        .all(|s| matches!(s.as_str(), Some("gtfs_pathway" | "gtfs_boarding_area")))
             });
             leg["stationAccessStatus"] = json!(if source_path {
                 "source_path"

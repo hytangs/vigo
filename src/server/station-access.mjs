@@ -1,8 +1,9 @@
+import { boardingAreaLinks } from './gtfs/station-hierarchy.mjs'
 import { compileNativeStationPaths } from './native-routing-kernel.mjs'
 import { haversineKm } from './geometry-utils.mjs'
 import { stationTransferDurationSeconds } from './gtfs/routing-policy.mjs'
 
-const isPathway = source => source === 'gtfs_pathway'
+const isPathway = source => ['gtfs_pathway', 'gtfs_boarding_area'].includes(source)
 
 // Declared station traversal time need not equal street walking time (for
 // example, a moving walkway). Preserve both priced components and the directed
@@ -83,7 +84,10 @@ export function prepareStationAccessPaths(store, stops, walkingSpeedKph = 4.8) {
   const indices = new Map(stops.map((stop, index) => [stop.stop_id, index]))
   const sources = ['parent_station_fallback'], sourceIndices = new Map([[sources[0], 0]])
   const edges = [], groups = [], forbiddenFrom = [], forbiddenTo = []
-  for (const [id, transfers] of store.transfers) {
+  const { links, terminals } = boardingAreaLinks(store.stopRecords)
+  const graph = new Map([...store.transfers].map(([id, rows]) => [id, [...rows]]))
+  for (const link of links) graph.set(link.from_stop_id, [...(graph.get(link.from_stop_id) ?? []), link])
+  for (const [id, transfers] of graph) {
     const from = indices.get(id)
     if (from === undefined) continue
     for (const transfer of transfers) {
@@ -114,6 +118,7 @@ export function prepareStationAccessPaths(store, stops, walkingSpeedKph = 4.8) {
   const { sourceIds, ...packed } = compileNativeStationPaths({
     coordinates: Float64Array.from(stops.flatMap(stop => [Number(stop.lon), Number(stop.lat)])),
     platforms: Uint8Array.from(stops, stop => Number(stop.location_type || 0) === 0 ? 1 : 0),
+    terminalOnly: Uint8Array.from(stops, stop => Number(terminals.has(stop.stop_id))),
     edges, groups, forbiddenFrom: Uint32Array.from(forbiddenFrom), forbiddenTo: Uint32Array.from(forbiddenTo),
     fallbackSource: 0, walkingSpeedKph,
   })

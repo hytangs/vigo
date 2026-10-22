@@ -249,6 +249,18 @@ FareOption = TypedDict(
     },
 )
 
+# Include conditional GTFS Flex journeys. Booking is never performed by VIGO.
+FlexOptions = TypedDict(
+    "FlexOptions",
+    {
+        "bookingConfirmed": NotRequired[bool],
+        # Fallback multiplier when the feed omits safe_duration_factor. Default 1.5.
+        "durationFactor": NotRequired[float],
+        # Fallback addition when safe_duration_offset is absent. Default 300 seconds.
+        "durationOffsetSeconds": NotRequired[float],
+    },
+)
+
 GtfsSource = TypedDict(
     "GtfsSource",
     {
@@ -444,7 +456,7 @@ SampledAlternatives = TypedDict(
 
 ScheduleMode = Literal["frequency", "preserve-trips"]
 
-ScheduleQuality = Literal["timetable"] | Literal["source_time_limitations"] | Literal["realtime"] | Literal["headway_estimate"]
+ScheduleQuality = Literal["timetable"] | Literal["source_time_limitations"] | Literal["realtime"] | Literal["headway_estimate"] | Literal["flex_estimate"]
 
 ScheduledTrip = TypedDict(
     "ScheduledTrip",
@@ -937,6 +949,7 @@ TrafficObservation = TypedDict(
 TransitQuality = TypedDict(
     "TransitQuality",
     {
+        "flex": NotRequired[Any],
         # Where the line came from: `gtfs_shape` (aligned to the feed's shape),
         # `stop_sequence` (straight lines between stops) or `unknown`.
         "geometry": str,
@@ -1302,6 +1315,8 @@ MatrixRequest = TypedDict(
         # unstable internal `trace`. Default `none`.
         "diagnostics": NotRequired[DiagnosticsLevel],
         "disableCache": NotRequired[bool],
+        # Include conditional direct Flex journeys with explicit booking and timing assumptions.
+        "flex": NotRequired[FlexOptions],
         "horizonMinutes": NotRequired[float],
         # Caller's identifier, echoed as `id` and `meta.requestId`.
         "id": NotRequired[Any],
@@ -1401,6 +1416,8 @@ RouteRequest = TypedDict(
         "disableCache": NotRequired[bool],
         # Explicit permission to search for faster alternatives with more walking.
         "expandedWalkKm": NotRequired[float],
+        # Include conditional direct Flex journeys with explicit booking and timing assumptions.
+        "flex": NotRequired[FlexOptions],
         # Default 480.
         "horizonMinutes": NotRequired[float],
         # Caller's identifier, echoed as `id` and `meta.requestId`.

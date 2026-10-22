@@ -160,6 +160,34 @@ pub enum SurfaceSampling {
     CellCenter,
 }
 
+/// Include conditional GTFS Flex journeys. Booking is never performed by VIGO.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FlexOptions {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub booking_confirmed: Option<bool>,
+    /// Fallback multiplier when the feed omits safe_duration_factor. Default 1.5.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    #[schemars(range(min = 1, max = 10))]
+    pub duration_factor: Option<Number>,
+    /// Fallback addition when safe_duration_offset is absent. Default 300 seconds.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    #[schemars(range(min = 0, max = 7200))]
+    pub duration_offset_seconds: Option<Number>,
+}
+
 /// Defines a query request: the fields given, then the options every query
 /// shares, so each request is one flat object in the schema.
 macro_rules! query_request {
@@ -191,6 +219,7 @@ macro_rules! query_request {
             /// Omitted inherits the City's profile; `false` rejects a wheelchair City.
             #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
             pub wheelchair: Option<bool>,
+
             /// `YYYY-MM-DD`. Required for transit.
             #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
             #[schemars(extend("format" = "date"))]
@@ -239,6 +268,9 @@ macro_rules! query_request {
 query_request! {
     /// `POST /v1/route`: journeys between two places.
     RouteRequest {
+        /// Include conditional direct Flex journeys with explicit booking and timing assumptions.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
+        pub flex: Option<FlexOptions>,
         /// Versioned native alternatives selection; transit only.
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
         pub journey_policy: Option<JourneyPolicy>,
@@ -315,6 +347,9 @@ query_request! {
 query_request! {
     /// `POST /v1/matrix`: travel times between every origin and destination.
     MatrixRequest {
+        /// Include conditional direct Flex journeys with explicit booking and timing assumptions.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
+        pub flex: Option<FlexOptions>,
         /// Include GeoJSON on legs.
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
         #[schemars(extend("default" = false))]

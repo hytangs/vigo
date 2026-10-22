@@ -375,6 +375,17 @@ export interface FareOption {
   riderCategory?: string;
 }
 
+/**
+ * Include conditional GTFS Flex journeys. Booking is never performed by VIGO.
+ */
+export interface FlexOptions {
+  bookingConfirmed?: boolean;
+  /** Fallback multiplier when the feed omits safe_duration_factor. Default 1.5. */
+  durationFactor?: number;
+  /** Fallback addition when safe_duration_offset is absent. Default 300 seconds. */
+  durationOffsetSeconds?: number;
+}
+
 export interface GtfsSource {
   /** The feed's scope. */
   feed: string | null;
@@ -554,6 +565,8 @@ export interface MatrixRequest {
   /** unstable internal `trace`. Default `none`. */
   diagnostics?: DiagnosticsLevel;
   disableCache?: boolean;
+  /** Include conditional direct Flex journeys with explicit booking and timing assumptions. */
+  flex?: FlexOptions;
   horizonMinutes?: number;
   /** Caller's identifier, echoed as `id` and `meta.requestId`. */
   id?: unknown;
@@ -1042,6 +1055,8 @@ export interface RouteRequest {
   disableCache?: boolean;
   /** Explicit permission to search for faster alternatives with more walking. */
   expandedWalkKm?: number;
+  /** Include conditional direct Flex journeys with explicit booking and timing assumptions. */
+  flex?: FlexOptions;
   /** Default 480. */
   horizonMinutes?: number;
   /** Caller's identifier, echoed as `id` and `meta.requestId`. */
@@ -1172,7 +1187,7 @@ export interface ScenarioService {
 
 export type ScheduleMode = "frequency" | "preserve-trips";
 
-export type ScheduleQuality = "timetable" | "source_time_limitations" | "realtime" | "headway_estimate";
+export type ScheduleQuality = "timetable" | "source_time_limitations" | "realtime" | "headway_estimate" | "flex_estimate";
 
 export interface ScheduledTrip {
   arrivalOffsetsSeconds: number[];
@@ -1400,6 +1415,7 @@ export interface TransitLeg {
 }
 
 export interface TransitQuality {
+  flex?: unknown;
   /** Where the line came from: `gtfs_shape` (aligned to the feed's shape), */
   /** `stop_sequence` (straight lines between stops) or `unknown`. */
   geometry: string;

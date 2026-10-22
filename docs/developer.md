@@ -719,8 +719,8 @@ whole store.
 | Shapes missing or unusable | Yes | Timetable route remains valid. Ordinary network lenses show no inferred route alignment; selected-itinerary and Shape/Risk QA views may show a dashed, explicitly inferred stop sequence. | Timetable supported; published ride geometry unavailable. |
 | Duplicate stop names | Yes | Identity is `stop_id`, not name. | Supported. |
 | Parent stations and platforms | Yes | Explicit parent transfer rules expand to child service platforms; selected stations expand to service members. Without an explicit rule, service members share a modeled 120-second connection, reported as `parent_station_fallback` with schematic geometry. | Supported for `location_type` 0/1; fallback time is not a measured station pathway. |
-| Deeper `location_type` hierarchy | Parsed as stops | No complete entrance/boarding-area hierarchy model. | Partial. |
-| `pathways.txt` direction and traversal time | Yes | Creates directed transfer edges; explicit traversal times take precedence. Stairs with a stair count and fare/exit gates receive labeled estimated costs when time is omitted. Bidirectional rows create the reverse edge. The full hierarchy is not preserved. | Partial. |
+| Deeper `location_type` hierarchy | Prepared | Station membership includes descendants. Boarding areas connect to their parent platform for boarding/alighting; a platform cannot create an unproved shortcut between its areas. | Pathway-based access supported; unlocated boarding areas cannot be selected directly. |
+| `pathways.txt` direction and traversal time | Yes | Creates directed transfer edges; explicit traversal times take precedence. Stairs with a stair count and fare/exit gates receive labeled estimated costs when time is omitted. Bidirectional rows create the reverse edge. Parallel pathways use the lowest available traversal cost; unpriced paths without enough data remain excluded. | Supported within the prepared pathway graph. |
 | Pathway wheelchair/slope/width attributes | Profile dependent | Applied during `build --wheelchair`; ordinary Cities inventory them without filtering. | See [wheelchair preparation and limits](guides/rust-standalone.md#wheelchair-routing). |
 | Transfer type 0 | Yes | Directed recommended transfer using declared/default duration. | Supported within transfer model. |
 | Transfer type 1 timed transfer | Inventoried | The guarantee is not represented; the row is omitted from the generic stop-pair transfer graph. Other supported scheduled service remains routable. | Excluded from the supported scheduled core; visible limitation. |
@@ -730,7 +730,7 @@ whole store.
 | Route- or trip-scoped transfer selectors | Native | Lossless selectors, parent-station expansion and GTFS specificity are evaluated with arriving-trip state. | Route, Matrix and Reach share the operator. |
 | Nearby stops without explicit transfer | Prepared | One native multi-target street search creates every directed OSM-reachable alight-to-board edge within 500 m. Each edge stores its routed distance; unproved radial pairs remain visible counts. | Supported within the City street model. |
 | `pickup_type=1` / `drop_off_type=1` | Yes | The complete scheduled trip is retained. Boarding is prohibited only at a stop with `pickup_type=1`; alighting is prohibited only at a stop with `drop_off_type=1`; through-riding remains legal. | Supported for fixed-stop routing. |
-| `pickup_type` / `drop_off_type` value 2 | Inventoried | Advance agency coordination is not a request capability, so the affected board or alight event remains unavailable; through-riding is retained. | Visible `on_demand_boarding_or_alighting` limitation. |
+| `pickup_type` / `drop_off_type` value 2 | Conditional | `flex: {}` includes direct journeys between timed fixed stops with booking requirements; ordinary routing excludes those events and retains through-riding. | No booking or operator availability confirmation. Frequency templates remain excluded from conditional fixed-stop routing. |
 | `pickup_type` / `drop_off_type` value 3 | Yes | Fixed flag stops permit boarding/alighting, assuming the rider signals or notifies the driver. This does not enable continuous stopping or advance-booking service. | Visible `driver_coordinated_stops` condition. Rebuild Cities imported before this fix: compiled permission bits cannot distinguish flag stops from prohibited events. |
 | Continuous pickup/drop-off | Inventoried | Scheduled fixed-stop service remains routable. Continuous boarding or alighting between scheduled stops is not represented. | Fixed-stop core retained with visible limitation. |
 | Loop routes | Yes | Sequence, not stop identity, orders a trip; reconstruction can retain repeated locations. | Supported, with adversarial regression coverage required. |
@@ -741,6 +741,45 @@ whole store.
 | Untimed interior stop-time gaps | Yes | Timed endpoints remain connected and the itinerary reports `interpolated-stop-time-gap`; no exact timestamp is claimed for omitted interior events. | Supported with degraded timing precision. |
 | Malformed required table | Rejected | Build does not commit the temporary store. | Supported rejection. |
 | Broken core references | Rejected | Unknown trip routes/services, parent stations, transfer endpoints, frequency trips, and stop-time trip/stop references abort the temporary build. Missing shapes remain a supported timetable-only case as declared above. | Rejected malformed input with adversarial atomicity coverage. |
+
+### Conditional GTFS Flex journeys
+
+Route and Matrix accept `"flex": {}` to include conditional direct service from
+GTFS location groups, Polygon/MultiPolygon zones, pickup/drop-off windows and
+booking rules. A zone-only feed can omit `stops.txt`. Rebuild a City to import
+these optional source records; existing Cities remain readable.
+
+```json
+{
+  "origin": { "coordinate": [-77.05, 38.90] },
+  "destination": { "coordinate": [-77.03, 38.91] },
+  "serviceDate": "2026-07-15",
+  "time": "08:00",
+  "flex": { "durationFactor": 1.5, "durationOffsetSeconds": 300 }
+}
+```
+
+Rust checks zone containment (including polygon holes), calendar service,
+endpoint windows, walking limits and native OSM driving reachability. On-demand
+travel time uses the feed's `safe_duration_factor` and `safe_duration_offset`,
+with the request values above as fallbacks. Timed fixed-stop booking service
+keeps its published times. `journey.legs[].quality.flex` includes the timing
+assumption and source booking rules, including operator messages, phone numbers,
+URLs and notice requirements. `bookingStatus: "required"` means the journey is
+conditional: VIGO has neither made a booking nor verified the booking deadline
+or available capacity. `bookingConfirmed: true` records only the caller's claim.
+
+This is direct-service support, not a complete demand-responsive assignment
+model. It does not compose Flex-to-transit transfers, continuous boarding,
+vehicle dispatch or routes through mandatory intermediate fixed calls. Explicit
+wheelchair, realtime, scenario, journey-window and alternative-policy requests
+are rejected with Flex. Matrix is limited to 4,096 cells and each search to
+4,096 candidate endpoint pairs. Reach does not accept Flex. Returned estimates
+must not be presented as guaranteed departures or confirmed reservations.
+
+Public synthetic coverage is in `test/check-flex.mjs`: conditional fixed stops,
+zones, location groups, pure-Flex feeds, windows, arrive-by, zero walking limits,
+booking metadata, independent Drive duration and Matrix/Route agreement.
 
 ### Semantic coverage written to store metadata
 

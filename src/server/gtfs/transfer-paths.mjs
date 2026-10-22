@@ -1,3 +1,4 @@
+import { boardingAreaLinks } from './station-hierarchy.mjs'
 import { compileNativeTransferPaths } from '../native-routing-kernel.mjs'
 
 // Keep original source edges for endpoint access and physical evidence. Only
@@ -5,15 +6,17 @@ import { compileNativeTransferPaths } from '../native-routing-kernel.mjs'
 // to these same directed edges, including their individual walking times.
 export function prepareServiceTransfers(store) {
   const ids = [...store.stopRecords.keys()], index = new Map(ids.map((id, i) => [id, i]))
-  const edges = [...store.transfers.values()].flat()
+  const { links, terminals } = boardingAreaLinks(store.stopRecords)
+  const edges = [...store.transfers.values()].flat().concat(links)
   const forbidden = [...store.forbiddenTransferPairs].map(pair => pair.split('\0'))
     .filter(([a, b]) => index.has(a) && index.has(b))
   const paths = compileNativeTransferPaths({
+    terminalOnly: Uint8Array.from(ids, id => Number(terminals.has(id))),
     eligible: Uint8Array.from(ids, id => store.stopAccessIndex.directServiceStopIds.has(id) ? 1 : 0),
     from: Uint32Array.from(edges, e => index.get(e.from_stop_id)),
     to: Uint32Array.from(edges, e => index.get(e.to_stop_id)),
     seconds: Uint32Array.from(edges, e => e.min_transfer_time),
-    pathway: Uint8Array.from(edges, e => ['gtfs_pathway', 'gtfs_pathway_estimated'].includes(e.provenance) ? 1 : 0),
+    pathway: Uint8Array.from(edges, e => ['gtfs_pathway', 'gtfs_pathway_estimated', 'gtfs_boarding_area'].includes(e.provenance) ? 1 : 0),
     forbiddenFrom: Uint32Array.from(forbidden, ([a]) => index.get(a)),
     forbiddenTo: Uint32Array.from(forbidden, ([, b]) => index.get(b)),
   })

@@ -101,6 +101,7 @@ class Route:
     alternatives: int = 0
     alternative_ranking: str | None = None
     alternative_slack_minutes: float | None = None
+    flex: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +123,7 @@ class Matrix:
     require_transit_ride: bool = False
     disable_cache: bool = False
 
+    flex: Mapping[str, Any] | None = None
 
 @dataclass(frozen=True, slots=True)
 class Reach:
@@ -576,6 +578,8 @@ class Result:
 
     @property
     def duration_minutes(self) -> float | None:
+        if self.status != "ready":
+            return None
         route = self._payload.get("result") if self.kind == "route" else None
         value = route.get("durationMinutes") if isinstance(route, Mapping) else None
         return None if value is None else float(value)
@@ -884,6 +888,11 @@ class City:
             ):
                 return Support(False, "arrive_by_reach", ("depart_at",))
         if isinstance(query, (Route, Matrix)):
+            if query.flex is not None:
+                if not isinstance(query.flex, Mapping):
+                    raise InvalidQuery("flex must be an options mapping")
+                if not self._query_capability("route" if isinstance(query, Route) else "matrix").get("flex"):
+                    return Support(False, "flex", ("runtime advertising conditional Flex service",))
             if type(query.disable_cache) is not bool:
                 raise InvalidQuery("disable_cache must be boolean")
             if type(query.require_transit_ride) is not bool:
@@ -1117,6 +1126,7 @@ class City:
             "objective": query.objective,
             "maxWalkKm": query.max_walk_km,
             "requireTransitRide": query.require_transit_ride,
+            **({"flex": _thaw(query.flex)} if query.flex is not None else {}),
             "horizonMinutes": query.horizon_minutes,
             "disableCache": query.disable_cache,
             **({"maxTransfers": query.max_transfers} if query.max_transfers is not None else {}),
@@ -1149,6 +1159,7 @@ class City:
         request = {
             "kind": "matrix",
             "requireTransitRide": query.require_transit_ride,
+            **({"flex": _thaw(query.flex)} if query.flex is not None else {}),
             "disableCache": query.disable_cache,
             "time": clock,
             "timePreference": "arrive" if query.arrive_by is not None else "depart",
