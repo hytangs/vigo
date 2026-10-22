@@ -139,9 +139,9 @@ window.checkStores = async () => {
   const retainedPrimary = route.get().engine.choices[0]
   flushSync(() => selectRoutingPlan(primary.id))
   await until(() => document.querySelector('.journey-shared-services button'), 'Shared service missing from the detailed itinerary')
-  flushSync(() => document.querySelector('.journey-shared-services summary').click())
   check(document.querySelector('.journey-shared-services button').textContent.includes('Green E'), 'Shared service label missing')
-  check(document.querySelector('.journey-shared-services summary')?.textContent === '5 departures', 'Plain departure count missing')
+  check(Array.from(document.querySelectorAll('.journey-shared-services time'), node => node.textContent).join(',') === '08:00,08:02,08:04,08:10', 'Visible unique departure times missing')
+  check(!document.querySelector('.journey-shared-services summary'), 'Departure times should not require a disclosure')
   check(!/distinct times|Mean gap/.test(document.querySelector('.journey-itinerary').textContent), 'Technical frequency wording remains')
   flushSync(() => document.querySelector('.journey-stops summary').click())
   check(document.querySelector('.journey-stops').open && document.querySelector('.journey-stops li')?.textContent === 'North Station', 'Intermediate stop cannot be expanded')
