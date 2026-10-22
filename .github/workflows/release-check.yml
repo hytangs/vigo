@@ -48,7 +48,8 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: rust-cache
         with:
           path: |
             ~/.cargo/registry
@@ -58,6 +59,15 @@ jobs:
           restore-keys: |
             rust-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-
       - run: npm run build:cli-runtime
+      - name: Cache the compiled runtime before validation
+        if: steps.rust-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ steps.rust-cache.outputs.cache-primary-key }}
       - name: Reuse this job's compiled runtime
         shell: bash
         run: echo "VIGO_USE_BUILT_RUNTIME=1" >> "$GITHUB_ENV"
