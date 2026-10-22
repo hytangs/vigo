@@ -34,7 +34,7 @@ class RuntimeLicenseTests(unittest.TestCase):
                 )
                 (root / "LICENSE").write_text(f"License text for {name}\n")
 
-            crate("vigo-routing-kernel", '\n[features]\nstandalone = ["dep:standalone-only"]\n'
+            crate("vigo-routing-kernel", '\n[features]\nnode = []\nstandalone = ["dep:standalone-only"]\n'
                   '\n[dependencies]\nshared = { path = "shared" }\n'
                   'standalone-only = { path = "standalone-only", optional = true }\n'
                   '\n[target.\'cfg(windows)\'.dependencies]\nwindows-only = { path = "windows-only" }\n'

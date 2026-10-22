@@ -75,12 +75,13 @@ def third_party_notices(engine: Path, rust_target: str) -> str:
         npm(name, engine)
     cargo = shutil.which("cargo") or str(Path.home() / ".cargo/bin" / ("cargo.exe" if platform.system() == "Windows" else "cargo"))
     # A target build only fetches its own dependencies. Unfiltered metadata also
-    # tries to read crates for other platforms, which breaks fresh offline builds.
-    # All features: the runtime ships both the Node addon and the `vigo` executable.
+    # tries to read crates for other platforms. Locked metadata may fetch sources
+    # absent on clean runners; the lockfile remains authoritative.
+    # Only the shipped Node addon and standalone runtime features are required.
     metadata = json.loads(subprocess.check_output(
-        [cargo, "metadata", "--locked", "--offline", "--all-features", "--filter-platform", rust_target,
+        [cargo, "metadata", "--locked", "--no-default-features", "--features", "node,standalone", "--filter-platform", rust_target,
          "--format-version=1"],
-        cwd=engine / "crates" / "vigo-runtime", text=True, timeout=60,
+        cwd=engine / "crates" / "vigo-runtime", text=True, timeout=180,
     ))
     for package in metadata["packages"]:
         if package["name"] != "vigo-routing-kernel":

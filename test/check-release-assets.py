@@ -14,6 +14,7 @@ with tempfile.TemporaryDirectory() as directory:
     source = root / "input"
     source.mkdir()
     names = [f"VIGO-CLI-1.0.0-rc.1-{host}.zip" for host in ("darwin-arm64", "linux-arm64", "linux-x64", "win32-x64")]
+    names += [f"VIGO-Python-1.0.0-rc.1-{host}.zip" for host in ("darwin-arm64", "linux-arm64", "linux-x64", "win32-x64")]
     names += [f"VIGO-Rust-1.0.0-rc.1-{host}.tar.gz" for host in ("aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc")]
     names += [f"VIGO-Studio-1.0.0-rc.1-{host}{ext}" for host, ext in (("mac-arm64", ".zip"), ("linux-arm64", ".tar.gz"), ("linux-x64", ".tar.gz"), ("windows-x64", ".zip"))]
     for name in names:
@@ -24,7 +25,7 @@ with tempfile.TemporaryDirectory() as directory:
         (source / name).write_text("fixture")
     commit = "a" * 40
     manifest = module.stage(source, root / "ready", "1.0.0-rc.1", commit)
-    assert len(manifest["files"]) == 14
+    assert len(manifest["files"]) == 18
     for name, entry in manifest["files"].items():
         assert "build-aaaaaaaaaaaa" in name
         assert hashlib.sha256((root / "ready" / name).read_bytes()).hexdigest() == entry["sha256"]

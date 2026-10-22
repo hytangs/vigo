@@ -76,7 +76,7 @@ python scripts/check-wheel.py dist --require-bundled
 
 On PowerShell, set `$env:VIGO_BUNDLE_RUNTIME = "build/headless"` before the wheel command. Staging downloads only a checksum-pinned official Node archive; it copies the built CLI, native kernel, `vigo` executable and their license notices.
 
-Rust notices come from the locked dependency graph filtered to the packaged target, using the sources fetched by the native build. Staging remains offline for Cargo and does not require crates for unrelated platforms. The runtime manifest records the Rust target alongside the wheel platform.
+Rust notices come from the locked dependency graph filtered to the packaged target and shipped features. Cargo may fetch missing locked sources on clean runners; it does not update dependency versions. The runtime manifest records the Rust target alongside the wheel platform.
 
 Staging refuses to overwrite an existing staging directory. Use a new `--output` after an engine rebuild, and select that directory in `VIGO_BUNDLE_RUNTIME`. The build verifies every staged payload hash and rejects extra files. No build or download occurs during package import or query execution.
 
@@ -84,6 +84,12 @@ Set `VIGO_TEST_INPUTS` to the synthetic fixture directory when checking the whee
 
 Linux wheels use the glibc 2.39 floor of their Ubuntu 24.04 builders. macOS wheels target macOS 14 or newer. Run the platform CI before claiming support on machines that were not tested locally. Python and engine versions are independently maintained. Python releases use `python-v<VERSION>` tags; engine releases keep `v<VERSION>` tags. The Python workflow builds both packages from the tagged repository commit, verifies the commit and compatible engine series, and runs live integration before publishing wheels. No second engine checkout or mutable engine-ref repository variable is used. The staged runtime records its engine version, source commit and payload hashes. A Python tag must match `pyproject.toml` and have matching release notes. Do not reuse historical tags from the former repository.
 
+
+## Engine release integration
+
+The Engine release workflow builds Python wheels on Linux x64/arm64, macOS arm64 and Windows x64 using each job’s already compiled Engine. Publication requires Python unit, lint/type, documentation and source-wheel checks, plus public synthetic Route/Matrix/Reach tests against the installed bundled wheel without host Node on PATH. Missing fixture configuration fails rather than skipping live tests.
+
+Each `VIGO-Python-<engine-version>-<platform>.zip` contains a normally named wheel, installation instructions and the runtime manifest. The archive joins Engine release checksums and attestations. Python retains its independent version; bundles must match the exact Engine version and clean source commit. Independent `python-v*` releases remain available. These workflows do not upload to PyPI.
 
 ## Pull requests
 

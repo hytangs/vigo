@@ -18,7 +18,7 @@ if marker not in release["body"]:
     base = release["url"].replace("/tag/", "/download/") + "/"
     lines = [marker, f"## Latest {manifest['version']} build: {manifest['build']}", "",
              f"VIGO **{manifest['version']}**, source `{manifest['sourceCommit']}`. "
-             "Updated Studio, CLI and native runtimes include the integrated offline documentation, "
+             "Updated Studio, CLI, native runtimes and bundled Python wheels include the integrated offline documentation, "
              "device-aware native parallelism and memory budgets. Original downloads and tags are preserved.", "",
              "Every platform archive passed the release verification workflow before publication. "
              "Checksums and GitHub build attestations identify the exact files.", ""]

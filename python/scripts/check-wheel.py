@@ -11,6 +11,9 @@ import venv
 import zipfile
 from pathlib import Path
 
+if "--require-live" in sys.argv and not os.environ.get("VIGO_TEST_INPUTS"):
+    raise SystemExit("VIGO_TEST_INPUTS is required for live wheel verification")
+
 # Accept a concrete wheel or a directory containing exactly one wheel.
 source = Path(sys.argv[1]).resolve()
 if source.is_file():

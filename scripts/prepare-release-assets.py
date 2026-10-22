@@ -18,12 +18,13 @@ def stage(source: Path, output: Path, version: str, commit: str) -> dict:
     expected = set()
     for host in ("darwin-arm64", "linux-arm64", "linux-x64", "win32-x64"):
         expected.add(f"VIGO-CLI-{version}-{host}.zip")
+        expected.add(f"VIGO-Python-{version}-{host}.zip")
     for target in ("aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"):
         expected.add(f"VIGO-Rust-{version}-{target}.tar.gz")
     for host, ext in (("mac-arm64", ".zip"), ("linux-arm64", ".tar.gz"), ("linux-x64", ".tar.gz"), ("windows-x64", ".zip")):
         expected.add(f"VIGO-Studio-{version}-{host}{ext}")
     if {p.name for p in archives} != expected:
-        raise ValueError("Release must contain CLI, native and Studio archives for all four platforms")
+        raise ValueError("Release must contain CLI, native, Studio and Python archives for all four platforms")
     documents = {"guide.html", "standalone-openapi.json"}
     allowed = expected | {n + ".sha256" for n in expected} | documents
     if {p.name for p in files} != allowed or any(not p.is_file() or p.is_symlink() for p in files):
