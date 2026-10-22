@@ -440,7 +440,7 @@ impl TileWorkspace {
         if self.ranges.len() == 1 {
             let range = self.ranges[0];
             return (node >= range.global_start && node < range.global_end)
-                .then_some(((node - range.global_start) as usize, 0));
+                .then(|| ((node - range.global_start) as usize, 0));
         }
         let range_index = self
             .ranges
@@ -8748,3 +8748,22 @@ mod endpoint_batch;
 mod studio_choices;
 #[cfg(feature = "node")]
 pub use studio_choices::select_studio_journey_indices;
+
+#[cfg(test)]
+mod tile_range_tests {
+    use super::*;
+
+    #[test]
+    fn single_tile_rejects_nodes_outside_its_range() {
+        let mut workspace = TileWorkspace::new();
+        workspace.ranges.push(TileRange {
+            global_start: 10,
+            global_end: 20,
+            local_start: 0,
+        });
+        assert_eq!(workspace.local_location(9), None);
+        assert_eq!(workspace.local_location(10), Some((0, 0)));
+        assert_eq!(workspace.local_location(19), Some((9, 0)));
+        assert_eq!(workspace.local_location(20), None);
+    }
+}
