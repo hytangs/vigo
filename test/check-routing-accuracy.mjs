@@ -210,8 +210,12 @@ async function checkAccuracy(directory) {
     if (sameStopMinimum.length) table('transfers.txt', 'from_stop_id,to_stop_id,transfer_type,min_transfer_time',
       Object.entries(sameStopMinimum).map(([stop, minimum]) => `S${stop},S${stop},${Number.isFinite(minimum) ? 2 : 3},${Number.isFinite(minimum) ? minimum * 60 : 0}`))
     table('calendar_dates.txt', 'service_id,date,exception_type', ['ACTIVE,20260715,1'])
+    // Mix regular and driver-coordinated flag stops, and prohibited/phone-booking
+    // events. The independent oracle keeps its raw booleans: compiling enum 3 as
+    // unavailable must change results and fail this check, including reverse Matrix.
+    const permission = (allowed, index) => allowed ? (index % 2 ? 3 : 0) : (index % 2 ? 2 : 1)
     table('stop_times.txt', 'trip_id,stop_id,stop_sequence,arrival_time,departure_time,pickup_type,drop_off_type',
-      trips.flatMap((trip, i) => trip.map((stop, j) => `T${i},S${stop.stop},${j + 1},${clock(stop.arrival)},${clock(stop.departure)},${stop.pickup ? 0 : 1},${stop.dropoff ? 0 : 1}`)))
+      trips.flatMap((trip, i) => trip.map((stop, j) => `T${i},S${stop.stop},${j + 1},${clock(stop.arrival)},${clock(stop.departure)},${permission(stop.pickup, i + j)},${permission(stop.dropoff, i + j + 1)}`)))
     const gtfsPath = path.join(fixtureDirectory, 'oracle.zip'), storePath = path.join(fixtureDirectory, 'routing.sqlite')
     fs.writeFileSync(gtfsPath, await zip.generateAsync({ type: 'nodebuffer' }))
     fs.writeFileSync(path.join(fixtureDirectory, 'oracle-trips.json'), JSON.stringify(trips))

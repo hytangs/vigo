@@ -557,8 +557,9 @@ fn replacement_calls(
             match properties.get(key) {
                 None => Ok(true),
                 Some(value) => match value.as_u64() {
-                    Some(0) => Ok(true),
-                    Some(1..=3) => Ok(false),
+                    // Fixed flag stops require signaling the driver, not booking.
+                    Some(0 | 3) => Ok(true),
+                    Some(1 | 2) => Ok(false),
                     _ => Err(Invalid),
                 },
             }

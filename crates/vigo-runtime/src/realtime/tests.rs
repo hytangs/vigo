@@ -873,6 +873,10 @@ fn replacement_uses_new_sequence_and_requires_complete_absolute_clocks() {
         json!({"pickupType":1,"dropOffType":2});
     let (restricted, _) = replacement_calls(&names, &restricted, &convert, &mut 0, None).unwrap();
     assert!(!restricted[1].can_board && !restricted[1].can_alight);
+    let mut flag_stop = update.clone();
+    flag_stop["stopTimeUpdates"][1]["stopTimeProperties"] = json!({"pickupType":3,"dropOffType":3});
+    let (flag_stop, _) = replacement_calls(&names, &flag_stop, &convert, &mut 0, None).unwrap();
+    assert!(flag_stop[1].can_board && flag_stop[1].can_alight);
     let mut backwards = update.clone();
     backwards["stopTimeUpdates"][1]["arrival"]["time"] = json!(99);
     assert!(replacement_calls(&names, &backwards, &convert, &mut 0, None).is_err());

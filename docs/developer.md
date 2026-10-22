@@ -730,7 +730,8 @@ whole store.
 | Route- or trip-scoped transfer selectors | Native | Lossless selectors, parent-station expansion and GTFS specificity are evaluated with arriving-trip state. | Route, Matrix and Reach share the operator. |
 | Nearby stops without explicit transfer | Prepared | One native multi-target street search creates every directed OSM-reachable alight-to-board edge within 500 m. Each edge stores its routed distance; unproved radial pairs remain visible counts. | Supported within the City street model. |
 | `pickup_type=1` / `drop_off_type=1` | Yes | The complete scheduled trip is retained. Boarding is prohibited only at a stop with `pickup_type=1`; alighting is prohibited only at a stop with `drop_off_type=1`; through-riding remains legal. | Supported for fixed-stop routing. |
-| `pickup_type` / `drop_off_type` values 2/3 | Inventoried | The complete scheduled trip is retained, but rider-agency coordination is not a request capability, so the affected board or alight event is conservatively unavailable. | Fixed-stop core retained with visible `on_demand_boarding_or_alighting` limitation. |
+| `pickup_type` / `drop_off_type` value 2 | Inventoried | Advance agency coordination is not a request capability, so the affected board or alight event remains unavailable; through-riding is retained. | Visible `on_demand_boarding_or_alighting` limitation. |
+| `pickup_type` / `drop_off_type` value 3 | Yes | Fixed flag stops permit boarding/alighting, assuming the rider signals or notifies the driver. This does not enable continuous stopping or advance-booking service. | Visible `driver_coordinated_stops` condition. Rebuild Cities imported before this fix: compiled permission bits cannot distinguish flag stops from prohibited events. |
 | Continuous pickup/drop-off | Inventoried | Scheduled fixed-stop service remains routable. Continuous boarding or alighting between scheduled stops is not represented. | Fixed-stop core retained with visible limitation. |
 | Loop routes | Yes | Sequence, not stop identity, orders a trip; reconstruction can retain repeated locations. | Supported, with adversarial regression coverage required. |
 | Repeated stop in one trip | Yes | Distinct `stop_sequence` events remain distinct. | Supported. |
@@ -753,6 +754,7 @@ The following nonblocking `routingLimitations` codes put results in
 
 - `frequency_based_service` for `exact_times=0` headway estimates (half-headway waiting, rounded up to whole seconds);
 - `on_demand_boarding_or_alighting`;
+- `driver_coordinated_stops`;
 - `continuous_pickup_or_drop_off`;
 - `timed_transfer_guarantee`;
 - `in_seat_transfer_rules`;

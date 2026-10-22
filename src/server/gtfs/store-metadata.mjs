@@ -51,6 +51,7 @@ const streetStorageIdentityCacheMaxEntries = Math.max(1, Math.min(64, Math.floor
 const supportedScheduledCoreLimitationCodes = new Set([
   'frequency_based_service',
   'on_demand_boarding_or_alighting',
+  'driver_coordinated_stops',
   'restricted_boarding_or_alighting',
   'continuous_pickup_or_drop_off',
   'scoped_transfer_rules',
