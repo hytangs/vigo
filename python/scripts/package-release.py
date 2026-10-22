@@ -7,6 +7,7 @@ import json
 import re
 import subprocess
 import zipfile
+from email.parser import BytesParser
 from pathlib import Path
 
 HOSTS = {
@@ -30,8 +31,9 @@ def validate_wheel(wheel: Path, commit: str, engine_version: str, python_version
             raise ValueError("Unsupported release wheel platform")
         if wheel.name != f"vigo-{python_version}-py3-none-{platform}.whl":
             raise ValueError("Wheel filename differs from the Python release version or platform")
-        metadata = archive.read(f"vigo-{python_version}.dist-info/METADATA").decode()
-        if f"\nVersion: {python_version}\n" not in metadata:
+        metadata = BytesParser().parsebytes(
+            archive.read(f"vigo-{python_version}.dist-info/METADATA"), headersonly=True)
+        if metadata.get_all("Version") != [python_version]:
             raise ValueError("Wheel metadata differs from the Python release version")
         for name, digest in manifest["files"].items():
             if hashlib.sha256(archive.read("vigo/_runtime/" + name)).hexdigest() != digest:
