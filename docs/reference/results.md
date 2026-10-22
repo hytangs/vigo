@@ -4,7 +4,7 @@
 
 Public `v1` schemas preserve required fields, their types, units, and meanings. Removing or renaming a field, changing its units, or changing a status meaning requires a new schema version. Additional optional fields may be introduced; clients should ignore unknown fields. `trace`, native kernel structures, and Studio's internal worker messages are outside this stability policy. Result schema versions are independent of prepared City formats.
 
-The 0.5.0 public schemas replace the older result envelopes; there is no legacy-envelope adapter. See [upgrading](../guide.md#upgrade-and-rollback) for the City rebuild and rollback procedure.
+V1 uses the public result schemas; there is no legacy-envelope adapter. See [upgrading](../guide.md#upgrade-and-rollback) for the City rebuild and rollback procedure.
 
 ## Reading a result
 

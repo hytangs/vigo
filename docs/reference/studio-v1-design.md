@@ -1,7 +1,7 @@
 # VIGO Studio V1 design
 
 This record explains why Studio V1 looks and behaves the way it does, what the
-0.5 Studio audit found, and which heavy paths move into the Rust kernel next.
+previous Studio audit found, and which heavy paths move into the Rust kernel next.
 It is a design record for contributors, not a user guide.
 
 ## The idea
@@ -13,7 +13,7 @@ and streets, exactly and reproducibly. The V1 release is named VIGO 1 Poros
 artwork (`public/vigo-mark-transparent.png` and `public/vigo-mark-dark.png`)
 and adds no release lockup to working surfaces.
 
-## Audit of the 0.5 Studio
+## Audit of the previous Studio
 
 The exploratory audit used a Boston City with MBTA GTFS and an OpenStreetMap
 extract on an Apple Silicon Mac, in the desktop window size Studio opens at
@@ -260,7 +260,7 @@ tile with the same rules as before: land on the left of a coastline, closures
 clockwise along the boundary, and no closure across an incomplete shore. The
 street index build time versions the URL, so tiles are cached as immutable.
 
-| Work | 0.5 viewport GeoJSON | V1 vector tiles |
+| Work | Previous viewport GeoJSON | V1 vector tiles |
 | --- | --- | --- |
 | Transfer | Viewport geometry after each camera update | Binary tiles cached until the next import |
 | Server work | Synchronous on the API event loop | Per-tile rendering on the libuv pool |

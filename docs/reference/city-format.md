@@ -1,6 +1,6 @@
-# Permanent VIGO 0.5 data baseline
+# V1 prepared-data compatibility
 
-The published VIGO 0.5.0 release at source `c8da84fff7812d570fd5985cbcbcb83885587bf6`
+The published reference runtime at source `c8da84fff7812d570fd5985cbcbcb83885587bf6`
 is the permanent prepared-data baseline. Future VIGO readers must continue to
 open these Cities without requiring users to rebuild them. Future standard City
 writers must continue producing data readable by that published runtime.
@@ -11,7 +11,7 @@ Do not reuse a format identifier for an incompatible layout. Algorithm and
 performance improvements must retain the published representation. Additional
 optional metadata/indexes are allowed only when existing readers can ignore them
 and old Cities still work without them. A new required format or an automatic
-rebuild of valid 0.5 Cities violates this policy.
+rebuild of valid baseline Cities violates this policy.
 
 This applies to regular, wheelchair and scenario-collection data. It does not
 promise immutable GTFS/OSM contents or identical answers after a routing bug fix.
@@ -32,7 +32,7 @@ The original archive-only CI build (run `37885649818`) is preserved in the
 `v0.5.0` release under `*-baseline-c8da84fff781.tar.gz` asset names. Downloads
 require no GitHub token and do not expire with Actions artifact retention.
 Every platform retains its original pinned SHA-256; the later, differently
-packaged 0.5.0 downloads are not interchangeable with these baseline assets.
+packaged reference downloads are not interchangeable with these baseline assets.
 For offline checks, `VIGO_050_REFERENCE_BINARY` may point to an extracted
 package whose manifest, source identity and executable hash are verified.
 

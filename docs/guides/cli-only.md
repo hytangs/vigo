@@ -46,11 +46,9 @@ RAM limits and build working-memory requirements are separate.
 
 Street preparation must successfully write the walking accelerator before the
 source graph is sealed. Missing or unwritable snapshots fail preparation rather
-than publishing a City that cannot open. These changes preserve the published
-0.5 data layout; they do not require a new City format. Older downloaded 0.5.0
-CLI archives do not acquire builder fixes merely because the version is the same.
+than publishing a City that cannot open. V1 preserves the supported City data layout; no new City format is required. Use the current V1 release to receive builder fixes.
 
-The City is a whole directory, not the inspection JSON. Rebuild older prepared Cities using 0.5.0. Use [multiple feeds](../guide.md#combine-timetables-and-live-feeds) to combine agencies with explicit source scopes.
+The City is a whole directory, not the inspection JSON. Use V1 to rebuild unsupported prepared Cities from their original inputs into a new directory. Use [multiple feeds](../guide.md#combine-timetables-and-live-feeds) to combine agencies with explicit source scopes.
 
 ## Run a query
 

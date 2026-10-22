@@ -118,7 +118,7 @@ The service also serves the complete documentation at `http://127.0.0.1:8080/`, 
 - **Exact.** VIGO searches the published timetable and the mapped streets. It does not sample departures or draw a straight line where no path is mapped.
 - **Explained.** Every answer carries its evidence: whether a walk follows mapped streets or an assumed station link, and where each geometry came from. [Known limits](docs/guide.md#known-limits) say plainly what the model does not establish.
 - **Offline.** A City is one portable directory. The engine is one executable that needs no Node, Python or internet connection to answer.
-- **Stable.** Cities stay readable by later releases without rebuilding ([City format contract](docs/reference/format-0.5.0.md)), and the public `vigo.route.v1`, `vigo.matrix.v1` and `vigo.reach.v1` schemas only gain optional fields.
+- **Stable.** Cities stay readable by later releases without rebuilding ([City format contract](docs/reference/city-format.md)), and the public `vigo.route.v1`, `vigo.matrix.v1` and `vigo.reach.v1` schemas only gain optional fields.
 
 ## Documentation
 
@@ -136,7 +136,7 @@ One searchable, offline guide, [`docs/guide.html`](docs/guide.html): the page th
 
 VIGO's next chapter brings City compilation, scenario computation and routing into one shared Rust-native engine, built for faster network preparation, larger analyses and the applications you want to create. Follow it at [vigo.city](https://vigo.city/).
 
-Published 0.5 Cities remain readable without rebuilding; API 1.0, City format 1, and Result schema 1 are unchanged. [Release notes](docs/releases/1.0.0-rc.1.md) · [Changelog](CHANGELOG.md) · [Prepared-data contract](docs/reference/format-0.5.0.md)
+Compatible prepared Cities remain readable in V1 without rebuilding; API 1.0, City format 1, and Result schema 1 are unchanged. [Release notes](docs/releases/1.0.0-rc.1.md) · [Changelog](CHANGELOG.md) · [Prepared-data contract](docs/reference/city-format.md)
 
 ## Contribute
 

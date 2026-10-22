@@ -127,7 +127,7 @@ assigns checked aligned offsets, compresses the header and copies exact numeric
 payload bytes. The JavaScript reader stays in place during migration. Tests
 compare decompressed headers and every payload byte with the retained published
 writer, including subarray views, empty arrays and non-finite float payloads.
-Compressed streams need not be byte-identical; the frozen 0.5 readers must still
+Compressed streams need not be byte-identical; the frozen reference readers must still
 open the resulting Cities. Missing native encoding support fails explicitly.
 
 Run `npm run check:rust-workspace` for model/schema tests, algorithm tests,
@@ -144,7 +144,7 @@ full native build, or unified Studio server milestones.
 
 The first compiler operator is `vigo_prepare::compile_gtfs_connections`. It streams admitted `stop_times` rows from SQLite, expands exact
 frequency trips, and writes connections, permissions, trip details and shape
-references using the published 0.5 schema. ZIP/CSV admission, source scoping,
+references using the published City format 1 schema. ZIP/CSV admission, source scoping,
 calendars, accessibility policy, City publication, and application orchestration
 remain in JavaScript. The Rust operator is available to the addon and native
 library; the standalone executable does **not** yet build a City from raw data.
@@ -165,14 +165,14 @@ Neither a new language nor a passing differential test makes the reference
 algorithm correct for every source feed.
 
 Run `npm run check:compiler` for retained connection-table hashes from the removed
-0.5.2 JavaScript compiler, 80 seeded feed cases, malformed-input rollback,
+pinned reference JavaScript compiler, 80 seeded feed cases, malformed-input rollback,
 City build equivalence, the 100-case frozen routing corpus, and the permanent
-0.5 reader/writer gate. `test/fixtures/gtfs-connections-052.json` records the
+baseline reader/writer gate. `test/fixtures/gtfs-connections-052.json` records the
 pre-removal source revision and expected normalized tables; it is an independent
 regression baseline, not a second executable compiler. The original frozen City
-archive and hashes remain unchanged. The published 0.5 runtime must read new
+archive and hashes remain unchanged. The published reference runtime must read new
 Cities. Public Result meanings, units and clocks remain unchanged; see the
-[permanent format contract](reference/format-0.5.0.md).
+[permanent format contract](reference/city-format.md).
 
 Use `npm run profile:compiler -- --runs 3 --output output/compiler-profile.json`
 after creating the output directory. The default fixture has 10,000 trips and
@@ -192,7 +192,7 @@ The subsequent migration gates are:
 | GTFS compiler | Port remaining admission and preparation stages with their tests; compare retained admitted rows, calendars, exclusions, geometry and routed results. Measure build time, memory and temporary storage on matched workloads. |
 | OSM graph construction | Profile parsing, filtering, graph building and index preparation independently. Migrate the measured stage while preserving directed access, restrictions, station evidence and geometry. |
 | Scenario representation | Move canonical validation and incremental compilation behind a shared Rust representation; preserve stable identities, immutable shared streets, isolation and schedule semantics. |
-| City storage | Consolidate ownership of existing layouts and validation in Rust without requiring valid published 0.5 Cities to rebuild. New indexes remain optional to old readers and unnecessary to old Cities. |
+| City storage | Consolidate ownership of existing layouts and validation in Rust without requiring valid baseline Cities to rebuild. New indexes remain optional to old readers and unnecessary to old Cities. |
 | Command and binding interfaces | Add native build orchestration after the operators compose independently; make Rust authoritative for shared validation, then generate or wrap language interfaces while retaining the public request/result contract. |
 
 Further migration requires semantic regression checks and bidirectional historical-format

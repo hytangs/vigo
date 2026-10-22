@@ -283,7 +283,7 @@ Choose a date covered by your downloaded feed. Copy the complete City after this
 
 An existing output is rejected unless you explicitly pass `--replace`. Keep the completed `boston/` directory beside your Rust executable, or pass its absolute path with `--city`. Continue with [Harvard Square to South Station](#1-quickstart). No Node, Python, Osmium, or internet connection is needed for those Rust queries.
 
-Build the City with the 0.5 compiler; the runtime requires VIGORS02 snapshots and access-context v2. See [walking evidence](../reference/walking-evidence.md) for missing station costs, conservative access exclusions, and distance lower bounds. Preserve the runtime version and package checksum with the data.
+Build the City with VIGO V1; the runtime requires VIGORS02 snapshots and access-context v2. See [walking evidence](../reference/walking-evidence.md) for missing station costs, conservative access exclusions, and distance lower bounds. Preserve the runtime version and package checksum with the data.
 
 ### Copy and load the City
 

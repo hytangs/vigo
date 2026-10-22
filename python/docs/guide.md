@@ -76,7 +76,7 @@ export VIGO_RUNTIME=/path/to/headless-runtime
 
 ### 2. Prepare the City
 
-Use a complete City built with Engine 0.5 or 1.0. Keep the entire directory, including its timetable and street files. If starting with raw inputs, follow the [Engine Boston tutorial](https://github.com/hytangs/vigo/blob/main/docs/guide.md#quickstart), or build from local files in Python:
+Use a complete City built with VIGO V1. Keep the entire directory, including its timetable and street files. If starting with raw inputs, follow the [Engine Boston tutorial](https://github.com/hytangs/vigo/blob/main/docs/guide.md#quickstart), or build from local files in Python:
 
 ```python
 import vigo
@@ -89,7 +89,7 @@ with vigo.build(
     print(city.name, city.revision_id)
 ```
 
-Build once; reopen the saved City in later sessions. Do not call Build inside a query loop. Rebuild pre-0.5.0 prepared Cities from their original inputs.
+Build once; reopen the saved City in later sessions. Do not call Build inside a query loop. If a prepared City predates the supported format, rebuild it from its original inputs into a new directory.
 
 ### 3. Run a journey query
 
@@ -236,7 +236,7 @@ with vigo.open("./city") as city:
 
 The VIGO command line uses the same nouns: `vigo build`, `vigo inspect`, `vigo route`, `vigo matrix`, `vigo reach`, and `vigo compare`.
 
-`vigo capabilities` reports the public API version and supported combinations. Python supports Engine 0.5.x and 1.0.x with API 1.0, capability schema v3, and trace output. Runtime selection rejects other API versions and capability schemas.
+`vigo capabilities` reports the public API version and supported combinations. VIGO Python V1 supports the VIGO V1 engine with API 1.0, capability schema v3, and trace output. Runtime selection rejects other API versions and capability schemas.
 
 `Route` and `Matrix` accept `max_transfers=0` for at most one boarding,
 `max_transfers=1` for at most two, and so on through 31. Omit the option
@@ -661,7 +661,7 @@ Selection follows this order:
 4. Installed `VIGO Studio.app` locations on macOS.
 5. `vigo` on `PATH`.
 
-An invalid explicit setting fails rather than selecting another engine. Once a complete bundled layout is selected, a failed capability check also ends discovery. Sibling source checkouts are not discovered implicitly. Python supports Engine 0.5.x and 1.0.x, API 1.0, capability schema v3, City format 1, Result schema 1, the public commands, and advertised trace output. Other API versions and capability schemas are rejected at runtime selection.
+An invalid explicit setting fails rather than selecting another engine. Once a complete bundled layout is selected, a failed capability check also ends discovery. Sibling source checkouts are not discovered implicitly. VIGO Python V1 supports the VIGO V1 engine, API 1.0, capability schema v3, City format 1, Result schema 1, the public commands, and advertised trace output. Other API versions and capability schemas are rejected at runtime selection.
 
 Use a path for a complete runtime directory or executable. Use an argument sequence for a custom command; a shell command string is not split into executable and arguments:
 
@@ -685,7 +685,7 @@ Matrix requires advertised resident execution. Supplied traffic for Drive Route/
 
 With the bundled engine, all Route modes (including waypoints and supplied traffic), Matrix, and Reach share resident processes by service date. A City keeps one to four processes according to CPU and resident memory capacity. On Linux, affinity and cgroup CPU quotas limit concurrency, while cgroup memory limits and `memory.high` cap the host RAM budget. Limits are read when sizing the executor/City; recreate the City after changing resource limits. Swap is not counted as RAM. Changing dates reclaims the least recently used idle process. Active queries finish before eviction or `City.close()` releases their process.
 
-VIGO Python 1.0 supports Engine 0.5 and 1.0. All queries use the documented `stream` protocol. Detailed Python Results use the advertised detailed stream, falling back to trace only on earlier compatible runtimes. Opening several City objects does not share their routing processes.
+VIGO Python V1 uses the VIGO V1 engine. All queries use the documented `stream` protocol. Detailed Python Results use the advertised detailed stream, falling back to trace only on earlier compatible runtimes. Opening several City objects does not share their routing processes.
 
 For repeated work, reuse one City in a context manager. Route answers are recomputed for every call. `disable_cache=True` on transit Route or Matrix disables street-access and reconstructed walking-path caches while leaving the prepared network resident.
 

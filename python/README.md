@@ -4,7 +4,7 @@
 
 VIGO Python is the Python interface to the [VIGO routing engine](https://github.com/hytangs/vigo). Build a City once from GTFS timetables and OpenStreetMap streets, then ask it questions from scripts and notebooks: how to make a journey, how long every trip takes, how far people can get, and what a service change would do. Every answer is a `Result` you can inspect, compare, and export to JSON, GeoJSON, or journey and leg tables.
 
-The package imports as `vigo`. It is versioned separately from the engine: **VIGO Python 1.0.0rc1 supports Engine 0.5 and 1.0** and opens any City built with VIGO 0.5.
+The package imports as `vigo`. It is versioned separately from the engine: **VIGO Python V1 uses the VIGO V1 engine** and opens compatible prepared Cities.
 
 [Quickstart](docs/guide.md#your-first-python-query) · [Walkthrough notebook](examples/walkthrough.ipynb) · [Guide](docs/guide.md) · [API reference](docs/reference.md) · [Release notes](docs/releases/1.0.0rc1.md)
 
@@ -17,7 +17,7 @@ python -m pip install "/path/to/vigo-1.0.0rc1-py3-none-PLATFORM.whl[speed]"
 python -c "import vigo; print(vigo.__version__, vigo.resolve_runtime().product_version)"
 ```
 
-Platform wheels include the headless engine, so they need no Studio, system Node, or Rust. The optional extras are `speed` (faster JSON decoding with orjson) and `progress` (build progress with tqdm). From a source checkout, `python -m pip install -e .` installs the wrapper alone; point `VIGO_RUNTIME` at a compatible Engine 0.5 or 1.0 runtime, or [build a platform wheel](CONTRIBUTING.md#build-a-headless-wheel). [Runtime selection](docs/guide.md#select-a-runtime) covers every option.
+Platform wheels include the headless engine, so they need no Studio, system Node, or Rust. The optional extras are `speed` (faster JSON decoding with orjson) and `progress` (build progress with tqdm). From a source checkout, `python -m pip install -e .` installs the wrapper alone; point `VIGO_RUNTIME` at a VIGO V1 runtime, or [build a platform wheel](CONTRIBUTING.md#build-a-headless-wheel). [Runtime selection](docs/guide.md#select-a-runtime) covers every option.
 
 ## Your first journey
 

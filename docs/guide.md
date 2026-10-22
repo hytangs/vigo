@@ -38,7 +38,7 @@ The engine, the compiler, and Python open the same City directories. For the sam
 
 Every answer carries its evidence. A Route Result says whether each walk follows mapped streets or a schematic station link. A Matrix keeps unreachable pairs `null`, never zero. A Reach surface records its grid so that two runs can be compared cell by cell. [Known limits](#known-limits) state plainly what the model does not establish.
 
-- **Stable data.** Cities built with VIGO 0.5 stay readable by later releases without rebuilding. See the [prepared-data contract](reference/format-0.5.0.md).
+- **Stable data.** Compatible prepared Cities stay readable in V1 without rebuilding. See the [prepared-data contract](reference/city-format.md).
 - **Stable results.** The public `vigo.route.v1`, `vigo.matrix.v1`, and `vigo.reach.v1` schemas only gain optional fields. See [Read a Result](reference/results.md).
 - **Offline by default.** Queries never fetch anything. This guide works offline too: press `/` to search, and open saved Results in the [Result viewer](#inspect-a-saved-result).
 
@@ -1409,9 +1409,9 @@ Keep a running application and its prepared City together until the replacement 
 
 ### Prepared City policy
 
-Cities built with VIGO 0.5.0 or later are a permanent baseline: later readers open them without rebuilding, and standard writers keep producing Cities the published 0.5.0 runtime can read. The [prepared-data contract](reference/format-0.5.0.md) defines that promise and its release gate.
+V1 preserves the permanent prepared-data baseline: readers open compatible Cities without rebuilding, and standard writers remain compatible with the pinned reference runtime. The [prepared-data contract](reference/city-format.md) defines that promise and its release gate.
 
-Cities from before 0.5.0 are not converted. Rebuild them from the original sources into a **different output directory**:
+Cities that predate the supported prepared-data format are not converted. Rebuild them from the original sources into a **different output directory**:
 
 ```sh
 vigo-build build --gtfs feed.zip --osm region.osm.pbf --output ./city-next
