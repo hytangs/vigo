@@ -249,6 +249,22 @@ FareOption = TypedDict(
     },
 )
 
+# Conditional GTFS service supported by this executable. Absent on older runtimes.
+FlexCapabilities = TypedDict(
+    "FlexCapabilities",
+    {
+        "commands": list[str],
+        "conditionalBooking": bool,
+        "confirmsAvailability": bool,
+        "continuousStopping": NotRequired[bool],
+        "directOnly": bool,
+        "maximumMatrixCells": int,
+        "optIn": bool,
+        "transitTransfers": NotRequired[bool],
+        "wheelchair": NotRequired[bool],
+    },
+)
+
 # Include conditional GTFS Flex journeys. Booking is never performed by VIGO.
 FlexOptions = TypedDict(
     "FlexOptions",
@@ -982,6 +998,7 @@ Capabilities = TypedDict(
         "compare": CompareCapabilities,
         "compatibility": CompatibilityCapabilities,
         "dataPreparation": str,
+        "flex": NotRequired[FlexCapabilities],
         "http": HttpCapabilities,
         "matrix": MatrixCapabilities,
         "modes": list[str],

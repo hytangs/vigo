@@ -389,6 +389,9 @@
           "dataPreparation": {
             "type": "string"
           },
+          "flex": {
+            "$ref": "#/components/schemas/FlexCapabilities"
+          },
           "http": {
             "$ref": "#/components/schemas/HttpCapabilities"
           },
@@ -1205,6 +1208,52 @@
           "name",
           "amount",
           "media"
+        ],
+        "type": "object"
+      },
+      "FlexCapabilities": {
+        "description": "Conditional GTFS service supported by this executable. Absent on older runtimes.",
+        "properties": {
+          "commands": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "conditionalBooking": {
+            "type": "boolean"
+          },
+          "confirmsAvailability": {
+            "type": "boolean"
+          },
+          "continuousStopping": {
+            "type": "boolean"
+          },
+          "directOnly": {
+            "type": "boolean"
+          },
+          "maximumMatrixCells": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "optIn": {
+            "type": "boolean"
+          },
+          "transitTransfers": {
+            "type": "boolean"
+          },
+          "wheelchair": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "commands",
+          "optIn",
+          "directOnly",
+          "conditionalBooking",
+          "confirmsAvailability",
+          "maximumMatrixCells"
         ],
         "type": "object"
       },

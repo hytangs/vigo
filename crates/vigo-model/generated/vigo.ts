@@ -132,6 +132,7 @@ export interface Capabilities {
   compare: CompareCapabilities;
   compatibility: CompatibilityCapabilities;
   dataPreparation: string;
+  flex?: FlexCapabilities;
   http: HttpCapabilities;
   matrix: MatrixCapabilities;
   modes: string[];
@@ -373,6 +374,21 @@ export interface FareOption {
   productId: string;
   /** Fares v2 only; empty when unspecified. */
   riderCategory?: string;
+}
+
+/**
+ * Conditional GTFS service supported by this executable. Absent on older runtimes.
+ */
+export interface FlexCapabilities {
+  commands: string[];
+  conditionalBooking: boolean;
+  confirmsAvailability: boolean;
+  continuousStopping?: boolean;
+  directOnly: boolean;
+  maximumMatrixCells: number;
+  optIn: boolean;
+  transitTransfers?: boolean;
+  wheelchair?: boolean;
 }
 
 /**

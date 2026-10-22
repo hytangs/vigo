@@ -27,10 +27,30 @@ pub struct Capabilities {
     pub reach: ReachCapabilities,
     pub compare: CompareCapabilities,
     pub wheelchair: WheelchairCapabilities,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flex: Option<FlexCapabilities>,
     pub scenario_collections: CollectionCapabilities,
     pub http: HttpCapabilities,
     pub native_operations: Vec<String>,
     pub compatibility: CompatibilityCapabilities,
+}
+
+/// Conditional GTFS service supported by this executable. Absent on older runtimes.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FlexCapabilities {
+    pub commands: Vec<String>,
+    pub opt_in: bool,
+    pub direct_only: bool,
+    pub conditional_booking: bool,
+    pub confirms_availability: bool,
+    pub maximum_matrix_cells: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transit_transfers: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continuous_stopping: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wheelchair: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
