@@ -112,7 +112,7 @@ try {
   const crashOn = (await runtime.query(boston, { id: 'probe' })).process
   const recovered = await runtime.query(boston, { id: 'recovered', crash: 'once', crashOn })
   assert.notEqual(recovered.process, crashOn)
-  assert.equal(runtime.snapshot().residentCities.find(city => city.root === '/cities/boston').processes, 1)
+  assert.equal(runtime.snapshot().residentCities.find(city => city.root === boston.root).processes, 1)
   const cambridge = nativeLayout('/cities/cambridge')
   const only = (await runtime.query(cambridge, { id: 'only' })).process
   const before = spawned.length
@@ -165,7 +165,7 @@ try {
   const retiring = runtime.query(boston, { id: 'retired', delayMs: 100 })
   runtime.retire('/cities/boston')
   await assert.rejects(retiring, error => error.retryable === false)
-  assert.equal(runtime.snapshot().residentCities.some(city => city.root === '/cities/boston'), false)
+  assert.equal(runtime.snapshot().residentCities.some(city => city.root === boston.root), false)
   console.log(`Native runtime passed (${spawned.length} fake processes).`)
 } finally {
   runtime.closeAll()
