@@ -1450,6 +1450,66 @@
       }
     },
     "schemas": {
+      "DescribePlacesInput": {
+        "type": "object",
+        "properties": {
+          "longitudes": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "latitudes": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "required": [
+          "longitudes",
+          "latitudes"
+        ],
+        "additionalProperties": true,
+        "description": "Generated from crates/vigo-runtime/src/place_describe.rs. Native semantic validation also applies."
+      },
+      "DescribePlacesResult": {
+        "type": "object",
+        "properties": {
+          "labels": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "labels",
+          "kinds"
+        ],
+        "additionalProperties": true,
+        "description": "Generated from crates/vigo-runtime/src/place_describe.rs. Native semantic validation also applies."
+      },
       "TimetableQueryInput": {
         "type": "object",
         "properties": {
@@ -8485,6 +8545,44 @@
             "type": "object",
             "properties": {
               "operation": {
+                "const": "places.describe"
+              },
+              "input": {
+                "$ref": "#/components/schemas/DescribePlacesInput"
+              },
+              "serviceDate": {
+                "type": "string",
+                "format": "date"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "id": {},
+              "allowStreetTransfers": {
+                "type": "boolean",
+                "default": true
+              },
+              "minimumTransferBufferMinutes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 60,
+                "default": 0
+              },
+              "requireCompleteServiceCoverage": {
+                "type": "boolean",
+                "default": false
+              }
+            },
+            "required": [
+              "operation",
+              "input"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
                 "const": "timetable.route"
               },
               "input": {
@@ -10463,6 +10561,22 @@
           },
           {
             "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "operation": {
+                    "const": "places.describe"
+                  },
+                  "result": {
+                    "$ref": "#/components/schemas/DescribePlacesResult"
+                  }
+                },
+                "required": [
+                  "operation",
+                  "result"
+                ],
+                "additionalProperties": true
+              },
               {
                 "type": "object",
                 "properties": {

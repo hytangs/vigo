@@ -1991,3 +1991,7 @@ a zero headway or a complete route-wide schedule. The client remains responsible
 for labels, rendering, authentication, cancellation, deadlines and bounded caching.
 The policy consolidates HTTP requests; it still performs bounded searches inside
 the resident Rust engine and is not a claim of one algorithm traversal.
+
+### Batched place names
+
+`POST /v1/native` accepts `{"operation":"places.describe","input":{"longitudes":[-71.06],"latitudes":[42.36]}}`. The result contains parallel `labels` and `kinds` arrays in input order, with null entries when no nearby label is available. Batches are limited to 256 coordinates. This uses the same native place index as Studio: optional prepared OSM naming tables and GTFS stops, without an external geocoder. A label is descriptive and does not change the routing coordinate or establish accessibility.

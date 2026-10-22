@@ -197,6 +197,11 @@ try {
   assert(noBaseService.stops.some(stop => stop.stopId === 'B' && stop.durationMinutes <= 5))
   const preserved = run('reach', { ...reachQuery, scenario: { services: [{ operation: 'replace', scheduleMode: 'preserve-trips', stops: [{ stopId: 'X' }, { stopId: 'B' }], scheduledTrips: [{ tripId: 'T2', departureSeconds: 495 * 60, arrivalOffsetsSeconds: [0, 600], departureOffsetsSeconds: [0, 600], canBoard: [1, 0], canAlight: [0, 1] }] }] } })
   assert(preserved.stops.some(stop => stop.stopId === 'B' && stop.durationMinutes <= 30))
+  const places = run('native', { operation: 'places.describe', input: { longitudes: [-77.05, 0], latitudes: [38.9, 0] } }).result
+  assert.deepEqual(places, { labels: ['Near Alpha', null], kinds: ['stop', null] })
+  rejects('native', { operation: 'places.describe', input: { longitudes: [181], latitudes: [0] } }, /finite longitude/)
+  rejects('native', { operation: 'places.describe', input: { longitudes: [0], latitudes: [] } }, /equal lengths/)
+  rejects('native', { operation: 'places.describe', input: { longitudes: Array(257).fill(0), latitudes: Array(257).fill(0) } }, /at most 256/)
   const identifiers = run('native', { serviceDate: base.serviceDate, operation: 'timetable.identifiers' }).result
   assert.deepEqual(identifiers.stopIds, ['A', 'B', 'X'])
   const rawMatrix = run('native', { serviceDate: base.serviceDate, operation: 'timetable.matrix', input: {

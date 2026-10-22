@@ -232,7 +232,9 @@ jobs:
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" release/*
           else
-            gh release create "$RELEASE_TAG" release/* --verify-tag --title "VIGO $RELEASE_TAG" --generate-notes
+            flags=()
+            if [[ "$RELEASE_TAG" == *-* ]]; then flags+=(--prerelease); fi
+            gh release create "$RELEASE_TAG" release/* --verify-tag --title "VIGO $RELEASE_TAG" --generate-notes "${flags[@]}"
           fi
       - name: Update release download links
         env:

@@ -11,6 +11,7 @@ sys.dont_write_bytecode = True
 SOURCE = ROOT / 'docs/guides/rust-standalone.md'
 VERSION = json.loads((ROOT / 'package.json').read_text(encoding='utf-8'))['version']
 OPERATIONS = {
+    'places.describe': ('DescribePlacesInput', 'DescribePlacesResult'),
     'timetable.route': ('TimetableQueryInput', 'TimetableQueryResult'),
     'timetable.arrive_by': ('TimetableArriveByQueryInput', 'TimetableArriveByQueryResult'),
     'timetable.matrix': ('TimetableMatrixQueryInput', 'TimetableMatrixQueryResult'),

@@ -1771,6 +1771,14 @@ impl City {
             self.ensure_pedestrian_hierarchy()?;
         }
         let result = match operation {
+            "places.describe" => serde_json::to_value(crate::place_describe::describe_batch(
+                self.street_directory
+                    .join("street-index.sqlite")
+                    .to_str()
+                    .ok_or("City path must be UTF-8")?,
+                self.routing_db.to_str().ok_or("City path must be UTF-8")?,
+                serde_json::from_value(input)?,
+            )?)?,
             "street.path" => call!(self.street, route_path),
             "street.matrix" => call!(self.street, route_street_matrix),
             "street.surface" => call!(self.street, street_surface),

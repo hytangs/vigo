@@ -99,6 +99,7 @@ try {
     checks++
     return result.result
   }
+  assert.deepEqual(nativeContract('places.describe', { longitudes: [-77.05, 0], latitudes: [38.9, 0] }, 'DescribePlacesResult'), { labels: ['Near Alpha', null], kinds: ['stop', null] })
   const nativeMatrix = {
     originOffsets: [0, 1], originStops: [origin], originWalkSeconds: [0], allowPreRideTransfers: [false],
     destinationOffsets: [0, 1], destinationStops: [destination], destinationWalkSeconds: [0],

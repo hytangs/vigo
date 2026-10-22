@@ -29,7 +29,7 @@
       "traffic": true
     },
     "modes": ["transit","walk","drive"],
-    "nativeOperations": ["timetable.identifiers","timetable.route","timetable.arrive_by","timetable.matrix","timetable.many","timetable.arrive_by_many","timetable.pareto","timetable.overlay","access.endpoint","access.endpoints","street.path","street.matrix","street.surface","street.connectors","drive.route","drive.matrix","realtime.compile"],
+    "nativeOperations": ["places.describe","timetable.identifiers","timetable.route","timetable.arrive_by","timetable.matrix","timetable.many","timetable.arrive_by_many","timetable.pareto","timetable.overlay","access.endpoint","access.endpoints","street.path","street.matrix","street.surface","street.connectors","drive.route","drive.matrix","realtime.compile"],
     "output": {
       "clock": "service-day HH:MM:SS; hours can exceed 23",
       "diagnostics": ["none","summary","profile","trace"],

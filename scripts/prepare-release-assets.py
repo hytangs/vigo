@@ -10,7 +10,7 @@ import subprocess
 
 
 def stage(source: Path, output: Path, version: str, commit: str) -> dict:
-    if not re.fullmatch(r"\d+\.\d+\.\d+", version) or not re.fullmatch(r"[0-9a-f]{40}", commit):
+    if not re.fullmatch(r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?", version) or not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise ValueError("Expected a release version and full source commit")
     revision = f"build-{commit[:12]}"
     files = sorted(source.iterdir())

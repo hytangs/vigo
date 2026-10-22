@@ -32,6 +32,53 @@ pub struct PlaceDescription {
     pub kind: &'static str,
 }
 
+/// Batched place labels in input order; coordinates use decimal degrees.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DescribePlacesInput {
+    pub longitudes: Vec<f64>,
+    pub latitudes: Vec<f64>,
+}
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DescribePlacesResult {
+    pub labels: Vec<Option<String>>,
+    pub kinds: Vec<Option<String>>,
+}
+pub fn describe_batch(
+    street_path: &str,
+    routing_path: &str,
+    input: DescribePlacesInput,
+) -> Result<DescribePlacesResult, String> {
+    if input.longitudes.len() != input.latitudes.len() || input.longitudes.len() > 256 {
+        return Err("Place coordinates must have equal lengths and at most 256 points".into());
+    }
+    if input
+        .longitudes
+        .iter()
+        .any(|v| !v.is_finite() || !(-180.0..=180.0).contains(v))
+        || input
+            .latitudes
+            .iter()
+            .any(|v| !v.is_finite() || !(-90.0..=90.0).contains(v))
+    {
+        return Err("Place coordinates must be finite longitude/latitude values".into());
+    }
+    let index = place_index(street_path, routing_path)?;
+    let mut result = DescribePlacesResult {
+        labels: Vec::new(),
+        kinds: Vec::new(),
+    };
+    for (lon, lat) in input.longitudes.into_iter().zip(input.latitudes) {
+        let description = index.describe(lon, lat);
+        result
+            .labels
+            .push(description.as_ref().map(|d| d.label.clone()));
+        result.kinds.push(description.map(|d| d.kind.to_owned()));
+    }
+    Ok(result)
+}
+
 /// Item ids by cell, built in two counting passes.
 #[derive(Default)]
 struct Grid {

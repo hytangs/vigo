@@ -7,6 +7,7 @@ Use the [native operation reference](../guides/rust-standalone.md#18-native-oper
 | Operation | Input | Result |
 | --- | --- | --- |
 | `timetable.identifiers` | No input object | Active identifier arrays |
+| `places.describe` | [DescribePlacesInput](#describeplacesinput) | [DescribePlacesResult](#describeplacesresult) |
 | `timetable.route` | [TimetableQueryInput](#timetablequeryinput) | [TimetableQueryResult](#timetablequeryresult) |
 | `timetable.arrive_by` | [TimetableArriveByQueryInput](#timetablearrivebyqueryinput) | [TimetableArriveByQueryResult](#timetablearrivebyqueryresult) |
 | `timetable.matrix` | [TimetableMatrixQueryInput](#timetablematrixqueryinput) | [TimetableMatrixQueryResult](#timetablematrixqueryresult) |
@@ -23,6 +24,24 @@ Use the [native operation reference](../guides/rust-standalone.md#18-native-oper
 | `drive.route` | [DriveQueryInput](#drivequeryinput) | [DriveQueryResult](#drivequeryresult) |
 | `drive.matrix` | [DriveMatrixInput](#drivematrixinput) | [DriveMatrixResult](#drivematrixresult) |
 | `realtime.compile` | [RealtimeTimetableInput](#realtimetimetableinput) | [RealtimeTimetableResult](#realtimetimetableresult) |
+
+## DescribePlacesInput
+
+Source: `crates/vigo-runtime/src/place_describe.rs`.
+
+| JSON field | Rust / JSON type | Required | Meaning |
+| --- | --- | --- | --- |
+| `longitudes` | `Vec<f64>` | Yes | — |
+| `latitudes` | `Vec<f64>` | Yes | — |
+
+## DescribePlacesResult
+
+Source: `crates/vigo-runtime/src/place_describe.rs`.
+
+| JSON field | Rust / JSON type | Present | Meaning |
+| --- | --- | --- | --- |
+| `labels` | `Vec<Option<String>>` | Always | — |
+| `kinds` | `Vec<Option<String>>` | Always | — |
 
 ## DriveMatrixInput
 
