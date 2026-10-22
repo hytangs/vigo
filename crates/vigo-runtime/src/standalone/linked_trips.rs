@@ -481,7 +481,7 @@ mod tests {
             &[86400, 87600],
             &["2026-07-15", "2026-07-16"],
         );
-        let links = compile(&db, &mut a, &mut names).unwrap();
+        let links = compile(&load_candidates(&db).unwrap(), &mut a, &mut names).unwrap();
         assert_eq!(links.len(), 1);
         assert_eq!(&*a.departure_seconds, &[85800, 86700, 85800, 86700]);
         assert_eq!(&*a.sequence, &[1, 1, 1, 2]);
@@ -495,12 +495,21 @@ mod tests {
             ([100, 500], [200, 600], ["2026-07-15", "2026-07-17"]),
         ] {
             let (db, mut a, mut names) = fixture(&departures, &arrivals, &dates);
-            assert!(compile(&db, &mut a, &mut names).unwrap().is_empty());
+            assert!(
+                compile(&load_candidates(&db).unwrap(), &mut a, &mut names)
+                    .unwrap()
+                    .is_empty()
+            );
             assert_eq!(a.run_count, 2);
         }
         let (db, mut a, mut names) = fixture(&[100, 200], &[200, 300], &["2026-07-15"; 2]);
         a.from_stop[1] = 0;
-        assert_eq!(compile(&db, &mut a, &mut names).unwrap().len(), 1);
+        assert_eq!(
+            compile(&load_candidates(&db).unwrap(), &mut a, &mut names)
+                .unwrap()
+                .len(),
+            1
+        );
     }
     #[test]
     fn block_continuity_respects_calendar_endpoints_and_explicit_prohibition() {
@@ -538,7 +547,7 @@ mod tests {
             if other_stop {
                 a.from_stop[1] = 0;
             }
-            let links = compile(&db, &mut a, &mut names).unwrap();
+            let links = compile(&load_candidates(&db).unwrap(), &mut a, &mut names).unwrap();
             assert_eq!(
                 links.len(),
                 usize::from(!forbidden && !other_date && !other_stop)
@@ -552,6 +561,6 @@ mod tests {
         a.to_stop = vec![0, 0].into();
         db.execute("INSERT INTO trip_links VALUES('B','A',4)", [])
             .unwrap();
-        assert!(compile(&db, &mut a, &mut names).is_err());
+        assert!(compile(&load_candidates(&db).unwrap(), &mut a, &mut names).is_err());
     }
 }
