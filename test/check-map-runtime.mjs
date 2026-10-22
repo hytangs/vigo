@@ -6,12 +6,14 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { registerNativeTransitNetwork, renderNativeLocalBasemapTile, renderNativeTransitNetworkTile } from '../src/server/native-routing-kernel.mjs'
+import { disposeNativeRoutingKernel, registerNativeTransitNetwork, releaseNativeTransitNetwork, renderNativeLocalBasemapTile, renderNativeTransitNetworkTile } from '../src/server/native-routing-kernel.mjs'
 import { bundleNetworkScope, transitNetworkInput } from '../src/server/transit-network-tiles.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 await fs.mkdir(path.join(root, 'temp'), { recursive: true })
 const temporary = await fs.mkdtemp(path.join(root, 'temp', 'map-runtime-'))
+const storePath = path.join(temporary, 'street-index.sqlite')
+const networkKey = 'map-runtime-network'
 let softwareLoader = null
 try {
   await fs.writeFile(path.join(temporary, 'index.html'), '<div id="map" style="width:512px;height:512px"></div><script type="module" src="/fixture.mjs"></script>')
@@ -22,7 +24,6 @@ try {
     { kind: 'road', roadClass: 'primary', rank: 5, geometry: { type: 'LineString', coordinates: [[-0.005,0.006],[0.005,0.006]] } },
     { kind: 'river', rank: 2, geometry: { type: 'LineString', coordinates: [[-0.008,-0.01],[-0.008,0.01]] } },
   ]
-  const storePath = path.join(temporary, 'street-index.sqlite')
   const store = new DatabaseSync(storePath)
   store.exec(`CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT);
     CREATE TABLE map_features(id INTEGER PRIMARY KEY, kind TEXT NOT NULL, road_class TEXT, rank INTEGER NOT NULL, min_zoom INTEGER NOT NULL, area REAL NOT NULL, vertices INTEGER NOT NULL, geometry TEXT NOT NULL);
@@ -170,7 +171,6 @@ window.checkMap = async () => {
   assert(renderedTiles > 0, 'The fixture store must produce tiles')
   // A rail line and a bus line through the fixture viewport, served as the
   // Studio requests them: /api/projects/{City}/network-tiles/z/x/y.mvt.
-  const networkKey = 'map-runtime-network'
   await registerNativeTransitNetwork(networkKey, JSON.stringify(transitNetworkInput({ feeds: [{ id: 'network', name: 'Fixture', mapPreview: {
     routes: [
       { id: 'rail', shortName: 'R', longName: 'Rail', color: '#da291c', routeType: 1, tripCount: 200, geometrySource: 'shape', coordinates: [[-0.004, 0.0015], [0.004, 0.0015]], stopIds: [] },
@@ -256,6 +256,8 @@ app.whenReady().then(async()=>{
     assert.equal(code, 0, 'Built map must render through the Studio protocol and sanitize attribution')
   } finally { clearTimeout(timeout) }
 } finally {
+  disposeNativeRoutingKernel(storePath)
+  releaseNativeTransitNetwork(networkKey)
   if (softwareLoader) await fs.unlink(softwareLoader)
   await fs.rm(temporary, { recursive: true, force: true })
 }

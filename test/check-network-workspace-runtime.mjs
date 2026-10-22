@@ -36,7 +36,7 @@ const noop=()=>{};
 const waitFor=async(test,label)=>{const end=performance.now()+10000;while(!test()){if(performance.now()>end)throw Error(label);await new Promise(r=>setTimeout(r,20));}};
 window.exports=[];
 HTMLAnchorElement.prototype.click=function(){if(this.download)fetch(this.href).then(r=>r.json()).then(value=>window.exports.push({name:this.download,value}));};
-function Fixture(){const [selection,setSelection]=useState({});return <main className="app-shell page-project view-agency">
+function Fixture(){const [selection,setSelection]=useState({});return <main className={'app-shell page-project view-agency appearance-'+document.documentElement.dataset.appearance}>
 <header className="topbar">City X</header><div className="shell-body"><aside className="app-sidebar"><PrimaryNav page="project" activeRouteTool="agency" hasActiveData onOpenNetwork={noop} onOpenRouting={noop} onOpenAnalyze={noop} onOpenSettings={noop}/></aside>
 <div className="app-frame"><section className="project-workbench"><div className="route-surface">Network map fixture</div>
 <AgencyPanel projectId="fixture" staticFeeds={[]} snapshot={${JSON.stringify(snapshot)}} realtimeRequest={null} realtimeMessage="" realtimeLoading={false} onConnect={noop} onDisconnect={noop} onOpenData={noop} mapOpen={false} onToggleMap={noop} selection={selection} onClearSelection={()=>setSelection({})} onBrowseRoute={routeId=>setSelection({routeId})} onLocate={(routes,stops)=>setSelection({routeId:routes[0],stopId:stops[0]})} timetable={<p>Route stop details</p>}/>
@@ -44,7 +44,6 @@ function Fixture(){const [selection,setSelection]=useState({});return <main clas
 createRoot(document.getElementById('root')).render(<Fixture/>);
 window.checkNetwork=async()=>{
  await waitFor(()=>document.querySelector('.agency-overview'),'Network did not load');
- document.querySelector('.app-shell').classList.add('appearance-'+document.documentElement.dataset.appearance);
  const tabs=[...document.querySelectorAll('.agency-tabs [role=tab]')];
  if(tabs.map(b=>b.textContent).join(',')!=='Overview,Routes')throw Error('Unexpected Network tabs');
  if(tabs[0].getAttribute('aria-selected')!=='true'||sessionStorage.getItem('agency-mode-fixture')!=='overview')throw Error('Saved Ask tab did not recover to Network');
@@ -68,8 +67,9 @@ window.checkNetwork=async()=>{
  [...document.querySelectorAll('.network-selection button')].find(b=>b.textContent.includes('All routes')).click();
  await waitFor(()=>document.querySelector('.agency-route-search'),'Route catalog did not return');
  if(document.documentElement.scrollWidth>innerWidth)throw Error('Horizontal overflow');
- const color=getComputedStyle(document.querySelector('.agency-panel')).backgroundColor.match(/^rgb\\((\\d+), (\\d+), (\\d+)\\)$/);
- if(!color||(document.documentElement.dataset.appearance==='dark'?Number(color[1])>=128:Number(color[1])<=128))throw Error('Appearance did not apply to the Network panel');
+ const background=getComputedStyle(document.querySelector('.agency-panel')).backgroundColor;
+ const color=background.match(/^rgb\\((\\d+), (\\d+), (\\d+)\\)$/);
+ if(!color||(document.documentElement.dataset.appearance==='dark'?Number(color[1])>=128:Number(color[1])<=128))throw Error('Appearance did not apply to the Network panel: '+JSON.stringify({background,appearance:document.documentElement.dataset.appearance,classes:document.querySelector('.app-shell').className}));
  return {width:innerWidth,appearance:document.documentElement.dataset.appearance,tabs:tabs.map(b=>b.textContent),legacyTabRecovered:true,routeSelection:true,serviceEvidence:true};
 };`
   server = await createViteTestServer({ root, configFile: false, cacheDir: path.join(directory, 'vite-cache'), plugins: [react(), {
@@ -77,9 +77,10 @@ window.checkNetwork=async()=>{
     resolveId(id) { if (id === '/network-fixture.jsx') return id },
     load(id) { if (id === '/network-fixture.jsx') return fixture },
     configureServer(vite) { vite.middlewares.use(async (req, res, next) => {
-      if (req.url === '/network-fixture.html') {
+      if (req.url?.startsWith('/network-fixture.html')) {
+        const appearance = new URL(req.url, 'http://localhost').searchParams.get('appearance') === 'light' ? 'light' : 'dark'
         res.setHeader('Content-Type', 'text/html')
-        res.end(await vite.transformIndexHtml(req.url, '<div id="root"></div><script type="module" src="/network-fixture.jsx"></script>'))
+        res.end(await vite.transformIndexHtml(req.url, `<html data-appearance="${appearance}"><body><div id="root"></div><script type="module" src="/network-fixture.jsx"></script></body></html>`))
         return
       }
       if (!req.url?.startsWith('/api/projects/fixture/agency')) return next()
@@ -98,8 +99,7 @@ const {layoutFrame}=require(${JSON.stringify(path.join(root, 'test/helpers/layou
 app.disableHardwareAcceleration();app.on('window-all-closed',()=>{});app.setPath('userData',${JSON.stringify(path.join(directory, 'profile'))});
 app.whenReady().then(async()=>{try{const results=[];for(const [width,height,appearance] of [[390,844,'light'],[390,844,'dark'],[1440,900,'light'],[1440,900,'dark']]){
  const window=new BrowserWindow({show:false,frame:false,width,height,useContentSize:true,webPreferences:{offscreen:true,backgroundThrottling:false,sandbox:true,contextIsolation:true,nodeIntegration:false}});
- window.setContentSize(width,height);await window.loadURL(${JSON.stringify(`http://127.0.0.1:${server.httpServer.address().port}/network-fixture.html`)});
- await window.webContents.executeJavaScript('document.documentElement.dataset.appearance='+JSON.stringify(appearance));
+ window.setContentSize(width,height);await window.loadURL(${JSON.stringify(`http://127.0.0.1:${server.httpServer.address().port}/network-fixture.html?appearance=`)}+appearance);
  await window.webContents.executeJavaScript('new Promise((resolve,reject)=>{const end=setTimeout(()=>reject(Error("Fixture timed out")),15000);const poll=setInterval(()=>{if(window.checkNetwork){clearInterval(poll);clearTimeout(end);resolve()}},20)})');
  await layoutFrame(window);results.push(await window.webContents.executeJavaScript('window.checkNetwork()'));
  fs.writeFileSync(${JSON.stringify(path.join(directory, 'network-'))}+width+'-'+appearance+'.png',(await layoutFrame(window)).toPNG());window.destroy();

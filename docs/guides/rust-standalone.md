@@ -191,6 +191,8 @@ From the extracted directory, check the executable and inspect its supported ope
 
 The runtime includes SQLite and the routing kernels. A compiler, Node, and Python are not needed to run queries. City data is supplied separately; see [City data](#3-prepare-and-manage-city-data), then continue with the [quickstart](#1-quickstart).
 
+The published Linux x64 and ARM64 executables are built on Ubuntu 24.04 and require glibc 2.39 or later. Use Ubuntu 24.04 for their container runtime as well. For an older Linux distribution, build from source on that distribution; copying a published executable into a Debian 12 image will fail before startup.
+
 ### Build from source
 
 To build from this source checkout, install the pinned Rust toolchain in `rust-toolchain.toml` and a C toolchain for bundled SQLite. From the repository root:

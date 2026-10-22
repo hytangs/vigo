@@ -6,6 +6,7 @@ await runElectronCheck(`
 await import(${JSON.stringify(main)});
 await app.whenReady();
 const window = await until(() => BrowserWindow.getAllWindows()[0]);
+window.webContents.on('console-message', event => { if (event.level === 'error') console.error(event.message); });
 const evaluate = source => window.webContents.executeJavaScript(source);
 await until(() => !window.webContents.isLoading());
 const { Menu } = await import('electron');
@@ -13,13 +14,18 @@ const menu = Menu.getApplicationMenu();
 const settings = menu.getMenuItemById('settings');
 const chooseCity = menu.getMenuItemById('choose-city');
 assert(settings && chooseCity, 'Useful desktop commands must exist');
-await until(() => evaluate('Boolean(document.querySelector(".city-library"))'));
+// macOS defers access to a saved library until the user opens it. Wait for
+// health and its resulting screen, not the transient pre-health City list.
+const health = await (await net.fetch('vigo://studio/api/health')).json();
+const librarySelector = health.config.offline.storageWritable ? '.city-library' : '.storage-recovery';
+const libraryVisible = () => evaluate('Boolean(document.querySelector(' + JSON.stringify(librarySelector) + '))');
+await until(libraryVisible);
 await until(() => settings.enabled && !chooseCity.enabled);
 settings.click();
 await until(() => evaluate('Boolean(document.querySelector(".settings-themes"))'));
 await until(() => chooseCity.enabled && !settings.enabled);
 chooseCity.click();
-await until(() => evaluate('Boolean(document.querySelector(".city-library"))'));
+await until(libraryVisible).catch(async error => { throw Error(error.message + await evaluate('document.body.innerText')); });
 assert.equal(await evaluate('Boolean(document.querySelector(".desktop-sidebar-collapsed"))'), false);
 
 await until(() => evaluate('Boolean(Array.from(document.querySelectorAll("button")).find(button => button.textContent.trim() === "Settings"))'));
@@ -41,7 +47,6 @@ const response = await net.fetch(guide);
 assert.equal(response.status, 200);
 assert((await response.text()).includes('data-source-root='));
 // A locked/unavailable library must still expose local Settings and docs.
-const health = await (await net.fetch('vigo://studio/api/health')).json();
 if (!health.config.offline.storageWritable) {
   await evaluate('document.querySelector(".topbar-mark-button").click()');
   await until(() => evaluate('Boolean(document.querySelector(".storage-recovery"))'));
