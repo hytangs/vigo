@@ -300,27 +300,32 @@ impl TimetableCache {
     fn reserve(&mut self, bytes: usize) -> bool {
         let mut released = false;
         while self.bytes > self.budget - bytes {
-            let oldest = [
-                self.entries.iter().map(|e| e.used).min().map(|n| (n, 0)),
-                self.sources.iter().map(|e| e.used).min().map(|n| (n, 1)),
-                self.compact.iter().map(|e| e.used).min().map(|n| (n, 2)),
-            ]
-            .into_iter()
-            .flatten()
-            .min();
-            let evicted = self.evict_view()
-                || match oldest {
-                    Some((_, 0)) => self.evict_scheduled(),
-                    Some((_, 1)) => self.evict_source(),
-                    Some((_, 2)) => self.evict_compact(),
-                    _ => false,
-                };
+            let evicted = self.evict_oldest();
             if !evicted {
                 break;
             }
             released = true;
         }
         released
+    }
+
+    /// Release optional retained work before a collection evicts an entire City.
+    pub(crate) fn evict_oldest(&mut self) -> bool {
+        let oldest = [
+            self.entries.iter().map(|e| e.used).min().map(|n| (n, 0)),
+            self.sources.iter().map(|e| e.used).min().map(|n| (n, 1)),
+            self.compact.iter().map(|e| e.used).min().map(|n| (n, 2)),
+        ]
+        .into_iter()
+        .flatten()
+        .min();
+        self.evict_view()
+            || match oldest {
+                Some((_, 0)) => self.evict_scheduled(),
+                Some((_, 1)) => self.evict_source(),
+                Some((_, 2)) => self.evict_compact(),
+                _ => false,
+            }
     }
 
     fn evict_view(&mut self) -> bool {

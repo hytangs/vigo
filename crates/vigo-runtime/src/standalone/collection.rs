@@ -276,8 +276,16 @@ impl Collection {
         let started = Instant::now();
         let mut released = false;
         while self.cities.len() > 1 && self.resident_heap_bytes() > self.resident_heap_budget {
-            self.cities.pop_front();
-            self.evictions += 1;
+            // Optional source/kernel caches are cheaper to rebuild than a City.
+            // Keep active timetables and street preparation until caches are empty.
+            if !self
+                .cities
+                .iter_mut()
+                .any(|(_, city)| city.timetable_cache.evict_oldest())
+            {
+                self.cities.pop_front();
+                self.evictions += 1;
+            }
             self.timetable_blocks.prune();
             released = true;
         }
