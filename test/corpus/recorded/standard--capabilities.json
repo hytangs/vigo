@@ -15,6 +15,20 @@
       "studioResultEnvelope": false
     },
     "dataPreparation": "Load a prepared City. Raw GTFS/OSM import remains a separate build step.",
+    "flex": {
+      "commands": [
+        "route",
+        "matrix"
+      ],
+      "conditionalBooking": true,
+      "confirmsAvailability": false,
+      "continuousStopping": true,
+      "directOnly": false,
+      "maximumMatrixCells": 4096,
+      "optIn": true,
+      "transitTransfers": true,
+      "wheelchair": true
+    },
     "http": {
       "boundedConnections": true,
       "boundedQueue": true,
