@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { PbfWriter } from 'pbf'
-import { buildNationalOsmStore, compactNationalOsmRuntimeStore, prepareNationalOsmNativeStore, routeNationalStreetStore } from '../src/server/national-osm-store.mjs'
+import { buildNationalOsmStore, compactNationalOsmRuntimeStore, prepareNationalOsmNativeStore, routeNationalStreetStore, disposeNationalOsmStore } from '../src/server/national-osm-store.mjs'
 import { buildNativeStreetCchIndex } from '../src/server/native-routing-kernel.mjs'
 import { buildNationalGtfsStore, disposeNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
 import { buildTerminalAccessStore } from '../src/server/terminal-access-store.mjs'
@@ -53,6 +53,7 @@ function fixture({ secondEntrance = true, privatePlatform = false, privateGate =
 }
 
 const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-platform-connections-'))
+const streetStores = []
 try {
   for (const [name, options, connected] of [
     ['public', {}, true], ['one-entrance', { secondEntrance: false }, false],
@@ -62,6 +63,7 @@ try {
     const { gtfsPath, osmPath } = await writeCliFixtureInputs(dir)
     fs.writeFileSync(osmPath, fixture(options))
     const store = path.join(dir, 'streets.sqlite')
+    streetStores.push(store)
     await buildNationalOsmStore({ pbfPath: osmPath, outputPath: store, includeDriving: false })
     const db = new DatabaseSync(store, { readOnly: true })
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM edges WHERE way_id=20').get().n, connected ? 8 : 0, name)
@@ -85,4 +87,7 @@ try {
     }
   }
   console.log('Platform connections passed: mapped public junctions, both directions, private gates/platforms, isolated outlines, excluded tracks, and source identity.')
-} finally { fs.rmSync(folder, { recursive: true, force: true }) }
+} finally {
+  for (const store of streetStores) disposeNationalOsmStore(store)
+  fs.rmSync(folder, { recursive: true, force: true })
+}
