@@ -80,7 +80,9 @@ def main():
         source_hash = source_fingerprint(run)
         if os.environ.get("VIGO_USE_BUILT_RUNTIME") != "1":
             run([cargo, "build", *common, "--release", "--bin", "vigo", *(["--target", target] if args.target else [])], env=env)
-    metadata = json.loads(run([cargo, "metadata", *common, "--offline", "--filter-platform", target, "--format-version", "1"], capture_output=True, encoding="utf-8").stdout)
+    # Fresh runners may lack source crates required by metadata resolution even
+    # after compiling this target. Keep versions locked, but allow fetching them.
+    metadata = json.loads(run([cargo, "metadata", *common, "--filter-platform", target, "--format-version", "1"], stdout=subprocess.PIPE, encoding="utf-8").stdout)
     packages = {p["id"]: p for p in metadata["packages"]}
     graph = {n["id"]: n for n in metadata["resolve"]["nodes"]}
     root = next(p["id"] for p in metadata["packages"] if p["name"] == "vigo-routing-kernel")
