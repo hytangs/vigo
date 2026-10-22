@@ -1,20 +1,22 @@
-import { Navigation2, Radar, Route, Settings } from 'lucide-react'
+import { Navigation2, PenTool, Radar, Route, Settings } from 'lucide-react'
 
-export type RouteToolKey = 'data' | 'pathfinder' | 'analyze' | 'agency'
+export type RouteToolKey = 'data' | 'pathfinder' | 'analyze' | 'scenarios' | 'agency'
 
-export function PrimaryNav({ page, activeRouteTool, hasActiveData, onOpenNetwork, onOpenRouting, onOpenAnalyze, onOpenSettings }: {
+export function PrimaryNav({ page, activeRouteTool, hasActiveData, onOpenNetwork, onOpenRouting, onOpenAnalyze, onOpenScenarios, onOpenSettings }: {
   page: 'projects' | 'project'
   activeRouteTool: RouteToolKey
   hasActiveData: boolean
   onOpenNetwork: () => void
   onOpenRouting: () => void
   onOpenAnalyze: () => void
+  onOpenScenarios: () => void
   onOpenSettings: () => void
 }) {
   const destinations = [
     { id: 'agency', label: 'Network', shortcut: '1', icon: Route, open: onOpenNetwork },
     { id: 'pathfinder', label: 'Route', shortcut: '2', icon: Navigation2, open: onOpenRouting },
     { id: 'analyze', label: 'Analyze', shortcut: '3', icon: Radar, open: onOpenAnalyze },
+    { id: 'scenarios', label: 'Scenarios', shortcut: '4', icon: PenTool, open: onOpenScenarios },
     { id: 'data', label: 'Settings', shortcut: '5', icon: Settings, open: onOpenSettings },
   ] as const
   return <nav className="sidebar-rail" aria-label="VIGO Studio">{destinations.map(({ id, label, shortcut, icon: Icon, open }) => <button

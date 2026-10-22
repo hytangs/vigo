@@ -173,21 +173,6 @@
 
 .routing-setup [hidden] { display: none; }
 .routing-setup-header { display: flex; align-items: center; gap: 6px; min-height: 38px; padding: 4px 6px 4px 10px; }
-.routing-setup-network { flex: 1; min-width: 0; }
-.routing-setup-network > div { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.routing-setup-network label { flex: none; color: var(--text-3); font-size: var(--type-sm); }
-
-.routing-setup-network select {
-  flex: 1;
-  width: 100%;
-  padding-left: 0;
-  color: var(--text-1);
-  background-color: transparent;
-  font-weight: 500;
-}
-
-.routing-setup-network select:hover:not(:disabled) { background-color: transparent; }
-.routing-setup-network p { margin: 2px 0 4px; color: var(--alert); font-size: var(--type-sm); }
 .routing-setup-title { display: flex; flex: 1; align-items: center; gap: 7px; color: var(--text-2); font-weight: 500; }
 .routing-setup-title > svg { color: var(--text-3); }
 
@@ -571,8 +556,3 @@
 }
 
 .journey-departure-times { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 8px 0 4px; color: var(--text-2); font-variant-numeric: tabular-nums; }
-
-.scenario-network-settings { display: grid; gap: 8px; margin: 8px 0; padding: 12px; border: 1px solid var(--line-1); border-radius: var(--radius-md); min-width: 0; }
-.scenario-network-settings legend { color: var(--text-2); font-size: 0.8rem; }
-.scenario-network-settings p { margin: 0; color: var(--text-3); font-size: 0.75rem; line-height: 1.5; }
-.scenario-network-settings label { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; }

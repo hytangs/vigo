@@ -11,15 +11,22 @@ import { networkRouteId } from '../../app/networkSelection'
 import { countRender } from '../../app/renderCounts'
 import { type RoutingActivity } from '../../app/routingPlan'
 import { shallowEqual, useStore } from '../../app/store'
+import { analysisPointFromMap, analyze, scenarioPointPicking } from '../../state/analyze'
 import {
-  analysisPointFromMap,
-  analyze,
-  emptyScenarioStops,
+  activeScenarioStopPlacement,
   moveScenarioStopFromMap,
-  scenarioPointPicking,
+  pickScenarioRouteFromMap,
+  scenarioContextFeatures,
+  scenarioEditPicking,
+  scenarioPointFromMap,
   scenarioSketchGeometry,
   scenarioSketchStops,
-} from '../../state/analyze'
+} from '../../state/scenarioEditor'
+import { activeCaseFeeds, activeScenarioChange } from '../../state/scenarios'
+import type { FeatureCollection } from '../../map/featureGeometry'
+import { scenarioSketchColor } from '../scenarios/presentation'
+import { ScenarioDrawingBar } from '../scenarios/ScenarioDrawingBar'
+import { ScenarioLineCard } from '../scenarios/ScenarioLineCard'
 import { city } from '../../state/city'
 import { changeServiceDate, clock, setScheduleTime } from '../../state/clock'
 import { useStudio, useStudioRecord } from '../../state/hooks'
@@ -52,6 +59,7 @@ import {
   type RouteMetric,
 } from '../../domain'
 import { contextRouteFilter as contextRouteFilterFor, type NetworkTiles } from '../../map/networkTileSource'
+import type { FilterSpecification } from 'maplibre-gl'
 import { buildNetworkPerformanceProfile } from '../../networkPerformance'
 import {
   reachBandColor,
@@ -193,8 +201,13 @@ export function RouteSurfaceView({
   scenarioCutoffMinutes,
   scenarioSketchStops,
   scenarioSketchGeometry,
+  scenarioSketchStyle,
+  scenarioContext,
   scenarioPointPicking,
   onMoveScenarioStop,
+  designFocus = false,
+  contextFeedIds,
+  onPickContextRoute,
   routingActivity,
   occlusionKey,
   cityPreviewLoading,
@@ -250,8 +263,15 @@ export function RouteSurfaceView({
   scenarioCutoffMinutes: number
   scenarioSketchStops: ScenarioStopDraft[]
   scenarioSketchGeometry: [number, number][]
+  scenarioSketchStyle?: { zone?: boolean; fresh?: boolean; color?: string }
+  scenarioContext?: FeatureCollection
   scenarioPointPicking: boolean
   onMoveScenarioStop?: (index: number, coordinate: [number, number]) => void
+  /** Scenarios: the map is a drawing canvas for the open scenario. */
+  designFocus?: boolean
+  /** Scenarios draws exactly the lines of these timetables as its reference. */
+  contextFeedIds?: string[]
+  onPickContextRoute?: (featureId: string) => void
   routingActivity: RoutingActivity
   /** Changes when a floating panel opens over the map (for example journey details). */
   occlusionKey?: string
@@ -277,8 +297,9 @@ export function RouteSurfaceView({
   // Rail, tram and ferry orient a query without competing with its result.
   // Bus-only cities fall back to their most frequent routes.
   const contextRouteFilter = useMemo(
-    () => queryFocus ? contextRouteFilterFor(visiblePreview.routes) : undefined,
-    [queryFocus, visiblePreview.routes],
+    () => contextFeedIds ? scenarioLinesFilter(contextFeedIds)
+      : queryFocus ? contextRouteFilterFor(visiblePreview.routes) : undefined,
+    [contextFeedIds, queryFocus, visiblePreview.routes],
   )
   const selectedMapRouteId = routingFocus || analysisFocus || isNetworkMap || scheduledNetwork ? '' : selectedRouteId
   const performanceProfile = useMemo(
@@ -427,7 +448,10 @@ export function RouteSurfaceView({
           scenarioCutoffMinutes={scenarioCutoffMinutes}
           scenarioSketchStops={scenarioSketchStops}
           scenarioSketchGeometry={scenarioSketchGeometry}
+          scenarioSketchStyle={scenarioSketchStyle}
+          scenarioContext={scenarioContext}
           scenarioPointPicking={scenarioPointPicking}
+          onPickContextRoute={onPickContextRoute}
           occlusionKey={occlusionKey}
           onMoveScenarioStop={onMoveScenarioStop}
           routingStatusTitle={!routingOrigin && !routingDestination ? 'Choose origin and destination' : routingActivity.title}
@@ -448,9 +472,9 @@ export function RouteSurfaceView({
         {agencyFocus && (!isNetworkMap || routingFocus || analysisFocus) ? (
           <div className="agency-map-context">
             <div>
-              <span>{routingFocus ? 'Journey' : analysisFocus ? 'Reachable area' : isNetworkMap ? vehicleMode === 'live' ? 'Live network' : 'Scheduled network' : `Route ${selectedRoute?.shortName || selectedRoute?.longName || ''}`}</span>
+              <span>{routingFocus ? 'Journey' : designFocus ? 'Scenario' : analysisFocus ? 'Reachable area' : isNetworkMap ? vehicleMode === 'live' ? 'Live network' : 'Scheduled network' : `Route ${selectedRoute?.shortName || selectedRoute?.longName || ''}`}</span>
               <small aria-live="polite">
-                {routingFocus || analysisFocus ? 'From your investigation' : (
+                {designFocus ? 'Your planned network' : routingFocus || analysisFocus ? 'From your investigation' : (
                   <>
                     {vehicleMode === 'schedule' ? `Estimated positions · ${formatServiceTime(scheduleTimeMinutes)}` : realtimeSnapshot ? `Latest feed · ${visibleVehicleCount} vehicle ${visibleVehicleCount === 1 ? 'location' : 'locations'}` : 'Connect feeds to see vehicle reports'}
                     {vehicleMode === 'schedule' && scheduleLoadStatus ? ` · ${scheduleLoadStatus}` : ''}
@@ -485,6 +509,12 @@ export function RouteSurfaceView({
 
 const noRoutingPoints: RoutingPoint[] = []
 const noCoordinates: [number, number][] = []
+const noScenarioStops: ScenarioStopDraft[] = []
+
+/** Tile routes are named `feed::route`; keep those of the scenario's timetables. */
+function scenarioLinesFilter(feedIds: string[]): FilterSpecification {
+  return ['any', ...feedIds.map((feedId): FilterSpecification => ['==', ['index-of', `${feedId}::`, ['get', 'featureId']], 0])] as FilterSpecification
+}
 
 /** The map's on-map Reach hint and the clicked point's journey. */
 const ReachInspectorOverlay = memo(function ReachInspectorOverlay() {
@@ -511,7 +541,10 @@ export const RouteSurface = memo(function RouteSurface() {
   const basemap = useStore(shell, (state) => state.basemap)
   const agencyFocus = tool === 'agency'
   const routingFocus = tool === 'pathfinder'
-  const analysisFocus = tool === 'analyze'
+  const reachFocus = tool === 'analyze'
+  const designFocus = tool === 'scenarios'
+  // Reach and Scenarios share the scenario map: results, sketches and context.
+  const analysisFocus = reachFocus || designFocus
   const networkState = useStore(network, (state) => ({
     layers: state.layers,
     displayMode: state.displayMode,
@@ -538,6 +571,7 @@ export const RouteSurface = memo(function RouteSurface() {
   const nameMapPoint = usePlaceNames(project.id, page === 'project')
   const namedMapPoint = (point: RoutingPoint) => {
     if (shell.get().activeRouteTool === 'pathfinder') routingPointFromMap(point)
+    else if (shell.get().activeRouteTool === 'scenarios') scenarioPointFromMap(point)
     else if (shell.get().activeRouteTool === 'analyze') nameMapPoint(point, named => {
       if (shell.get().activeRouteTool === 'analyze') analysisPointFromMap(named)
     })
@@ -583,7 +617,13 @@ export const RouteSurface = memo(function RouteSurface() {
   const reachArrives = reach.reachTimePreference === 'arrive'
   const sketchStops = useStudio(scenarioSketchStops)
   const sketchGeometry = useStudio(scenarioSketchGeometry)
-  const pointPicking = useStudio(scenarioPointPicking)
+  const sketchKind = useStudio(() => activeScenarioChange()?.kind)
+  const sketchStyle = useMemo(() => sketchKind ? { zone: sketchKind === 'flex-zone', fresh: sketchKind === 'add-line', color: scenarioSketchColor } : undefined, [sketchKind])
+  const scenarioContext = useStudio(scenarioContextFeatures)
+  const reachPicking = useStudio(scenarioPointPicking)
+  const designPicking = useStudio(scenarioEditPicking)
+  const placing = useStudio(() => Boolean(activeScenarioStopPlacement()))
+  const caseFeeds = useStudio(activeCaseFeeds)
   const cityPreviewLoading = useStore(city, (state) => Boolean(state.cityPreviewLoadingProjectId))
 
   return (
@@ -618,23 +658,28 @@ export const RouteSurface = memo(function RouteSurface() {
       scheduleServiceDate={serviceDate}
       routingEnabled={routingFocus && journey.routingEnabled}
       routingFocusRequest={journey.routingFocusRequest}
-      routingOrigin={agencyFocus ? null : analysisFocus ? reachArrives ? inspectionPoint : reach.analysisOrigin : journey.routingOrigin}
+      routingOrigin={agencyFocus || designFocus ? null : reachFocus ? reachArrives ? inspectionPoint : reach.analysisOrigin : journey.routingOrigin}
       routingWaypoints={agencyFocus || analysisFocus ? noRoutingPoints : journey.routingWaypoints}
-      routingDestination={agencyFocus ? null : analysisFocus ? reachArrives ? reach.analysisOrigin : inspectionPoint : journey.routingDestination}
-      routingPlan={agencyFocus ? null : analysisFocus ? inspectionPlan : plan}
+      routingDestination={agencyFocus || designFocus ? null : reachFocus ? reachArrives ? reach.analysisOrigin : inspectionPoint : journey.routingDestination}
+      routingPlan={agencyFocus || designFocus ? null : reachFocus ? inspectionPlan : plan}
       routingFocus={routingFocus}
       analysisFocus={analysisFocus}
-      analysisInspector={analysisFocus ? <ReachInspectorOverlay /> : undefined}
-      onInspectReachPoint={analysisFocus ? inspectReachPoint : undefined}
-      reachResult={analysisFocus ? reach.reachResult : null}
-      serviceDecomposition={analysisFocus ? reach.serviceDecomposition : null}
+      analysisInspector={reachFocus ? <ReachInspectorOverlay /> : designFocus ? placing ? <ScenarioDrawingBar /> : <ScenarioLineCard /> : undefined}
+      onInspectReachPoint={reachFocus ? inspectReachPoint : undefined}
+      reachResult={reachFocus ? reach.reachResult : null}
+      serviceDecomposition={reachFocus ? reach.serviceDecomposition : null}
       scenarioView={reach.scenarioView}
       scenarioRenderMode={reach.scenarioRenderMode}
       scenarioCutoffMinutes={reach.scenarioCutoffMinutes}
-      scenarioSketchStops={analysisFocus ? sketchStops : emptyScenarioStops}
-      scenarioSketchGeometry={analysisFocus ? sketchGeometry : noCoordinates}
-      scenarioPointPicking={pointPicking}
-      onMoveScenarioStop={analysisFocus ? moveScenarioStopFromMap : undefined}
+      scenarioSketchStops={designFocus ? sketchStops : noScenarioStops}
+      scenarioSketchGeometry={designFocus ? sketchGeometry : noCoordinates}
+      scenarioSketchStyle={designFocus ? sketchStyle : undefined}
+      scenarioContext={analysisFocus ? scenarioContext : undefined}
+      scenarioPointPicking={designFocus ? designPicking : reachPicking}
+      onMoveScenarioStop={designFocus ? moveScenarioStopFromMap : undefined}
+      designFocus={designFocus}
+      contextFeedIds={designFocus ? caseFeeds.feedIds : undefined}
+      onPickContextRoute={designFocus && !designPicking ? pickScenarioRouteFromMap : undefined}
       routingActivity={activity}
       cityPreviewLoading={cityPreviewLoading}
       onMapScopeChange={changeMapScopeFromMap}

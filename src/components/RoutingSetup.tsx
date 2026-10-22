@@ -1,4 +1,4 @@
-import { ScenarioNetworkSettings } from './ScenarioNetworkSettings'
+import { ScenarioNetworkPicker } from './scenarios/ScenarioNetworkPicker'
 import { Accessibility, ChevronDown, Clock3, SlidersHorizontal } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { classNames } from '../domain'
@@ -89,6 +89,9 @@ export function RoutingSetup(props: RoutingSetupProps) {
     </header>
 
     <div id={`${id}-content`} hidden={collapsed}>
+    {transit && routingNetwork?.scenarios.length ? <ScenarioNetworkPicker label="Network" ariaLabel="Route network" value={routingNetwork.selectedId}
+      baselineLabel={routingNetwork.baselineLabel ?? 'City timetable'} options={routingNetwork.scenarios} onChange={routingNetwork.onChange} /> : null}
+    {transit && routingNetwork?.error ? <p className="routing-setup-note is-error" role="alert">{routingNetwork.error}</p> : null}
     {transit ? <div className="routing-setup-tabs" role="tablist" aria-label="Journey settings">
       {(['when', 'preferences'] as const).map(value => <button key={value} type="button" role="tab"
         id={`${id}-${value}-tab`} aria-controls={`${id}-${value}-panel`} aria-selected={activeTab === value}
@@ -125,16 +128,6 @@ export function RoutingSetup(props: RoutingSetupProps) {
     </div>
 
     {transit ? <div className="routing-setup-panel" id={`${id}-preferences-panel`} role="tabpanel" aria-labelledby={`${id}-preferences-tab`} hidden={activeTab !== 'preferences'}>
-    {transit && routingNetwork?.scenarios.length ? <div className="routing-setup-network">
-      <div>
-        <label htmlFor={`${id}-network`}>Network / scenario</label>
-        <select id={`${id}-network`} value={routingNetwork.selectedId} onChange={event => routingNetwork.onChange(event.currentTarget.value)} aria-label="Route network" title={scenario ? `${scenario.name} · ${scenario.detail}` : 'City timetable'}>
-          <option value="">{routingNetwork.baselineLabel ?? 'City timetable'}</option>
-          {routingNetwork.scenarios.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-        </select>
-      </div>
-    </div> : null}
-      {routingNetwork?.selectedId ? <ScenarioNetworkSettings scenarioId={routingNetwork.selectedId} /> : null}
       {departNow || routingTimePreference === 'depart' ? <div className="routing-preference-section">
         <span className="routing-setup-label">Departure search</span>
         <div className="studio-tabs routing-setup-source" role="group" aria-label="Departure search window">

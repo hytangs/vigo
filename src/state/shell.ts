@@ -33,7 +33,7 @@ export const routeToolStorageKey = 'vigo-agency-view'
 function savedRouteTool(): RouteToolKey {
   try {
     const saved = sessionStorage.getItem(routeToolStorageKey)
-    return ['data', 'pathfinder', 'analyze', 'agency'].includes(saved || '') ? saved as RouteToolKey : 'agency'
+    return ['data', 'pathfinder', 'analyze', 'scenarios', 'agency'].includes(saved || '') ? saved as RouteToolKey : 'agency'
   } catch {
     return 'agency'
   }

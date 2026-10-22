@@ -6,7 +6,7 @@ import { orderedProjects } from '../../app/projectState'
 import { cityReadiness } from '../../app/cityReadiness'
 import type { VigoRuntimeConfig } from '../../app/runtimeConfig'
 import { classNames, formatNumber, type VigoProject } from '../../domain'
-import { IconButton } from '../UiPrimitives'
+import { IconButton, VigoBrandMark } from '../UiPrimitives'
 
 /** A small system map drawn on first run: three lines meeting at a transfer. */
 function FirstRunNetwork() {
@@ -15,7 +15,7 @@ function FirstRunNetwork() {
       <path className="is-a" d="M14 92 C 60 92, 74 60, 120 60 S 190 26, 226 26" />
       <path className="is-b" d="M28 18 C 70 18, 96 40, 120 60 S 160 104, 214 104" />
       <path className="is-c" d="M120 8 L 120 112" />
-      {[[14, 92], [226, 26], [28, 18], [214, 104], [120, 8], [120, 112], [70, 80], [176, 38], [78, 30], [168, 90]].map(([x, y]) => <circle key={`${x}-${y}`} cx={x} cy={y} r="3.2" />)}
+      {[[14, 92], [226, 26], [28, 18], [214, 104], [120, 8], [120, 112], [67, 76], [176.75, 43], [80.75, 31.5], [155.75, 89.5]].map(([x, y]) => <circle key={`${x}-${y}`} cx={x} cy={y} r="3.2" />)}
       <circle className="is-transfer" cx="120" cy="60" r="7" />
     </svg>
   )
@@ -101,7 +101,7 @@ export function ProjectsPage({
         <div>
           <span className="eyebrow">Your workspace</span>
           <h1 id="city-library-title">Cities</h1>
-          <p>A place for every network you explore.</p>
+          <p>Select a City to explore, or create one with your own data.</p>
         </div>
         <div className="city-library-actions">
           <button type="button" className="button button-secondary" onClick={onOpenSettings}><Settings size={16} />Settings</button>
@@ -185,14 +185,17 @@ export function ProjectsPage({
         </div>
       ) : !loading && !loadFailed ? (
         <div className={classNames('city-library-empty', !projects.length && 'is-first-run')}>
-          {projects.length ? <Map size={36} strokeWidth={1.2} /> : <FirstRunNetwork />}
-          <h2>{projects.length ? 'No matching Cities' : 'Your next journey starts here'}</h2>
-          <p>{projects.length ? 'Try another name or show all Cities.' : 'A City is a folder of timetables and streets prepared once on this computer. Every route and Reach after that runs offline.'}</p>
+          {projects.length ? <Map size={36} strokeWidth={1.2} /> : <>
+            <div className="city-first-run-brand"><VigoBrandMark /><span>VIGO</span></div>
+            <FirstRunNetwork />
+          </>}
+          <h2>{projects.length ? 'No matching Cities' : 'Transit routing. In milliseconds.'}</h2>
+          <p>{projects.length ? 'Try another name or show all Cities.' : 'From a single journey to a city’s worth of possibilities.'}</p>
           {projects.length ? null : (
             <ol className="city-first-run-steps">
-              <li><b>1</b><span><strong>Create a City</strong><small>Name it and choose its folder.</small></span></li>
-              <li><b>2</b><span><strong>Add a timetable</strong><small>A GTFS ZIP from the agency.</small></span></li>
-              <li><b>3</b><span><strong>Add streets</strong><small>An OpenStreetMap .osm.pbf extract.</small></span></li>
+              <li><b>1</b><span><strong>Choose your city</strong><small>Create a City, name it, and choose its folder.</small></span></li>
+              <li><b>2</b><span><strong>Add GTFS data</strong><small>A timetable ZIP from the local transit agency.</small></span></li>
+              <li><b>3</b><span><strong>Add OSM PBF data</strong><small>An OpenStreetMap .osm.pbf file covering the same area.</small></span></li>
             </ol>
           )}
           {projects.length ? <button type="button" className="button button-secondary" onClick={() => { setFilter('all'); onQueryChange('') }}>Clear filters</button> : <button type="button" className="button button-primary" onClick={onCreateProject}><FolderPlus size={16} />Create your first City</button>}

@@ -20,9 +20,7 @@ import { quietMapLabel } from '../components/studio/presentation'
 import { formatNumber } from '../domain'
 import { scenarioStopsForRoute } from '../reach'
 import {
-  activeScenarioChange,
   analyze,
-  cityGroupsValue,
   comparisonFeedOptions,
   invalidateAnalyzeResult,
   reachInputIdentity,
@@ -44,7 +42,8 @@ import {
 } from './network'
 import { followActivePreparationJobs, registerStreetRetry, resetPreparation, syncImportFlags, waitForImportJob } from './preparation'
 import { registerRouteEngineReset, resetRoute, route, routeDateAlignment, routingStreetState, routeScenario } from './route'
-import { resetScenarios, scenarios, scenarioLibrary } from './scenarios'
+import { resetScenarioEditor } from './scenarioEditor'
+import { activeScenarioChange, cityGroupsValue, resetScenarios, scenarios, scenarioLibrary } from './scenarios'
 import { activePreparationJobIds, importJobs, preview, routingScope, selectedProject } from './scope'
 import { navigation, resetShell, routeToolStorageKey, setApiError, shell } from './shell'
 
@@ -82,6 +81,7 @@ function resetStudio() {
   resetNetwork()
   resetRoute()
   resetAnalyze()
+  resetScenarioEditor()
   resetPreparation()
   resetScenarios()
   resetClock()
@@ -608,7 +608,7 @@ function AnalyzeRuntime() {
   // An edited route needs its full timetable before its stops can be changed.
   const changeRouteId = change?.routeId
   useEffect(() => {
-    if (page !== 'project' || activeRouteTool !== 'analyze') return
+    if (page !== 'project' || activeRouteTool !== 'scenarios') return
     if (!changeRouteId) return
     const scenarioRoute = currentPreview.routes.find((candidate) => (
       candidate.id === changeRouteId || candidate.patternId === changeRouteId
@@ -619,7 +619,7 @@ function AnalyzeRuntime() {
 
   // Replace an unedited route's provisional stops once its full pattern loads.
   useEffect(() => {
-    if (page !== 'project' || activeRouteTool !== 'analyze') return
+    if (page !== 'project' || activeRouteTool !== 'scenarios') return
     const intervention = change
     if (!intervention?.routeId) return
     if (intervention.stops.some((stop) => stop.editStatus && stop.editStatus !== 'baseline')) return

@@ -313,7 +313,8 @@ export type ScenarioRenderMode = 'area' | 'streets'
 
 export type ScenarioRouteScope = 'pattern' | 'edge' | 'route'
 export type ScenarioTimeModel = 'preserve-scheduled' | 'infer-road' | 'estimate-distance'
-export type ScenarioGeometryMode = 'published-shape' | 'auto-road' | 'straight-line'
+/** How a line's path is drawn: a published shape, roads, a smoothed rail curve, or straight chords. */
+export type ScenarioGeometryMode = 'published-shape' | 'auto-road' | 'smooth-rail' | 'straight-line'
 
 type Rgb = readonly [number, number, number]
 
@@ -446,6 +447,7 @@ export type ScenarioChangeKind =
   | 'enhance-line'
   | 'change-line'
   | 'remove-line'
+  | 'flex-zone'
 
 export type ScenarioChangeDraft = {
   id: string
@@ -472,6 +474,8 @@ export type ScenarioChangeDraft = {
   startMinutes: number
   endMinutes: number
   bidirectional: boolean
+  /** A Flex zone's typical pickup wait after booking. Its `stops` are the zone's vertices. */
+  flexWaitMinutes?: number
 }
 
 export type ScenarioDraft = {

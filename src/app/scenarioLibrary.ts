@@ -19,6 +19,8 @@ export type ScenarioLibrary = {
 }
 
 export const maximumScenarios = 24
+/** Changes in one scenario: new, changed and removed lines and Flex zones. */
+export const maximumScenarioChanges = 16
 export const baselineGroupId = 'baseline'
 
 export function newScenario(index: number, groupId: string): ScenarioDraft {

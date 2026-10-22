@@ -1,6 +1,6 @@
 import { memo } from 'react'
 import { shallowEqual, useStore } from '../../app/store'
-import { addScenario, openScenarioCase, renameScenario } from '../../state/analyze'
+import { addScenario, openScenarioCase, renameScenario } from '../../state/scenarioEditor'
 import { city } from '../../state/city'
 import { useStudio } from '../../state/hooks'
 import {

@@ -72,7 +72,7 @@ export const StudioTopbar = memo(function StudioTopbar() {
         </button>
         <div className="topbar-brand-copy">
           <b>{title}</b>
-          {page === 'project' && tool !== 'data' ? <span className="topbar-crumb">{tool === 'pathfinder' ? 'Route' : tool === 'analyze' ? 'Analyze' : 'Network'}</span> : null}
+          {page === 'project' && tool !== 'data' ? <span className="topbar-crumb">{tool === 'pathfinder' ? 'Route' : tool === 'analyze' ? 'Analyze' : tool === 'scenarios' ? 'Scenarios' : 'Network'}</span> : null}
         </div>
       </div>
 

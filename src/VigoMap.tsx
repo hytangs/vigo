@@ -20,6 +20,7 @@ import {
 import { accessFeatures, directionLabel, routeDisplayName, routeFeatures, segmentFeatures, stopFeatures } from './map/networkFeatures'
 import {
   applyNetworkTileMode,
+  contextHoverLayerId,
   contextRouteLayerId,
   installNetworkTiles,
   networkTileLayerId,
@@ -142,7 +143,13 @@ export type VigoMapProps = {
   scenarioCutoffMinutes?: number
   scenarioSketchStops?: ScenarioStopDraft[]
   scenarioSketchGeometry?: LngLat[]
+  /** How the edited change draws: a Flex zone, a new line, and its kind color. */
+  scenarioSketchStyle?: { zone?: boolean; fresh?: boolean; color?: string }
+  /** The scenario's other changes and its Flex zones, drawn under the edited one. */
+  scenarioContext?: FeatureCollection
   scenarioPointPicking?: boolean
+  /** Scenarios: reference lines are clickable, named on hover, and drawn stronger. */
+  onPickContextRoute?: (featureId: string) => void
   /** Changes when a floating panel opens over the map; a hidden journey is reframed. */
   occlusionKey?: string
   onMoveScenarioStop?: (index: number, coordinate: LngLat) => void
@@ -209,6 +216,32 @@ function routingPointForMapClick(event: maplibregl.MapMouseEvent): RoutingPoint 
   // rendered stop hit and silently turn into an exact-station request; nearby
   // OSM-reachable stations need to compete inside the routing search.
   return { coordinate, label: 'Map point', source: 'map' }
+}
+
+/** The reference line under the pointer, with a few pixels of slack. */
+function contextRouteAt(map: MapLibreMap, point: maplibregl.Point) {
+  if (!map.getLayer(contextRouteLayerId)) return ''
+  const hit = map.queryRenderedFeatures([[point.x - 5, point.y - 5], [point.x + 5, point.y + 5]], { layers: [contextRouteLayerId] })
+    .find((feature) => textProperty(feature.properties, 'featureId'))
+  return textProperty(hit?.properties, 'featureId')
+}
+
+/** One reference line drawn in its own color while the pointer is on it. */
+function highlightContextRoute(map: MapLibreMap, featureId: string) {
+  if (!map.getLayer(contextHoverLayerId)) {
+    const context = map.getLayer(contextRouteLayerId)
+    if (!context || !featureId) return
+    map.addLayer({
+      id: contextHoverLayerId,
+      type: 'line',
+      source: context.source,
+      'source-layer': 'routes',
+      filter: ['==', ['get', 'featureId'], '__none__'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': ['get', 'color'], 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2.4, 12, 4, 16, 6], 'line-opacity': 0.95 },
+    })
+  }
+  map.setFilter(contextHoverLayerId, ['==', ['get', 'featureId'], featureId || '__none__'])
 }
 
 function scenarioPointForMapClick(
@@ -473,7 +506,10 @@ export function VigoMap({
   scenarioCutoffMinutes = 45,
   scenarioSketchStops: suppliedSketchStops = emptyScenarioStops,
   scenarioSketchGeometry: suppliedSketchGeometry = emptyCoordinates,
+  scenarioSketchStyle,
+  scenarioContext = emptyCollection,
   scenarioPointPicking = false,
+  onPickContextRoute,
   occlusionKey = '',
   onMoveScenarioStop,
   performanceProfile: providedPerformanceProfile,
@@ -610,8 +646,8 @@ export function VigoMap({
     [routingDestination, routingOrigin, routingPlan, routingWaypoints, reachPlace],
   )
   const scenarioSketchGeoJson = useMemo(
-    () => scenarioSketchFeatures(scenarioSketchStops, scenarioSketchGeometry),
-    [scenarioSketchGeometry, scenarioSketchStops],
+    () => scenarioSketchFeatures(scenarioSketchStops, scenarioSketchGeometry, scenarioSketchStyle),
+    [scenarioSketchGeometry, scenarioSketchStops, scenarioSketchStyle],
   )
   const scenarioContoursGeoJson = useMemo(
     () => scenarioRenderMode === 'area'
@@ -1027,6 +1063,7 @@ export function VigoMap({
         reachResult?.scenario.routes ?? emptyCollection,
       )
       setMapSourceData(source(map, 'vigo-scenario-sketch'), scenarioSketchGeoJson)
+      setMapSourceData(source(map, 'vigo-scenario-context'), scenarioContext)
       setVisibility(map, reachResultLayerIds, scenarioFocus)
       setVisibility(map, ['vigo-reach-bands', 'vigo-scenario-area', 'vigo-scenario-contours'], scenarioFocus && scenarioRenderMode === 'area')
       setVisibility(map, ['vigo-scenario-access-edges'], scenarioFocus && scenarioRenderMode === 'streets')
@@ -1037,7 +1074,7 @@ export function VigoMap({
       if (mapRemovedRef.current) return
       map.off('load', update)
     }
-  }, [scenarioAccessEdgesGeoJson, reachBandImageData, reachResult, scenarioAreaGeoJson, scenarioContoursGeoJson, scenarioFocus, scenarioRenderMode, scenarioSketchGeoJson, serviceDecomposition])
+  }, [scenarioAccessEdgesGeoJson, reachBandImageData, reachResult, scenarioAreaGeoJson, scenarioContext, scenarioContoursGeoJson, scenarioFocus, scenarioRenderMode, scenarioSketchGeoJson, serviceDecomposition])
 
   // Editing overlays or refreshing unrelated state must not reset a user's
   // pan/zoom. Only a newly selected accessibility result changes the viewport.
@@ -1326,7 +1363,9 @@ export function VigoMap({
 
       if (scenarioFocus) {
         setLiveSelection(null)
-        onInspectReachPoint?.(routingPointForMapClick(event))
+        const line = onPickContextRoute ? contextRouteAt(map, event.point) : ''
+        if (line) onPickContextRoute?.(line)
+        else onInspectReachPoint?.(routingPointForMapClick(event))
         return
       }
 
@@ -1450,6 +1489,23 @@ export function VigoMap({
         map.getCanvas().style.cursor = 'grab'
         return
       }
+      if (scenarioFocus && onPickContextRoute) {
+        const line = contextRouteAt(map, event.point)
+        highlightContextRoute(map, line)
+        map.getCanvas().style.cursor = line ? 'pointer' : ''
+        if (!line) {
+          clearHoverTooltip()
+          return
+        }
+        if (line !== hoveredFeatureId) {
+          hoveredFeatureId = line
+          const feature = map.queryRenderedFeatures(event.point, { layers: [contextRouteLayerId] }).find((candidate) => textProperty(candidate.properties, 'featureId') === line)
+          const name = [textProperty(feature?.properties, 'shortName'), textProperty(feature?.properties, 'longName')].filter(Boolean).join(' · ')
+          if (name) hoverTooltip.setText(name).addTo(map)
+        }
+        hoverTooltip.setLngLat(event.lngLat)
+        return
+      }
       if (scenarioFocus) {
         clearHoverTooltip()
         map.getCanvas().style.cursor = onInspectReachPoint ? 'crosshair' : ''
@@ -1506,7 +1562,24 @@ export function VigoMap({
       map.getCanvas().removeEventListener('keydown', inspectMapCenter)
       map.getCanvas().style.cursor = ''
     }
-  }, [effectiveLayers.routes, effectiveLayers.segments, onRoutingPoint, onInspectReachPoint, onSelectRoute, onSelectStop, preview, routingEnabled, scenarioFocus, scenarioPointPicking, selectedRouteId, stopsById, vehicleFrame])
+  }, [effectiveLayers.routes, effectiveLayers.segments, onPickContextRoute, onRoutingPoint, onInspectReachPoint, onSelectRoute, onSelectStop, preview, routingEnabled, scenarioFocus, scenarioPointPicking, selectedRouteId, stopsById, vehicleFrame])
+
+  // Scenarios draws its reference lines firmly enough to pick from.
+  const contextPickable = Boolean(onPickContextRoute)
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const apply = () => {
+      if (mapRemovedRef.current || !map.getLayer(contextRouteLayerId)) return
+      map.setPaintProperty(contextRouteLayerId, 'line-opacity', contextPickable
+        ? ['interpolate', ['linear'], ['zoom'], 8, 0.5, 13, 0.42, 16, 0.36]
+        : ['interpolate', ['linear'], ['zoom'], 8, 0.26, 13, 0.18, 16, 0.14])
+      if (!contextPickable) highlightContextRoute(map, '')
+    }
+    if (mapReadyRef.current) apply()
+    else map.once('load', apply)
+    return () => { if (!mapRemovedRef.current) map.off('load', apply) }
+  }, [contextPickable, networkTiles?.scope, networkTiles?.revision])
 
   // A panel that opens over the map (journey details) must not hide the
   // journey it describes: reframe only when part of it is now covered.

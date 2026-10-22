@@ -17,7 +17,7 @@ const limits = {
   geometryPoints: 20_000,
   feedIds: 256,
 }
-const changeKinds = new Set(['add-line', 'enhance-line', 'change-line', 'remove-line'])
+const changeKinds = new Set(['add-line', 'enhance-line', 'change-line', 'remove-line', 'flex-zone'])
 const writes = new Map()
 
 function invalid(message, statusCode = 400) {
@@ -97,7 +97,7 @@ function scenarioChange(value, label) {
     ...optional(value, 'routeId', entry => text(entry, `${label}.routeId`, 320)),
     ...optional(value, 'routeScope', enumeration(['pattern', 'edge', 'route'])),
     ...optional(value, 'timeModel', enumeration(['preserve-scheduled', 'infer-road', 'estimate-distance'])),
-    ...optional(value, 'geometryMode', enumeration(['published-shape', 'auto-road', 'straight-line'])),
+    ...optional(value, 'geometryMode', enumeration(['published-shape', 'auto-road', 'smooth-rail', 'straight-line'])),
     ...optional(value, 'inferredGeometry', entry => line(entry, `${label}.inferredGeometry`)),
     ...optional(value, 'inferredGeometrySource', enumeration(['osm_drive', 'published_shape_fallback', 'hybrid'])),
     ...Object.fromEntries(['inferredFallbackSegmentCount', 'inferredPublishedShapeSegmentCount', 'inferredOsmSegmentCount']
@@ -117,6 +117,7 @@ function scenarioChange(value, label) {
     startMinutes: finite(value.startMinutes, `${label}.startMinutes`),
     endMinutes: finite(value.endMinutes, `${label}.endMinutes`),
     bidirectional: value.bidirectional === true,
+    ...optional(value, 'flexWaitMinutes', entry => finite(entry, `${label}.flexWaitMinutes`)),
   }
 }
 

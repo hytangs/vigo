@@ -14,7 +14,16 @@ import {
   type ScenarioView,
 } from '../reach'
 
-export function scenarioSketchFeatures(stops: ScenarioStopDraft[], geometry: LngLat[] = []): FeatureCollection {
+/**
+ * The change being edited: its stops (or a zone's corners) as draggable
+ * points, and its path or outline. A zone also carries its filled area;
+ * `fresh` marks a new line, whose stops all share the change's color.
+ */
+export function scenarioSketchFeatures(
+  stops: ScenarioStopDraft[],
+  geometry: LngLat[] = [],
+  { zone = false, fresh = false, color = '#cde67c' }: { zone?: boolean; fresh?: boolean; color?: string } = {},
+): FeatureCollection {
   const features: FeatureCollection['features'] = stops.map((stop, index) => ({
     type: 'Feature',
     id: stop.id,
@@ -26,7 +35,9 @@ export function scenarioSketchFeatures(stops: ScenarioStopDraft[], geometry: Lng
       index,
       kind: 'stop',
       source: stop.source,
-      editStatus: stop.editStatus ?? 'baseline',
+      // A new line's stops and a zone's corners have no published original.
+      editStatus: zone || fresh ? 'new' : stop.editStatus ?? 'baseline',
+      color,
     },
     geometry: { type: 'Point', coordinates: stop.coordinate },
   }))
@@ -34,8 +45,16 @@ export function scenarioSketchFeatures(stops: ScenarioStopDraft[], geometry: Lng
     features.unshift({
       type: 'Feature',
       id: 'scenario-sketch-line',
-      properties: { id: 'scenario-sketch-line', kind: 'line' },
+      properties: { id: 'scenario-sketch-line', kind: 'line', color },
       geometry: { type: 'LineString', coordinates: geometry.length >= 2 ? geometry : stops.map((stop) => stop.coordinate) },
+    })
+  }
+  if (zone && geometry.length >= 4) {
+    features.unshift({
+      type: 'Feature',
+      id: 'scenario-sketch-zone',
+      properties: { id: 'scenario-sketch-zone', kind: 'zone', color },
+      geometry: { type: 'Polygon', coordinates: [geometry] },
     })
   }
   return { type: 'FeatureCollection', features }

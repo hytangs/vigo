@@ -6,6 +6,7 @@ import type { HealthResponse, ProjectDraft, SetupDraft, VigoRuntimeConfig } from
 import type { SearchResult } from '../features/search/searchModel'
 import type { VigoProject } from '../domain'
 import { clearAnalysisState, invalidateAnalyzeResult } from './analyze'
+import { resetScenarioEditor } from './scenarioEditor'
 import { cancelProjectDetail, city, invalidateProjectRefresh, replaceProject, routingMerge, startCitySelection } from './city'
 import {
   applyNetworkMapDefaults,
@@ -28,6 +29,7 @@ export function applyCitySelection(projectId: string) {
     clearRouting()
     route.set({ routeScenarioId: '' })
     clearAnalysisState()
+    resetScenarioEditor()
     clearAgencyMap()
     city.set({ isImporting: false, isOsmImporting: false, gtfsImportJobId: '', osmImportJobId: '', importMessage: '', osmStreetMessage: '' })
   }
@@ -116,6 +118,7 @@ function closeCity() {
   cancelProjectDetail(city.get().selectedProjectId)
   cancelRouteAnalysis()
   clearAnalysisState()
+  resetScenarioEditor()
   clearRouting()
   clearAgencyMap()
   routeDateAlignment.storeKey = ''
@@ -176,6 +179,16 @@ export function openAnalyzeView() {
   route.set({ routingEnabled: false })
 }
 
+/** Scenarios: draw and manage the networks Route and Reach can run on. */
+export function openScenariosView() {
+  const project = selectedProject()
+  if (!hasOperationsData(project)) return
+  city.set({ openedNetworkProjectId: project.id })
+  shell.set({ activeRouteTool: 'scenarios' })
+  network.set({ mapScope: 'network' })
+  route.set({ routingEnabled: false })
+}
+
 export function openDataView() {
   // Opening City data retries a combined routing build that may have failed.
   routingMerge.requestKey = ''
@@ -228,6 +241,7 @@ export function activateSearchResult(result: SearchResult) {
   shell.set({ page: 'project' })
   if (result.id === 'command:pathfinder') openPathfinderView()
   else if (result.id === 'command:analyze') openAnalyzeView()
+  else if (result.id === 'command:scenarios') openScenariosView()
   else if (result.id === 'command:data') openDataView()
   else if (result.id === 'command:preferences') openSettingsView()
   else openNetworkView()
@@ -270,7 +284,7 @@ export function handleCityShortcut(event: KeyboardEvent) {
       action = activeData ? openAnalyzeView : null
       break
     case 'Digit4':
-      action = activeData ? openNetworkView : null
+      action = activeData ? openScenariosView : null
       break
     case 'Digit5':
       action = openSettingsView

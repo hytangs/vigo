@@ -25,6 +25,8 @@ export function networkTileLayerId(layerId: string) {
 
 /** Route and Analyze keep a quiet reference network under the query result. */
 export const contextRouteLayerId = 'vigo-context-routes'
+/** Scenarios highlights the reference line under the pointer. */
+export const contextHoverLayerId = 'vigo-context-routes-hover'
 
 export const networkTileStopLayerIds = tiledLayers.stops.map(networkTileLayerId)
 export const networkTileRouteLayerIds = tiledLayers.routes.map(networkTileLayerId)
@@ -57,7 +59,7 @@ export function networkTileUrl(projectId: string, tiles: NetworkTiles) {
 }
 
 export function removeNetworkTiles(map: MapLibreMap) {
-  for (const layerId of [contextRouteLayerId, ...networkTileRouteLayerIds, ...networkTileStopLayerIds]) {
+  for (const layerId of [contextHoverLayerId, contextRouteLayerId, ...networkTileRouteLayerIds, ...networkTileStopLayerIds]) {
     if (map.getLayer(layerId)) map.removeLayer(layerId)
   }
   if (map.getSource(sourceId)) map.removeSource(sourceId)

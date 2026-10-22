@@ -58,8 +58,16 @@ const searchCommands: SearchCommand[] = [
     kind: 'command',
     group: 'commands',
     title: 'Analyze Reach',
-    subtitle: 'Compute Reach or compare Scenarios',
-    keywords: 'reach scenario compare network analysis',
+    subtitle: 'Compute Reach and compare it with a scenario',
+    keywords: 'reach isochrone compare network analysis',
+  },
+  {
+    id: 'command:scenarios',
+    kind: 'command',
+    group: 'commands',
+    title: 'Design scenarios',
+    subtitle: 'Draw lines, Flex zones and timetable mixes',
+    keywords: 'scenario plan draw line rail bus flex zone network remix feeds',
   },
   {
     id: 'command:data',

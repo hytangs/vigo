@@ -30,6 +30,13 @@ export const reachResultLayerIds = [
   'vigo-scenario-contours',
   'vigo-scenario-access-edges',
   'vigo-reach-route',
+  'vigo-scenario-context-fill',
+  'vigo-scenario-context-outline',
+  'vigo-scenario-context-lines',
+  'vigo-scenario-context-removed',
+  'vigo-scenario-context-stops',
+  'vigo-scenario-sketch-zone',
+  'vigo-scenario-sketch-casing',
   'vigo-scenario-sketch-line',
   'vigo-scenario-sketch-hit',
   'vigo-scenario-sketch-stops',
@@ -112,6 +119,9 @@ export function ensureLayers(map: MapLibreMap) {
   if (!map.getSource('vigo-scenario-sketch')) {
     map.addSource('vigo-scenario-sketch', { type: 'geojson', data: emptyCollection })
   }
+  if (!map.getSource('vigo-scenario-context')) {
+    map.addSource('vigo-scenario-context', { type: 'geojson', data: emptyCollection })
+  }
 
   if (!map.getLayer('vigo-scenario-area')) {
     map.addLayer({
@@ -187,6 +197,85 @@ export function ensureLayers(map: MapLibreMap) {
       layout: { 'line-cap': 'round', 'line-join': 'round' },
     })
   }
+  // The rest of the scenario, quieter than the change being edited, which
+  // draws in the interface signal. Only a removal carries a color of its own.
+  const contextColor = '#e6edf3'
+  if (!map.getLayer('vigo-scenario-context-fill')) {
+    map.addLayer({
+      id: 'vigo-scenario-context-fill',
+      type: 'fill',
+      source: 'vigo-scenario-context',
+      filter: ['==', ['get', 'kind'], 'flex-zone'],
+      paint: { 'fill-color': contextColor, 'fill-opacity': ['case', ['get', 'active'], 0, 0.06] as ExpressionSpecification },
+    })
+  }
+  if (!map.getLayer('vigo-scenario-context-outline')) {
+    map.addLayer({
+      id: 'vigo-scenario-context-outline',
+      type: 'line',
+      source: 'vigo-scenario-context',
+      filter: ['all', ['==', ['get', 'kind'], 'flex-zone'], ['!', ['get', 'active']]] as FilterSpecification,
+      paint: { 'line-color': contextColor, 'line-width': 1.2, 'line-opacity': 0.45, 'line-dasharray': [2, 1.5] },
+      layout: { 'line-join': 'round' },
+    })
+  }
+  if (!map.getLayer('vigo-scenario-context-lines')) {
+    map.addLayer({
+      id: 'vigo-scenario-context-lines',
+      type: 'line',
+      source: 'vigo-scenario-context',
+      filter: ['in', ['get', 'kind'], ['literal', ['added', 'changed']]],
+      paint: {
+        'line-color': contextColor,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 9, 1.8, 14, 3.2] as ExpressionSpecification,
+        'line-opacity': 0.5,
+      },
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+    })
+  }
+  if (!map.getLayer('vigo-scenario-context-removed')) {
+    map.addLayer({
+      id: 'vigo-scenario-context-removed',
+      type: 'line',
+      source: 'vigo-scenario-context',
+      filter: ['==', ['get', 'kind'], 'removed'],
+      paint: { 'line-color': '#ff735c', 'line-width': 2.2, 'line-opacity': 0.8, 'line-dasharray': [1, 1.6] },
+      layout: { 'line-join': 'round' },
+    })
+  }
+  if (!map.getLayer('vigo-scenario-context-stops')) {
+    map.addLayer({
+      id: 'vigo-scenario-context-stops',
+      type: 'circle',
+      source: 'vigo-scenario-context',
+      filter: ['==', ['get', 'kind'], 'context-stop'],
+      minzoom: 11,
+      paint: { 'circle-radius': 2.6, 'circle-color': '#ffffff', 'circle-opacity': 0.75, 'circle-stroke-color': '#071018', 'circle-stroke-width': 1 },
+    })
+  }
+  if (!map.getLayer('vigo-scenario-sketch-zone')) {
+    map.addLayer({
+      id: 'vigo-scenario-sketch-zone',
+      type: 'fill',
+      source: 'vigo-scenario-sketch',
+      filter: ['==', ['get', 'kind'], 'zone'],
+      paint: { 'fill-color': ['get', 'color'] as ExpressionSpecification, 'fill-opacity': 0.12 },
+    })
+  }
+  if (!map.getLayer('vigo-scenario-sketch-casing')) {
+    map.addLayer({
+      id: 'vigo-scenario-sketch-casing',
+      type: 'line',
+      source: 'vigo-scenario-sketch',
+      filter: ['==', ['get', 'kind'], 'line'],
+      paint: {
+        'line-color': '#071018',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 9, 4.5, 14, 7.5] as ExpressionSpecification,
+        'line-opacity': 0.55,
+      },
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+    })
+  }
   if (!map.getLayer('vigo-scenario-sketch-line')) {
     map.addLayer({
       id: 'vigo-scenario-sketch-line',
@@ -194,10 +283,10 @@ export function ensureLayers(map: MapLibreMap) {
       source: 'vigo-scenario-sketch',
       filter: ['==', ['get', 'kind'], 'line'],
       paint: {
-        'line-color': '#ffd166',
-        'line-width': 2.4,
-        'line-dasharray': [1.4, 1.1],
+        'line-color': ['coalesce', ['get', 'color'], '#cde67c'] as ExpressionSpecification,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 9, 2.6, 14, 4.6] as ExpressionSpecification,
       },
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
     })
   }
   if (!map.getLayer('vigo-scenario-sketch-hit')) {
@@ -220,7 +309,7 @@ export function ensureLayers(map: MapLibreMap) {
       source: 'vigo-scenario-sketch',
       filter: ['==', ['get', 'kind'], 'stop'],
       paint: {
-        'circle-radius': ['case', ['==', ['get', 'editStatus'], 'baseline'], 3.5, 5] as ExpressionSpecification,
+        'circle-radius': ['match', ['get', 'editStatus'], 'baseline', 3.5, 'new', 5.5, 5] as ExpressionSpecification,
         'circle-color': [
           'match',
           ['get', 'editStatus'],
@@ -229,8 +318,9 @@ export function ensureLayers(map: MapLibreMap) {
           'added', '#35d0a1',
           '#ffffff',
         ] as ExpressionSpecification,
-        'circle-stroke-color': '#071018',
-        'circle-stroke-width': 1.5,
+        // Stops of a new line or a zone's corners ring in the change's color.
+        'circle-stroke-color': ['match', ['get', 'editStatus'], 'new', ['coalesce', ['get', 'color'], '#cde67c'], '#071018'] as ExpressionSpecification,
+        'circle-stroke-width': ['match', ['get', 'editStatus'], 'new', 2.5, 1.5] as ExpressionSpecification,
       },
     })
   }

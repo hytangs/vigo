@@ -1,0 +1,198 @@
+/*
+ * Scenarios: what if the network changed?
+ *
+ * One scenario is open at a time, chosen from a dropdown. Below it, the
+ * timetables it combines and the changes it makes. Chrome stays neutral;
+ * the signal marks only the change being edited, on the panel and the map.
+ * The map is the drawing surface; a floating bar says what a click does.
+ */
+
+.scenario-workspace { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+.scenario-head { display: flex; align-items: center; gap: 8px; }
+.scenario-head > strong { color: var(--text-1); font: 600 var(--type-lg)/1.2 var(--font-ui); letter-spacing: -0.01em; }
+.scenario-save-state { margin-left: auto; color: var(--text-3); font-size: var(--type-xs); }
+.scenario-save-state[data-state="error"],
+.scenario-save-state[data-state="unavailable"] { color: var(--alert); }
+
+.scenario-body {
+  display: grid;
+  flex: 1 1 auto;
+  align-content: start;
+  min-height: 0;
+  padding: 12px var(--panel-pad) 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.scenario-detail { display: grid; gap: 18px; min-width: 0; }
+.scenario-section { display: grid; gap: 8px; min-width: 0; }
+.scenario-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.scenario-hint { margin: 0; color: var(--text-3); font-size: var(--type-xs); line-height: 1.5; }
+
+/* The open scenario: dropdown, name, summary. */
+.scenario-switcher { display: grid; }
+.scenario-switcher-row { display: flex; align-items: center; gap: 2px; padding: 6px 6px 6px 4px; }
+.sidebar-panel .scenario-switcher-row > select { flex: 1 1 auto; height: 32px; color: var(--text-1); background-color: transparent; font: 600 var(--type-lg)/1.2 var(--font-ui); letter-spacing: -0.01em; }
+.sidebar-panel .scenario-switcher-row > select:hover:not(:disabled) { background-color: var(--fill-2); }
+.scenario-name-row { display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: center; gap: 8px; min-height: 38px; padding: 0 6px 0 12px; }
+.scenario-name-row > span { color: var(--text-3); font-size: var(--type-sm); }
+.sidebar-panel .scenario-name-row > input { width: 100%; background: transparent; }
+.sidebar-panel .scenario-name-row > input:is(:hover, :focus) { background: var(--fill-2); }
+.scenario-switcher-summary { padding: 7px 12px 8px; color: var(--text-3); font-size: var(--type-xs); }
+
+/* Timetables: which of the City's feeds this scenario combines. */
+.scenario-network-settings { position: relative; display: grid; min-width: 0; margin: 0; padding: 0; overflow: hidden; border: 0; border-radius: var(--group-radius); background: var(--ink-3); box-shadow: inset 0 0 0 1px var(--line-1); }
+.scenario-network-settings legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.scenario-network-settings label { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 38px; padding: 0 10px 0 12px; color: var(--text-1); cursor: pointer; }
+.scenario-network-settings label > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scenario-network-settings label + label { border-top: 1px solid var(--line-1); }
+.scenario-network-settings label:hover { background: var(--fill-1); }
+/* The one remaining timetable stays on; it reads as on, not as unavailable. */
+.app-shell .scenario-network-settings input[role="switch"]:disabled:checked { opacity: 0.6; }
+.scenario-network-settings p { margin: 0; padding: 8px 12px; color: var(--text-3); font-size: var(--type-xs); line-height: 1.45; }
+
+/* Adding a change: one button and the kit's menu. */
+.scenario-add-trigger { height: 26px; padding: 0 10px 0 8px; font-size: var(--type-sm); }
+.scenario-add-menu { min-width: 236px; }
+.scenario-add-menu > button > strong { display: inline-flex; align-items: center; gap: 7px; }
+.scenario-add-menu > button > small { padding-left: 21px; }
+
+/* Changes */
+.scenario-changes { display: grid; overflow: hidden; border-radius: var(--group-radius); background: var(--ink-3); box-shadow: inset 0 0 0 1px var(--line-1); }
+.scenario-change { min-width: 0; }
+.scenario-change + .scenario-change { border-top: 1px solid var(--line-1); }
+.scenario-change.is-active { background: var(--fill-1); box-shadow: inset 2px 0 0 var(--signal); }
+.scenario-change-row { display: flex; align-items: center; gap: 2px; padding-right: 6px; }
+
+.scenario-change-head {
+  display: grid;
+  flex: 1;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 0 9px;
+  min-width: 0;
+  min-height: 46px;
+  padding: 6px 4px 6px 10px;
+  border: 0;
+  color: var(--text-1);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.scenario-change-head:focus-visible { outline: 2px solid var(--signal-text); outline-offset: -2px; }
+.scenario-change-icon { grid-row: span 2; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; color: var(--text-2); background: var(--fill-2); }
+.scenario-change.is-active .scenario-change-icon { color: var(--signal-text); background: var(--signal-soft); }
+.scenario-change-head > strong { overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.scenario-change-head > small { overflow: hidden; color: var(--text-3); font-size: var(--type-xs); text-overflow: ellipsis; white-space: nowrap; }
+.scenario-change-remove { color: var(--text-3); opacity: 0; transition: opacity var(--duration-base) var(--ease-standard); }
+.scenario-change:is(:hover, :focus-within, .is-active) .scenario-change-remove { opacity: 1; }
+.scenario-change-remove:hover:not(:disabled) { color: var(--alert); }
+.scenario-empty { margin: 0; padding: 16px 14px; border-radius: var(--group-radius); color: var(--text-3); background: var(--fill-1); font-size: var(--type-sm); line-height: 1.5; text-align: center; }
+
+.scenario-change-editor { display: grid; gap: 12px; min-width: 0; padding: 2px 12px 14px 45px; }
+
+.sidebar-panel .scenario-change-name {
+  width: calc(100% + 8px);
+  margin-left: -8px;
+  background: transparent;
+  font-weight: 500;
+}
+
+.sidebar-panel .scenario-change-name:is(:hover, :focus) { background: var(--fill-2); }
+
+/* Alignment: the kit's segmented control with a small path glyph. */
+.scenario-alignment > button { gap: 6px; }
+.scenario-alignment > button > svg { width: 22px; height: 11px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+.scenario-path-trace { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px; }
+.scenario-path-status { display: inline-flex; align-items: center; gap: 6px; margin: 0; color: var(--text-3); font-size: var(--type-xs); line-height: 1.45; }
+.scenario-path-status.is-ready { color: var(--text-2); }
+.scenario-path-status.is-error { color: var(--alert); }
+
+/* Stops and zone corners */
+.scenario-stops { display: grid; gap: 8px; min-width: 0; }
+.scenario-stops-head { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.scenario-stops-head > span { display: inline-flex; flex: 1; align-items: center; gap: 6px; min-width: 0; color: var(--text-2); font-size: var(--type-sm); }
+.scenario-stops-head > span > svg { color: var(--text-3); }
+.scenario-stops-head strong { font-weight: 500; }
+.scenario-draw-button { height: 26px; padding: 0 10px; font-size: var(--type-sm); }
+.scenario-placing { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; border-radius: 8px; color: var(--text-2); background: var(--fill-1); font-size: var(--type-xs); }
+.scenario-placing > svg { color: var(--signal-text); }
+.scenario-insert { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+
+.scenario-stop-list { display: grid; max-height: 248px; margin: 0; padding: 0; overflow: auto; border-radius: 8px; background: var(--fill-1); list-style: none; scrollbar-width: thin; }
+.scenario-stop-list > li { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto auto; align-items: center; gap: 4px; min-height: 36px; padding: 3px 4px 3px 8px; }
+.scenario-stop-list > li + li { border-top: 1px solid var(--line-1); }
+.scenario-stop-list > li.is-placing { background: var(--signal-soft); }
+.scenario-stop-list > li.is-edited .scenario-stop-index { color: var(--signal-text); font-weight: 600; }
+.scenario-stop-list .kit-icon-button { width: 24px; height: 24px; }
+.scenario-stop-index { color: var(--text-3); font-size: var(--type-xs); font-variant-numeric: tabular-nums; }
+.scenario-stop-name { display: grid; min-width: 0; }
+.scenario-stop-name > strong { overflow: hidden; color: var(--text-1); font-size: var(--type-sm); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.scenario-stop-name > small { color: var(--text-3); font-size: var(--type-2xs); }
+
+.scenario-service,
+.scenario-route-picker { display: grid; gap: 8px; min-width: 0; }
+.scenario-route-picker > :is(input, select) { width: 100%; }
+.scenario-route-picker > small { display: inline-flex; align-items: center; gap: 5px; color: var(--text-3); font-size: var(--type-xs); line-height: 1.45; }
+.scenario-route-picker > small.is-error { color: var(--alert); }
+
+/* Hand the scenario to Route or Reach. */
+.scenario-foot { display: grid; grid-template-columns: 1fr 1.4fr; gap: 8px; padding: 10px var(--panel-pad) 12px; background: var(--ink-2); box-shadow: 0 -1px 0 var(--line-1); }
+.scenario-foot > .kit-button { height: 34px; }
+
+/* Route and Reach: which network a run uses. */
+.scenario-picker { display: grid; gap: 2px; min-width: 0; padding: 6px 10px 7px; border-radius: var(--group-radius); background: var(--ink-3); box-shadow: inset 0 0 0 1px var(--line-1); }
+.scenario-picker-row { display: grid; grid-template-columns: 14px auto minmax(0, 1fr); align-items: center; gap: 7px; min-width: 0; color: var(--text-3); font-size: var(--type-sm); }
+.sidebar-panel .scenario-picker-row > select { width: 100%; padding-left: 4px; color: var(--text-1); background-color: transparent; font-weight: 500; }
+.sidebar-panel .scenario-picker-row > select:hover:not(:disabled) { background-color: var(--fill-2); }
+.scenario-picker-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-left: 21px; }
+.scenario-picker-meta > small { min-width: 0; color: var(--text-3); font-size: var(--type-xs); }
+.scenario-picker-meta > .kit-text-button { display: inline-flex; flex: none; align-items: center; gap: 4px; }
+.routing-setup > div > .scenario-picker { margin: 0 8px 8px; }
+.routing-setup-note.is-error { margin: 0 10px 8px; color: var(--alert); }
+
+/* Map overlays: the drawing bar and a clicked line. Small glass, like the service clock. */
+:is(.scenario-drawing-bar, .scenario-line-card) {
+  position: absolute;
+  z-index: 9;
+  top: var(--stage-gutter);
+  left: 50%;
+  color: var(--text-1);
+  background: var(--material-strong);
+  box-shadow: var(--elev-2);
+  backdrop-filter: var(--material-blur);
+  transform: translateX(-50%);
+  animation: scenario-overlay-in var(--duration-base) var(--ease-standard);
+}
+
+.scenario-drawing-bar { display: flex; align-items: center; gap: 10px; max-width: min(520px, calc(100% - 32px)); padding: 6px 6px 6px 14px; border-radius: 999px; }
+.scenario-drawing-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--signal); box-shadow: 0 0 0 3px var(--signal-soft); }
+.scenario-drawing-text { display: grid; min-width: 0; line-height: 1.25; }
+.scenario-drawing-text > strong { overflow: hidden; font-size: var(--type-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.scenario-drawing-text > small { overflow: hidden; color: var(--text-2); font-size: var(--type-xs); text-overflow: ellipsis; white-space: nowrap; }
+.scenario-drawing-bar > .kit-button { flex: none; border-radius: 999px; }
+
+.scenario-line-card { display: grid; gap: 10px; width: min(340px, calc(100% - 32px)); padding: 10px; border-radius: var(--panel-radius); }
+.scenario-line-card > header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.scenario-line-badge { display: grid; place-items: center; min-width: 30px; height: 22px; padding: 0 6px; border-radius: 6px; font: 700 var(--type-xs)/1 var(--font-ui); }
+.scenario-line-name { display: grid; min-width: 0; }
+.scenario-line-name > strong { overflow: hidden; font-size: var(--type-md); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.scenario-line-name > small { color: var(--text-3); font-size: var(--type-xs); }
+.scenario-line-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.scenario-line-actions > .kit-button { padding: 0 6px; font-size: var(--type-sm); }
+
+@keyframes scenario-overlay-in { from { opacity: 0; transform: translate(-50%, -4px); } }
+
+@media (min-width: 900px) {
+  /* Center overlays over the visible map, clear of the floating panel. */
+  .app-shell.has-stage :is(.scenario-drawing-bar, .scenario-line-card) { left: calc(50% + (var(--panel-width) + var(--rail-width)) / 2); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scenario-change-remove { transition: none; }
+  :is(.scenario-drawing-bar, .scenario-line-card) { animation: none; }
+}

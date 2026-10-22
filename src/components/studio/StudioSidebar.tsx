@@ -9,6 +9,7 @@ import {
   openDataView,
   openNetworkView,
   openPathfinderView,
+  openScenariosView,
   openSettingsView,
 } from '../../state/navigation'
 import {
@@ -40,6 +41,7 @@ import { shell } from '../../state/shell'
 import { AnalyzePanel } from '../AnalyzePanel'
 import { SidebarPathfinderBox } from '../PathfinderPanel'
 import { PrimaryNav } from '../PrimaryNav'
+import { ScenarioPanel } from '../scenarios/ScenarioPanel'
 
 /** The workspace rail; `hasActiveData` enables Network, Route and Analyze. */
 export const StudioRail = memo(function StudioRail({ hasActiveData }: { hasActiveData: boolean }) {
@@ -53,6 +55,7 @@ export const StudioRail = memo(function StudioRail({ hasActiveData }: { hasActiv
       onOpenNetwork={openNetworkView}
       onOpenRouting={openPathfinderView}
       onOpenAnalyze={openAnalyzeView}
+      onOpenScenarios={openScenariosView}
       onOpenSettings={openSettingsView}
     />
   )
@@ -72,7 +75,7 @@ export const VigoSidebar = memo(function VigoSidebar({ hasCityData }: { hasCityD
             <strong>No routes indexed</strong>
             <span>Load a GTFS ZIP to create route patterns, stops, schedules, and the network map.</span>
           </div>
-        ) : activeRouteTool === 'analyze' ? <AnalyzePanel /> : <SidebarRouteBox />}
+        ) : activeRouteTool === 'analyze' ? <AnalyzePanel /> : activeRouteTool === 'scenarios' ? <ScenarioPanel /> : <SidebarRouteBox />}
       </section>}
     </aside>
   )

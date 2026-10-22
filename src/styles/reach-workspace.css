@@ -2,8 +2,9 @@
  * Reach: where can I get to?
  *
  * The query mirrors Route: an origin, a time, a travel mode, then the budget.
- * Scenarios and limits open in place. The run action stays pinned while the
- * query scrolls; results follow with the legend that matches the map.
+ * Limits open in place. The scenario to compare is chosen here and edited in
+ * Scenarios. The run action stays pinned while the query scrolls; results
+ * follow with the legend that matches the map.
  */
 
 .reach-surface { display: flex; flex-direction: column; }
@@ -49,39 +50,7 @@
 .reach-walking-settings { display: grid; gap: 10px; padding: 2px 2px 10px 20px; }
 .reach-setting-method > select { width: 100%; }
 
-/* Scenario */
-.reach-scenario-content { display: grid; gap: 10px; padding: 0 0 10px; }
-.scenario-library { display: grid; gap: 6px; min-width: 0; }
-.scenario-library-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.scenario-library-head > strong { color: var(--text-2); font-size: var(--type-sm); font-weight: 600; }
-.scenario-save-state { margin-left: auto; color: var(--text-3); font-size: var(--type-xs); }
-.scenario-save-state[data-state="error"] { color: var(--alert); }
-.scenario-library-list { display: grid; overflow: hidden; border-radius: var(--group-radius); background: var(--ink-3); box-shadow: inset 0 0 0 1px var(--line-1); }
-
-.scenario-library-row {
-  display: grid;
-  gap: 1px;
-  min-height: 40px;
-  padding: 6px 10px;
-  border: 0;
-  color: var(--text-1);
-  background: transparent;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.scenario-library-row + .scenario-library-row { border-top: 1px solid var(--line-1); }
-.scenario-library-row:hover { background: var(--fill-1); }
-.scenario-library-row.is-active { box-shadow: inset 3px 0 0 var(--signal); background: var(--signal-soft); }
-.scenario-library-name { overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.scenario-library-row > small { color: var(--text-3); font-size: var(--type-xs); }
-.scenario-active { display: grid; gap: 8px; min-width: 0; }
-.scenario-active-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
-.city-case-group-link { padding: 0; border: 0; color: var(--signal-text); background: transparent; font: 500 var(--type-sm)/1.4 var(--font-ui); cursor: pointer; }
-.city-case-group-link:hover { text-decoration: underline; text-underline-offset: 2px; }
-
-:is(.reach-icon-action, .reach-mini-action, .reach-danger-action, .reach-intervention-add > button, .reach-insert-stop > button, .reach-stop-change, .reach-placement-status > button) {
+.reach-mini-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -96,88 +65,15 @@
   cursor: pointer;
 }
 
-:is(.reach-icon-action, .reach-mini-action, .reach-danger-action, .reach-intervention-add > button, .reach-insert-stop > button, .reach-stop-change, .reach-placement-status > button):hover:not(:disabled) { background: var(--fill-3); }
-:is(.reach-icon-action, .reach-mini-action, .reach-danger-action, .reach-intervention-add > button, .reach-insert-stop > button, .reach-stop-change, .reach-placement-status > button):disabled { opacity: 0.4; cursor: default; }
-.reach-icon-action { width: 26px; padding: 0; }
-.reach-danger-action { color: var(--alert); }
-.reach-insert-stop > button[aria-pressed="true"] { color: var(--signal-ink); background: var(--signal); }
+.reach-mini-action:hover:not(:disabled) { background: var(--fill-3); }
+.reach-mini-action:disabled { opacity: 0.4; cursor: default; }
 
-.reach-intervention-add { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; }
-.reach-intervention-add > button { height: var(--control-h); }
-.reach-intervention-list { display: grid; gap: 6px; min-width: 0; }
-.reach-intervention { min-width: 0; overflow: hidden; border-radius: var(--group-radius); background: var(--ink-3); box-shadow: inset 0 0 0 1px var(--line-1); }
-.reach-intervention.is-active { box-shadow: inset 0 0 0 1px var(--signal-line); }
-.reach-intervention-row { display: flex; align-items: center; gap: 4px; padding-right: 6px; }
-
-.reach-intervention-head {
-  display: grid;
-  flex: 1;
-  grid-template-columns: 22px minmax(0, 1fr);
-  align-items: center;
-  gap: 1px 8px;
-  min-width: 0;
-  min-height: 42px;
-  padding: 6px 4px 6px 10px;
-  border: 0;
-  color: var(--text-1);
-  background: transparent;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.reach-intervention-head > span { grid-row: span 2; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; color: var(--text-2); background: var(--fill-2); font-size: var(--type-xs); font-weight: 600; }
-.reach-intervention.is-active .reach-intervention-head > span { color: var(--signal-ink); background: var(--signal); }
-.reach-intervention-head > strong { font-weight: 500; }
-.reach-intervention-head > small { overflow: hidden; color: var(--text-3); font-size: var(--type-xs); text-overflow: ellipsis; white-space: nowrap; }
-.reach-intervention-remove { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 7px; color: var(--text-3); background: transparent; cursor: pointer; }
-.reach-intervention-remove:hover { color: var(--alert); background: var(--fill-2); }
-.reach-intervention-body { display: grid; gap: 10px; min-width: 0; padding: 10px; border-top: 1px solid var(--line-1); }
-.reach-route-picker,
-.reach-road-inference,
-.reach-service-settings { display: grid; gap: 8px; min-width: 0; }
-:is(.reach-route-picker, .reach-intervention-body) > small,
-.reach-scope-note { color: var(--text-3); font-size: var(--type-xs); line-height: 1.45; }
-.reach-road-inference > div { display: grid; gap: 2px; }
-.reach-road-inference > div > strong { color: var(--text-1); font-size: var(--type-sm); font-weight: 500; }
-.reach-road-inference > div > small { color: var(--text-3); font-size: var(--type-xs); line-height: 1.45; }
-.reach-road-inference > .reach-mini-action { justify-self: start; }
-.reach-road-status { font-size: var(--type-xs); line-height: 1.45; }
-.reach-road-status.is-ready { color: var(--good); }
-.reach-road-status.is-error { color: var(--alert); }
+/* Switches and checks shared with Scenarios. */
 .reach-check { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
 .reach-check > input { margin: 2px 0 0; accent-color: var(--signal); }
 .reach-check > span { display: grid; gap: 1px; }
 .reach-check strong { color: var(--text-1); font-weight: 500; }
 .reach-check small { color: var(--text-3); font-size: var(--type-xs); }
-.reach-empty-case { margin: 0; color: var(--text-3); font-size: var(--type-sm); }
-
-.reach-stop-editor { display: grid; gap: 8px; min-width: 0; }
-.reach-sketch-state { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.reach-sketch-state > span { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 1px 6px; min-width: 0; }
-.reach-sketch-state > span > svg { grid-row: span 2; margin-top: 2px; color: var(--text-3); }
-.reach-sketch-state strong { color: var(--text-1); font-size: var(--type-sm); font-weight: 500; }
-.reach-sketch-state small { color: var(--text-3); font-size: var(--type-xs); }
-.reach-placement-status { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; color: var(--signal-text); background: var(--signal-soft); }
-.reach-placement-status > span { display: grid; gap: 1px; }
-.reach-placement-status strong { font-size: var(--type-sm); font-weight: 600; }
-.reach-placement-status small { color: var(--text-2); font-size: var(--type-xs); }
-.reach-placement-status > button { width: 24px; min-height: 24px; padding: 0; }
-.reach-insert-stop { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
-.reach-insert-stop > .reach-field { flex: 1 1 160px; }
-.reach-stop-sequence { display: grid; max-height: 260px; margin: 0; padding: 0; overflow: auto; border-radius: 8px; background: var(--fill-1); list-style: none; }
-.reach-stop-sequence > li { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto auto; align-items: center; gap: 6px; min-height: 36px; padding: 4px 6px 4px 8px; }
-.reach-stop-sequence > li + li { border-top: 1px solid var(--line-1); }
-.reach-stop-sequence > li.is-placing { background: var(--signal-soft); }
-.reach-stop-index { color: var(--text-3); font-size: var(--type-xs); font-variant-numeric: tabular-nums; }
-.reach-stop-name { display: grid; min-width: 0; }
-.reach-stop-name > strong { overflow: hidden; color: var(--text-1); font-size: var(--type-sm); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
-.reach-stop-name > small { color: var(--text-3); font-size: var(--type-xs); }
-.reach-stop-change { min-height: 22px; padding: 0 7px; font-size: var(--type-xs); }
-.reach-stop-remove { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px; color: var(--text-3); background: transparent; cursor: pointer; }
-.reach-stop-remove:hover:not(:disabled) { color: var(--alert); background: var(--fill-2); }
-.reach-stop-remove:disabled { opacity: 0.3; cursor: default; }
-.reach-stop-method-note { margin: 0; color: var(--text-3); font-size: var(--type-xs); line-height: 1.45; }
 
 /* Compare: one reference, then the scenarios and timetables measured against it. */
 

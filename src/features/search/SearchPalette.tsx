@@ -1,17 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  Command,
-  CornerDownLeft,
-  Database,
-  FolderOpen,
-  MapPin,
-  Navigation2,
-  Radar,
-  Route,
-  Search,
-  Settings2,
-  X,
-} from 'lucide-react'
+import { Command, CornerDownLeft, Database, FolderOpen, MapPin, Navigation2, PenTool, Radar, Route, Search, Settings2, X } from 'lucide-react'
 import { classNames } from '../../domain'
 import { searchGroupLabels, type SearchResult } from './searchModel'
 
@@ -26,6 +14,7 @@ function ResultIcon({ result }: { result: SearchResult }) {
   if (result.kind === 'city') return <FolderOpen size={16} />
   if (result.id === 'command:pathfinder') return <Navigation2 size={16} />
   if (result.id === 'command:analyze') return <Radar size={16} />
+  if (result.id === 'command:scenarios') return <PenTool size={16} />
   if (result.id === 'command:data') return <Database size={16} />
   if (result.id === 'command:preferences') return <Settings2 size={16} />
   if (result.id === 'command:cities') return <FolderOpen size={16} />
