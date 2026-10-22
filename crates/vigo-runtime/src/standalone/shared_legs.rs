@@ -11,6 +11,21 @@ use serde_json::{Value, json};
 use std::collections::HashSet;
 use vigo_route::timetable::{SharedRideQuery, shared_departure_frequency};
 
+/// The physical trip and its own stop sequence for a call of a timetable
+/// trip. Linked trips ride only as parts of their through run.
+fn physical_call(links: &super::linked_trips::Links, trip: u32, sequence: f64) -> (u32, f64) {
+    links
+        .get(&trip)
+        .and_then(|parts| {
+            parts.iter().find_map(|part| {
+                let offset = sequence - f64::from(part.first);
+                (offset >= 0. && (offset as usize) < part.sequences.len())
+                    .then(|| (part.trip, f64::from(part.sequences[offset as usize])))
+            })
+        })
+        .unwrap_or((trip, sequence))
+}
+
 fn coordinates(leg: &Value) -> Vec<f64> {
     leg["coordinates"]
         .as_array()
@@ -44,12 +59,20 @@ impl City {
                 continue;
             }
             let timetable = self.timetable.as_ref().ok_or("Timetable not active")?;
-            let trip_id = &timetable.trip_ids[trip as usize];
+            let board = leg.board_sequence.ok_or("Missing board sequence")?;
+            let alight = leg.alight_sequence.ok_or("Missing alight sequence")?;
+            let (vehicle, vehicle_board) = physical_call(&timetable.links, trip, board);
+            let (alight_vehicle, vehicle_alight) = physical_call(&timetable.links, trip, alight);
+            // Staying aboard across linked trips has no single shared segment.
+            if vehicle != alight_vehicle {
+                continue;
+            }
+            let trip_id = &timetable.trip_ids[vehicle as usize];
             let Some(leg_index) = primary["legs"].as_array().and_then(|legs| {
                 legs.iter().position(|l| {
                     l["tripId"] == *trip_id
-                        && l["boardSequence"].as_f64() == leg.board_sequence
-                        && l["alightSequence"].as_f64() == leg.alight_sequence
+                        && l["boardSequence"].as_f64() == Some(vehicle_board)
+                        && l["alightSequence"].as_f64() == Some(vehicle_alight)
                 })
             }) else {
                 continue;
@@ -66,8 +89,8 @@ impl City {
             let window_end = (leg.departure + 1800.).min(opt.end);
             let result = timetable.kernel.shared_ride_options(SharedRideQuery {
                 trip,
-                board_sequence: leg.board_sequence.ok_or("Missing board sequence")?,
-                alight_sequence: leg.alight_sequence.ok_or("Missing alight sequence")?,
+                board_sequence: board,
+                alight_sequence: alight,
                 earliest_departure: leg.departure,
                 latest_departure: window_end,
                 latest_arrival: (if next_index.is_none() {
@@ -81,32 +104,33 @@ impl City {
                 onward_walk_seconds: if next_index.is_some() { walk } else { 0. },
             })?;
             truncated |= result.truncated;
-            let mut routes = HashSet::from([timetable.route_ids[trip as usize].clone()]);
-            let key =
-                |c: &vigo_route::timetable::SharedRideOption| (c.trip, c.board_sequence.to_bits());
+            let mut routes = HashSet::from([timetable.route_ids[vehicle as usize].clone()]);
+            // Count each vehicle departure once, however many through runs
+            // (for example both branches of a split) carry it.
+            let key = |c: &vigo_route::timetable::SharedRideOption| {
+                let (vehicle, sequence) = physical_call(&timetable.links, c.trip, c.board_sequence);
+                (vehicle, sequence.to_bits())
+            };
             let feasible: HashSet<_> = result.options.iter().map(key).collect();
+            let candidates: Vec<_> = result
+                .options
+                .into_iter()
+                .chain(result.departures)
+                .map(|c| (key(&c), c))
+                .collect();
+            let own = (vehicle, vehicle_board.to_bits());
             let mut seen = HashSet::new();
             let mut departures = vec![];
-            for candidate in result.options.into_iter().chain(result.departures) {
-                // Through runs reuse existing vehicle departures; counting
-                // them again would inflate single-leg service frequency.
-                if self
-                    .timetable
-                    .as_ref()
-                    .is_some_and(|t| t.links.contains_key(&candidate.trip))
-                {
+            for (candidate_key, candidate) in candidates {
+                if !seen.insert(candidate_key) {
                     continue;
                 }
-                if !seen.insert(key(&candidate)) {
-                    continue;
-                }
-                if candidate.trip == trip && candidate.board_sequence == leg.board_sequence.unwrap()
-                {
+                if candidate_key == own {
                     departures.push(candidate.departure);
                     continue;
                 }
                 let route =
-                    self.timetable.as_ref().unwrap().route_ids[candidate.trip as usize].clone();
+                    self.timetable.as_ref().unwrap().route_ids[candidate_key.0 as usize].clone();
                 let mut replacement = journey.clone();
                 let ride = &mut replacement.legs[index];
                 ride.trip = Some(candidate.trip);
@@ -133,7 +157,7 @@ impl City {
                     continue;
                 }
                 departures.push(candidate.departure);
-                if !feasible.contains(&key(&candidate)) || !routes.insert(route) {
+                if !feasible.contains(&candidate_key) || !routes.insert(route) {
                     continue;
                 }
                 if options.len() == 32 {
