@@ -183,6 +183,7 @@ impl City {
             })
             .sum::<usize>();
         let cache = inactive_timetables
+            + self.timetable_cache.source_heap_bytes()
             + self
                 .linked_candidates
                 .as_ref()

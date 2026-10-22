@@ -964,17 +964,27 @@ impl City {
         }
     }
     fn read_schedule(
-        &self,
+        &mut self,
         services: BTreeSet<String>,
         instances: Option<Vec<ServiceInstance>>,
         coverage_end: Option<u32>,
     ) -> Result<ServiceTimetableResult> {
+        // City identity is owned by this cache. The key retains every service,
+        // date/offset and horizon selector; realtime is applied only afterwards.
+        let cache_key = (coverage_end.is_some() && self.timetable_cache.budget > 0)
+            .then(|| serde_json::to_string(&(&services, &instances, coverage_end)))
+            .transpose()?;
+        if let Some(key) = &cache_key
+            && let Some(source) = self.timetable_cache.compact_source(key)?
+        {
+            return Ok(source);
+        }
         let has_permissions: bool = self.db.query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='connection_permissions')",
             [],
             |r| r.get(0),
         )?;
-        Ok(read_service_timetable(ServiceTimetableInput {
+        let mut source = read_service_timetable(ServiceTimetableInput {
             store_path: str_path(&self.routing_db)?,
             stop_ids: self.stops.iter().map(|s| s.id.clone()).collect(),
             service_ids: services.into_iter().collect(),
@@ -982,7 +992,11 @@ impl City {
             segment_count: None,
             service_instances: instances,
             maximum_departure_seconds: coverage_end,
-        })?)
+        })?;
+        if let Some(key) = cache_key {
+            self.timetable_cache.insert_compact_source(key, &mut source);
+        }
+        Ok(source)
     }
     /// The transfer buffer is a search parameter, not part of the timetable:
     /// every buffer reuses the same resident, cached or scenario timetable.
