@@ -161,17 +161,18 @@ impl City {
     pub(crate) fn memory_ledger(&self) -> Value {
         let tt = self.timetable.as_ref();
         let street = self.street.memory_ledger();
-        let dictionary = self.stops.heap_bytes()
-            + self.stop_index.heap_bytes()
-            + self.members.heap_bytes()
-            + self.access.heap_bytes()
-            + self.transfer_rows.heap_bytes()
-            + self.transfer_shortcut_rows.heap_bytes()
-            + self.manifest.heap_bytes()
-            + self.metadata.heap_bytes()
-            + self.street_bounds.heap_bytes()
-            + self.context.header.heap_bytes()
-            + tt.map_or(0, Heap::heap_bytes)
+        let dictionary = *self.static_heap_bytes.get_or_init(|| {
+            self.stops.heap_bytes()
+                + self.stop_index.heap_bytes()
+                + self.members.heap_bytes()
+                + self.access.heap_bytes()
+                + self.transfer_rows.heap_bytes()
+                + self.transfer_shortcut_rows.heap_bytes()
+                + self.manifest.heap_bytes()
+                + self.metadata.heap_bytes()
+                + self.street_bounds.heap_bytes()
+                + self.context.header.heap_bytes()
+        }) + tt.map_or(0, Heap::heap_bytes)
             + self.calendar.get().map_or(0, |c| c.heap_bytes())
             + self
                 .flex_catalog
@@ -190,8 +191,9 @@ impl City {
             + self.timetable_cache.source_heap_bytes()
             + self
                 .linked_candidates
-                .as_ref()
-                .map_or(0, super::linked_trips::Candidates::estimated_bytes)
+                .iter()
+                .map(super::linked_trips::Candidates::estimated_bytes)
+                .sum::<usize>()
             + self.shape_cache.retained_bytes()
             + self.route_metadata.heap_bytes()
             + self.trip_shape_ids.heap_bytes()

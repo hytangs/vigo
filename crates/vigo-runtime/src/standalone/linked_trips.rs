@@ -142,6 +142,9 @@ struct Candidate {
 // links are static; compile still checks the active trip instances on each date.
 pub(super) struct Candidates(Vec<Candidate>, Option<Vec<String>>);
 
+/// Calendar sets whose candidates stay ready for date switches.
+pub(super) const RETAINED_CALENDAR_SETS: usize = 4;
+
 impl Candidates {
     pub(super) fn matches_services(&self, services: &[String]) -> bool {
         self.1.as_ref().is_none_or(|saved| saved == services)

@@ -314,13 +314,18 @@ pub struct City {
     pub(crate) scenario_views: HashMap<String, Arc<super::scenario_route::ScenarioPresentation>>,
     /// A scenario Route keeps its view for the whole request.
     pub(crate) pinned_timetable: bool,
-    pub(super) linked_candidates: Option<super::linked_trips::Candidates>,
+    /// Linked-trip candidates for the most recently used calendar sets, newest
+    /// first. Date switches alternate between a few weekday/weekend calendars.
+    pub(super) linked_candidates: Vec<super::linked_trips::Candidates>,
     pub(crate) timetable_cache: super::timetable_cache::TimetableCache,
     pub(crate) query_workspace: Option<crate::timetable::TimetableQueryWorkspace>,
     pub(crate) timetable_preparations: u64,
     pub(crate) timetable_activation_ms: f64,
     pub(crate) timetable_preparation_profile: Value,
     pub(crate) flex_catalog: OnceLock<Arc<Value>>,
+    /// Heap of the stop dictionary, access and manifest data, which never
+    /// change after opening; measured once for the memory ledger.
+    pub(crate) static_heap_bytes: OnceLock<usize>,
     pub(crate) calendar: std::sync::OnceLock<super::calendar::CalendarIndex>,
     pub(crate) transfer_inputs: OnceLock<Arc<TransferInputs>>,
     pub(crate) route_types: OnceLock<Arc<HashMap<String, i64>>>,
@@ -701,7 +706,8 @@ impl City {
             scenario_view: None,
             scenario_views: HashMap::new(),
             pinned_timetable: false,
-            linked_candidates: None,
+            linked_candidates: Vec::new(),
+            static_heap_bytes: OnceLock::new(),
             timetable_cache: super::timetable_cache::TimetableCache::from_env()?,
             query_workspace: None,
             timetable_preparations: 0,
@@ -1318,24 +1324,21 @@ impl City {
             (arrays, names, Value::Null)
         };
         let linked_started = std::time::Instant::now();
-        let linked_candidates_reused = self
+        let reused = self
             .linked_candidates
-            .as_ref()
-            .is_some_and(|c| c.matches_services(&linked_services));
-        if !linked_candidates_reused {
-            self.linked_candidates = Some(super::linked_trips::load_candidates(
-                &self.db,
-                &linked_services,
-            )?);
-        }
+            .iter()
+            .position(|c| c.matches_services(&linked_services));
+        let linked_candidates_reused = reused.is_some();
+        let candidates = match reused {
+            Some(index) => self.linked_candidates.remove(index),
+            None => super::linked_trips::load_candidates(&self.db, &linked_services)?,
+        };
+        self.linked_candidates.insert(0, candidates);
+        self.linked_candidates
+            .truncate(super::linked_trips::RETAINED_CALENDAR_SETS);
         let linked_candidates_ms = linked_started.elapsed().as_secs_f64() * 1000.;
-        let links = super::linked_trips::compile(
-            self.linked_candidates
-                .as_ref()
-                .expect("initialized candidates"),
-            &mut source,
-            &mut names,
-        )?;
+        let links =
+            super::linked_trips::compile(&self.linked_candidates[0], &mut source, &mut names)?;
         let linked_ms = linked_started.elapsed().as_secs_f64() * 1000.;
         let source_ms = source_started.elapsed().as_secs_f64() * 1000.;
         let index_started = std::time::Instant::now();
