@@ -84,7 +84,7 @@ export function prepareStationAccessPaths(store, stops, walkingSpeedKph = 4.8) {
   const indices = new Map(stops.map((stop, index) => [stop.stop_id, index]))
   const sources = ['parent_station_fallback'], sourceIndices = new Map([[sources[0], 0]])
   const edges = [], groups = [], forbiddenFrom = [], forbiddenTo = []
-  const { links, terminals } = boardingAreaLinks(store.stopRecords)
+  const { links, terminals } = boardingAreaLinks(store.stopRecords ?? new Map(stops.map(stop => [stop.stop_id, stop])))
   const graph = new Map([...store.transfers].map(([id, rows]) => [id, [...rows]]))
   for (const link of links) graph.set(link.from_stop_id, [...(graph.get(link.from_stop_id) ?? []), link])
   for (const [id, transfers] of graph) {
