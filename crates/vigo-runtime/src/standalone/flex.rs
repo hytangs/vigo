@@ -311,6 +311,23 @@ impl City {
     }
     fn flex_walk(&mut self, q: &Value, a: &Point, b: &Point, opt: &Options) -> Result<Value> {
         if a.coordinate == b.coordinate {
+            // A free roadside pickup is not evidence of wheelchair access.
+            // Even a zero-length access leg must touch the strict street graph.
+            if self.metadata["accessibility"]["profile"] == "wheelchair-strict-v1"
+                && (a.stop.is_none() || b.stop.is_none())
+            {
+                let proof = self.street.route_path(crate::StreetPathInput {
+                    origin_lon: a.coordinate[0],
+                    origin_lat: a.coordinate[1],
+                    destination_lon: b.coordinate[0],
+                    destination_lat: b.coordinate[1],
+                    maximum_distance_m: 1e-4,
+                    maximum_points: 2,
+                })?;
+                if !proof.found {
+                    return Ok(json!({"status":"blocked"}));
+                }
+            }
             return Ok(json!({"status":"ready","durationMinutes":0,"legs":[]}));
         }
         if opt.walk_m == 0. {

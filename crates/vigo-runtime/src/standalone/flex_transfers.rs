@@ -237,10 +237,11 @@ impl City {
                                 if !retry["excludedTripIds"].is_array() {
                                     retry["excludedTripIds"] = json!([]);
                                 }
-                                retry["excludedTripIds"]
-                                    .as_array_mut()
-                                    .unwrap()
-                                    .push(trip.clone());
+                                let excluded = retry["excludedTripIds"].as_array_mut().unwrap();
+                                if excluded.contains(trip) {
+                                    continue;
+                                }
+                                excluded.push(trip.clone());
                             }
                             let key = serde_json::to_string(&retry)?;
                             if retried.insert(key) {
@@ -273,8 +274,15 @@ impl City {
                         {
                             continue;
                         }
-                        let boardings = al.iter().chain(bl).filter(|l| l["kind"] == "ride").count();
-                        if opt.max_boardings.is_some_and(|n| boardings > n as usize) {
+                        // A through-service continuation can contain several
+                        // physical ride legs while remaining one boarding.
+                        let count = |j: &Value| {
+                            j["boardings"]
+                                .as_u64()
+                                .unwrap_or_else(|| j["transfers"].as_u64().unwrap_or(0) + 1)
+                        };
+                        let boardings = count(a) + count(b);
+                        if opt.max_boardings.is_some_and(|n| boardings > u64::from(n)) {
                             continue;
                         }
                         let departure = a["departureMinutes"].as_f64().unwrap();
@@ -283,6 +291,21 @@ impl City {
                             continue;
                         }
                         results.push(json!({"status":"ready","mode":"transit","clockDate":q["serviceDate"],"departureMinutes":departure,"arrivalMinutes":arrival,"durationMinutes":arrival-departure,"transfers":boardings-1,"legs":al.iter().chain(bl).collect::<Vec<_>>(),"warnings":[{"code":"flex_estimate","detail":"Conditional service: booking and vehicle availability are not confirmed."}]}));
+                        results.sort_by(|a, b| {
+                            if opt.arrive {
+                                b["departureMinutes"]
+                                    .as_f64()
+                                    .unwrap()
+                                    .total_cmp(&a["departureMinutes"].as_f64().unwrap())
+                            } else {
+                                a["arrivalMinutes"]
+                                    .as_f64()
+                                    .unwrap()
+                                    .total_cmp(&b["arrivalMinutes"].as_f64().unwrap())
+                            }
+                        });
+                        results.dedup_by(|a, b| a["legs"] == b["legs"]);
+                        results.truncate(9);
                     }
                 }
             }
