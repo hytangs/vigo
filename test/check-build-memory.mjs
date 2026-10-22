@@ -15,10 +15,12 @@ test('container limit wins over host RAM and user parallelism', () => {
   assert.equal(env.KEEP, 'yes')
   assert.match(messages[0], /2\.00 GiB/)
 })
-test('small machines and memory pressure select low mode', () => {
-  for (const limits of [{ ...large, total: 4 * GiB }, { ...large, available: GiB }]) {
-    assert.equal(buildMemoryEnvironment({}, limits, silent).CARGO_BUILD_JOBS, '1')
-  }
+test('small machines select low mode', () => {
+  assert.equal(buildMemoryEnvironment({}, { ...large, total: 4 * GiB }, silent).CARGO_PROFILE_RELEASE_LTO, 'false')
+})
+test('temporary pressure limits jobs without changing release optimizations', () => {
+  const env = { CARGO_BUILD_JOBS: '8', CARGO_PROFILE_RELEASE_LTO: 'fat', CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '1' }
+  assert.deepEqual(buildMemoryEnvironment(env, { ...large, available: GiB }, silent), { ...env, CARGO_BUILD_JOBS: '1' })
 })
 test('large hosts retain release settings; unknown limits are ignored', () => {
   const env = { CARGO_BUILD_JOBS: '4', CARGO_PROFILE_RELEASE_LTO: 'fat' }

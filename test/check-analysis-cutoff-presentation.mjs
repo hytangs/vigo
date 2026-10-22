@@ -60,21 +60,16 @@ try {
   assert.doesNotMatch(notice(preliminary), /0 transit stops/)
   const change = { id: 'edit', name: 'Add a stop', kind: 'change-line', stops: [],
     headwayMinutes: 10, startMinutes: 300, endMinutes: 1500, averageSpeedKph: 25, bidirectional: true }
-  const panel = (intervention) => renderToStaticMarkup(createElement(AnalyzePanelView, {
-    mode: 'single', origin: null, serviceDate: '2026-07-20', departMinutes: 480,
-    maxWalkKm: 1.2, walkSpeedKph: 4.8, cutoffMinutes: 45, renderMode: 'area',
-    cases: [{ id: 'case', name: 'Case', interventions: [intervention] }],
-    activeCaseId: 'case', activeInterventionId: 'edit', routes: [], stops: [], feeds: [],
-    comparisonFeedIds: [], preparationTasks: [], loading: false, routingStoreAvailable: true, streetGraphAvailable: true,
-  }))
+  const { ScenarioChangeEditor } = await server.ssrLoadModule('/src/components/scenarios/ScenarioChangeEditor.tsx')
+  const panel = (intervention) => renderToStaticMarkup(createElement(ScenarioChangeEditor, { change: { ...intervention, routeId: 'fixture-route' } }))
   const preservedPanel = panel(change)
   assert.match(preservedPanel, /value="preserve-trips" selected=""/)
   assert.match(preservedPanel, /Keep scheduled departures/)
-  assert.doesNotMatch(preservedPanel, /<span>Time between services<|<span>Service begins<|<span>Service ends<|<strong>Add reverse service</,
+  assert.doesNotMatch(preservedPanel, /<span>Every<|<span>From<|<span>Until<|<strong>Add reverse service</,
     'Existing and legacy line edits must hide frequency, span and reverse-service settings by default.')
   const frequencyPanel = panel({ ...change, scheduleMode: 'frequency' })
-  for (const text of ['Time between services', 'Service begins', 'Service ends', 'Add reverse service']) assert(frequencyPanel.includes(text))
-  assert.match(panel({ ...change, kind: 'add-line' }), /<span>Time between services</, 'New lines still expose their departure schedule.')
+  for (const text of ['Every', 'From', 'Until', 'Add reverse service']) assert(frequencyPanel.includes(text))
+  assert.match(panel({ ...change, kind: 'add-line' }), /<span>Every</, 'New lines still expose their departure schedule.')
   console.log('Scenario controls default to the original timetable, including saved drafts; explicit frequency mode exposes schedule settings.')
 
   // Arrive-by: values are minutes before the deadline a traveler must leave.

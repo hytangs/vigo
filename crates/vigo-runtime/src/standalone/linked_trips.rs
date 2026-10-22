@@ -143,22 +143,25 @@ pub(super) fn load_candidates(db: &Connection) -> Result<Candidates> {
                 explicit_pairs.entry(from).or_default().insert(to);
             }
         }
+        // Read adjacent departures from one ordered window. Joining the window
+        // to itself materialized and indexed the whole regional timetable again.
+        // Unique adjacent departure times are equivalent to both COUNT guards;
+        // previous_arrival prevents an earlier overlapping trip from being bridged.
         let mut statement = db.prepare("WITH bounds AS (
           SELECT t.trip_id,t.service_id,o.block_id,MIN(c.departure) AS departure,
             MAX(c.arrival) AS arrival,MAX(c.stop_sequence) AS terminal
           FROM trip_operations o JOIN trips t USING(trip_id) JOIN connections c USING(trip_id)
           WHERE o.block_id IS NOT NULL GROUP BY t.trip_id
         ), ordered AS (
-          SELECT *,LEAD(trip_id) OVER (PARTITION BY block_id,service_id ORDER BY departure,trip_id) AS next,
+          SELECT *,LEAD(trip_id) OVER w AS next,LEAD(departure) OVER w AS next_departure,
+            LEAD(departure,2) OVER w AS following_departure,LAG(departure) OVER w AS previous_departure,
             MAX(arrival) OVER (PARTITION BY block_id,service_id ORDER BY departure,trip_id
-              ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS previous_arrival,
-            COUNT(*) OVER (PARTITION BY block_id,service_id,departure) AS departure_count
-          FROM bounds
-        ) SELECT a.trip_id,b.trip_id,a.terminal FROM ordered a JOIN ordered b ON b.trip_id=a.next
-          WHERE a.arrival<=b.departure
-          AND a.departure_count=1 AND b.departure_count=1
-          AND (a.previous_arrival IS NULL OR a.previous_arrival<=a.departure)
-          AND b.previous_arrival<=b.departure")?;
+              ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS previous_arrival
+          FROM bounds WINDOW w AS (PARTITION BY block_id,service_id ORDER BY departure,trip_id)
+        ) SELECT trip_id,next,terminal FROM ordered WHERE arrival<=next_departure AND departure<next_departure
+          AND (previous_departure IS NULL OR previous_departure<departure)
+          AND (following_departure IS NULL OR next_departure<following_departure)
+          AND (previous_arrival IS NULL OR previous_arrival<=departure)")?;
         for row in statement.query_map([], |r| {
             Ok((
                 r.get::<_, String>(0)?,
@@ -554,6 +557,46 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn block_candidates_keep_duplicate_and_overlap_guards() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE trips(trip_id TEXT PRIMARY KEY,service_id TEXT);
+          CREATE TABLE trip_operations(trip_id TEXT PRIMARY KEY,block_id TEXT);
+          CREATE TABLE connections(trip_id TEXT,stop_sequence INTEGER,departure INTEGER,arrival INTEGER);").unwrap();
+        for (id, block, service, departure, arrival) in [
+            ("A", "valid", "S", 100, 200),
+            ("B", "valid", "S", 200, 300),
+            ("C", "valid", "S", 400, 500),
+            ("D", "duplicate", "S", 100, 200),
+            ("E", "duplicate", "S", 100, 150),
+            ("F", "duplicate", "S", 250, 300),
+            ("G", "overlap", "S", 100, 500),
+            ("H", "overlap", "S", 200, 250),
+            ("I", "overlap", "S", 300, 350),
+            ("J", "overlap", "S", 550, 600),
+            ("K", "overlap", "S", 650, 700),
+            ("L", "valid", "other", 200, 300),
+        ] {
+            db.execute("INSERT INTO trips VALUES(?,?)", (id, service))
+                .unwrap();
+            db.execute("INSERT INTO trip_operations VALUES(?,?)", (id, block))
+                .unwrap();
+            db.execute(
+                "INSERT INTO connections VALUES(?,1,?,?)",
+                (id, departure, arrival),
+            )
+            .unwrap();
+        }
+        let candidates = load_candidates(&db).unwrap();
+        let mut pairs: Vec<_> = candidates
+            .0
+            .iter()
+            .map(|c| (c.from.as_str(), c.to.as_str()))
+            .collect();
+        pairs.sort_unstable();
+        assert_eq!(pairs, [("A", "B"), ("B", "C"), ("J", "K")]);
+    }
+
     #[test]
     fn rejects_a_zero_time_cycle() {
         let (db, mut a, mut names) = fixture(&[100, 100], &[100, 100], &["2026-07-15"; 2]);

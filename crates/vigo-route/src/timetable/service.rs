@@ -2,6 +2,7 @@
 //! Labels retain their last vehicle and alighting event. An earlier arrival
 //! from another vehicle cannot dominate a legal connection from a later one.
 use super::*;
+use std::cell::OnceCell;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BinaryHeap, HashSet};
 use std::sync::Arc;
@@ -203,6 +204,7 @@ type FrontierKey = (u32, Option<u32>, u32, bool, bool);
 struct Search {
     labels: Vec<Label>,
     frontiers: HashMap<FrontierKey, Vec<usize>>,
+    completion_labels: OnceCell<HashMap<u32, Vec<usize>>>,
     queue: BinaryHeap<Queue>,
     reverse: bool,
 }
@@ -429,6 +431,7 @@ impl TimetableKernel {
         let initial = if reverse { end } else { start };
         let mut search = Search {
             labels: vec![],
+            completion_labels: OnceCell::new(),
             frontiers: HashMap::new(),
             queue: BinaryHeap::new(),
             reverse,
@@ -792,30 +795,39 @@ impl TimetableKernel {
         {
             return Err(Error::from_reason("Invalid service destination arrays"));
         }
-        let mut targets: HashMap<u32, Vec<(f64, u32)>> = HashMap::new();
-        for ((&s, &w), &c) in stops.iter().zip(walks).zip(candidates) {
-            targets.entry(s).or_default().push((w, c));
-        }
+        // Reach and Matrix share this search across thousands of endpoints.
+        // Index its surviving labels once, rather than scanning every frontier
+        // for every destination. Keep all vehicle/anchor classes and tie-breaks.
+        let by_stop = search.completion_labels.get_or_init(|| {
+            let mut by_stop: HashMap<u32, Vec<usize>> = HashMap::new();
+            for frontier in search.frontiers.values() {
+                for &i in frontier {
+                    let label = &search.labels[i];
+                    if label.trip.is_some() && !label.scoped_path {
+                        by_stop.entry(label.stop).or_default().push(i);
+                    }
+                }
+            }
+            by_stop
+        });
         let mut result = Vec::new();
-        for frontier in search.frontiers.values() {
-            for &i in frontier {
+        for ((stop, &walk), &candidate) in stops.iter().zip(walks).zip(candidates) {
+            for &i in by_stop.get(stop).into_iter().flatten() {
                 let l = &search.labels[i];
-                if l.trip.is_none() || l.scoped_path || (!terminal && l.walked) {
+                if !terminal && l.walked {
                     continue;
                 }
-                for &(walk, candidate) in targets.get(&l.stop).into_iter().flatten() {
-                    let time = l.clock + if search.reverse { -walk } else { walk };
-                    if (search.reverse && time < bound) || (!search.reverse && time > bound) {
-                        continue;
-                    }
-                    result.push(Completion {
-                        time,
-                        boardings: l.boardings,
-                        walking: l.walking + walk,
-                        candidate,
-                        label: i,
-                    });
+                let time = l.clock + if search.reverse { -walk } else { walk };
+                if (search.reverse && time < bound) || (!search.reverse && time > bound) {
+                    continue;
                 }
+                result.push(Completion {
+                    time,
+                    boardings: l.boardings,
+                    walking: l.walking + walk,
+                    candidate,
+                    label: i,
+                });
             }
         }
         result.sort_by(|a, b| {
@@ -1510,6 +1522,7 @@ mod tests {
                     .collect();
                 let search = Search {
                     labels,
+                    completion_labels: OnceCell::new(),
                     frontiers: [
                         ((2, Some(0), 0, false, false), vec![0]),
                         ((2, Some(1), 1, false, false), vec![1]),
@@ -1533,6 +1546,105 @@ mod tests {
                     completions.iter().map(|c| c.label).collect::<Vec<_>>(),
                     [0, 1]
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn indexed_completions_match_exhaustive_labels() {
+        let kernel = kernel(vec![], vec![]);
+        for reverse in [false, true] {
+            let mut search = Search {
+                labels: vec![],
+                frontiers: HashMap::new(),
+                completion_labels: OnceCell::new(),
+                queue: BinaryHeap::new(),
+                reverse,
+            };
+            for i in 0..120usize {
+                let label = Label {
+                    stop: (i % 3) as u32,
+                    clock: 100. + (i % 31) as f64,
+                    anchor_clock: 90.,
+                    anchor: i as u32,
+                    trip: (i % 7 != 0).then_some(i as u32),
+                    transfer_class: Some(i as u32),
+                    boardings: (i % 3 + 1) as u32,
+                    walking: (i % 11) as f64,
+                    walked: i % 4 == 0,
+                    scoped_path: i % 9 == 0,
+                    predecessor: None,
+                    step: (0, 0, 0, 0, 0., 0., 0, 0.),
+                };
+                // Some historical labels have already been dominated.
+                if i % 5 != 0 {
+                    search.frontiers.insert(
+                        (
+                            label.stop,
+                            label.transfer_class,
+                            label.anchor,
+                            label.walked,
+                            label.scoped_path,
+                        ),
+                        vec![i],
+                    );
+                }
+                search.labels.push(label);
+            }
+            for terminal in [false, true] {
+                for bound in [90., 115., 150.] {
+                    let stops = [2, 0, 2];
+                    let walks = [0., 15., 30.];
+                    let candidates = [8, 3, 1];
+                    let result = kernel
+                        .service_completions(&search, &stops, &walks, &candidates, terminal, bound)
+                        .unwrap();
+                    let mut expected = vec![];
+                    for frontier in search.frontiers.values() {
+                        for &i in frontier {
+                            let l = &search.labels[i];
+                            if l.trip.is_none() || l.scoped_path || (!terminal && l.walked) {
+                                continue;
+                            }
+                            for j in 0..stops.len() {
+                                let time = l.clock + if reverse { -walks[j] } else { walks[j] };
+                                if l.stop == stops[j]
+                                    && if reverse {
+                                        time >= bound
+                                    } else {
+                                        time <= bound
+                                    }
+                                {
+                                    expected.push((
+                                        time,
+                                        l.boardings,
+                                        l.walking + walks[j],
+                                        candidates[j],
+                                        i,
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    expected.sort_by(|a, b| {
+                        (if reverse {
+                            b.0.total_cmp(&a.0)
+                        } else {
+                            a.0.total_cmp(&b.0)
+                        })
+                        .then(a.1.cmp(&b.1))
+                        .then(a.2.total_cmp(&b.2))
+                        .then(a.3.cmp(&b.3))
+                        .then(a.4.cmp(&b.4))
+                    });
+                    assert_eq!(
+                        result
+                            .iter()
+                            .map(|c| (c.time, c.boardings, c.walking, c.candidate, c.label))
+                            .collect::<Vec<_>>(),
+                        expected
+                    );
+                }
             }
         }
     }

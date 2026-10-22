@@ -3,7 +3,7 @@ import os from 'node:os'
 const GiB = 1024 ** 3
 
 // Node's libuv-backed limits account for Linux cgroups, including containers.
-// Zero means unknown. Available memory also catches pressure on larger hosts.
+// Zero means unknown. Temporary pressure only limits parallel compilation.
 export function buildMemoryEnvironment(env = process.env, {
   total = os.totalmem(),
   constrained = process.constrainedMemory?.() ?? 0,
@@ -13,10 +13,18 @@ export function buildMemoryEnvironment(env = process.env, {
   if (!['auto', 'low', 'full'].includes(mode)) {
     throw new Error('VIGO_BUILD_MEMORY must be auto, low, or full')
   }
-  const limits = [total, constrained, available].filter(n => Number.isFinite(n) && n > 0)
+  const limits = [total, constrained].filter(n => Number.isFinite(n) && n > 0)
   const budget = limits.length ? Math.min(...limits) : undefined
   const low = mode === 'low' || (mode === 'auto' && budget !== undefined && budget <= 4 * GiB)
-  if (!low) return { ...env }
+  if (!low) {
+    // Temporary pressure must not silently change the shipped binary's
+    // optimization profile or invalidate the release artifact cache.
+    if (mode === 'auto' && available > 0 && available <= 4 * GiB) {
+      report('[vigo build] Memory pressure: compiling one job with the full release profile.')
+      return { ...env, CARGO_BUILD_JOBS: '1' }
+    }
+    return { ...env }
+  }
   report(`[vigo build] Low-memory compilation${budget === undefined ? '' : ` (${(budget / GiB).toFixed(2)} GiB available/limited)`}: one job, 16 codegen units, LTO disabled. Runtime performance may differ; VIGO_BUILD_MEMORY=full restores the release profile.`)
   return {
     ...env,

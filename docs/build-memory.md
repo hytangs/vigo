@@ -2,9 +2,10 @@
 
 The Node build entry points (`scripts/build-standalone.mjs` and
 `scripts/build-rust-routing-kernel.mjs`) automatically select low-memory Cargo
-settings when detected physical, container-constrained, or available memory is
-4 GiB or less. Unknown limits are ignored. Detection uses Node's OS/libuv memory
-APIs; run with the project's supported Node version.
+settings when detected physical or container-constrained memory is
+4 GiB or less. Temporary available-memory pressure instead limits compilation
+to one job while preserving the normal release optimizations. Unknown limits
+are ignored. Detection uses Node's OS/libuv memory APIs; run with the project's supported Node version.
 
 Low-memory mode uses one Cargo job, 16 code-generation units, no incremental
 compilation, no debug information, and no LTO. It logs its selection. These
