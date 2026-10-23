@@ -152,11 +152,41 @@ impl City {
                 }
             }
         }
+        // Searches at the requested minute miss a journey that leaves later
+        // for the same arrival. One reverse search to the earliest arrival
+        // finds the latest such departure.
+        if !arrive {
+            let requested = clock(&primary, "departureMinutes");
+            let best_arrival = pool
+                .iter()
+                .filter(|p| transit(p))
+                .map(|p| clock(p, "arrivalMinutes"))
+                .fold(f64::INFINITY, f64::min);
+            if best_arrival.is_finite() && requested.is_finite() {
+                let mut latest = base.clone();
+                let o = latest.as_object_mut().unwrap();
+                for key in ["alternatives", "alternativeRanking", "time", "serviceDay"] {
+                    o.remove(key);
+                }
+                latest["timePreference"] = json!("arrive_by");
+                latest["timeMinutes"] = json!(best_arrival);
+                if let Ok(result) = self.route(&latest) {
+                    pool.extend(plans(result).into_iter().filter(|p| {
+                        transit(p)
+                            && clock(p, "departureMinutes") > requested
+                            && clock(p, "arrivalMinutes") <= best_arrival
+                    }));
+                }
+            }
+        }
         pool.sort_by(|a, b| {
             let time = if arrive {
                 clock(b, "departureMinutes").total_cmp(&clock(a, "departureMinutes"))
             } else {
-                clock(a, "arrivalMinutes").total_cmp(&clock(b, "arrivalMinutes"))
+                // Equal arrivals: the shorter trip, which leaves later, first.
+                clock(a, "arrivalMinutes")
+                    .total_cmp(&clock(b, "arrivalMinutes"))
+                    .then_with(|| travel_minutes(a).total_cmp(&travel_minutes(b)))
             };
             time.then_with(|| {
                 super::alternatives::walking(a).total_cmp(&super::alternatives::walking(b))
