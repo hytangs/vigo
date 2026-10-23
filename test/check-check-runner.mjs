@@ -18,4 +18,4 @@ try {
   assert.equal(run('success').status, 0)
   assert.notEqual(run('missing').status, 0)
   console.log('Check runner reports failures, runs later checks, and propagates status.')
-} finally { fs.rmSync(dir, { recursive: true, force: true }) }
+} finally { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

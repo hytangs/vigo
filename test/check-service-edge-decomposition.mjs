@@ -21,7 +21,7 @@ if (process.argv[2] !== '--worker') {
   try {
     execFileSync(process.execPath, [import.meta.filename, '--worker', folder], { stdio: 'inherit' })
   } finally {
-    await fs.rm(folder, { recursive: true, force: true })
+    await fs.rm(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
   }
 } else {
   await checkServiceEdges(process.argv[3])

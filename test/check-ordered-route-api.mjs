@@ -64,5 +64,5 @@ try {
   console.log('Ordered API: both waypoint orders, depart/arrive, exact walking geometry, fractional clocks, mixed-mode and concurrent requests passed.')
 } finally {
   await api?.stop(); disposeAllNationalGtfsStores(); disposeNationalOsmStore(street)
-  await fs.rm(root, { recursive: true, force: true })
+  await fs.rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

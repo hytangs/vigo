@@ -158,6 +158,6 @@ try {
   assert.deepEqual(crossStore.scenario.excludedTripIds, ['backward'],
     'A secondary branch selected from merged analysis must hydrate against its own raw feed store.')
 } finally {
-  rmSync(directory, { recursive: true, force: true })
+  rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
 console.log('Scenario branches retain occurrence order, repeated-edge geometry and timing, complete patterns, and exact feed/trip exclusions.')

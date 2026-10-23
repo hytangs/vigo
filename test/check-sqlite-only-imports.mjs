@@ -162,5 +162,5 @@ try {
   }, null, 2))
 } finally {
   await stopApi()
-  await fs.rm(fixtureRoot, { recursive: true, force: true })
+  await fs.rm(fixtureRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

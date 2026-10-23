@@ -39,4 +39,4 @@ try{
  await (await import('node:fs/promises')).writeFile(${JSON.stringify(directory)}+'/groups.png',(await window.capturePage()).toPNG());
  window.destroy();`)
  console.log('Grouped journey cards: merged services, separate corridor, exact selected times, keyboard selection and narrow layouts passed. '+directory)
-}finally{await server.close();await fs.rm(path.join(directory,'cache'),{recursive:true,force:true})}
+}finally{await server.close();await fs.rm(path.join(directory,'cache'),{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 })}

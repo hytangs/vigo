@@ -86,7 +86,7 @@ try {
     /file identity mismatch/,
   )
 } finally {
-  await fs.rm(directory, { recursive: true, force: true })
+  await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
 
 console.log('CCH generation manifest and substituted-metric rejection checks passed.')

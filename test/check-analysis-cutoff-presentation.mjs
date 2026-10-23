@@ -120,4 +120,4 @@ try {
   assert.match(inspector, /Leave 08:37 · arrive by 09:00/)
   console.log('Arrive-by Reach: Leave at / Arrive by toggle, destination and deadline labels, first-walk limit, minutes-before metrics, and point journeys passed.')
   console.log('Reach cutoff presentation: 45/90-minute scopes, scenario counts, later transit reach, exact custom cutoff and missing/preliminary evidence passed.')
-} finally { await server.close(); await rm(directory, { recursive: true, force: true }) }
+} finally { await server.close(); await rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

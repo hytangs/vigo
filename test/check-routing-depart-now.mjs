@@ -145,6 +145,6 @@ try {
   await runtime?.stop()
   disposeNationalGtfsStore(storePath)
   disposeNationalOsmStore(streetPath)
-  await fs.rm(folder, { recursive: true, force: true })
+  await fs.rm(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
 console.log('Depart now: agency-local midnight/DST, forced departure, current-clock readiness, explicit native route and ordered legs, replay compatibility passed.')

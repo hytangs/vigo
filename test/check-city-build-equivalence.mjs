@@ -183,5 +183,5 @@ try {
   console.log('City build equivalence passed: complete table and metadata parity, scoped inputs, source validation, and failure cleanup.')
 } finally {
   disposeAllNationalGtfsStores()
-  await fs.rm(root, { recursive: true, force: true })
+  await fs.rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

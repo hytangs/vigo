@@ -78,5 +78,5 @@ try {
     const force = setTimeout(() => child.kill('SIGKILL'), 2_000)
     try { await exited } finally { clearTimeout(force) }
   }
-  await fs.rm(temporary, { recursive: true, force: true })
+  await fs.rm(temporary, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

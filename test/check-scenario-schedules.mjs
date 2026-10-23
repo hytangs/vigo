@@ -153,5 +153,5 @@ try {
   console.log('Scheduled scenario edits preserve individual trips, calendars, irregular/overnight departures, dwell, permissions and loop occurrences; the native scanner invents no next bus.')
 } finally {
   db.close()
-  rmSync(directory, { recursive: true, force: true })
+  rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

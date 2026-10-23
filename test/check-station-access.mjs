@@ -210,5 +210,5 @@ try {
   console.log('GTFS pathway and parent-station walking times preserve boarding feasibility.')
 } finally {
   disposeAllNationalGtfsStores()
-  await fs.rm(folder, { recursive: true, force: true })
+  await fs.rm(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

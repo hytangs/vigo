@@ -222,5 +222,5 @@ try {
   console.log('Scenario collection passed: eight distinct timetables, shared immutable streets, bounded residency, source checksums, relocation, calendar/realtime isolation, native CLI and HTTP.')
 } finally {
   for (const child of [worker, server]) if (child && child.exitCode === null) { child.kill(); await once(child, 'exit') }
-  fs.rmSync(dir, { recursive: true, force: true })
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

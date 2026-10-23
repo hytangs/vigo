@@ -181,5 +181,5 @@ try {
   database.close()
   console.log(JSON.stringify({ checked, status: 'passed' }))
 } finally {
-  fs.rmSync(directory, { recursive: true, force: true })
+  fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

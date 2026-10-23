@@ -1547,5 +1547,5 @@ try {
     nativeResidentBytes: diagnostics.nativeResidentBytes,
   }, null, 2))
 } finally {
-  fs.rmSync(temporaryDirectory, { recursive: true, force: true })
+  fs.rmSync(temporaryDirectory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

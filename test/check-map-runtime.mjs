@@ -259,5 +259,5 @@ app.whenReady().then(async()=>{
   disposeNativeRoutingKernel(storePath)
   releaseNativeTransitNetwork(networkKey)
   if (softwareLoader) await fs.unlink(softwareLoader)
-  await fs.rm(temporary, { recursive: true, force: true })
+  await fs.rm(temporary, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

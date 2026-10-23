@@ -109,5 +109,5 @@ try {
   console.log('Route, Matrix and Reach retain directed station access and exit costs in both runtimes.')
 } finally {
   if (process.env.VIGO_KEEP_TEST_FIXTURE) console.error(`Fixture retained at ${folder}`)
-  else fs.rmSync(folder, { recursive: true, force: true })
+  else fs.rmSync(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

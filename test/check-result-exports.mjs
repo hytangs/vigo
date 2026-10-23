@@ -123,4 +123,4 @@ try {
   assert.equal(reachResultMetrics({ ...result, diagnostics: { totalMs: null } }, 'baseline', 15).totalProcessingMs, null)
   assert.equal(reachResultMetrics({ ...result, diagnostics: { totalMs: 0 } }, 'baseline', 15).totalProcessingMs, 0)
   console.log('Saved journey and Reach files preserve clocks, geometry, CSV labels, complete result records, cutoff-specific gains/losses, and unavailable query timing.')
-} finally { await server.close(); await fs.rm(directory, { recursive: true, force: true }) }
+} finally { await server.close(); await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

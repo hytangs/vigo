@@ -131,4 +131,4 @@ app.exit(0)}catch(error){console.error(error);app.exit(1)}});`)
   delete plan.legs[0].intermediateStops
   assert.doesNotMatch(renderToStaticMarkup(createElement(RoutingItinerary, { plan })), /Stops along the way/)
   console.log('Route and Reach retain ordered stop calls, expose stop disclosures, and show departure times without a redundant disclosure.')
-} finally { await server.close(); await Promise.all(['cache', 'profile'].map(name => fs.rm(path.join(directory, name), { recursive: true, force: true }))) }
+} finally { await server.close(); await Promise.all(['cache', 'profile'].map(name => fs.rm(path.join(directory, name), { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }))) }

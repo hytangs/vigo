@@ -85,6 +85,6 @@ try {
   assert.match(future, /Clock ahead 300 s; freshness unknown/)
 } finally {
   context.close()
-  await fs.rm(directory, { recursive: true, force: true })
+  await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
 console.log('Agency observation export: computed-fixture provenance, scope, stale/failed/unknown feeds, missing reporting, capped events and safe Markdown passed.')

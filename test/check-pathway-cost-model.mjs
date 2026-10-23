@@ -127,4 +127,4 @@ try {
   }
   console.log(`Pathway HTTP: ${httpChecks} Route/Matrix checks passed through the native service.`)
   console.log('Pathway import/routing: stair counts, gates, published precedence, missing costs and direction pass in Node and Rust.')
-} finally { fs.rmSync(folder, { recursive: true, force: true }) }
+} finally { fs.rmSync(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

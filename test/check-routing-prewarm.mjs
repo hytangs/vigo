@@ -58,4 +58,4 @@ try {
  await post('routing-residency',{...live,resident:false})
  await post('routing-residency',{...context,resident:false,leaseId:'test'})
  console.log('First-route preparation: shared exact context, current-date residency, unchanged first/repeated journeys passed.')
-} finally {await api?.stop();disposeAllNationalGtfsStores();disposeNationalOsmStore(street);await fs.rm(root,{recursive:true,force:true})}
+} finally {await api?.stop();disposeAllNationalGtfsStores();disposeNationalOsmStore(street);await fs.rm(root,{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 })}

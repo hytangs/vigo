@@ -114,5 +114,5 @@ app.whenReady().then(async()=>{try{const results=[];for(const [width,height,appe
 } finally {
   await server?.close()
   service.close()
-  await Promise.all(['vite-cache', 'profile'].map(name => fs.rm(path.join(directory, name), { recursive: true, force: true })))
+  await Promise.all(['vite-cache', 'profile'].map(name => fs.rm(path.join(directory, name), { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })))
 }

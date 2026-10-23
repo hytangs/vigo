@@ -94,5 +94,5 @@ try {
 } finally {
   if(server){const closed=once(server,'exit');server.kill();await closed}
   source.closeAllConnections(); await new Promise(resolve=>source.close(resolve))
-  fs.rmSync(dir,{recursive:true,force:true})
+  fs.rmSync(dir,{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

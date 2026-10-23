@@ -33,7 +33,7 @@ for (const existing of [true, false]) {
         }
       }
       await assert.rejects(fs.stat(path.join(root, 'previous')), { code: 'ENOENT' })
-    } finally { await fs.rm(root, { recursive: true, force: true }) }
+    } finally { await fs.rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }
   }
 }
 console.log('CLI publication: fresh installs and all six interrupted replacement steps preserve a complete package.')

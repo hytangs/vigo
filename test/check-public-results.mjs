@@ -243,5 +243,5 @@ try {
   console.log(`Public result contract: ${checks} checks passed across both CLIs and native HTTP.`)
 } finally {
   for (const child of servers) if (child.exitCode === null) { const closed = once(child, 'exit'); child.kill(); await closed }
-  fs.rmSync(directory, { recursive: true, force: true })
+  fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

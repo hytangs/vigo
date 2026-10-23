@@ -30,7 +30,7 @@ if (!worker) {
   try {
     execFileSync(process.execPath, [import.meta.filename, '--fixture-worker', root], { stdio: 'inherit' })
   } finally {
-    fs.rmSync(root, { recursive: true, force: true })
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
   }
 }
 

@@ -116,6 +116,6 @@ try {
   else process.env.VIGO_UNSAFE_ALLOW_PRIVATE_REALTIME = previous
   await new Promise(resolve => server.close(resolve))
   disposeNationalGtfsStore(store)
-  await fs.rm(directory, { recursive: true, force: true })
+  await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
 console.log('Multiple live feeds preserve static source identity, independent failures, and downstream-only predictions.')

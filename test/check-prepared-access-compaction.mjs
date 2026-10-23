@@ -33,4 +33,4 @@ try {
   fs.writeFileSync(saved.snapshotPath, encodeRoutingSnapshot(decoded.metadata, decoded.arrays))
   assert.equal(loadPreparedAccessContext(store, 'policy').persistenceState, 'rejected')
   console.log(`Prepared access: ${expandedBytes} expanded transfer bytes to ${packed.length} total bytes; exact costs, shared records and obsolete-format rejection passed.`)
-} finally {fs.rmSync(directory,{recursive:true,force:true})}
+} finally {fs.rmSync(directory,{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 })}

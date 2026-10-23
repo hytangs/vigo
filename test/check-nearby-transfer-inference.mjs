@@ -86,5 +86,5 @@ try {
   }, null, 2))
 } finally {
   disposeNationalGtfsStore(storePath)
-  await fs.rm(root, { recursive: true, force: true })
+  await fs.rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

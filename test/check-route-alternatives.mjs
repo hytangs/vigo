@@ -141,5 +141,5 @@ try {
   }
   console.log('Journey alternatives match independent arrival/transfer enumeration, including direct services and the arrival-window boundary.')
 } finally {
-  await fs.rm(folder, { recursive: true, force: true })
+  await fs.rm(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

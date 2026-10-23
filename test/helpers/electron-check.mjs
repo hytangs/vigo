@@ -24,5 +24,5 @@ export async function runElectronCheck(source) {
       child.once('error', error => { clearTimeout(timeout); reject(error) })
       child.once('exit', code => { clearTimeout(timeout); code === 0 && output.includes('ELECTRON_CHECK_PASSED') ? resolve() : reject(new Error(output)) })
     })
-  } finally { await fs.rm(directory, { recursive: true, force: true }) }
+  } finally { await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }
 }

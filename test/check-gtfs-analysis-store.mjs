@@ -233,5 +233,5 @@ try {
   }
   console.log(`GTFS analysis store check passed (${overview.routes.length} complete services, ${analysis.routes.length + branchAnalysis.routes.length} focused patterns).`)
 } finally {
-  await fs.rm(temporaryDirectory, { recursive: true, force: true })
+  await fs.rm(temporaryDirectory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

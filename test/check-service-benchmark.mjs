@@ -158,4 +158,4 @@ try {
     assert.equal(classified.report.groups[group]?.count, count, `Wrong failure classification: ${group}`)
   }
   console.log('Public benchmark validates endpoint outputs, concurrency, warmup, no-journey results, HTTP failures, header/body deadlines, unrelated aborts and connection resets.')
-} finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await fs.rm(directory, { recursive: true, force: true }) }
+} finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

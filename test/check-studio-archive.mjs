@@ -65,5 +65,5 @@ try {
   assert.match(workflow, /path: \|\s+\$\{\{ steps\.package\.outputs\.archive-path \}\}\s+\$\{\{ steps\.package\.outputs\.archive-path \}\}\.sha256/u)
   console.log(`Studio archive creation, replacement, and upload path passed on ${process.platform}:${process.arch}.`)
 } finally {
-  rmSync(root, { recursive: true, force: true })
+  rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

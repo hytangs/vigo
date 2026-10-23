@@ -52,4 +52,4 @@ try {
   assert.equal(plan.legs.find(leg => leg.type === 'ride').tripId, 'OVERLAP')
   assert.equal(await digest(), before, 'Never rewrite the imported ZIP')
   console.log('Backward-time preparation: small regressions repaired; large regressions excluded atomically with diagnostics; after-midnight times and source archive preserved.')
-} finally { disposeAllNationalGtfsStores(); await fs.rm(root, { recursive: true, force: true }) }
+} finally { disposeAllNationalGtfsStores(); await fs.rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

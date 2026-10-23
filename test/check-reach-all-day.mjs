@@ -127,5 +127,5 @@ try {
   console.log('All-day Reach: 292 independent time samples, all raster counts and conditional means agree; validation and resident recovery passed.')
 } finally {
   for (const child of children) child.kill()
-  fs.rmSync(temporary, { recursive: true, force: true })
+  fs.rmSync(temporary, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

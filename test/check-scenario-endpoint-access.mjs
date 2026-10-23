@@ -35,4 +35,4 @@ try {
     assert.equal(result.status,'ok',JSON.stringify(result))
   }
   console.log('Scenario endpoint access passed')
-} finally { fs.rmSync(dir,{recursive:true,force:true}) }
+} finally { fs.rmSync(dir,{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

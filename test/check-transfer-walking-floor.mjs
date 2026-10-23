@@ -86,5 +86,5 @@ try {
   console.log('Transfer walking floor: forward, arrive-by, scalar/journey matrices and stale v4 cache rejection passed.')
 } finally {
   disposeNationalGtfsStore(storePath)
-  await fs.rm(folder, { recursive: true, force: true })
+  await fs.rm(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

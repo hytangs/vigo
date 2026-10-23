@@ -48,7 +48,7 @@ try {
   }
   await symlink(path.join(root, 'absent'), path.join(root, 'outside'))
   await assert.rejects(auditPackageFiles(root), /symlink/)
-} finally { await rm(root, { recursive: true, force: true }) }
+} finally { await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }
 const original = { PATH: '/usr/bin:/bin', SystemRoot: 'windows', TMPDIR: 'temporary', LANG: 'en_US.UTF-8',
   OPENAI_API_KEY: 'fixture', GH_TOKEN: 'fixture', AWS_SECRET_ACCESS_KEY: 'fixture',
   LD_PRELOAD: 'injected', LD_LIBRARY_PATH: 'injected', ELECTRON_RUN_AS_NODE: '1',

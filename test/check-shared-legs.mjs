@@ -149,4 +149,4 @@ try {
     assert(nativeArrive.journey.sharedLegAlternatives.options.every(o=>o.journey.arrivalTime<='08:13:00'))
   }
   console.log(JSON.stringify({passed:true,alternatives:routes(plan),transfer:routes(transfer),fixtureWarmBaselineP95Ms:baselineSamples.sort((a,b)=>a-b)[47],fixtureWarmSharedP95Ms:sorted[47],checks:'route IDs, duplicate names, short turns, stopping pattern, direction, paths, permissions, active service, realtime, scenarios, windows, transfers, buffers, public projection'}))
-} finally { disposeAllNationalGtfsStores(); await fs.rm(root,{recursive:true,force:true}) }
+} finally { disposeAllNationalGtfsStores(); await fs.rm(root,{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

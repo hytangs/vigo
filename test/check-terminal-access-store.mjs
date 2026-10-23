@@ -108,5 +108,5 @@ try {
   console.log(JSON.stringify({ status: 'passed', originalPublicIslandBlocked: true, mappedPrivateAccessRestored: true, sourceIdsPreserved: true, routeMatrixBothTimes: true }))
 } finally {
   disposeNationalGtfsStore(routingStorePath); disposeNationalOsmStore(streetStorePath)
-  fs.rmSync(directory, { recursive: true, force: true })
+  fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

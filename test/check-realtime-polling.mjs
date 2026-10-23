@@ -208,5 +208,5 @@ try {
 } finally {
   server?.kill()
   feedServer.close()
-  fs.rmSync(directory, { recursive: true, force: true })
+  fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

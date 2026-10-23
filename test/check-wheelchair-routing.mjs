@@ -314,5 +314,5 @@ try {
 } finally {
   if (server) { server.kill(); await once(server, 'exit') }
   if (process.env.VIGO_KEEP_TEST_FIXTURES) console.log(folder)
-  else fs.rmSync(folder, { recursive: true, force: true })
+  else fs.rmSync(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

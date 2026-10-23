@@ -57,5 +57,5 @@ try {
   }
   console.log('Direct-service alternatives passed for Node and standalone: faster bus retained, slower tram available, no invented transfers.')
 } finally {
-  fs.rmSync(directory, { recursive: true, force: true })
+  fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

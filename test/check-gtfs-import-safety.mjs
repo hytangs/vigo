@@ -301,5 +301,5 @@ try {
     cases,
   }, null, 2))
 } finally {
-  await fs.rm(temporaryRoot, { recursive: true, force: true })
+  await fs.rm(temporaryRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

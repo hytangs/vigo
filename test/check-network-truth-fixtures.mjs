@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 const root = resolve(import.meta.dirname, '..')
 const outDir = resolve(root, '.tmp-network-truth-check')
 
-rmSync(outDir, { recursive: true, force: true })
+rmSync(outDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 
 const compile = spawnSync(
   process.execPath,
@@ -143,5 +143,5 @@ assert.notEqual(bundlePreview.routes[0].id, bundlePreview.routes[1].id)
 assert.notEqual(bundlePreview.stops[0].id, bundlePreview.stops[2].id)
 assert.ok(bundlePreview.stops.every((item) => item.routes.every((routeRef) => routeRef.startsWith(`${item.id.split('::')[0]}::`))))
 
-rmSync(outDir, { recursive: true, force: true })
+rmSync(outDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 console.log('Network truth fixture check passed.')

@@ -188,5 +188,5 @@ try {
   console.log(`Route controls passed: walking comparison, realtime mode, transfer settings, obsolete responses and 320/390 px layout. Screenshot: ${screenshotPath}`)
 } finally {
   await server.close()
-  await fs.rm(path.join(directory, 'vite-cache'), { recursive: true, force: true })
+  await fs.rm(path.join(directory, 'vite-cache'), { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

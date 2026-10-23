@@ -8,6 +8,6 @@ export async function checkDirectory(root, prefix) {
   await fs.mkdir(parent, { recursive: true })
   const earlier = (await fs.readdir(parent))
     .filter(name => name.startsWith(prefix) && /^[A-Za-z0-9]{6}$/.test(name.slice(prefix.length)))
-  await Promise.all(earlier.map(name => fs.rm(path.join(parent, name), { recursive: true, force: true })))
+  await Promise.all(earlier.map(name => fs.rm(path.join(parent, name), { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })))
   return fs.mkdtemp(path.join(parent, prefix))
 }

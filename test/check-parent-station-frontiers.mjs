@@ -55,4 +55,4 @@ try {
     else reference = durations
   }
   console.log('Parent-station Route/Matrix frontiers passed: paired and mixed endpoints, repeated resident queries, depart/arrive, cached/uncached, and Node/Rust parity.')
-} finally { fs.rmSync(directory, { recursive: true, force: true }) }
+} finally { fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

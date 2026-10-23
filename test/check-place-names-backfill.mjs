@@ -108,5 +108,5 @@ try {
     checks: ['source mismatch', 'source changed between passes', 'cancellation', 'basemap/metadata preservation', 'warm reload', 'idempotence', 'incomplete index repair', 'publication rollback', 'WAL reload', 'staging cleanup'] }))
 } finally {
   db?.close()
-  await fs.rm(folder, { recursive: true, force: true })
+  await fs.rm(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

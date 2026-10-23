@@ -95,5 +95,5 @@ try {
   targetUpdate.timestamp = observationTime - 181
   assert.match(vehicleBoard().vehicle.issue, /out of date/)
 
-} finally { context?.close(); await fs.rm(directory, { recursive: true, force: true }) }
+} finally { context?.close(); await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }
 console.log('Agency arrivals: shared station board, exact route scope, cancellations, departure semantics, overnight next service and fleet-board computation passed.')

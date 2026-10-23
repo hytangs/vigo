@@ -125,5 +125,5 @@ try {
   assert.throws(() => readNativeServiceTimetable({ ...sourceInput, segmentCount: 4 }), /slice changed/)
   assert.throws(() => readNativeServiceTimetable({ ...sourceInput, segmentCount: 6 }), /slice changed/)
   assert.equal(readNativeServiceTimetable({ ...sourceInput, serviceIds: [], segmentCount: 0 }).runCount, 0)
-} finally { rmSync(fixture, { recursive: true, force: true }) }
+} finally { rmSync(fixture, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }
 console.log('Native timetable preparation: 300 seeded graphs, ordering, transfer precedence, station projection, malformed arrays and source identity adapter passed.')

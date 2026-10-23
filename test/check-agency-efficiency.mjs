@@ -50,7 +50,7 @@ try {
   const snapshot = realtimeFixture()
   assert.equal(deriveOperationalState(context, snapshot, observationTime).counts.matchedTrips, 3)
   assert.equal(deriveOperationalState(context, snapshot, observationTime + 181).counts.matchedTrips, 0, 'Only static timetable data is cached; reporting freshness still advances.')
-} finally { context?.close(); await fs.rm(directory, { recursive: true, force: true }) }
+} finally { context?.close(); await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }
 
 // Compare indexed matching with the prior linear definition across repeated
 // stops, scoped IDs, conflicting sequences and the unretained terminal sequence.
@@ -137,5 +137,5 @@ try {
     }
   }
 
-} finally { context?.close(); await fs.rm(scopedDirectory, { recursive: true, force: true }) }
+} finally { context?.close(); await fs.rm(scopedDirectory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }
 console.log('Agency efficiency: exact window reuse, bounded eviction, timezone results, indexed matching, scoped timetable reads, calendar parity and advancing freshness passed.')

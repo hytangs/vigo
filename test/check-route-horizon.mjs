@@ -234,5 +234,5 @@ try {
     scope: 'Route/Matrix store orchestration, generated GTFS and OSM, no private inputs' }))
 } finally {
   disposeNationalOsmStore(streetStorePath)
-  fs.rmSync(directory, { recursive: true, force: true })
+  fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

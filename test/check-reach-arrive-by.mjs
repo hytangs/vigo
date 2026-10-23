@@ -144,5 +144,5 @@ try {
   assert.equal(joined.scenarioStops.find(stop => stop.name === 'stop-2')?.stop?.id, 'B')
   console.log(`Arrive-by Reach passed (${reach.stops.length} seeded stops, ${reached(toB.surface.values)} one-way cells toward B, ${reached(fromB.surface.values)} from B).`)
 } finally {
-  fs.rmSync(directory, { recursive: true, force: true })
+  fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

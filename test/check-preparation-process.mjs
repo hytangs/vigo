@@ -81,4 +81,4 @@ try {
     gtfs: transit.messages.at(-1).preparation.peakRssBytes,
     osm: streets.messages.at(-1).preparation.peakRssBytes,
   }, parent: process.memoryUsage() }))
-} finally { await fs.rm(directory, { recursive: true, force: true }) }
+} finally { await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }
