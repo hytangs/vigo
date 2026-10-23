@@ -1391,6 +1391,24 @@ async function fileDigest(file: string) {
   return hash.digest('hex')
 }
 
+// Keep the base graph and CCH files shared, while each City's timetable owns
+// its endpoint boundary overlay. Relative file links preserve the published
+// osm/ layout for existing readers and remain valid after moving a collection.
+const terminalAccessArtifact = 'street-index.sqlite.terminal-access-v1.json'
+function linkStreetBase(source: string, destination: string) {
+  fs.mkdirSync(destination, { recursive: true })
+  for (const name of fs.readdirSync(source)) {
+    if (name === terminalAccessArtifact) continue
+    const target = fs.realpathSync(path.join(source, name))
+    if (!fs.statSync(target).isFile()) throw new Error(`Unexpected street base member: ${name}`)
+    // Published readers require CCH members to resolve inside osm/. Hard
+    // links preserve that rule without duplicating the immutable file data.
+    if (name.endsWith('.structure') || name.endsWith('.metric')) {
+      fs.linkSync(target, path.join(destination, name))
+    } else fs.symlinkSync(path.relative(fs.realpathSync(destination), target), path.join(destination, name), 'file')
+  }
+}
+
 async function runBuildScenarios(args: CliArguments) {
   const specPath = path.resolve(value(args, 'spec'))
   const spec = await readJsonObject(specPath, 'Scenario specification')
@@ -1455,13 +1473,20 @@ async function runBuildScenarios(args: CliArguments) {
       const result = await compiler.outcome
       if ('error' in result) throw result.error
       publishCity(compilerStage, cityPath)
-      // Endpoint boundaries depend on each timetable's public stop anchors.
-      // Keep those overlays City-local; never reuse the first City's boundaries.
-      if (!firstCity && privateAccess === 'public') {
+      if (!firstCity) {
         const shared = path.join(staged, 'streets', osm.sha256)
+        const local = path.join(cityPath, 'osm')
         fs.mkdirSync(path.dirname(shared))
-        fs.renameSync(path.join(cityPath, 'osm'), shared)
-        fs.symlinkSync(path.relative(cityPath, shared), path.join(cityPath, 'osm'), 'dir')
+        if (privateAccess === 'public') {
+          fs.renameSync(local, shared)
+          fs.symlinkSync(path.relative(cityPath, shared), local, 'dir')
+        } else {
+          fs.mkdirSync(shared)
+          for (const name of fs.readdirSync(local)) {
+            if (name !== terminalAccessArtifact) fs.renameSync(path.join(local, name), path.join(shared, name))
+          }
+          linkStreetBase(shared, local)
+        }
         firstCity = cityPath
       }
     }
@@ -1470,18 +1495,28 @@ async function runBuildScenarios(args: CliArguments) {
       scenarios: scenarios.map(({ id, name }) => ({ id, name, city: `cities/${id}` })) }
     fs.writeFileSync(path.join(staged, 'scenarios.json'), JSON.stringify(manifest, null, 2) + '\n')
     const files: Array<{ path: string; bytes: number; sha256: string }> = []
+    const physicalFiles = new Map<string, { bytes: number; sha256: string }>()
     async function inventory(directory: string) {
       for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
         const file = path.join(directory, entry.name)
         if (entry.isSymbolicLink()) continue // Shared streets are inventoried once.
         if (entry.isDirectory()) await inventory(file)
-        else files.push({ path: path.relative(staged, file).split(path.sep).join('/'), bytes: fs.statSync(file).size, sha256: await fileDigest(file) })
+        else {
+          const stat = fs.statSync(file, { bigint: true })
+          const key = `${stat.dev}:${stat.ino}`
+          let identity = physicalFiles.get(key)
+          if (!identity) {
+            identity = { bytes: Number(stat.size), sha256: await fileDigest(file) }
+            physicalFiles.set(key, identity)
+          }
+          files.push({ path: path.relative(staged, file).split(path.sep).join('/'), ...identity })
+        }
       }
     }
     await inventory(staged)
     fs.writeFileSync(path.join(staged, 'checksums.json'), JSON.stringify({ schemaVersion: 'vigo.checksums.v1', algorithm: 'sha256', files }, null, 2) + '\n')
     fs.renameSync(staged, output)
-    process.stdout.write(JSON.stringify({ ...manifest, storageBytes: files.reduce((sum, file) => sum + file.bytes, 0), sharedStreetCopies: privateAccess === 'public' ? 1 : scenarios.length }, null, 2) + '\n')
+    process.stdout.write(JSON.stringify({ ...manifest, storageBytes: [...physicalFiles.values()].reduce((sum, file) => sum + file.bytes, 0), sharedStreetCopies: 1 }, null, 2) + '\n')
   } finally { fs.rmSync(staged, { recursive: true, force: true }) }
 }
 
@@ -1549,11 +1584,10 @@ async function runCityCompiler(args: CliArguments) {
   const osmSha256 = await fileDigest(osmPbf)
   const sharedCityPath = value(args, 'streets-from') ? path.resolve(value(args, 'streets-from')) : null
   const sharedCity = sharedCityPath ? validateCityDirectory(sharedCityPath) : null
-  if (sharedCity && (privateAccess !== 'public' || sharedCity.streetStore?.terminalAccess?.model !== 'public'
-      || Boolean(sharedCity.accessibility) !== wheelchair
+  if (sharedCity && (Boolean(sharedCity.accessibility) !== wheelchair
       || sharedCity.sources?.osm?.sha256 !== osmSha256 || sharedCity.preparationPolicy !== 'vigo.city.prepare.v2'
       || sharedCity.modes?.includes('drive') !== (streetModes === 'walk,drive'))) {
-    throw new Error('Shared streets require matching OSM bytes, prepared modes, public access and preparation policy.')
+    throw new Error('Shared streets require matching OSM bytes, prepared modes, accessibility and preparation policy.')
   }
   const outputValue = value(args, 'output')
   if (!outputValue.trim()) throw new Error('build requires --output')
@@ -1575,7 +1609,11 @@ async function runCityCompiler(args: CliArguments) {
   fs.mkdirSync(stagingRouting, { recursive: true })
   if (sharedCityPath) {
     const sharedStreetPath = fs.realpathSync(path.join(sharedCityPath, 'osm'))
-    fs.symlinkSync(path.relative(fs.realpathSync(stagingDirectory), sharedStreetPath), stagingOsm, 'dir')
+    // Never inherit a donor City's endpoint overlay, including when a public
+    // City reuses the base of an endpoint-enabled City.
+    if (privateAccess === 'public' && sharedCity.streetStore?.terminalAccess?.model === 'public') {
+      fs.symlinkSync(path.relative(fs.realpathSync(stagingDirectory), sharedStreetPath), stagingOsm, 'dir')
+    } else linkStreetBase(sharedStreetPath, stagingOsm)
   } else fs.mkdirSync(stagingOsm, { recursive: true })
 
   const started = performance.now()

@@ -74,6 +74,10 @@ fn member_file(dir: &Path, entry: &Value) -> Result<String> {
     str_path(&path)
 }
 fn cch_files(path: &Path, kind: &str) -> Result<(String, String, Option<String>)> {
+    // Resolve the shared snapshot before admitting its adjacent hierarchy.
+    // Legacy readers use the equivalent City-local hard links.
+    let resolved = fs::canonicalize(path)?;
+    let path = resolved.as_path();
     let image = Image::open(path, false)?;
     let dir = path.parent().ok_or("Missing snapshot directory")?;
     let format = if kind == "street" {
@@ -402,7 +406,14 @@ impl City {
         residents: &[(&Path, &CoordinateKernel)],
     ) -> Result<Self> {
         let path = layout.root.clone();
-        let street_directory = fs::canonicalize(path.join("osm"))?;
+        // File-level links let each City keep its own terminal overlay while
+        // the base snapshot and hierarchy live in one shared directory.
+        let street_directory = fs::canonicalize(
+            path.join("osm/street-index.sqlite.street-accelerator-v7.bin"),
+        )?
+        .parent()
+        .ok_or("Street snapshot has no parent directory")?
+        .to_path_buf();
         let mut manifest = layout.manifest.clone();
         if manifest["schemaVersion"] != "vigo.city.v1" {
             return fail("Expected a prepared vigo.city.v1 City");
