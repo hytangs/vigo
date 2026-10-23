@@ -222,9 +222,7 @@ For current admission budgets, restart behavior, and test coverage, see
 
 ### Desktop and Network
 
-The [Poros readiness audit](reference/poros-v1-readiness.md) distinguishes
-completed migrations from the remaining platform and release gates. Studio
-uses a native async City overview reader and native Reach boundaries. The
+Studio uses a native async City overview reader and native Reach boundaries. The
 removed JS overview SQL and boundary algorithms are covered by retained outputs
 and independent topology checks. The capped legacy preview, per-route timetable
 analysis, vehicle interpolation and local search remain active application code.
