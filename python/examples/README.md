@@ -18,13 +18,13 @@ jupyter lab examples/walkthrough.ipynb
 
 Substitute your platform wheel's filename, or use an editable install with `VIGO_RUNTIME` from a source checkout. If the notebook imports a different environment from your terminal, compare `sys.executable` and `vigo.__file__`.
 
-The defaults use the Boston City from the [Engine quickstart](https://github.com/hytangs/vigo/blob/main/docs/guide.md#quickstart) and Monday 2026-10-05. Configure it with environment variables before starting Jupyter:
+The notebook opens `./boston` if it exists. Otherwise it builds it from `./data/MBTA_GTFS.zip` and `./data/massachusetts-latest.osm.pbf`, downloaded as in the [Engine quickstart](https://github.com/hytangs/vigo/blob/main/docs/guide.md#quickstart), and prints each build stage. Edit the paths in its first cell, or set environment variables before starting Jupyter:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `VIGO_CITY` | `./boston` | A complete City directory; built here if it does not exist |
-| `VIGO_GTFS`, `VIGO_OSM` | None | Raw inputs, needed only to build a missing City |
-| `VIGO_SERVICE_DATE` | `2026-10-05` | A date covered by your feed's calendars |
+| `VIGO_GTFS`, `VIGO_OSM` | `./data/MBTA_GTFS.zip`, `./data/massachusetts-latest.osm.pbf` | Raw inputs, read only to build a missing City |
+| `VIGO_SERVICE_DATE` | First Tuesday of the timetable | A date covered by your feed's calendars |
 | `VIGO_PLACES` | Boston points | JSON object with `harvard`, `kendall`, `south-station`, and `copley` as `[longitude, latitude]` |
 | `VIGO_OUTPUT` | `./outputs` | Where Results, tables, and the study record are written |
 

@@ -12,17 +12,42 @@ import time
 from collections.abc import Mapping, Sequence
 
 
+class _Lines:
+    """Plain-text progress when tqdm is absent: each new stage, with elapsed
+    time, and a reminder during long stages so a quiet build never looks hung."""
+
+    def __init__(self, *, desc: str, **_: object) -> None:
+        self._started = time.monotonic()
+        self._last = 0.0
+        self.set_description_str(desc)
+
+    def __enter__(self) -> _Lines:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+    def _elapsed(self) -> str:
+        seconds = int(time.monotonic() - self._started)
+        return f"{seconds // 60:d}:{seconds % 60:02d}"
+
+    def set_description_str(self, text: str) -> None:
+        print(f"[{self._elapsed()}] {text}", flush=True)
+        self._last = time.monotonic()
+
+    def refresh(self) -> None:
+        if time.monotonic() - self._last >= 60:
+            print(f"[{self._elapsed()}] still building...", flush=True)
+            self._last = time.monotonic()
+
+
 def run_with_progress(
     command: Sequence[str], *, timeout: float, environment: Mapping[str, str]
 ) -> subprocess.CompletedProcess[str]:
-    from .runtime import VigoError
-
     try:
         from tqdm.auto import tqdm  # type: ignore[import-untyped]
-    except ImportError as error:
-        raise VigoError(
-            "Build progress requires tqdm. Install it with: python -m pip install tqdm"
-        ) from error
+    except ImportError:
+        tqdm = _Lines
 
     events: queue.Queue[str | None] = queue.Queue()
     stderr: list[str] = []

@@ -814,6 +814,38 @@ class City:
     def details(self) -> dict[str, Any]:
         return copy.deepcopy(dict(self._manifest))
 
+    def service_period(self) -> tuple[dt.date, dt.date] | None:
+        """First and last dates with any scheduled service, or ``None``.
+
+        Choose a ``service_date`` inside this period: a feed has no journeys on
+        dates it does not cover. A date inside it can still lack some routes.
+        """
+
+        import sqlite3
+
+        routing = self.path / "routing" / "project.sqlite"
+        try:
+            db = sqlite3.connect(f"{routing.as_uri()}?mode=ro", uri=True)
+            try:
+                calendar = db.execute(
+                    "SELECT MIN(start_date), MAX(end_date) FROM calendar"
+                ).fetchone()
+                added = db.execute(
+                    "SELECT MIN(date), MAX(date) FROM calendar_dates WHERE exception_type = 1"
+                ).fetchone()
+            finally:
+                db.close()
+        except sqlite3.Error as error:
+            raise VigoError("City timetable calendar is unreadable") from error
+        days = [value for value in (*calendar, *added) if value is not None]
+        if not days:
+            return None
+
+        def parse(value: Any) -> dt.date:
+            return dt.datetime.strptime(str(value), "%Y%m%d").date()
+
+        return parse(min(days)), parse(max(days))
+
     def route(self, origin: Point, destination: Point, **options: Any) -> Result:
         return self.run(Route(origin, destination, **options))
 
@@ -1390,6 +1422,19 @@ def open(
     return City(path, resolve_runtime(runtime), manifest, timeout=timeout)
 
 
+def _interactive() -> bool:
+    """Whether a person is likely watching: a notebook kernel or a terminal."""
+
+    import sys
+
+    if "ipykernel" in sys.modules:
+        return True
+    try:
+        return sys.stdout.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
 def build(
     output: str | os.PathLike[str],
     *,
@@ -1400,14 +1445,31 @@ def build(
     replace: bool = False,
     runtime: RuntimeInfo | str | os.PathLike[str] | Sequence[str] | None = None,
     timeout: float = 1_800.0,
-    progress: bool = False,
+    progress: bool | None = None,
 ) -> City:
-    """Build one City directly from GTFS and OSM, then open it."""
+    """Build one City directly from GTFS and OSM, then open it.
+
+    Building takes minutes for a metropolitan region. Build once, then reopen
+    the saved directory with :func:`open`. ``progress`` defaults to showing
+    stages and elapsed time in notebooks and terminals; pass ``False`` to
+    silence it.
+    """
 
     output_path = Path(output).expanduser().resolve()
     sources = [gtfs] if isinstance(gtfs, (str, os.PathLike)) else list(gtfs)
     if not sources:
         raise ValueError("at least one GTFS ZIP is required")
+    # Report a mistyped path now, not after the runtime starts compiling.
+    for label, source in [*(("GTFS", source) for source in sources), ("OSM", osm)]:
+        if not Path(source).expanduser().is_file():
+            raise VigoError(f"{label} input not found: {Path(source).expanduser().resolve()}")
+    if (output_path / "network.json").is_file() and not replace:
+        raise VigoError(
+            f"A City already exists at {output_path}. Open it with vigo.open(), "
+            "or pass replace=True to rebuild it."
+        )
+    if progress is None:
+        progress = _interactive()
     runtime_info = resolve_runtime(runtime)
     if private_access not in {"public", "endpoints"}:
         raise ValueError("private_access must be public or endpoints")

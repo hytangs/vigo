@@ -21,12 +21,14 @@ class ProgressTest(unittest.TestCase):
             result = _run([sys.executable], "-c", "print('ready')")
         self.assertEqual(result.stdout.strip(), "ready")
 
-    def test_requested_progress_explains_missing_dependency_before_starting(self) -> None:
+    def test_requested_progress_prints_stages_without_tqdm(self) -> None:
+        source = "import sys; print('[osm] Reading OSM nodes', file=sys.stderr); print('ready')"
         with patch.dict(sys.modules, {"tqdm": None, "tqdm.auto": None}), \
-             patch("vigo.progress.subprocess.Popen") as spawn:
-            with self.assertRaisesRegex(vigo.VigoError, "pip install tqdm"):
-                _run([sys.executable], "-c", "print('ready')", progress=True)
-            spawn.assert_not_called()
+             contextlib.redirect_stdout(io.StringIO()) as display:
+            result = _run([sys.executable], "-c", source, progress=True)
+        self.assertEqual(result.stdout.strip(), "ready")
+        for label in ["Building City", "[osm] Reading OSM nodes", "City built"]:
+            self.assertIn(label, display.getvalue())
 
     @unittest.skipUnless(importlib.util.find_spec("tqdm"), "install the progress extra")
     def test_live_stages_preserve_large_stdout_and_unicode_errors(self) -> None:
@@ -83,6 +85,8 @@ print('Station 北', file=sys.stderr, flush=True)
             root = Path(temporary)
             script = root / 'runtime.py'
             script.write_text(FAKE_VIGO, encoding='utf-8')
+            (root / 'feed.zip').touch()
+            (root / 'city.pbf').touch()
             with contextlib.redirect_stderr(io.StringIO()) as display, vigo.build(
                 root / 'city', gtfs=root / 'feed.zip', osm=root / 'city.pbf',
                 runtime=[sys.executable, str(script)], progress=True,

@@ -57,7 +57,7 @@ Install VIGO Python 1.0.0rc1, select Engine 1.0, and open a prepared City. The e
 
 ### 1. Install
 
-For a packaged installation, select the wheel matching your OS and CPU from [VIGO Python releases](https://github.com/hytangs/vigo/tree/main/python/releases). Replace the filename below with the downloaded file:
+For a packaged installation, download the `VIGO-Python-…` ZIP matching your OS and CPU from the [VIGO releases page](https://github.com/hytangs/vigo/releases) and unzip it. It contains the wheel, `INSTALL.txt`, and the runtime manifest. Replace the filename below with the unzipped wheel:
 
 ```sh
 python -m pip install "/path/to/vigo-1.0.0rc1-py3-none-PLATFORM.whl[speed]"
@@ -76,7 +76,7 @@ export VIGO_RUNTIME=/path/to/headless-runtime
 
 ### 2. Prepare the City
 
-Use a complete City built with VIGO V1. Keep the entire directory, including its timetable and street files. If starting with raw inputs, follow the [Engine Boston tutorial](https://github.com/hytangs/vigo/blob/main/docs/guide.md#quickstart), or build from local files in Python:
+A City is a prepared directory built once from a static GTFS ZIP and an OpenStreetMap `.osm.pbf`. The [Engine Boston tutorial](https://github.com/hytangs/vigo/blob/main/docs/guide.md#quickstart) lists where to download both. Save this as `build.py` and run it once:
 
 ```python
 import vigo
@@ -84,16 +84,19 @@ import vigo
 with vigo.build(
     "./boston",
     gtfs="./data/MBTA_GTFS.zip",
-    osm="./data/boston.osm.pbf",
+    osm="./data/massachusetts-latest.osm.pbf",
 ) as city:
     print(city.name, city.revision_id)
+    print("timetable covers", city.service_period())
 ```
 
-Build once; reopen the saved City in later sessions. Do not call Build inside a query loop. If a prepared City predates the supported format, rebuild it from its original inputs into a new directory.
+In a terminal or notebook, Build prints each stage and the elapsed time; a Boston build takes a few minutes. Missing input files are reported before anything starts. Build refuses to overwrite an existing City unless you pass `replace=True`.
+
+Build once; reopen the saved City with `vigo.open()` in later sessions. Do not call Build inside a query loop. Keep the entire directory, including its timetable and street files. If a prepared City predates the supported format, rebuild it from its original inputs into a new directory.
 
 ### 3. Run a journey query
 
-Save this as `route.py`. The example requires Boston street coverage and a timetable active on October 5, 2026. Change the date to one covered by your own feed.
+Save this as `route.py`. The example requires Boston street coverage and a timetable active on October 5, 2026, as in the Engine tutorial. With another feed download, pick a date inside `city.service_period()`.
 
 ```python
 import vigo
@@ -560,7 +563,7 @@ Timing describes execution, not accuracy. Synthetic integration tests check cont
 | Source checkout or universal development wheel | Select a compatible external Engine | Wrapper development or an independently managed Engine |
 | Python with a complete Studio installation | Select the app or extracted distribution | Reusing the Engine shipped with Studio |
 
-Python requires version 3.10 or newer. Install a local platform wheel with `python -m pip install /path/to/vigo-1.0.0rc1-py3-none-PLATFORM.whl`, substituting its real filename. The package has no mandatory Python dependencies. `tqdm` is optional for Build progress.
+Python requires version 3.10 or newer. Install a local platform wheel with `python -m pip install /path/to/vigo-1.0.0rc1-py3-none-PLATFORM.whl`, substituting its real filename. The package has no mandatory Python dependencies. `tqdm` optionally draws Build progress as a live status line.
 
 For a source install, run `python -m pip install -e .` from the wrapper checkout, then select a compatible runtime explicitly. An adjacent Engine checkout is not automatically selected. Maintainers can [stage and build a headless platform wheel](../CONTRIBUTING.md#build-a-headless-wheel).
 
@@ -606,20 +609,23 @@ complete elapsed time of `vigo.build()`. Its component stages can overlap.
 
 ### Build progress
 
-Install `tqdm` or install this checkout with
-`python -m pip install ".[progress]"`, then call:
+Build shows progress automatically in notebooks and terminals, and stays quiet
+in scripts whose output is redirected. Pass `progress=True` or `progress=False`
+to choose explicitly:
 
 ```python
 with vigo.build("./boston", gtfs="./mbta.zip", osm="./massachusetts.osm.pbf", progress=True) as city:
     print(city.name)
 ```
 
-The optional display uses `tqdm.auto` and shows the latest stage reported by
-Engine and the elapsed Build time. The timer continues during long stages,
+Without extra packages, progress prints one line per Engine stage with the
+elapsed time, plus a reminder each minute during long stages. With `tqdm`
+installed (`python -m pip install ".[progress]"`), it is a single live status
+line from `tqdm.auto` showing the latest stage and elapsed Build time. The timer continues during long stages,
 including street-index preparation. It does not invent a percentage or remaining
 time when Engine has not reported a total. Build errors retain Engine's explanation; timeout or interruption stops
-the build processes and closes the display. Progress defaults to `False` and
-does not add work to Route or Matrix calls.
+the build processes and closes the display. Progress does not add work to Route
+or Matrix calls.
 
 ### Reopen a built City
 
