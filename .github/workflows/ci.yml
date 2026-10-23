@@ -33,13 +33,11 @@ jobs:
           key: rust-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-${{ github.sha }}
           restore-keys: |
             rust-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-
+      # check:public, typecheck, check:security and Rust routing targets run in
+      # the engine job's check:release.
       - run: npm audit --audit-level=high
-      - run: npm run check:public
-      - run: npm run typecheck
       - run: npm run format:check
-      - run: npm run check:security
       - run: npm run check:package-publication
-      - run: npm run check:rust-routing-targets
       - run: npm run check:rust-workspace
       - run: cargo test --no-default-features --features standalone --manifest-path crates/vigo-runtime/Cargo.toml
       - run: cargo clippy --all-targets --no-default-features --features standalone --manifest-path crates/vigo-runtime/Cargo.toml -- -D warnings

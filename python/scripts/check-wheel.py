@@ -61,15 +61,12 @@ with tempfile.TemporaryDirectory(prefix="vigo-wheel-") as directory:
     if bundled and os.environ.get("VIGO_TEST_INPUTS"):
         environment["VIGO_TEST_INPUTS"] = str(Path(os.environ["VIGO_TEST_INPUTS"]).resolve())
         # unittest is in the standard library, so the clean venv needs no test packages.
-        # Only the progress-display test needs the optional tqdm dependency.
+        # Without tqdm, Build progress prints plain stage lines, so every live test runs.
         code = (
             "import runpy, unittest; "
             f"module = runpy.run_path({str(root_source / 'tests/test_live_runtime.py')!r}); "
-            "import vigo; original = vigo.build; "
-            "vigo.build = lambda *a, **k: original(*a, **{**k, 'progress': False}); "
             "case = module['LiveRuntimeTest']; "
-            "names = [n for n in unittest.defaultTestLoader.getTestCaseNames(case) if n != 'test_build_reports_actual_phases']; "
-            "result = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite(case(n) for n in names)); "
+            "result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(case)); "
             "raise SystemExit(not result.wasSuccessful())"
         )
         subprocess.run([str(executable), "-I", "-c", code], cwd=root, env=environment, check=True)
