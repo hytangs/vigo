@@ -55,10 +55,7 @@ let localLinks = 0, checkedAnchors = 0, scriptReferences = 0
 const linkedFiles = new Set(['docs/guide.md'])
 for (const [file, source] of sources) {
   // Check examples as well as prose: a documented npm command must still exist.
-  // Historical records, including their page in the generated guide, keep old commands.
-  const current = file === 'docs/history.md' ? ''
-    : file === 'docs/guide.html' ? source.replace(/<article[^>]*\bid="page-history"[\s\S]*?<\/article>/u, '') : source
-  for (const match of current.matchAll(/\bnpm run ([\w:-]+)/gu)) {
+  for (const match of source.matchAll(/\bnpm run ([\w:-]+)/gu)) {
     assert(Object.hasOwn(manifest.scripts, match[1]), `${file} documents an unknown npm script: ${match[1]}`)
     scriptReferences += 1
   }

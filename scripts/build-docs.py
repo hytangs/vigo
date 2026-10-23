@@ -26,20 +26,21 @@ from docs_renderer import markdown, slug
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "https://github.com/hytangs/vigo"
 
-# The VIGO mark: two strokes and the lime platform triangle (public/vigo-mark-*.png).
-MARK = (
-    '<svg class="mark" viewBox="0 0 393 262" aria-hidden="true" focusable="false">'
-    '<path class="mark-stroke" d="M0 0h76l115 189-39 60z"/>'
-    '<path class="mark-stroke" d="M393 0h-76L202 189l39 60z"/>'
-    '<path class="mark-platform" d="M197 200l36 62h-72z"/></svg>'
+
+
+def _asset(name: str) -> str:
+    data = base64.b64encode((ROOT / "scripts" / "docs-brand" / name).read_bytes()).decode("ascii")
+    return f"data:image/png;base64,{data}"
+
+
+# The VIGO logo artwork, cut from the supplied lockup; the dark variants only
+# lighten its ink. Embedded so the guide stays one offline file.
+LOGO = (
+    f'<img class="brand-logo brand-logo-light" src="{_asset("vigo-lockup-light.png")}" alt="VIGO" width="130" height="24">'
+    f'<img class="brand-logo brand-logo-dark" src="{_asset("vigo-lockup-dark.png")}" alt="" width="130" height="24">'
 )
-FAVICON = (
-    "data:image/svg+xml,"
-    + "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-40 -100 473 473'%3E"
-    + "%3Crect x='-40' y='-100' width='473' height='473' rx='96' fill='%23f6f7f5'/%3E"
-    + "%3Cpath fill='%23141c28' d='M0 0h76l115 189-39 60zM393 0h-76L202 189l39 60z'/%3E"
-    + "%3Cpath fill='%23aebd4f' d='M197 200l36 62h-72z'/%3E%3C/svg%3E"
-)
+FAVICON = _asset("vigo-mark-light.png")
+FAVICON_DARK = _asset("vigo-mark-dark.png")
 ICONS = {
     "search": '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>',
     "menu": '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
@@ -557,9 +558,9 @@ def build(config):
         "d.dataset.theme=t;})();"
     )
     result = f'''<!doctype html>
-<html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="description" content="{html.escape(config["description"].format(version=version), quote=True)}"><title>{product} {version} documentation</title><link rel="icon" href="{FAVICON}"><script>{theme_boot}</script><style>{css}</style></head>
+<html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="description" content="{html.escape(config["description"].format(version=version), quote=True)}"><title>{product} {version} documentation</title><link rel="icon" href="{FAVICON}" media="(prefers-color-scheme: light)"><link rel="icon" href="{FAVICON_DARK}" media="(prefers-color-scheme: dark)"><script>{theme_boot}</script><style>{css}</style></head>
 <body data-product="{product}" data-version="{version}" data-source-root="{REPOSITORY}/blob/main/">{sprite()}<a class="skip" href="#content">Skip to content</a>
-<header class="site-header"><button class="icon-button menu-button" type="button" aria-controls="sidebar" aria-expanded="false" aria-label="Open navigation">{ICONS["menu"]}</button><a class="brand" href="#overview" aria-label="{product} documentation home">{MARK}<span class="brand-name">{product}</span><span class="brand-section">Docs</span></a><span class="version-pill" title="Documentation for {product} {version}">v{version}</span>
+<header class="site-header"><button class="icon-button menu-button" type="button" aria-controls="sidebar" aria-expanded="false" aria-label="Open navigation">{ICONS["menu"]}</button><a class="brand" href="#overview" aria-label="{product} documentation home">{LOGO}<span class="brand-section">Docs</span></a><span class="version-pill" title="Documentation for {product} {version}">v{version}</span>
 <button class="search-trigger" type="button" data-search-open aria-haspopup="dialog">{ICONS["search"]}<span>Search the docs</span><kbd>/</kbd></button>
 <nav class="header-links" aria-label="Project">{links}</nav><button id="theme-toggle" class="icon-button" type="button" aria-label="Switch to dark theme">{ICONS["sun"]}{ICONS["moon"]}</button></header>
 <div class="layout"><aside class="sidebar" id="sidebar" aria-label="Documentation"><div class="sidebar-search"><button class="search-trigger" type="button" data-search-open aria-haspopup="dialog">{ICONS["search"]}<span>Search</span><kbd>/</kbd></button></div><nav id="chapters" aria-label="Chapters">{nav}</nav><p class="sidebar-footer">{product} {version} · Apache-2.0</p></aside><div class="scrim" data-close-sidebar hidden></div>

@@ -1,5 +1,6 @@
-/* VIGO guide. Tokens follow Studio's theme (src/styles/theme.css): ink, lime,
-   olive accents, quiet grey surfaces, Inter, and 8–12px radii. */
+/* VIGO guide. Tokens follow Studio's theme (src/styles/foundation.css): quiet
+   grey surfaces, Inter and 8–12px radii. Light ink and lime are the logo's own
+   colours, so the header lockup, buttons and accents read as one brand. */
 :root {
   --bg: #ffffff;
   --bg-subtle: #f6f7f5;
@@ -12,15 +13,15 @@
   --text: #25292d;
   --text-soft: #48515c;
   --text-muted: #697382;
-  --ink: #141c28;
-  --lime: #aebd4f;
+  --ink: #292e37;
+  --lime: #bac06e;
   --accent: #526b42;
   --accent-soft: #eef2e4;
   --accent-ring: rgba(82, 107, 66, 0.35);
   --link: #2f5f86;
   --mark: #e4ebc9;
-  --primary: #111315;
-  --primary-hover: #2b3036;
+  --primary: #292e37;
+  --primary-hover: #3b414c;
   --primary-ink: #ffffff;
   --note: #356f9d;
   --tip: #2f766a;
@@ -100,14 +101,13 @@ svg { flex-shrink: 0; }
 kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 1.6em; height: 1.6em; padding: 0 5px; border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 5px; background: var(--bg); color: var(--text-muted); font: 600 11px/1 var(--mono); }
 svg path, svg circle { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 svg .fill { fill: currentColor; stroke: none; }
-.mark .mark-stroke { fill: var(--ink); stroke: none; }
-.mark .mark-platform { fill: var(--lime); stroke: none; }
 
 /* Header */
 .site-header { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 14px; height: var(--header); padding: 0 20px 0 24px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--bg) 86%, transparent); backdrop-filter: saturate(1.4) blur(14px); -webkit-backdrop-filter: saturate(1.4) blur(14px); }
 .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text-strong); text-decoration: none; border-radius: var(--radius-sm); }
-.brand .mark { width: 30px; height: 20px; }
-.brand-name { font-weight: 700; font-size: 17px; letter-spacing: 0.18em; }
+.brand-logo { display: block; width: auto; height: 24px; }
+.brand-logo-dark, [data-theme="dark"] .brand-logo-light { display: none; }
+[data-theme="dark"] .brand-logo-dark { display: block; }
 .brand-section { padding-left: 10px; border-left: 1px solid var(--border-strong); color: var(--text-soft); font-weight: 500; font-size: 15px; }
 .version-pill { padding: 2px 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-subtle); color: var(--text-soft); font: 600 12px/1.6 var(--mono); }
 .search-trigger { display: inline-flex; align-items: center; gap: 10px; height: 38px; padding: 0 8px 0 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-subtle); color: var(--text-muted); font-size: 14px; transition: border-color .15s, background .15s; }
