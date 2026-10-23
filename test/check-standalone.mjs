@@ -91,6 +91,17 @@ try {
       if (independent.status === 'ready') assert(choices.some(p => p.arrivalMinutes === independent.arrivalMinutes &&
         p.departureMinutes === independent.departureMinutes && p.mode === independent.mode), 'Independent witness retained')
     }
+    if (timePreference === 'depart_at' && composed.status === 'ready') {
+      // The planner offers the latest departure that still makes its earliest arrival.
+      const { time: _time, ...rest } = q
+      const latest = run('route', { ...rest, timePreference: 'arrive_by', timeMinutes: composed.arrivalMinutes, requireTransitRide: true })
+      if (latest.status === 'ready' && latest.departureMinutes > composed.departureMinutes)
+        assert(choices.some(p => p.departureMinutes >= latest.departureMinutes && p.arrivalMinutes <= composed.arrivalMinutes),
+          'A later departure for the same arrival is offered')
+      assert(choices.every(p => p.expandedWalkingLimitKm || p.arrivalMinutes > composed.arrivalMinutes
+        || p.departureMinutes <= composed.departureMinutes || p.legs.every(l => l.kind !== 'ride')),
+        'The primary journey leaves latest among equal arrivals')
+    }
     const noWalk = run('route', { ...q, maxWalkKm: 0, allowLongWalk: false, journeyPolicy: 'alternatives-v1' })
     assert([noWalk, ...(noWalk.choices || [])].every(p => p.status !== 'ready' || p.legs.some(l => l.kind === 'ride')))
   }

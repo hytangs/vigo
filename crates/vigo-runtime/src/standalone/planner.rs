@@ -183,9 +183,15 @@ impl City {
             let time = if arrive {
                 clock(b, "departureMinutes").total_cmp(&clock(a, "departureMinutes"))
             } else {
-                // Equal arrivals: the shorter trip, which leaves later, first.
+                // Equal arrivals: within the walking limit, then the shorter
+                // trip, which leaves later.
                 clock(a, "arrivalMinutes")
                     .total_cmp(&clock(b, "arrivalMinutes"))
+                    .then_with(|| {
+                        a.get("expandedWalkingLimitKm")
+                            .is_some()
+                            .cmp(&b.get("expandedWalkingLimitKm").is_some())
+                    })
                     .then_with(|| travel_minutes(a).total_cmp(&travel_minutes(b)))
             };
             time.then_with(|| {
