@@ -123,7 +123,9 @@ try {
   const files = await allFiles(projectRoot)
   const relativeFiles = files.map((file) => path.relative(projectRoot, file).split(path.sep).join('/'))
   assert(relativeFiles.some((file) => /^\.vigo\/routing\/feed_[^/]+\.sqlite$/.test(file)), relativeFiles.join('\n'))
-  assert(!relativeFiles.some((file) => /^\.vigo\/routing\/.*\.json$/.test(file)), relativeFiles.join('\n'))
+  // Only the disposable Studio display cache may sit beside the store as JSON; routing data stays in SQLite.
+  assert(!relativeFiles.some((file) => /^\.vigo\/routing\/.*\.json$/.test(file)
+    && !/\.sqlite\.studio-preview-[0-9a-f]{16}\.json$/.test(file)), relativeFiles.join('\n'))
   assert(!relativeFiles.some((file) => /^\.vigo\/(?:transport|index|feeds)\//.test(file)), relativeFiles.join('\n'))
   assert(!relativeFiles.includes('.vigo/osm/walk-network.json'))
   const storedProject = JSON.parse(await fs.readFile(path.join(projectRoot, '.vigo', 'project.json'), 'utf8'))

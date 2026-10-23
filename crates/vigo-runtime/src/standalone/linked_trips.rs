@@ -267,7 +267,7 @@ impl CandidateCache {
 }
 
 fn candidate_bytes(candidates: &[Candidate]) -> usize {
-    candidates.len() * std::mem::size_of::<Candidate>()
+    std::mem::size_of_val(candidates)
         + candidates
             .iter()
             .map(|c| c.from.capacity() + c.to.capacity())
