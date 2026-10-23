@@ -7,6 +7,8 @@
 
 - Execute Route, Matrix and Reach in Rust, including all-day accessibility.
 - Add the versioned alternatives policy for thin API clients, shared-service information and explicit walking limits.
+- The alternatives policy offers the latest departure that still makes the earliest arrival, and ranks equal arrivals by time spent travelling.
+- Return one walk leg for each continuous walk. Station pathway and street pieces become `components`; waits, rides and waypoints still separate legs.
 - Extend GTFS transfer, headway and station-access handling with capability and limitation reporting.
 - Preserve compatible prepared Cities, API 1.0, City format 1 and Result schema 1.
 - Align the Python release candidate with the same-commit engine and independent package tags.

@@ -152,46 +152,6 @@
           "type": "walk"
         },
         {
-          "arrivalTime": "08:00:05",
-          "components": [
-            {
-              "distanceMeters": 0,
-              "durationSeconds": 0,
-              "type": "street"
-            },
-            {
-              "distanceMeters": 0,
-              "durationSeconds": 5,
-              "sources": ["gtfs_pathway_estimated"],
-              "type": "station"
-            }
-          ],
-          "departureTime": "08:00:00",
-          "distanceMeters": 0,
-          "durationSeconds": 5,
-          "from": {
-            "coordinate": [-77.05,38.9],
-            "name": "Entrance",
-            "stop": {
-              "feed": null,
-              "id": "A"
-            }
-          },
-          "quality": {
-            "geometrySource": "gtfs_pathway",
-            "stationTime": "estimated",
-            "streetGeometry": "unverified"
-          },
-          "to": {
-            "name": "Inside",
-            "stop": {
-              "feed": null,
-              "id": "N"
-            }
-          },
-          "type": "walk"
-        },
-        {
           "arrivalTime": "08:00:25",
           "components": [
             {
@@ -201,19 +161,20 @@
             },
             {
               "distanceMeters": 0,
-              "durationSeconds": 20,
+              "durationSeconds": 25,
               "sources": ["gtfs_pathway_estimated"],
               "type": "station"
             }
           ],
-          "departureTime": "08:00:05",
+          "departureTime": "08:00:00",
           "distanceMeters": 0,
-          "durationSeconds": 20,
+          "durationSeconds": 25,
           "from": {
-            "name": "Inside",
+            "coordinate": [-77.05,38.9],
+            "name": "Entrance",
             "stop": {
               "feed": null,
-              "id": "N"
+              "id": "A"
             }
           },
           "quality": {
