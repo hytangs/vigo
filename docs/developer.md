@@ -28,9 +28,7 @@ A passing public synthetic fixture verifies the exercised behavior. Use the exac
 
 Markdown is the source for the single offline guide, `docs/guide.html`. `docs/navigation.json` lists its pages: each one renders a Markdown file, a section of one, or several sections composed in order, and `aliases` keep links to retired anchors working. Run `npm run docs:build` after changing a page, then `npm run check:docs`. `npm run docs:standalone` regenerates the OpenAPI document and native field reference from the Rust structs. The same guide is embedded by the engine at `/`, bundled by Studio, and shipped in engine archives; it works offline and includes print styles. There is no separately maintained PDF manuscript.
 
-### Historical records
-
-The [validation archive](history.md#historical-records) retains dated development evidence. It is separate from the current usage instructions. Version history remains in the [changelog](../CHANGELOG.md).
+Version history is in the [changelog](../CHANGELOG.md).
 
 ## Architecture
 
@@ -268,9 +266,6 @@ interaction. Network checks include connection persistence, source replacement,
 access control, in-flight invalidation and preservation of legacy data. No fixture
 or build proves field accuracy.
 
-The [0.4.2 architecture audit](history.md#architecture-audit-for-042) records the freeze review,
-remaining cost centers, and reasons for retaining compatibility code.
-
 ### Itinerary geometry and identifiers
 
 Rust reads selected shape rows directly from SQLite into numeric buffers and
@@ -377,7 +372,7 @@ Node Reach retains up to 64 next-departure schedule diagnostics per opened sourc
 
 Standalone profile/trace output includes `timing.timetableActivationMs`, the time spent activating the service timetable during that request. A source preparation also reports `timing.timetablePreparation` with `setupMs`, `sourceAndRealtimeMs`, `indexMs`, and `kernelMs`. Setup includes calendar resolution and retiring the preceding timetable; source includes SQLite loading and realtime application. These scopes belong to execution and exclude public formatting, serialization, transport, and initial City opening. A reused timetable has no new preparation record. Profile scopes can overlap total execution; do not add them to it.
 
-Since 0.4.1, Rust constructs per-stop departure order, deduplicates transfers, expands station fallback links, and packs transfer adjacency. JavaScript resolves source IDs and passes typed arrays to the native preparation operator. This runs on active-timetable cache misses; loading a compatible persisted snapshot bypasses it.
+Rust constructs per-stop departure order, deduplicates transfers, expands station fallback links, and packs transfer adjacency. JavaScript resolves source IDs and passes typed arrays to the native preparation operator. This runs on active-timetable cache misses; loading a compatible persisted snapshot bypasses it.
 
 Measure input marshalling and native preparation together when comparing the migration with the previous implementation. Keep SQLite reads, native search-index construction, snapshot loading, and resident query time separate. Preserved transfer ordering and snapshot layout do not by themselves establish a speedup. Filesystem lifecycle, source admission, and Result presentation remain JavaScript responsibilities.
 
@@ -402,7 +397,7 @@ scratch distances use zero-filled storage with an encoded unreachable value,
 so the first path does not need to fill city-wide distance and predecessor
 arrays. These changes do not reuse previous route results.
 
-Since 0.4.2, both persisted and in-memory Drive hierarchy construction use one
+Both persisted and in-memory Drive hierarchy construction use one
 33-percent balanced four-axis flow cut per component. New City builds persist
 the hierarchy; opening that City loads it instead of repeating construction. Both retain every
 node and edge and use the same exact CCH search and distance certification;
@@ -678,7 +673,6 @@ retired runtime surfaces. User-owned research files remain untouched.
 
 ### Verification on this checkout
 
-The dated 0.4.2 verification record is retained in the [release audit](history.md#architecture-audit-for-042).
 Checks cover native routing comparisons, TypeScript, import/request security,
 CLI/City portability, operational calculations, actual worker/Engine recovery,
 real browser interactions and the macOS ARM64 package. They do not establish

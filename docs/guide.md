@@ -865,7 +865,7 @@ Scheduled research requires an explicit service date and time. The server remove
 
 Both transit modes use the same native algorithms, stop identities, walking and transfer policies, and coordinate search; only the timetable presented to the engine differs. Transit Matrix and Reach remain scheduled and reject realtime requests.
 
-Results for an explicit mode include `diagnostics.routingDataMode` and `routingDataProvenance`: source timetable and street identity, service date and timezone, query time, walking and search settings, engine contract version, and a reproducibility key. Realtime results also identify the prediction snapshot, and ordered journeys reject changed data identities between legs. The manifest identifies inputs but does not archive them; retain the City, the VIGO build, the request, and the returned diagnostics to reproduce a result. The [0.4.2 method audit](history.md#realtime-and-traffic-method-audit--042) records earlier correctness repairs.
+Results for an explicit mode include `diagnostics.routingDataMode` and `routingDataProvenance`: source timetable and street identity, service date and timezone, query time, walking and search settings, engine contract version, and a reproducibility key. Realtime results also identify the prediction snapshot, and ordered journeys reject changed data identities between legs. The manifest identifies inputs but does not archive them; retain the City, the VIGO build, the request, and the returned diagnostics to reproduce a result.
 
 ### Shared timetable
 
