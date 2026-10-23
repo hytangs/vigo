@@ -24,7 +24,7 @@
   },
   "result": {
     "accessibility": {
-      "limitations": ["Unknown vehicle, boarding and street accessibility is excluded; coverage may be sparse.","Coordinate attachments are geometric; door-to-street access is not verified.","Elevator outages, temporary obstructions and individual chair dimensions are not modeled."],
+      "limitations": ["Unknown vehicle, boarding and station-path accessibility is excluded; coverage may be sparse.","Streets and paths are used unless OpenStreetMap records a barrier such as steps, raised kerbs, rough surfaces, narrow width or steep incline; sidewalk condition is not verified.","Coordinate attachments are geometric; door-to-street access is not verified.","Elevator outages, temporary obstructions and individual chair dimensions are not modeled."],
       "maximumSlope": 0.083,
       "minimumWidthMeters": 0.9,
       "profile": "wheelchair-strict-v1",

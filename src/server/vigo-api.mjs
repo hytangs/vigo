@@ -1461,11 +1461,13 @@ async function removeAbandonedStaging() {
     // Failed, cancelled and interrupted uploads remain retryable after a
     // restart. Only orphaned staging entries belong to startup housekeeping.
     const jobs = await readJsonRecords(path.join(storageRoot, entry.name, '.vigo', 'jobs'))
+    // Windows paths compare case-insensitively, so a recorded D:\ path still protects d:\ uploads.
+    const key = file => process.platform === 'win32' ? path.resolve(file).toLowerCase() : path.resolve(file)
     const retained = new Set(jobs.filter(job => job.status !== 'complete')
-      .flatMap(job => [job.retrySourcePath, job.sourcePath]).filter(Boolean).map(file => path.resolve(file)))
+      .flatMap(job => [job.retrySourcePath, job.sourcePath]).filter(Boolean).map(key))
     const children = await fs.readdir(targetPath)
     const protectedNames = children.filter(name => [...retained].some(file => {
-      const child = path.join(targetPath, name)
+      const child = key(path.join(targetPath, name))
       return file === child || file.startsWith(`${child}${path.sep}`)
     }))
     if (!protectedNames.length) targets.push(targetPath)

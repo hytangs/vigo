@@ -425,10 +425,13 @@ export class NativeRuntime {
 
   /** Release every City that contains or lies under `file` before it is replaced or removed. */
   retire(file) {
-    const resolved = path.resolve(file)
+    // Windows paths compare case-insensitively; a missed City would keep the file open.
+    const key = value => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value)
+    const resolved = key(file)
     const within = (inner, outer) => inner === outer || inner.startsWith(`${outer}${path.sep}`)
     for (const city of [...this.cities.values()]) {
-      if (within(resolved, city.layout.root) || within(city.layout.root, resolved)) city.stop()
+      const root = key(city.layout.root)
+      if (within(resolved, root) || within(root, resolved)) city.stop()
     }
   }
 

@@ -31,14 +31,22 @@ class _Lines:
         seconds = int(time.monotonic() - self._started)
         return f"{seconds // 60:d}:{seconds % 60:02d}"
 
-    def set_description_str(self, text: str) -> None:
-        print(f"[{self._elapsed()}] {text}", flush=True)
+    def _say(self, text: str) -> None:
+        line = f"[{self._elapsed()}] {text}"
+        try:
+            print(line, file=sys.stderr, flush=True)
+        except UnicodeEncodeError:
+            # Redirected Windows streams often use a legacy code page.
+            encoding = getattr(sys.stderr, "encoding", None) or "ascii"
+            print(line.encode(encoding, "replace").decode(encoding), file=sys.stderr, flush=True)
         self._last = time.monotonic()
+
+    def set_description_str(self, text: str) -> None:
+        self._say(text)
 
     def refresh(self) -> None:
         if time.monotonic() - self._last >= 60:
-            print(f"[{self._elapsed()}] still building...", flush=True)
-            self._last = time.monotonic()
+            self._say("still building...")
 
 
 def run_with_progress(

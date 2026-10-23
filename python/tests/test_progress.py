@@ -24,11 +24,21 @@ class ProgressTest(unittest.TestCase):
     def test_requested_progress_prints_stages_without_tqdm(self) -> None:
         source = "import sys; print('[osm] Reading OSM nodes', file=sys.stderr); print('ready')"
         with patch.dict(sys.modules, {"tqdm": None, "tqdm.auto": None}), \
-             contextlib.redirect_stdout(io.StringIO()) as display:
+             contextlib.redirect_stderr(io.StringIO()) as display:
             result = _run([sys.executable], "-c", source, progress=True)
         self.assertEqual(result.stdout.strip(), "ready")
         for label in ["Building City", "[osm] Reading OSM nodes", "City built"]:
             self.assertIn(label, display.getvalue())
+
+    def test_plain_progress_survives_legacy_console_encoding(self) -> None:
+        from vigo.progress import _Lines
+
+        raw = io.BytesIO()
+        stream = io.TextIOWrapper(raw, encoding="cp1252")
+        with contextlib.redirect_stderr(stream):
+            _Lines(desc="[gtfs] Reading Station 北")
+        stream.flush()
+        self.assertIn(b"Reading Station ?", raw.getvalue())
 
     @unittest.skipUnless(importlib.util.find_spec("tqdm"), "install the progress extra")
     def test_live_stages_preserve_large_stdout_and_unicode_errors(self) -> None:
