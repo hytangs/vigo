@@ -130,12 +130,18 @@ struct ForwardCertificate {
     pre: bool,
     buffer: u32,
 }
-pub(super) struct ServiceIndex {
-    pub(super) data: Arc<ServiceSemantics>,
+/// Scheduled and headway events at each stop, used only by stateful search.
+/// Certified ordinary queries never need them, so they are built on demand.
+#[derive(Default)]
+struct StopEvents {
     departures: Vec<Vec<u32>>,
     arrivals: Vec<Vec<u32>>,
     headway_departures: Vec<Vec<u32>>,
     headway_arrivals: Vec<Vec<u32>>,
+}
+pub(super) struct ServiceIndex {
+    pub(super) data: Arc<ServiceSemantics>,
+    stop_events: OnceCell<StopEvents>,
     rules: HashMap<(u32, u32), PairRules>,
     windows: HashMap<u32, Vec<usize>>,
     extra_forward: Vec<Vec<u32>>,
@@ -165,10 +171,12 @@ impl ServiceIndex {
             + self.data.headways.capacity() * std::mem::size_of::<HeadwayWindow>()
             + self.data.trip_routes.capacity() * 4
             + vectors(&self.data.physical_trips)
-            + vectors(&self.departures)
-            + vectors(&self.arrivals)
-            + vectors(&self.headway_departures)
-            + vectors(&self.headway_arrivals)
+            + self.stop_events.get().map_or(0, |e| {
+                vectors(&e.departures)
+                    + vectors(&e.arrivals)
+                    + vectors(&e.headway_departures)
+                    + vectors(&e.headway_arrivals)
+            })
             + vectors(&self.extra_forward)
             + vectors(&self.extra_reverse)
             + (self.forward_classes.capacity() + self.reverse_classes.capacity()) * 4
@@ -295,10 +303,7 @@ impl TimetableKernel {
     pub fn set_service_semantics(&mut self, data: ServiceSemantics) -> Result<()> {
         let mut index = ServiceIndex {
             data: Arc::new(data),
-            departures: vec![vec![]; self.stop_count],
-            arrivals: vec![vec![]; self.stop_count],
-            headway_departures: vec![vec![]; self.stop_count],
-            headway_arrivals: vec![vec![]; self.stop_count],
+            stop_events: OnceCell::new(),
             rules: HashMap::new(),
             windows: HashMap::new(),
             extra_forward: vec![vec![]; self.stop_count],
@@ -372,21 +377,6 @@ impl TimetableKernel {
                 return Err(Error::from_reason("Invalid native headway window"));
             }
             index.windows.entry(w.trip).or_default().push(i);
-        }
-        for i in 0..self.departure_seconds.len() {
-            if index.windows.contains_key(&self.segment_trip.view()[i]) {
-                index.headway_departures[self.from_stop.view()[i] as usize].push(i as u32);
-                index.headway_arrivals[self.to_stop.view()[i] as usize].push(i as u32);
-            } else {
-                index.departures[self.from_stop.view()[i] as usize].push(i as u32);
-                index.arrivals[self.to_stop.view()[i] as usize].push(i as u32);
-            }
-        }
-        for departures in &mut index.departures {
-            departures.sort_unstable_by_key(|&i| (self.departure_seconds.view()[i as usize], i));
-        }
-        for arrivals in &mut index.arrivals {
-            arrivals.sort_unstable_by_key(|&i| (self.arrival_seconds.view()[i as usize], i));
         }
         for edges in index
             .extra_forward
@@ -493,16 +483,29 @@ impl TimetableKernel {
                 alights.insert((rule.from_trip.unwrap(), rule.from_stop), vec![]);
             }
         }
+        // Plain per-stop flags skip the hash lookups for the vast majority of
+        // segments, which call at no stop named by any guarded rule.
+        let flags = |stops: &mut dyn Iterator<Item = u32>| {
+            let mut flags = vec![false; self.stop_count];
+            for stop in stops {
+                flags[stop as usize] = true;
+            }
+            flags
+        };
         if !boards.is_empty() {
+            let board_stops = flags(&mut boards.keys().map(|&(_, stop)| stop));
+            let alight_stops = flags(&mut alights.keys().map(|&(_, stop)| stop));
             for i in 0..self.departure_seconds.len() {
-                let physical = physical_of(i);
+                let (from, to) = (self.from_stop.view()[i], self.to_stop.view()[i]);
                 if self.can_board.view()[i] != 0
-                    && let Some(times) = boards.get_mut(&(physical, self.from_stop.view()[i]))
+                    && board_stops[from as usize]
+                    && let Some(times) = boards.get_mut(&(physical_of(i), from))
                 {
                     times.push(i64::from(self.departure_seconds.view()[i]));
                 }
                 if self.can_alight.view()[i] != 0
-                    && let Some(times) = alights.get_mut(&(physical, self.to_stop.view()[i]))
+                    && alight_stops[to as usize]
+                    && let Some(times) = alights.get_mut(&(physical_of(i), to))
                 {
                     times.push(i64::from(self.arrival_seconds.view()[i]));
                 }
@@ -530,11 +533,12 @@ impl TimetableKernel {
                     .map_or(i64::MAX, |p| departure - (times[p] + base))
             }
         };
+        let guarded_stops = flags(&mut guarded.keys().copied());
         for i in 0..self.arrival_seconds.len() {
-            if self.can_alight.view()[i] == 0 {
+            let stop = self.to_stop.view()[i];
+            if self.can_alight.view()[i] == 0 || !guarded_stops[stop as usize] {
                 continue;
             }
-            let stop = self.to_stop.view()[i];
             let Some(rules) = guarded.get(&stop) else {
                 continue;
             };
@@ -558,11 +562,12 @@ impl TimetableKernel {
         index
             .forward_guard_events
             .dedup_by_key(|&mut (time, stop, _)| (time, stop));
+        let reverse_stops = flags(&mut reverse_guarded.keys().copied());
         for i in 0..self.departure_seconds.len() {
-            if self.can_board.view()[i] == 0 {
+            let stop = self.from_stop.view()[i];
+            if self.can_board.view()[i] == 0 || !reverse_stops[stop as usize] {
                 continue;
             }
-            let stop = self.from_stop.view()[i];
             let Some(rules) = reverse_guarded.get(&stop) else {
                 continue;
             };
@@ -589,12 +594,8 @@ impl TimetableKernel {
         // Freeze per-stop indexes after construction: geometric Vec growth
         // otherwise leaves unused capacity resident in every scenario.
         for entries in index
-            .departures
+            .extra_forward
             .iter_mut()
-            .chain(&mut index.arrivals)
-            .chain(&mut index.headway_departures)
-            .chain(&mut index.headway_arrivals)
-            .chain(&mut index.extra_forward)
             .chain(&mut index.extra_reverse)
         {
             entries.shrink_to_fit();
@@ -603,6 +604,50 @@ impl TimetableKernel {
         index.reverse_guard_events.shrink_to_fit();
         self.service = Some(index);
         Ok(())
+    }
+    /// Per-stop scheduled and headway events, built by the first stateful search.
+    fn stop_events(&self) -> &StopEvents {
+        let s = self.service.as_ref().unwrap();
+        s.stop_events.get_or_init(|| {
+            let mut events = StopEvents {
+                departures: vec![vec![]; self.stop_count],
+                arrivals: vec![vec![]; self.stop_count],
+                headway_departures: vec![vec![]; self.stop_count],
+                headway_arrivals: vec![vec![]; self.stop_count],
+            };
+            for i in 0..self.departure_seconds.len() {
+                let (from, to) = (
+                    self.from_stop.view()[i] as usize,
+                    self.to_stop.view()[i] as usize,
+                );
+                if s.windows.contains_key(&self.segment_trip.view()[i]) {
+                    events.headway_departures[from].push(i as u32);
+                    events.headway_arrivals[to].push(i as u32);
+                } else {
+                    events.departures[from].push(i as u32);
+                    events.arrivals[to].push(i as u32);
+                }
+            }
+            for departures in &mut events.departures {
+                departures
+                    .sort_unstable_by_key(|&i| (self.departure_seconds.view()[i as usize], i));
+            }
+            for arrivals in &mut events.arrivals {
+                arrivals.sort_unstable_by_key(|&i| (self.arrival_seconds.view()[i as usize], i));
+            }
+            // Freeze the indexes: geometric Vec growth otherwise leaves unused
+            // capacity resident in every scenario.
+            for entries in events
+                .departures
+                .iter_mut()
+                .chain(&mut events.arrivals)
+                .chain(&mut events.headway_departures)
+                .chain(&mut events.headway_arrivals)
+            {
+                entries.shrink_to_fit();
+            }
+            events
+        })
     }
     fn physical_trip(&self, trip: u32, sequence: u32) -> u32 {
         self.service
@@ -666,6 +711,7 @@ impl TimetableKernel {
             boarding_layers(Some(n))?;
         }
         let s = self.service.as_ref().unwrap();
+        let events = self.stop_events();
         s.stateful_searches.set(s.stateful_searches.get() + 1);
         let excluded: HashSet<_> = excluded.iter().copied().collect();
         let sign = if reverse { -1. } else { 1. };
@@ -795,9 +841,9 @@ impl TimetableKernel {
                 continue;
             }
             let boardings = if reverse {
-                &s.arrivals[l.stop as usize]
+                &events.arrivals[l.stop as usize]
             } else {
-                &s.departures[l.stop as usize]
+                &events.departures[l.stop as usize]
             };
             // Scheduled candidates outside the current clock interval cannot
             // board. Headway templates have relative clocks and are considered
@@ -812,9 +858,9 @@ impl TimetableKernel {
             let first = boardings.partition_point(|&i| f64::from(times[i as usize]) < lower);
             let last = boardings.partition_point(|&i| f64::from(times[i as usize]) <= upper);
             let headways = if reverse {
-                &s.headway_arrivals
+                &events.headway_arrivals
             } else {
-                &s.headway_departures
+                &events.headway_departures
             };
             for &i in boardings[first..last]
                 .iter()

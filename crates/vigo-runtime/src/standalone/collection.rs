@@ -4,7 +4,7 @@ use super::{City, Result, fail};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     fs,
     path::{Path, PathBuf},
     time::Instant,
@@ -49,6 +49,52 @@ pub(crate) struct Collection {
     last_query_timing: Value,
     load_ms: f64,
     eviction_ms: f64,
+    /// Heap charged to each resident City, measured when it last changed.
+    /// The worker is sequential: a City changes only while it answers a
+    /// query, trades street scratch with the next selection, or loses cache.
+    charges: HashMap<String, Charge>,
+}
+/// One City's share of the resident budget, from its memory ledger.
+struct Charge {
+    street_directory: PathBuf,
+    shared_street: usize,
+    private: usize,
+    /// What opening another City like it would add before activation.
+    opening: usize,
+}
+impl Charge {
+    fn of(city: &City) -> Self {
+        let ledger = city.memory_ledger();
+        let n = |value: &Value, key: &str| value[key].as_u64().unwrap_or(0) as usize;
+        let street = &ledger["street"];
+        let mut private = 0;
+        for key in ["accessHeapBytes", "workspaceHeapBytes", "cacheHeapBytes"] {
+            private += n(street, key);
+        }
+        for key in [
+            "cityDictionaryHeapBytes",
+            "timetableSourceOwnedHeapBytes",
+            "timetableIndexHeapBytes",
+            "timetableWorkspaceHeapBytes",
+            "cityCacheHeapBytes",
+            "sqliteHeapBytes",
+        ] {
+            private += n(&ledger, key);
+        }
+        if let Some(drive) = ledger.get("drive") {
+            for key in ["networkHeapBytes", "trafficHeapBytes", "workspaceHeapBytes"] {
+                private += n(drive, key);
+            }
+        }
+        Self {
+            street_directory: city.street_directory.clone(),
+            shared_street: n(street, "sharedHeapBytes"),
+            private,
+            opening: n(&ledger, "cityDictionaryHeapBytes")
+                + n(street, "accessHeapBytes")
+                + n(&ledger, "sqliteHeapBytes"),
+        }
+    }
 }
 impl Runtime {
     pub(crate) fn install_realtime(&mut self, message: &mut Value) -> Result<()> {
@@ -150,6 +196,7 @@ impl Runtime {
             last_query_timing: Value::Null,
             load_ms: 0.,
             eviction_ms: 0.,
+            charges: HashMap::new(),
             resident_heap_budget: match std::env::var("VIGO_RESIDENT_HEAP_BYTES") {
                 Ok(v) => v
                     .parse::<usize>()
@@ -223,6 +270,7 @@ impl Runtime {
                     c.timetable_blocks.prune();
                     super::release_preparation_memory();
                 }
+                c.charges.remove(&id);
                 c.enforce_resident_budget();
                 c.last_query_timing = json!({"scenarioId":id,"selectionMs":selection_ms,
                     "cityOpenMs":c.load_ms,"executionMs":execution_ms,
@@ -236,6 +284,30 @@ impl Runtime {
     }
 }
 impl Collection {
+    /// Resident heap from the per-City charges, measuring only Cities that
+    /// changed. Measuring every ledger after each query cost more than routing.
+    fn charged_heap_bytes(&mut self) -> usize {
+        for (id, city) in &self.cities {
+            if !self.charges.contains_key(id) {
+                self.charges.insert(id.clone(), Charge::of(city));
+            }
+        }
+        let mut streets = HashSet::new();
+        let mut bytes = self.timetable_blocks.unique_bytes()
+            + self.timetable_blocks.index_bytes()
+            + self
+                .query_workspace
+                .as_ref()
+                .map_or(0, crate::timetable::TimetableQueryWorkspace::byte_length);
+        for (id, _) in &self.cities {
+            let charge = &self.charges[id];
+            if streets.insert(&charge.street_directory) {
+                bytes += charge.shared_street;
+            }
+            bytes += charge.private;
+        }
+        bytes
+    }
     fn resident_heap_bytes(&self) -> usize {
         let mut streets = HashSet::new();
         let mut bytes = self.timetable_blocks.unique_bytes()
@@ -275,15 +347,17 @@ impl Collection {
     fn enforce_resident_budget(&mut self) {
         let started = Instant::now();
         let mut released = false;
-        while self.cities.len() > 1 && self.resident_heap_bytes() > self.resident_heap_budget {
+        while self.cities.len() > 1 && self.charged_heap_bytes() > self.resident_heap_budget {
             // Optional source/kernel caches are cheaper to rebuild than a City.
             // Keep active timetables and street preparation until caches are empty.
-            if !self
+            if let Some(id) = self
                 .cities
                 .iter_mut()
-                .any(|(_, city)| city.timetable_cache.evict_oldest())
+                .find_map(|(id, city)| city.timetable_cache.evict_oldest().then(|| id.clone()))
             {
-                self.cities.pop_front();
+                self.charges.remove(&id);
+            } else if let Some((id, _)) = self.cities.pop_front() {
+                self.charges.remove(&id);
                 self.evictions += 1;
             }
             self.timetable_blocks.prune();
@@ -299,9 +373,11 @@ impl Collection {
         self.eviction_ms = 0.;
         if let Some(index) = self.cities.iter().position(|(key, _)| key == id) {
             let mut city = self.cities.remove(index).unwrap();
-            if let Some((_, previous)) = self.cities.back_mut() {
+            if let Some((previous_id, previous)) = self.cities.back_mut() {
                 city.1.street.reuse_street_scratch(&mut previous.street);
+                self.charges.remove(previous_id.as_str());
             }
+            self.charges.remove(&city.0);
             self.cities.push_back(city);
         } else {
             self.enforce_resident_budget();
@@ -311,34 +387,28 @@ impl Collection {
                 .iter()
                 .find(|s| s.id == id)
                 .ok_or_else(|| format!("Unknown scenarioId: {id}"))?
-                .city;
+                .city
+                .clone();
             // Opening a City does not activate its timetable. Reserve only its
             // private dictionary/access state, not a fraction of shared street
             // and timetable owners or another City's active query indexes.
             // The post-query check still enforces the actual retained budget.
+            self.charged_heap_bytes();
             let reservation = self
                 .cities
                 .iter()
-                .map(|(_, city)| {
-                    let ledger = city.memory_ledger();
-                    [
-                        ledger["cityDictionaryHeapBytes"].as_u64().unwrap_or(0),
-                        ledger["street"]["accessHeapBytes"].as_u64().unwrap_or(0),
-                        ledger["sqliteHeapBytes"].as_u64().unwrap_or(0),
-                    ]
-                    .iter()
-                    .sum::<u64>() as usize
-                })
+                .map(|(id, _)| self.charges[id].opening)
                 .max()
                 .unwrap_or(0);
             let mut retired_street = None;
             while self.cities.len() >= self.manifest.maximum_resident_scenarios
                 || (!self.cities.is_empty()
-                    && self.resident_heap_bytes().saturating_add(reservation)
+                    && self.charged_heap_bytes().saturating_add(reservation)
                         > self.resident_heap_budget)
             {
                 let eviction_started = Instant::now();
-                let (_, mut city) = self.cities.pop_front().unwrap();
+                let (evicted, mut city) = self.cities.pop_front().unwrap();
+                self.charges.remove(&evicted);
                 // Drop the evicted timetable, stop data and caches before
                 // opening its replacement, retaining only reusable streets.
                 let mut streets = city.street.share_streets()?;
@@ -360,7 +430,7 @@ impl Collection {
                 )
                 .collect();
             let load_started = Instant::now();
-            let mut city = City::open_shared(Path::new(path), &residents)?;
+            let mut city = City::open_shared(Path::new(&path), &residents)?;
             self.load_ms = load_started.elapsed().as_secs_f64() * 1000.;
             city.timetable_blocks = None; // The collection owns the shared pool.
             let capacity = self
@@ -370,8 +440,9 @@ impl Collection {
             city.street.partition_cache_budget(capacity);
             city.shape_cache.partition_budget(capacity);
             city.timetable_cache.budget = 0;
-            if let Some((_, previous)) = self.cities.back_mut() {
+            if let Some((previous_id, previous)) = self.cities.back_mut() {
                 city.street.reuse_street_scratch(&mut previous.street);
+                self.charges.remove(previous_id.as_str());
             }
             if let Some((_, previous)) = &mut retired_street {
                 city.street.reuse_street_scratch(previous);

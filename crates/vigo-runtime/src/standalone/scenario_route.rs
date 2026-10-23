@@ -298,6 +298,7 @@ impl City {
         }
         Ok((
             Timetable {
+                heap: Default::default(),
                 links,
                 kernel: view.kernel,
                 stop_ids: stop_ids.into(),

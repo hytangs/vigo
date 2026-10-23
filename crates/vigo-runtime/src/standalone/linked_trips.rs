@@ -4,7 +4,8 @@
 use super::{Result, fail};
 use crate::realtime::TimetableNames;
 use rusqlite::Connection;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use vigo_format::ServiceTimetableResult;
 
 #[derive(Clone)]
@@ -17,7 +18,57 @@ pub(crate) struct Part {
     pub from: Vec<u32>,
     pub to: Vec<u32>,
 }
-pub(super) type Links = HashMap<u32, Vec<Part>>;
+/// Through runs by their timetable trip, with each linked physical trip's
+/// place in a run. Linked physical trips keep no segments of their own.
+#[derive(Clone, Default)]
+pub(crate) struct Links {
+    runs: HashMap<u32, Vec<Part>>,
+    physical: HashMap<u32, (u32, usize)>,
+}
+
+impl std::ops::Deref for Links {
+    type Target = HashMap<u32, Vec<Part>>;
+    fn deref(&self) -> &Self::Target {
+        &self.runs
+    }
+}
+
+impl<'a> IntoIterator for &'a Links {
+    type Item = (&'a u32, &'a Vec<Part>);
+    type IntoIter = std::collections::hash_map::Iter<'a, u32, Vec<Part>>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.runs.iter()
+    }
+}
+
+impl Links {
+    fn new(runs: HashMap<u32, Vec<Part>>) -> Self {
+        let mut physical = HashMap::new();
+        for (&run, parts) in &runs {
+            for (index, part) in parts.iter().enumerate() {
+                physical.entry(part.trip).or_insert((run, index));
+            }
+        }
+        Self { runs, physical }
+    }
+
+    /// The through run carrying a linked physical trip, with a call of that
+    /// trip (`sequence`, possibly an x.5 bridge) and the trip's whole span,
+    /// all in the run's own sequence numbering.
+    pub(crate) fn through(&self, trip: u32, sequence: f64) -> Option<(u32, f64, [f64; 2])> {
+        let &(run, index) = self.physical.get(&trip)?;
+        let part = &self.runs[&run][index];
+        let whole = sequence.floor();
+        let offset = part.sequences.iter().position(|&s| f64::from(s) == whole)?;
+        let first = f64::from(part.first);
+        let last = first + part.sequences.len() as f64 - 1.;
+        Some((
+            run,
+            first + offset as f64 + (sequence - whole),
+            [first, last],
+        ))
+    }
+}
 
 fn has_table(db: &Connection, name: &str) -> Result<bool> {
     Ok(db.query_row(
@@ -90,139 +141,320 @@ struct Candidate {
 
 // Only inferred block adjacency depends on the selected calendars. Explicit
 // links are static; compile still checks the active trip instances on each date.
-pub(super) struct Candidates(Vec<Candidate>, Option<Vec<String>>);
+pub(super) struct Candidates {
+    explicit: Arc<Explicit>,
+    inferred: Vec<Arc<Vec<Candidate>>>,
+}
 
-impl Candidates {
-    pub(super) fn matches_services(&self, services: &[String]) -> bool {
-        self.1.as_ref().is_none_or(|saved| saved == services)
+/// GTFS in-seat links, read once per City and shared by every calendar set:
+/// the continuations themselves and the trips whose explicit links (of any
+/// type) override block inference.
+#[derive(Default)]
+pub(super) struct Explicit {
+    links: Vec<Candidate>,
+    from: HashSet<String>,
+    to: HashSet<String>,
+    pairs: HashMap<String, HashSet<String>>,
+}
+
+/// Linked-trip candidates a City keeps between timetables. Block inference
+/// partitions trips by block and service_id, so each service's continuations
+/// are independent of the others: consecutive dates mostly share services and
+/// need no new query. Least recently used services beyond the budget are
+/// dropped; the services of the active timetable always stay.
+#[derive(Default)]
+pub(super) struct CandidateCache {
+    explicit: Option<Arc<Explicit>>,
+    by_service: HashMap<String, Arc<Vec<Candidate>>>,
+    /// Least recently used first.
+    recent: std::collections::VecDeque<String>,
+    present: Option<bool>,
+    has_blocks: Option<bool>,
+}
+
+/// Inferred continuations kept for services outside the active timetable.
+const RETAINED_SERVICE_BYTES: usize = 8 * 1024 * 1024;
+
+impl CandidateCache {
+    /// Candidates for `services`, and whether every part was already cached.
+    pub(super) fn candidates(
+        &mut self,
+        db: &Connection,
+        services: &[String],
+    ) -> Result<(Candidates, bool)> {
+        let present = match self.present {
+            Some(present) => present,
+            None => *self.present.insert(present(db)?),
+        };
+        if !present {
+            return Ok((
+                Candidates {
+                    explicit: Default::default(),
+                    inferred: Vec::new(),
+                },
+                true,
+            ));
+        }
+        let mut reused = true;
+        let explicit = match &self.explicit {
+            Some(explicit) => explicit.clone(),
+            None => {
+                reused = false;
+                self.explicit.insert(Arc::new(load_explicit(db)?)).clone()
+            }
+        };
+        let has_blocks = match self.has_blocks {
+            Some(has_blocks) => has_blocks,
+            None => *self.has_blocks.insert(has_block_trips(db)?),
+        };
+        if !has_blocks {
+            return Ok((
+                Candidates {
+                    explicit,
+                    inferred: Vec::new(),
+                },
+                reused,
+            ));
+        }
+        let missing: Vec<String> = services
+            .iter()
+            .filter(|s| !self.by_service.contains_key(*s))
+            .cloned()
+            .collect();
+        if !missing.is_empty() {
+            reused = false;
+            let mut found = infer_block_links(db, &missing, &explicit)?;
+            for service in missing {
+                let links = found.remove(&service).unwrap_or_default();
+                self.by_service.insert(service, Arc::new(links));
+            }
+        }
+        // Mark the requested services most recent, then trim older ones.
+        let requested: HashSet<&String> = services.iter().collect();
+        self.recent.retain(|s| !requested.contains(s));
+        self.recent.extend(services.iter().cloned());
+        let mut retained: usize = self.by_service.values().map(|c| candidate_bytes(c)).sum();
+        while retained > RETAINED_SERVICE_BYTES {
+            let Some(oldest) = self.recent.front() else {
+                break;
+            };
+            if requested.contains(oldest) {
+                break;
+            }
+            let oldest = self.recent.pop_front().unwrap();
+            if let Some(links) = self.by_service.remove(&oldest) {
+                retained -= candidate_bytes(&links);
+            }
+        }
+        let inferred = services
+            .iter()
+            .filter_map(|s| self.by_service.get(s).cloned())
+            .collect();
+        Ok((Candidates { explicit, inferred }, reused))
     }
+
     pub(super) fn estimated_bytes(&self) -> usize {
-        self.0.capacity() * std::mem::size_of::<Candidate>()
-            + self.1.as_ref().map_or(0, |services| {
-                services.capacity() * std::mem::size_of::<String>()
-                    + services.iter().map(String::capacity).sum::<usize>()
-            })
+        self.explicit
+            .as_deref()
+            .map_or(0, Explicit::estimated_bytes)
             + self
-                .0
+                .by_service
                 .iter()
-                .map(|c| c.from.capacity() + c.to.capacity())
+                .map(|(service, links)| service.capacity() + candidate_bytes(links))
+                .sum::<usize>()
+            + self.recent.iter().map(String::capacity).sum::<usize>()
+    }
+}
+
+fn candidate_bytes(candidates: &[Candidate]) -> usize {
+    candidates.len() * std::mem::size_of::<Candidate>()
+        + candidates
+            .iter()
+            .map(|c| c.from.capacity() + c.to.capacity())
+            .sum::<usize>()
+}
+
+fn string_set_bytes(set: &HashSet<String>) -> usize {
+    set.capacity() * (std::mem::size_of::<String>() + 1)
+        + set.iter().map(String::capacity).sum::<usize>()
+}
+
+impl Explicit {
+    fn estimated_bytes(&self) -> usize {
+        candidate_bytes(&self.links)
+            + string_set_bytes(&self.from)
+            + string_set_bytes(&self.to)
+            + self.pairs.capacity() * (std::mem::size_of::<(String, HashSet<String>)>() + 1)
+            + self
+                .pairs
+                .iter()
+                .map(|(k, v)| k.capacity() + string_set_bytes(v))
                 .sum::<usize>()
     }
 }
 
-pub(super) fn load_candidates(db: &Connection, services: &[String]) -> Result<Candidates> {
-    if !present(db)? {
-        return Ok(Candidates(Vec::new(), None));
+impl Candidates {
+    fn all(&self) -> impl Iterator<Item = &Candidate> {
+        self.explicit
+            .links
+            .iter()
+            .chain(self.inferred.iter().flat_map(|links| links.iter()))
     }
-    let mut candidates = Vec::new();
-    if has_table(db, "trip_links")? {
-        // The (trip_id, stop_sequence) key answers MAX with an endpoint lookup.
-        // Joining every connection before grouping repeatedly scanned entire
-        // trips just to find their terminal sequence.
-        let mut statement = db.prepare(
-            "SELECT l.from_trip_id,l.to_trip_id,
-          (SELECT MAX(stop_sequence) FROM connections WHERE trip_id=l.from_trip_id) AS terminal
+}
+
+fn load_explicit(db: &Connection) -> Result<Explicit> {
+    let mut explicit = Explicit::default();
+    if !has_table(db, "trip_links")? {
+        return Ok(explicit);
+    }
+    // The (trip_id, stop_sequence) key answers MAX with an endpoint lookup.
+    // Joining every connection before grouping repeatedly scanned entire
+    // trips just to find their terminal sequence.
+    let mut statement = db.prepare(
+        "SELECT l.from_trip_id,l.to_trip_id,
+          (SELECT MAX(stop_sequence) FROM connections WHERE trip_id=l.from_trip_id) AS terminal,
+          (SELECT MIN(stop_sequence) FROM connections WHERE trip_id=l.to_trip_id)
           FROM trip_links l WHERE l.transfer_type=4 AND terminal IS NOT NULL
           GROUP BY l.from_trip_id,l.to_trip_id ORDER BY l.from_trip_id,l.to_trip_id",
-        )?;
-        for row in statement.query_map([], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, u32>(2)?,
-                false,
-            ))
-        })? {
-            candidates.push(row?);
-        }
+    )?;
+    for row in statement.query_map([], |r| {
+        Ok(Candidate {
+            from: r.get(0)?,
+            to: r.get(1)?,
+            terminal: r.get(2)?,
+            inferred: false,
+            first: r.get(3)?,
+        })
+    })? {
+        explicit.links.push(row?);
     }
-    let has_blocks = has_block_trips(db)?;
-    if has_blocks {
-        // Derive adjacency from the static schedule, never from the surviving
-        // realtime trips: canceling the middle vehicle must not bridge a gap.
-        // Shared service_id establishes a common calendar. Other block models
-        // require explicit links instead of guessing cross-calendar continuity.
-        // Index explicit overrides once. A correlated OR subquery scans the
-        // complete links table for every block pair on real regional feeds.
-        let mut explicit_pairs: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
-        let mut explicit_from = std::collections::HashSet::new();
-        let mut explicit_to = std::collections::HashSet::new();
-        if has_table(db, "trip_links")? {
-            let mut statement =
-                db.prepare("SELECT from_trip_id,to_trip_id,transfer_type FROM trip_links")?;
-            for row in statement.query_map([], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, u32>(2)?,
-                ))
-            })? {
-                let (from, to, kind) = row?;
-                if kind == 4 {
-                    explicit_from.insert(from.clone());
-                    explicit_to.insert(to.clone());
-                }
-                explicit_pairs.entry(from).or_default().insert(to);
-            }
+    // Index explicit overrides once. A correlated OR subquery scans the
+    // complete links table for every block pair on real regional feeds.
+    let mut statement =
+        db.prepare("SELECT from_trip_id,to_trip_id,transfer_type FROM trip_links")?;
+    for row in statement.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, u32>(2)?,
+        ))
+    })? {
+        let (from, to, kind) = row?;
+        if kind == 4 {
+            explicit.from.insert(from.clone());
+            explicit.to.insert(to.clone());
         }
-        // Read adjacent departures from one ordered window. Joining the window
-        // to itself materialized and indexed the whole regional timetable again.
-        // Unique adjacent departure times are equivalent to both COUNT guards;
-        // previous_arrival prevents an earlier overlapping trip from being bridged.
-        let mut statement = db.prepare("WITH bounds AS (
-          SELECT t.trip_id,t.service_id,o.block_id,MIN(c.departure) AS departure,
-            MAX(c.arrival) AS arrival,MAX(c.stop_sequence) AS terminal
-          FROM trip_operations o JOIN trips t USING(trip_id) JOIN connections c USING(trip_id)
-          WHERE o.block_id IS NOT NULL
-            AND t.service_id IN (SELECT value FROM json_each(?1)) GROUP BY t.trip_id
-        ), ordered AS (
-          SELECT *,LEAD(trip_id) OVER w AS next,LEAD(departure) OVER w AS next_departure,
-            LEAD(departure,2) OVER w AS following_departure,LAG(departure) OVER w AS previous_departure,
-            MAX(arrival) OVER (PARTITION BY block_id,service_id ORDER BY departure,trip_id
-              ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS previous_arrival
-          FROM bounds WINDOW w AS (PARTITION BY block_id,service_id ORDER BY departure,trip_id)
-        ) SELECT trip_id,next,terminal FROM ordered WHERE arrival<=next_departure AND departure<next_departure
-          AND (previous_departure IS NULL OR previous_departure<departure)
-          AND (following_departure IS NULL OR next_departure<following_departure)
-          AND (previous_arrival IS NULL OR previous_arrival<=departure)")?;
-        for row in statement.query_map([serde_json::to_string(services)?], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, u32>(2)?,
-                true,
-            ))
-        })? {
-            let candidate = row?;
-            if !explicit_from.contains(&candidate.0)
-                && !explicit_to.contains(&candidate.1)
-                && !explicit_pairs
-                    .get(&candidate.0)
-                    .is_some_and(|targets| targets.contains(&candidate.1))
-            {
-                candidates.push(candidate);
-            }
-        }
+        explicit.pairs.entry(from).or_default().insert(to);
     }
-    let mut first_sequences = HashMap::new();
-    let mut statement = db.prepare("SELECT MIN(stop_sequence) FROM connections WHERE trip_id=?")?;
-    let mut indexed = Vec::with_capacity(candidates.len());
-    for (from, to, terminal, inferred) in candidates {
-        let first = match first_sequences.entry(to.clone()) {
-            std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                *entry.insert(statement.query_row([&to], |r| r.get::<_, Option<u32>>(0))?)
-            }
+    Ok(explicit)
+}
+
+/// Inferred block continuations of `services`, by service. Derive adjacency
+/// from the static schedule, never from the surviving realtime trips:
+/// canceling the middle vehicle must not bridge a gap. Shared service_id
+/// establishes a common calendar. Other block models require explicit links
+/// instead of guessing cross-calendar continuity.
+fn infer_block_links(
+    db: &Connection,
+    services: &[String],
+    explicit: &Explicit,
+) -> Result<HashMap<String, Vec<Candidate>>> {
+    let mut inferred: HashMap<String, Vec<Candidate>> = HashMap::new();
+    let mut statement = db.prepare(
+        "SELECT trip_id,service_id,block_id,head,tail FROM (
+        SELECT t.trip_id,t.service_id,o.block_id,
+          (SELECT (stop_sequence<<32)|departure FROM connections WHERE trip_id=t.trip_id
+            ORDER BY stop_sequence LIMIT 1) AS head,
+          (SELECT (stop_sequence<<32)|arrival FROM connections WHERE trip_id=t.trip_id
+            ORDER BY stop_sequence DESC LIMIT 1) AS tail
+        FROM trip_operations o JOIN trips t USING(trip_id)
+        WHERE o.block_id IS NOT NULL AND t.service_id IN (SELECT value FROM json_each(?1)))
+      WHERE head IS NOT NULL",
+    )?;
+    struct Bound {
+        trip: String,
+        service: String,
+        block: String,
+        departure: i64,
+        arrival: i64,
+        terminal: u32,
+        first: u32,
+    }
+    let mut bounds = statement
+        .query_map([serde_json::to_string(services)?], |r| {
+            let (head, tail): (i64, i64) = (r.get(3)?, r.get(4)?);
+            Ok(Bound {
+                trip: r.get(0)?,
+                service: r.get(1)?,
+                block: r.get(2)?,
+                departure: head & 0xffff_ffff,
+                arrival: tail & 0xffff_ffff,
+                terminal: (tail >> 32) as u32,
+                first: (head >> 32) as u32,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    // Adjacent trips of one block and calendar, in departure order (SQL
+    // binary text order breaks ties). Unique adjacent departure times are
+    // equivalent to both COUNT guards; the running arrival maximum prevents
+    // an earlier overlapping trip from being bridged. One sort and one pass
+    // replace three SQL window functions that dominated preparation.
+    bounds.sort_unstable_by(|a, b| {
+        (&a.block, &a.service, a.departure, &a.trip).cmp(&(
+            &b.block,
+            &b.service,
+            b.departure,
+            &b.trip,
+        ))
+    });
+    let mut group = 0;
+    let mut previous_arrival = None::<i64>;
+    for k in 0..bounds.len() {
+        let row = &bounds[k];
+        if k > 0 && (&bounds[k - 1].block, &bounds[k - 1].service) != (&row.block, &row.service) {
+            group = k;
+            previous_arrival = None;
+        }
+        let same = |j: usize| {
+            bounds
+                .get(j)
+                .filter(|b| b.block == row.block && b.service == row.service)
         };
-        indexed.push(Candidate {
-            from,
-            to,
-            terminal,
-            inferred,
-            first,
-        });
+        let previous_departure = (k > group).then(|| bounds[k - 1].departure);
+        if let Some(next) = same(k + 1)
+            && row.arrival <= next.departure
+            && row.departure < next.departure
+            && previous_departure.is_none_or(|d| d < row.departure)
+            && same(k + 2).is_none_or(|following| next.departure < following.departure)
+            && previous_arrival.is_none_or(|a| a <= row.departure)
+            && !explicit.from.contains(&row.trip)
+            && !explicit.to.contains(&next.trip)
+            && !explicit
+                .pairs
+                .get(&row.trip)
+                .is_some_and(|targets| targets.contains(&next.trip))
+        {
+            inferred
+                .entry(row.service.clone())
+                .or_default()
+                .push(Candidate {
+                    from: row.trip.clone(),
+                    to: next.trip.clone(),
+                    terminal: row.terminal,
+                    inferred: true,
+                    first: Some(next.first),
+                });
+        }
+        previous_arrival = Some(previous_arrival.map_or(row.arrival, |a| a.max(row.arrival)));
     }
-    Ok(Candidates(indexed, has_blocks.then(|| services.to_vec())))
+    Ok(inferred)
+}
+
+/// Candidates for `services` from a fresh cache; activation keeps a
+/// [`CandidateCache`] per City instead.
+#[cfg(test)]
+fn load_candidates(db: &Connection, services: &[String]) -> Result<Candidates> {
+    Ok(CandidateCache::default().candidates(db, services)?.0)
 }
 
 pub(super) fn compile(
@@ -230,8 +462,8 @@ pub(super) fn compile(
     a: &mut ServiceTimetableResult,
     names: &mut TimetableNames,
 ) -> Result<Links> {
-    if candidates.0.is_empty() {
-        return Ok(HashMap::new());
+    if candidates.all().next().is_none() {
+        return Ok(Links::default());
     }
     let mut instances: HashMap<&str, Vec<usize>> = HashMap::new();
     for (i, id) in names.trip_ids.iter().enumerate() {
@@ -247,7 +479,7 @@ pub(super) fn compile(
         terminal,
         inferred,
         first,
-    } in &candidates.0
+    } in candidates.all()
     {
         let (Some(sources), Some(targets)) =
             (instances.get(from.as_str()), instances.get(to.as_str()))
@@ -319,7 +551,7 @@ pub(super) fn compile(
         return fail("GTFS linked trips contain a cycle");
     }
     if chains.is_empty() {
-        return Ok(HashMap::new());
+        return Ok(Links::default());
     }
     let added: usize = chains
         .iter()
@@ -414,6 +646,61 @@ pub(super) fn compile(
         dates.push(names.trip_service_dates[head].clone());
         links.insert(trip, parts);
     }
+    // A through run already serves every call of its physical trips, and a
+    // rider may board or alight at any of them. Keeping the original copies
+    // too doubled the scanned connections on Cities whose blocks link most
+    // trips. Retain each linked trip's identity, but not its segments, as
+    // for a canceled trip; presentation maps through-run rides to its parts.
+    let original_trips = names.trip_ids.len();
+    let mut chained = vec![false; original_trips];
+    for part in links.values().flatten() {
+        chained[part.trip as usize] = true;
+    }
+    let original_segments = trip_start[original_trips] as usize;
+    let keep: Vec<bool> = (0..departure_seconds.len())
+        .map(|i| i >= original_segments || !chained[segment_trip[i] as usize])
+        .collect();
+    let mut removed = 0;
+    for trip in 0..trip_start.len() {
+        let start = trip_start[trip];
+        trip_start[trip] = start - removed;
+        if trip < original_trips && chained[trip] {
+            removed += trip_start[trip + 1] - start;
+        }
+    }
+    macro_rules! compact {($($field:ident),*) => {$(
+        let mut kept = keep.iter();
+        $field.retain(|_| *kept.next().unwrap());
+    )*};}
+    compact!(
+        departure_seconds,
+        arrival_seconds,
+        from_stop,
+        to_stop,
+        sequence,
+        segment_trip,
+        segment_run,
+        continuity_break,
+        can_board,
+        can_alight
+    );
+    // Every kernel run must keep at least one segment: renumber the runs
+    // that remain, preserving their order.
+    let mut run_ids = vec![u32::MAX; a.run_count as usize];
+    for &run in &segment_run {
+        run_ids[run as usize] = 0;
+    }
+    let mut next_run = 0;
+    for id in &mut run_ids {
+        if *id == 0 {
+            *id = next_run;
+            next_run += 1;
+        }
+    }
+    for run in &mut segment_run {
+        *run = run_ids[*run as usize];
+    }
+    a.run_count = next_run;
     macro_rules! install {($($field:ident),*) => {$ (a.$field=$field.into();)*};}
     install!(
         departure_seconds,
@@ -435,7 +722,7 @@ pub(super) fn compile(
         directions.into(),
         dates.into(),
     );
-    Ok(links)
+    Ok(Links::new(links))
 }
 
 #[cfg(test)]
@@ -507,25 +794,31 @@ mod tests {
           INSERT INTO trip_links VALUES('A','B',4),('missing','B',4),('A','missing',4),('B','A',5);").unwrap();
         let candidates = load_candidates(&db, &["S".into()]).unwrap();
         let actual: Vec<_> = candidates
-            .0
-            .iter()
+            .all()
             .map(|c| (c.from.as_str(), c.to.as_str(), c.terminal, c.first))
             .collect();
         // Duplicate links stay deduplicated, absent source trips are excluded,
         // absent targets stay unusable, and type 5 never creates a continuation.
         assert_eq!(actual, [("A", "B", 9, Some(1)), ("A", "missing", 9, None)]);
-        assert!(candidates.matches_services(&["different-calendar".into()]));
-        assert!(candidates.matches_services(&[]));
+        // Explicit links do not depend on the calendar: other dates reuse them.
+        let mut cache = CandidateCache::default();
+        assert!(!cache.candidates(&db, &["S".into()]).unwrap().1);
+        assert!(
+            cache
+                .candidates(&db, &["different-calendar".into()])
+                .unwrap()
+                .1
+        );
+        assert!(cache.candidates(&db, &[]).unwrap().1);
         db.execute_batch(
             "CREATE TABLE trip_operations(trip_id TEXT,block_id TEXT);
           INSERT INTO trip_operations VALUES('A',NULL),('B',NULL);",
         )
         .unwrap();
-        assert!(
-            load_candidates(&db, &["S".into()])
-                .unwrap()
-                .matches_services(&[])
-        );
+        // Empty block metadata never forces a per-calendar query.
+        let mut cache = CandidateCache::default();
+        cache.candidates(&db, &["S".into()]).unwrap();
+        assert!(cache.candidates(&db, &["other".into()]).unwrap().1);
     }
     #[test]
     fn keeps_next_service_day_clocks_and_original_sequences() {
@@ -541,10 +834,16 @@ mod tests {
         )
         .unwrap();
         assert_eq!(links.len(), 1);
-        assert_eq!(&*a.departure_seconds, &[85800, 86700, 85800, 86700]);
-        assert_eq!(&*a.sequence, &[1, 1, 1, 2]);
+        // Only the through run carries the calls; the linked trips keep their
+        // identities and original sequences through its parts.
+        assert_eq!(&*a.departure_seconds, &[85800, 86700]);
+        assert_eq!(&*a.sequence, &[1, 2]);
+        assert_eq!(&*a.trip_start, &[0, 0, 0, 2]);
         assert_eq!(links[&2][1].trip, 1);
-        assert_eq!(&*a.segment_run, &[0, 1, 2, 2]);
+        assert_eq!(links[&2][1].sequences, vec![1]);
+        assert_eq!(&*a.segment_run, &[0, 0]);
+        assert_eq!(a.run_count, 1);
+        assert_eq!(links.through(1, 1.), Some((2, 2., [2., 2.])));
     }
     #[test]
     fn rejects_invalid_continuity_without_inventing_a_trip() {
@@ -658,17 +957,27 @@ mod tests {
         }
         let candidates = load_candidates(&db, &["S".into()]).unwrap();
         let mut pairs: Vec<_> = candidates
-            .0
-            .iter()
+            .all()
             .map(|c| (c.from.as_str(), c.to.as_str()))
             .collect();
         pairs.sort_unstable();
         assert_eq!(pairs, [("A", "B"), ("B", "C"), ("J", "K")]);
-        assert!(candidates.matches_services(&["S".into()]));
-        assert!(!candidates.matches_services(&["other".into()]));
-        let other = load_candidates(&db, &["other".into()]).unwrap();
-        assert_eq!(other.0.len(), 1);
-        assert_eq!((&*other.0[0].from, &*other.0[0].to), ("L", "M"));
+        // Each service's continuations are independent and cached: another
+        // calendar reuses the explicit links and queries only its own service.
+        let mut cache = CandidateCache::default();
+        let (_, reused) = cache.candidates(&db, &["S".into()]).unwrap();
+        assert!(!reused);
+        let (other, reused) = cache.candidates(&db, &["other".into()]).unwrap();
+        assert!(!reused);
+        let (both, reused) = cache
+            .candidates(&db, &["other".into(), "S".into()])
+            .unwrap();
+        assert!(reused);
+        assert!(Arc::ptr_eq(&other.explicit, &both.explicit));
+        assert_eq!(both.all().count(), 4);
+        let other: Vec<_> = other.all().collect();
+        assert_eq!(other.len(), 1);
+        assert_eq!((&*other[0].from, &*other[0].to), ("L", "M"));
     }
 
     #[test]
