@@ -17,19 +17,6 @@ fn plans(mut result: Value) -> Vec<Value> {
 fn clock(v: &Value, key: &str) -> f64 {
     v[key].as_f64().unwrap_or(f64::INFINITY)
 }
-// Match the rider's elapsed trip after waiting at the origin for the first ride.
-fn travel_minutes(v: &Value) -> f64 {
-    let mut access = 0.;
-    for leg in v["legs"].as_array().into_iter().flatten() {
-        if leg["kind"] == "ride" {
-            let initial_wait =
-                (clock(leg, "departureMinutes") - clock(v, "departureMinutes") - access).max(0.);
-            return clock(v, "durationMinutes") - initial_wait;
-        }
-        access += leg["durationMinutes"].as_f64().unwrap_or(0.);
-    }
-    clock(v, "durationMinutes")
-}
 fn transit(v: &Value) -> bool {
     v["legs"]
         .as_array()
@@ -121,10 +108,6 @@ impl City {
                 .iter()
                 .map(|p| clock(p, "departureMinutes"))
                 .fold(f64::NEG_INFINITY, f64::max);
-            let best_duration = pool
-                .iter()
-                .map(travel_minutes)
-                .fold(f64::INFINITY, f64::min);
             let mut wider = base.clone();
             wider["maxWalkKm"] = json!(km);
             wider["requireTransitRide"] = json!(true);
@@ -139,12 +122,14 @@ impl City {
                 }
                 if let Ok(result) = self.route(&probe) {
                     for mut p in plans(result) {
+                        // More walking must buy a strictly better time, by at
+                        // least the displayed minute; shorter alone is not enough.
                         let improves = if arrive {
-                            clock(&p, "departureMinutes") > best_departure
+                            clock(&p, "departureMinutes") >= best_departure + 1.
                         } else {
-                            clock(&p, "arrivalMinutes") < best_arrival
+                            clock(&p, "arrivalMinutes") <= best_arrival - 1.
                         };
-                        if transit(&p) && (improves || travel_minutes(&p) < best_duration) {
+                        if transit(&p) && improves {
                             p["expandedWalkingLimitKm"] = json!(km);
                             pool.push(p);
                         }

@@ -661,7 +661,7 @@ Transit via requests require a boarding on every segment. They reject an explici
 
 | Field | Meaning |
 | --- | --- |
-| `expandedWalkKm` | Above `maxWalkKm` (default 2.4): also search with this walking budget and add choices that walk farther but arrive earlier |
+| `expandedWalkKm` | Above `maxWalkKm` (default 2.4): also search with this walking budget and add choices that walk farther but arrive at least a minute earlier |
 | `includeEarliestTransit` | Add `earliestTransit`, the first boarding and arrival of the earliest transit choice, even when walking wins |
 
 With `via` points, supported choices compose each segment at the exact clock the previous segment reaches its point. Arrive-by requests accept `windowChoices` only without a window.
@@ -1981,8 +1981,10 @@ are bundled; GTFS parent-station identifiers determine station membership. Do no
 points. Arrive-by retains a 15-minute earlier-arrival window sampled every five minutes.
 
 `expandedWalkKm` is explicit permission for a wider transit-access search; omit it
-when the user sets a binding walking limit. Wider choices must improve the time
-objective or shorten travel after initial waiting, and carry `expandedWalkingLimitKm`. A whole-trip walk uses at most
+when the user sets a binding walking limit. A wider choice must beat every
+ordinary choice on the time objective by at least one minute (earlier arrival,
+or later departure for arrive-by); walking farther for a shorter but later
+journey is not offered. Wider choices carry `expandedWalkingLimitKm`. A whole-trip walk uses at most
 `maxWalkKm` unless `allowLongWalk` explicitly permits `maxStreetKm`. Limits below
 50 metres do not trigger a widened street query. `requireTransitRide` excludes
 walking-only choices. Optional wider-search failures preserve ordinary results.

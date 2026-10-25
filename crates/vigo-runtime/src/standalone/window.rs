@@ -26,8 +26,9 @@
 //! `alternatives` with supported windows adds the ranked alternatives at the
 //! requested time; the combined list keeps distinct, nondominated services.
 //! `expandedWalkKm` adds transit journeys that a wider walking limit makes
-//! faster or shorter. `includeEarliestTransit` reports the earliest scheduled
-//! boarding, searching transit alone when walking wins every choice.
+//! strictly faster: they arrive at least a minute before every ordinary
+//! choice. `includeEarliestTransit` reports the earliest scheduled boarding,
+//! searching transit alone when walking wins every choice.
 use super::point::{self, WINDOW_ARRIVAL_SLACK_SECONDS};
 use super::query::{Candidates, Options, Point};
 use super::{City, Result, fail, flag, materialize::MatrixMaterializationCache, number};
@@ -930,17 +931,15 @@ impl City {
             }
         }
         let best_arrival = baseline.iter().map(arrive).fold(f64::INFINITY, f64::min);
-        let best_duration = baseline
-            .iter()
-            .map(|p| minutes(p, "durationMinutes"))
-            .fold(f64::INFINITY, f64::min);
         let mut extra = vec![];
         for plan in wider["choices"].as_array().into_iter().flatten() {
             if plan["status"] != "ready" || rides(plan).next().is_none() || !seen.insert(key(plan))
             {
                 continue;
             }
-            if arrive(plan) < best_arrival || minutes(plan, "durationMinutes") < best_duration {
+            // More walking must buy a strictly earlier arrival, by at least
+            // the displayed minute; a shorter but later journey is not offered.
+            if arrive(plan) <= best_arrival - 1. {
                 let mut plan = plan.clone();
                 plan["recommended"] = json!(false);
                 plan["expandedWalkingLimitKm"] = json!(km);
