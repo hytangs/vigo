@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::HashMap;
 
 impl TimetableKernel {
     /// One destination and deadline, shared by every origin. Reverse labels
@@ -442,61 +443,51 @@ impl TimetableKernel {
                 },
         } = self;
         let forbidden_same_stop = forbidden_same_stop.as_ref();
-        // A single Matrix target also supplies the capped point-query anchor.
-        // Retain a feasible terminal bound so that scan stops once remaining
-        // departures cannot improve it; larger matrices keep the shared scan.
-        let single_destination = destination_count == 1;
-        let destination_epoch = if single_destination {
-            destination_workspace.begin_query()
-        } else {
-            0
+        // Every target keeps the best arrival found so far: an alighting at
+        // one of its stops, or one transfer before it, plus the walk out. Once
+        // no later departure can improve any target, the scan stops. This is
+        // the final read-out below, bounded early; it never changes a result.
+        let destination_epoch = destination_workspace.begin_query();
+        let mut terminals = Terminals {
+            entries: HashMap::new(),
+            bounds: vec![f64::INFINITY; destination_count],
+            minimum_egress: vec![f64::INFINITY; destination_count],
+            unreached: 0,
+            cutoff: f64::INFINITY,
         };
-        let mut minimum_egress = f64::INFINITY;
-        if single_destination {
-            for (index, &target) in input.destination_stops.iter().enumerate() {
-                let target = target as usize;
-                let walk = input.destination_walk_seconds[index];
-                minimum_egress = minimum_egress.min(walk);
-                if destination_workspace.destination_generation[target] != destination_epoch {
-                    destination_workspace.destination_generation[target] = destination_epoch;
-                    destination_workspace.destination_egress[target] = walk;
-                } else {
-                    destination_workspace.destination_egress[target] =
-                        destination_workspace.destination_egress[target].min(walk);
-                }
-                if input
-                    .allow_post_ride_transfers
-                    .as_ref()
-                    .is_none_or(|allowed| allowed[0])
-                {
+        for destination in 0..destination_count {
+            let start = input.destination_offsets[destination] as usize;
+            let end = input.destination_offsets[destination + 1] as usize;
+            let transfers = input
+                .allow_post_ride_transfers
+                .as_ref()
+                .is_none_or(|allowed| allowed[destination]);
+            for seed in start..end {
+                let target = input.destination_stops[seed] as usize;
+                let walk = input.destination_walk_seconds[seed];
+                terminals.minimum_egress[destination] =
+                    terminals.minimum_egress[destination].min(walk);
+                terminals.add(target, destination, walk);
+                if transfers {
                     for edge in &reverse_transfer_edges[reverse_transfer_offset[target] as usize
                         ..reverse_transfer_offset[target + 1] as usize]
                     {
-                        let source = edge.stop();
-                        let egress = walk + f64::from(edge.duration());
-                        if destination_workspace.destination_generation[source] != destination_epoch
-                        {
-                            destination_workspace.destination_generation[source] =
-                                destination_epoch;
-                            destination_workspace.destination_egress[source] = egress;
-                        } else {
-                            destination_workspace.destination_egress[source] =
-                                destination_workspace.destination_egress[source].min(egress);
-                        }
+                        terminals.add(edge.stop(), destination, walk + f64::from(edge.duration()));
                     }
                 }
             }
         }
-        let terminal_egress = |stop: usize| {
-            if single_destination
-                && destination_workspace.destination_generation[stop] == destination_epoch
-            {
-                destination_workspace.destination_egress[stop]
-            } else {
-                f64::INFINITY
-            }
-        };
-        let mut terminal_bound = f64::INFINITY;
+        for &stop in terminals.entries.keys() {
+            destination_workspace.destination_generation[stop] = destination_epoch;
+        }
+        // A target without stops is unreachable and never bounds the scan.
+        terminals.unreached = terminals
+            .minimum_egress
+            .iter()
+            .filter(|walk| walk.is_finite())
+            .count();
+        let is_terminal =
+            |stop: usize| destination_workspace.destination_generation[stop] == destination_epoch;
         let epoch = many_workspace.begin_query();
         let has_excluded_trips = !input.excluded_trips.is_empty();
         for trip in &input.excluded_trips {
@@ -580,9 +571,7 @@ impl TimetableKernel {
         let mut time_index = scan_time_lower_bound(scan_times, scan_start);
         while time_index < scan_times.len() {
             let connection_departure = scan_times[time_index] as f64;
-            if connection_departure > input.horizon
-                || (single_destination && connection_departure + minimum_egress > terminal_bound)
-            {
+            if connection_departure > input.horizon || connection_departure > terminals.cutoff {
                 break;
             }
             let start = scan_time_offsets[time_index] as usize;
@@ -668,8 +657,9 @@ impl TimetableKernel {
                             continue;
                         }
                         if connection > boarding && flags & SCAN_BRIDGE_EXIT != 0 {
-                            terminal_bound = terminal_bound
-                                .min(connection_departure + terminal_egress(event.source_stop()));
+                            if is_terminal(event.source_stop()) {
+                                terminals.reach(event.source_stop(), connection_departure);
+                            }
                             let bridge_stop = output_offset + event.source_stop();
                             if relax_many(
                                 many_workspace,
@@ -699,8 +689,9 @@ impl TimetableKernel {
                         if flags & SCAN_CAN_ALIGHT == 0 || arrival.arrival as f64 > input.horizon {
                             continue;
                         }
-                        terminal_bound = terminal_bound
-                            .min(f64::from(arrival.arrival) + terminal_egress(arrival.to as usize));
+                        if is_terminal(arrival.to as usize) {
+                            terminals.reach(arrival.to as usize, f64::from(arrival.arrival));
+                        }
                         let alight_stop = output_offset + arrival.to as usize;
                         if relax_many(
                             many_workspace,
@@ -793,5 +784,49 @@ impl TimetableKernel {
             dominated_trip_boardings: stats.dominated_trip_boardings,
             explicit_transfer_checks: stats.explicit_transfer_checks,
         })
+    }
+}
+
+/// Per-target arrival bounds for the one-to-many scan.
+struct Terminals {
+    /// Stop to (target, walk from the stop to the target's endpoint).
+    entries: HashMap<usize, Vec<(usize, f64)>>,
+    bounds: Vec<f64>,
+    minimum_egress: Vec<f64>,
+    /// Targets with stops but no arrival yet; the cutoff waits for them.
+    unreached: usize,
+    /// Departures after this cannot improve any target.
+    cutoff: f64,
+}
+
+impl Terminals {
+    fn add(&mut self, stop: usize, destination: usize, egress: f64) {
+        let entry = self.entries.entry(stop).or_default();
+        match entry.iter_mut().find(|(d, _)| *d == destination) {
+            Some((_, walk)) => *walk = walk.min(egress),
+            None => entry.push((destination, egress)),
+        }
+    }
+    /// A ride reached `stop` at `time`.
+    fn reach(&mut self, stop: usize, time: f64) {
+        let mut improved = false;
+        for &(destination, egress) in &self.entries[&stop] {
+            if time + egress < self.bounds[destination] {
+                if self.bounds[destination].is_infinite() {
+                    self.unreached -= 1;
+                }
+                self.bounds[destination] = time + egress;
+                improved = true;
+            }
+        }
+        if improved && self.unreached == 0 {
+            // A later departure reaches a target no sooner than its least walk.
+            self.cutoff = self
+                .bounds
+                .iter()
+                .zip(&self.minimum_egress)
+                .map(|(bound, walk)| bound - walk)
+                .fold(f64::NEG_INFINITY, f64::max);
+        }
     }
 }
