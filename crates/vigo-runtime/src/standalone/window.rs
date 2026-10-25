@@ -805,27 +805,29 @@ impl City {
             opt,
             true,
         );
-        let kernel = &mut self
-            .timetable
-            .as_mut()
-            .ok_or("Timetable is not active")?
-            .kernel;
-        let mut result = match point::route(kernel, &input)? {
+        let t = self.timetable.as_mut().ok_or("Timetable is not active")?;
+        let mut result = match point::route(&mut t.kernel, &input)? {
             Some(result) => result,
-            None => kernel.route_matrix_csa(input)?,
+            None => t.kernel.route_matrix_csa(input.clone())?,
         };
-        Ok(result
+        let mut journey = result
             .journeys
             .take()
-            .and_then(|mut rows| rows.pop().flatten()))
+            .and_then(|mut rows| rows.pop().flatten());
+        if let Some(j) = journey.as_mut() {
+            super::corridor::board_last_pass(&t.kernel, &t.links, &input, j)?;
+        }
+        Ok(journey)
     }
 
-    /// A sample's certified journey and bounded Pareto frontier.
+    /// A sample's certified journey, whether it still detours through a
+    /// turnaround after boarding on its last pass, and the sample's bounded
+    /// Pareto frontier without detours.
     fn window_sample(
         &mut self,
         ends: &Endpoints,
         opt: &Options,
-    ) -> Result<Option<(TimetableMatrixJourney, Vec<TimetableMatrixJourney>)>> {
+    ) -> Result<Option<(TimetableMatrixJourney, bool, Vec<TimetableMatrixJourney>)>> {
         if ends.a.stops.is_empty() || ends.b.stops.is_empty() {
             return Ok(None);
         }
@@ -835,12 +837,14 @@ impl City {
             opt,
             true,
         );
-        let kernel = &mut self
-            .timetable
-            .as_mut()
-            .ok_or("Timetable is not active")?
-            .kernel;
-        point::window_sample(kernel, &input)
+        let t = self.timetable.as_mut().ok_or("Timetable is not active")?;
+        let Some((mut best, mut frontier)) = point::window_sample(&mut t.kernel, &input)? else {
+            return Ok(None);
+        };
+        super::corridor::board_last_pass(&t.kernel, &t.links, &input, &mut best)?;
+        let detours = super::corridor::detours(&t.kernel, &t.links, &input, &best);
+        super::corridor::settle(t, &input, &mut frontier)?;
+        Ok(Some((best, detours, frontier)))
     }
 
     /// Ranked alternatives around `best` at the requested time.
@@ -857,12 +861,10 @@ impl City {
             opt,
             true,
         );
-        let kernel = &mut self
-            .timetable
-            .as_mut()
-            .ok_or("Timetable is not active")?
-            .kernel;
-        let (alternatives, unsupported) = point::alternatives(kernel, &input, best, request)?;
+        let t = self.timetable.as_mut().ok_or("Timetable is not active")?;
+        let (mut alternatives, unsupported) =
+            point::alternatives(&mut t.kernel, &input, best, request)?;
+        super::corridor::settle(t, &input, &mut alternatives)?;
         Ok(Search {
             alternatives,
             unsupported,
@@ -1066,6 +1068,7 @@ impl City {
         let mut walk: Option<Option<Value>> = None;
         let mut plans: Vec<Plan> = vec![];
         let mut tradeoffs: Vec<Plan> = vec![];
+        let mut detour_samples = HashSet::new();
         let (mut searches, mut walk_reuses) = (0, 0);
         let mut first_blocked = None;
         let mut index = 0;
@@ -1078,7 +1081,12 @@ impl City {
                 ..opt
             };
             let (journey, frontier) = match self.window_sample(&ends, &at)? {
-                Some((journey, frontier)) => (Some(journey), frontier),
+                Some((journey, detours, frontier)) => {
+                    if detours {
+                        detour_samples.insert(t.to_bits());
+                    }
+                    (Some(journey), frontier)
+                }
                 None => (None, vec![]),
             };
             searches += 1;
@@ -1219,6 +1227,20 @@ impl City {
             .iter()
             .find(|p| (depart(&p.value) - center).abs() < 1e-6)
             .map(|p| p.value.clone());
+        // A sample's own journey that still detours through a turnaround is
+        // left out while the window offers any other transit journey.
+        let detoured = |plan: &Plan| {
+            plan.source
+                .as_ref()
+                .is_some_and(|(_, t)| detour_samples.contains(&t.to_bits()))
+        };
+        let other_transit = plans
+            .iter()
+            .chain(&tradeoffs)
+            .any(|p| p.value["status"] == "ready" && p.value["mode"] == "transit" && !detoured(p));
+        if other_transit {
+            plans.retain(|p| !detoured(p));
+        }
         let pool: Vec<Plan> = plans.into_iter().chain(tradeoffs).chain(direct).collect();
         let mut choices = select_supported(pool, center, MAXIMUM_WINDOW_CHOICES);
         // Ranked alternatives at the requested time join the window's choices.

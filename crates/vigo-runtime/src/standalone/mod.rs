@@ -5,6 +5,7 @@ mod calendar;
 mod city;
 mod clock;
 mod collection;
+mod corridor;
 mod encoding;
 mod fare_store;
 mod flex;

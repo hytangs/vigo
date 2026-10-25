@@ -1021,10 +1021,21 @@ impl City {
         };
         // Move the witness out before serializing diagnostics: the complete
         // materialized journey already belongs to the high-level response.
-        let journey = result
+        let mut journey = result
             .journeys
             .take()
             .and_then(|mut rows| rows.pop().flatten());
+        if let (Some(j), Some(t)) = (journey.as_mut(), self.timetable.as_ref())
+            && !t.links.is_empty()
+        {
+            let input = Self::matrix_input(
+                std::slice::from_ref(&a),
+                std::slice::from_ref(&b),
+                &opt,
+                true,
+            );
+            super::corridor::board_last_pass(&t.kernel, &t.links, &input, j)?;
+        }
         let primary_search_ms = primary_started.elapsed().as_secs_f64() * 1000.;
         let mut alternative_search_ms = 0.;
         let mut choices = vec![];
@@ -1037,17 +1048,19 @@ impl City {
             && let Some(j) = journey.as_ref()
         {
             let alternatives_started = Instant::now();
-            let (candidates, unsupported) = super::point::alternatives(
+            let input = Self::matrix_input(
+                std::slice::from_ref(&a),
+                std::slice::from_ref(&b),
+                &opt,
+                true,
+            );
+            let (mut candidates, unsupported) = super::point::alternatives(
                 &mut self.timetable.as_mut().unwrap().kernel,
-                &Self::matrix_input(
-                    std::slice::from_ref(&a),
-                    std::slice::from_ref(&b),
-                    &opt,
-                    true,
-                ),
+                &input,
                 j,
                 requested.as_ref(),
             )?;
+            super::corridor::settle(self.timetable.as_ref().unwrap(), &input, &mut candidates)?;
             alternative_search_ms = alternatives_started.elapsed().as_secs_f64() * 1000.;
             alternative_search = requested.as_ref().map(|_| match &unsupported {
                 None => json!({"status":"complete"}),

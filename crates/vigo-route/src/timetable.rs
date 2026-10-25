@@ -29,7 +29,7 @@ mod journeys;
 mod shared_legs;
 pub use shared_legs::*;
 mod overlay_quality;
-pub use journeys::{TimetableMatrixJourney, TimetableMatrixLeg};
+pub use journeys::{RideVisit, TimetableMatrixJourney, TimetableMatrixLeg};
 
 const STATE_STRIDE: usize = 8;
 const NO_STATE: i32 = -1;

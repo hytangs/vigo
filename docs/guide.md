@@ -1062,6 +1062,7 @@ VIGO models the City revision and query it is given. It does not certify real-wo
 - Support is limited to the source features listed in [GTFS support](developer.md#gtfs-support-matrix). Unsupported or malformed features are reported during the build.
 - Missing published shapes do not prevent timetable routing but limit map geometry.
 - Explicit GTFS in-seat links at a shared terminal keep passengers aboard across trip changes. Route, Matrix and Reach count one boarding and preserve onboard layovers. Studio shows “Stay aboard.” Block-based continuation is not inferred, and missing feed links are not guessed. Existing Cities must be rebuilt if their importer discarded those links.
+- Staying aboard must move the rider onward. A Route journey boards a looping vehicle where it passes for the last time, at the boarding stop or at another stop the origin walk reaches in time. Route alternatives and window choices drop a journey that stays aboard through a turnaround and then reaches a stop the rider could already have reached by then, through the same stop or one transfer walk with the transfer buffer, or that would reach the destination no later by leaving before the turnaround. Window choices leave out such a journey while another transit choice remains. The test uses only the journey's own stops and clocks, where the feed lets riders off and on, and the City's stop-to-stop walks; with walks between stops turned off, only same-stop returns count.
 
 ### Transit Route and Matrix
 
