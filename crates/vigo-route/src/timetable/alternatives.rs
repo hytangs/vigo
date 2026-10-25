@@ -1,5 +1,9 @@
 use super::*;
 
+/// Ranked completions searched before chain merging and route-distinct
+/// Pareto alternatives select from them.
+const DISTINCT_ALTERNATIVE_CANDIDATES: u32 = 64;
+
 impl TimetableKernel {
     /// Alternatives around a known primary journey. Pareto keeps the
     /// nondominated arrival/boarding/walking trade-offs that use at most the
@@ -10,6 +14,7 @@ impl TimetableKernel {
         input: TimetableAlternativeQueryInput,
     ) -> Result<TimetableParetoQueryResult> {
         let ranked = input.ranking.as_deref() == Some("ranked");
+        let pareto = input.ranking.as_deref() == Some("pareto");
         let cap = input
             .maximum_boardings
             .unwrap_or(u32::MAX)
@@ -40,24 +45,43 @@ impl TimetableKernel {
             walk_reluctance: 0.0,
             collect_alternatives: Some(true),
             alternative_ranking: input.ranking,
-            alternative_limit: input.limit,
+            // Variants of one vehicle chain merge into one choice later;
+            // search enough completions to leave distinct chains.
+            alternative_limit: input.limit.map(|n| n.max(DISTINCT_ALTERNATIVE_CANDIDATES)),
             restriction_mode: None,
             deadline_objective: Some(false),
         };
-        let result = self.route_pareto_round_csa(request.clone())?;
+        // Pareto also offers route-distinct journeys inside the slack that the
+        // frontier dominates: the same pass reports its earliest ranked
+        // completions beside the frontier.
+        let distinct = pareto.then_some(DISTINCT_ALTERNATIVE_CANDIDATES as usize);
+        let result = self.pareto_rounds(request.clone(), distinct)?;
         // The corridor is an accelerator. An origin outside it repeats the
         // same bounded search without corridor pruning.
         if !result.supported && result.reason.as_deref() == Some("origin_outside_kernel") {
-            return self.route_pareto_round_csa(TimetableParetoQueryInput {
-                restriction_mode: Some("anchor-only".into()),
-                ..request
-            });
+            return self.pareto_rounds(
+                TimetableParetoQueryInput {
+                    restriction_mode: Some("anchor-only".into()),
+                    ..request
+                },
+                distinct,
+            );
         }
         Ok(result)
     }
     pub fn route_pareto_round_csa(
         &mut self,
         input: TimetableParetoQueryInput,
+    ) -> Result<TimetableParetoQueryResult> {
+        self.pareto_rounds(input, None)
+    }
+    /// The bounded Pareto rounds. With `distinct`, a Pareto collection also
+    /// returns up to that many earliest distinct completions, as `ranked`
+    /// would: the rounds then keep dominated completions as witnesses.
+    fn pareto_rounds(
+        &mut self,
+        input: TimetableParetoQueryInput,
+        distinct: Option<usize>,
     ) -> Result<TimetableParetoQueryResult> {
         let started = Instant::now();
         let restriction_mode = ParetoRestrictionMode::parse(input.restriction_mode.as_deref())?;
@@ -111,12 +135,12 @@ impl TimetableKernel {
             )?;
             let mut result = if safe {
                 let service = self.service.take();
-                let result = self.route_pareto_round_csa(input);
+                let result = self.pareto_rounds(input, distinct);
                 self.service = service;
                 self.record_ordinary_search();
                 result?
             } else {
-                self.service_pareto(&input)?
+                self.service_pareto(&input, distinct)?
             };
             result.query_ns = started.elapsed().as_nanos() as f64;
             return Ok(result);
@@ -380,8 +404,9 @@ impl TimetableKernel {
             // both corridor and target-dominance pruning.
             prune_dominated_alternatives: collect_alternatives
                 && !ranked_alternatives
+                && distinct.is_none()
                 && restriction_mode != ParetoRestrictionMode::Only,
-            retain_terminals: ranked_alternatives,
+            retain_terminals: ranked_alternatives || (collect_alternatives && distinct.is_some()),
             // Arrival slack never extends the admitted timetable, including
             // when searching only for the primary journey.
             ride_horizon: input.horizon,
@@ -532,12 +557,21 @@ impl TimetableKernel {
                     input.alternative_limit.map_or(usize::MAX, |n| n as usize),
                 )
             } else {
-                collect_pareto_alternatives(
+                let mut frontier = collect_pareto_alternatives(
                     &profile_workspace.labels,
                     destination_workspace,
                     destination_epoch,
                     arrival_upper_bound,
-                )
+                );
+                if let Some(limit) = distinct {
+                    frontier.extend(collect_ranked_alternatives(
+                        &profile_workspace.labels,
+                        &profile_workspace.terminals,
+                        destination_workspace,
+                        limit,
+                    ));
+                }
+                frontier
             }
         });
         let result = |chain: Vec<JourneyChainStep>,

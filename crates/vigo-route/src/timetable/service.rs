@@ -1406,6 +1406,7 @@ impl TimetableKernel {
     pub(super) fn service_pareto(
         &self,
         input: &TimetableParetoQueryInput,
+        distinct: Option<usize>,
     ) -> Result<TimetableParetoQueryResult> {
         let started = Instant::now();
         let bound = input
@@ -1485,6 +1486,16 @@ impl TimetableKernel {
         }
         if input.collect_alternatives == Some(true) {
             let ranked = input.alternative_ranking.as_deref() == Some("ranked");
+            let rank = |selected: &mut Vec<&Completion>| {
+                selected.sort_by(|a, b| {
+                    a.time
+                        .total_cmp(&b.time)
+                        .then(a.walking.total_cmp(&b.walking))
+                        .then(a.boardings.cmp(&b.boardings))
+                        .then(a.candidate.cmp(&b.candidate))
+                        .then(a.label.cmp(&b.label))
+                });
+            };
             let mut selected: Vec<_> = completions
                 .iter()
                 .filter(|c| {
@@ -1500,23 +1511,19 @@ impl TimetableKernel {
                 })
                 .collect();
             if ranked {
-                selected.sort_by(|a, b| {
-                    a.time
-                        .total_cmp(&b.time)
-                        .then(a.walking.total_cmp(&b.walking))
-                        .then(a.boardings.cmp(&b.boardings))
-                        .then(a.candidate.cmp(&b.candidate))
-                        .then(a.label.cmp(&b.label))
-                });
+                rank(&mut selected);
+                selected.truncate(input.alternative_limit.unwrap_or(10) as usize);
+            } else if let Some(limit) = distinct {
+                // The earliest completions follow the frontier, as a separate
+                // ranked collection would return them.
+                let mut earliest: Vec<_> = completions.iter().collect();
+                rank(&mut earliest);
+                earliest.truncate(limit);
+                selected.extend(earliest);
             }
             result.alternatives = Some(
                 selected
                     .into_iter()
-                    .take(if ranked {
-                        input.alternative_limit.unwrap_or(10) as usize
-                    } else {
-                        usize::MAX
-                    })
                     .map(|c| {
                         pareto_alternative(
                             c.time,
