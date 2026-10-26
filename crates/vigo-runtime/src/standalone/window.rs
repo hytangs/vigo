@@ -875,6 +875,7 @@ impl City {
         &mut self,
         ends: &Endpoints,
         opt: &Options,
+        collect: &mut bool,
     ) -> Result<Option<(TimetableMatrixJourney, bool, Vec<TimetableMatrixJourney>)>> {
         if ends.a.stops.is_empty() || ends.b.stops.is_empty() {
             return Ok(None);
@@ -886,7 +887,8 @@ impl City {
             true,
         );
         let t = self.timetable.as_mut().ok_or("Timetable is not active")?;
-        let Some((mut best, mut frontier)) = point::window_sample(&mut t.kernel, &input)? else {
+        let Some((mut best, mut frontier)) = point::window_sample(&mut t.kernel, &input, collect)?
+        else {
             return Ok(None);
         };
         super::corridor::board_last_pass(&t.kernel, &t.links, &input, &mut best)?;
@@ -1194,6 +1196,7 @@ impl City {
         let mut plans: Vec<Plan> = vec![];
         let mut tradeoffs: Vec<Plan> = vec![];
         let mut detour_samples = HashSet::new();
+        let mut collect_frontier = true;
         let (mut searches, mut walk_reuses) = (0, 0);
         let mut first_blocked = None;
         let mut index = 0;
@@ -1205,7 +1208,7 @@ impl City {
                 end: t * 60. + horizon,
                 ..opt
             };
-            let (journey, frontier) = match self.window_sample(&ends, &at)? {
+            let (journey, frontier) = match self.window_sample(&ends, &at, &mut collect_frontier)? {
                 Some((journey, detours, frontier)) => {
                     if detours {
                         detour_samples.insert(t.to_bits());

@@ -8,6 +8,7 @@
 - Replace a short final ride, and its wait, with walking the rest of the way when that arrives at least a minute sooner within the wider-walk budget.
 - Stop the one-to-many Matrix scan once no later departure can improve any target: identical results, about 3.6× faster 5×5 Matrices on Boston.
 - Studio turns walks between nearby stops on by default.
+- Answer long Routes in Cities with transfer rules instead of failing a search budget: the earliest-arrival search compares clocks only and shares labels whose anchor no rule selects. An oversized alternative collection reports `alternativeSearch.status: "unavailable"` and keeps the primary journey, as documented.
 
 ## 1.0.0-rc.1
 
