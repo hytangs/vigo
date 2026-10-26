@@ -417,6 +417,49 @@ mark { padding: 0 1px; border-radius: 3px; background: var(--mark); color: inher
 [data-embedded] main { padding: 28px 32px 64px; }
 [data-embedded] body { font-size: 15px; }
 [data-embedded] .hero h1 { font-size: clamp(32px, 4.5vw, 48px); }
+/* Inside Studio the guide takes Studio's surfaces, text and signal colours
+   (src/styles/foundation.css), so it reads as part of the app's panel. */
+:root[data-embedded] {
+  --bg: #ffffff;
+  --bg-subtle: #f3f4f6;
+  --bg-muted: #eef0f3;
+  --surface: #ffffff;
+  --code-bg: #f9fafb;
+  --border: rgba(15, 23, 42, 0.095);
+  --border-strong: rgba(15, 23, 42, 0.17);
+  --text-strong: #0d1117;
+  --text: #363f4b;
+  --text-soft: #4b5563;
+  --text-muted: #66707e;
+  --ink: #0d1117;
+  --lime: #c8ec3f;
+  --accent: #4f6c00;
+  --accent-soft: rgba(124, 168, 0, 0.11);
+  --accent-ring: rgba(96, 132, 0, 0.42);
+  --mark: rgba(124, 168, 0, 0.18);
+}
+:root[data-embedded][data-theme="dark"] {
+  --bg: #121c2a;
+  --bg-subtle: #0c1521;
+  --bg-muted: #182333;
+  --surface: #182333;
+  --code-bg: #08101b;
+  --border: rgba(190, 210, 240, 0.12);
+  --border-strong: rgba(190, 210, 240, 0.2);
+  --text-strong: #eef2f8;
+  --text: #c0cad8;
+  --text-soft: #a7b2c2;
+  --text-muted: #8592a6;
+  --ink: #eef2f8;
+  --lime: #cde67c;
+  --accent: #cde67c;
+  --accent-soft: rgba(205, 230, 124, 0.12);
+  --accent-ring: rgba(205, 230, 124, 0.42);
+  --mark: rgba(205, 230, 124, 0.2);
+  --primary: #cde67c;
+  --primary-hover: #dcf292;
+  --primary-ink: #0e1407;
+}
 
 /* Responsive */
 @media (max-width: 1100px) {
