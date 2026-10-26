@@ -204,5 +204,5 @@ try {
 } finally {
   if (api) await api.stop()
   disposeNationalGtfsStore(storePath); disposeNationalOsmStore(streetPath)
-  await fs.rm(folder, { recursive: true, force: true })
+  await fs.rm(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

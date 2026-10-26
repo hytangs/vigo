@@ -170,5 +170,5 @@ try {
   console.log('Agency realtime: schedule dates, DST, exact stops, delay, headways, missing reports, cancellation, skipped stops, independent freshness, alerts, history passed.')
 } finally {
   context.close()
-  await fs.rm(directory, { recursive: true, force: true })
+  await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

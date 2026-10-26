@@ -86,4 +86,4 @@ try {
   assert.equal(far.status, 'ok')
   assert(!(far.trace.warnings ?? []).some(warning => warning.code === 'flex_search_truncated'), JSON.stringify(far.trace.warnings))
   console.log('Flex limits: oversized catalogs keep scheduled and on-demand service; bounded pair searches warn instead of failing.')
-} finally { fs.rmSync(folder, { recursive: true, force: true }) }
+} finally { fs.rmSync(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

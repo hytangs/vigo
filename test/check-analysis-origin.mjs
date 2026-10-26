@@ -126,5 +126,5 @@ app.whenReady().then(async()=>{try{
   } finally { clearTimeout(timeout) }
 } finally {
   await server.close()
-  await rm(directory, { recursive: true, force: true })
+  await rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

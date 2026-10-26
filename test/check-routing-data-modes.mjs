@@ -257,7 +257,7 @@ try {
   })
 } finally {
   disposeNationalGtfsStore(storePath)
-  await fs.rm(folder, { recursive: true, force: true })
+  await fs.rm(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
 
 assert.equal(failures.length, 0, `${failures.length} routing data mode regressions failed: ${failures.map(({ name }) => name).join('; ')}`)

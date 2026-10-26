@@ -26,7 +26,7 @@ try {
       execFileSync('/bin/cp', ['-cR', sourcePackage.directory, packaged.directory], { stdio: 'pipe' })
       cloned = true
     } catch {
-      fs.rmSync(packaged.directory, { recursive: true, force: true })
+      fs.rmSync(packaged.directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
     }
   }
   if (!cloned) fs.cpSync(sourcePackage.directory, packaged.directory, { recursive: true, verbatimSymlinks: true, mode: fs.constants.COPYFILE_FICLONE })
@@ -41,4 +41,4 @@ try {
   })
   console.log(`Packaged Studio runtime ${version} passed on ${process.platform}:${process.arch}.`)
 
-} finally { fs.rmSync(isolated, { recursive: true, force: true }) }
+} finally { fs.rmSync(isolated, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

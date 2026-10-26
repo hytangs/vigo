@@ -102,5 +102,5 @@ try {
   console.log('Preparation status passed: City isolation, queued/loading/processing/ready/failure states, reconnect, honest progress, and Reach gating.')
 } finally {
   await server.close()
-  await rm(cacheDir, { recursive: true, force: true })
+  await rm(cacheDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

@@ -102,5 +102,5 @@ try {
   console.log('Earlier arrivals: native options by the deadline, latest departure first, preceding-day clock and daylight-saving service days passed.')
 } finally {
   await api?.stop(); disposeAllNationalGtfsStores(); disposeNationalOsmStore(street)
-  await fs.rm(root, { recursive: true, force: true })
+  await fs.rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

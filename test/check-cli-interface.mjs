@@ -157,5 +157,5 @@ try {
   assert.equal(diagnostics, '')
   console.log('CLI interface passed: scoped help, strict arguments, stdin validation, atomic output, permissions, and closed pipes.')
 } finally {
-  fs.rmSync(temporary, { recursive: true, force: true })
+  fs.rmSync(temporary, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

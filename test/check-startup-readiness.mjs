@@ -56,5 +56,5 @@ await import(${JSON.stringify(pathToFileURL(path.join(repositoryRoot, 'src/serve
 } finally {
   await fs.writeFile(release, 'continue').catch(()=>{})
   await api?.stop()
-  await fs.rm(root, {recursive:true,force:true})
+  await fs.rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

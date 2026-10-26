@@ -61,5 +61,5 @@ try {
     assert.deepEqual(line.serviceDates, ['2026-09-13', '2026-09-14'])
     assert.deepEqual(line.patterns.find(pattern => pattern.id === line.vehicles[0].patternId).stops.map(stop => stop.id), ['A', 'C'])
   } finally { context.close() }
-} finally { service?.close(); await fs.rm(directory, { recursive: true, force: true }) }
+} finally { service?.close(); await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }
 console.log('Workspace identity, selection and overnight vehicle patterns passed.')

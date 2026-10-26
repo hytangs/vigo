@@ -79,6 +79,6 @@ try {
   assert.doesNotMatch(html, /Updated|Next prediction/)
 } finally {
   await server.close()
-  await fs.rm(directory, { recursive: true, force: true })
+  await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
 console.log('Vehicle details: separate route identity, missing current-stop timing, explicit downstream prediction, partial events and current-stop priority passed.')

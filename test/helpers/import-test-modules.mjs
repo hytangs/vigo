@@ -15,6 +15,6 @@ export async function importTestModules(...paths) {
     return modules
   } finally {
     await server?.close()
-    await rm(cacheDir, { recursive: true, force: true })
+    await rm(cacheDir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
   }
 }

@@ -255,5 +255,5 @@ try {
   console.log(JSON.stringify({ check: 'network-tiles', fullBytes: Buffer.byteLength(fullText), catalogBytes: Buffer.byteLength(catalogText), routes: served.routes.length, stops: served.stops.length }))
 } finally {
   await api?.stop()
-  await fs.rm(folder, { recursive: true, force: true })
+  await fs.rm(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

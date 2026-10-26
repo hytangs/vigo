@@ -127,7 +127,7 @@ fields!(
     station_paths
 );
 fields!(
-    Timetable,
+    TimetableFields<'_>,
     links,
     stop_ids,
     index,
@@ -137,6 +137,20 @@ fields!(
     key,
     realtime
 );
+
+/// Measures a timetable's fields; [`Timetable`] memoizes the result.
+struct TimetableFields<'a>(&'a Timetable);
+impl std::ops::Deref for TimetableFields<'_> {
+    type Target = Timetable;
+    fn deref(&self) -> &Timetable {
+        self.0
+    }
+}
+impl Heap for Timetable {
+    fn heap_bytes(&self) -> usize {
+        *self.heap.get_or_init(|| TimetableFields(self).heap_bytes())
+    }
+}
 
 pub(crate) fn sqlite_bytes(db: &rusqlite::Connection) -> usize {
     let mut total = 0;
@@ -161,17 +175,18 @@ impl City {
     pub(crate) fn memory_ledger(&self) -> Value {
         let tt = self.timetable.as_ref();
         let street = self.street.memory_ledger();
-        let dictionary = self.stops.heap_bytes()
-            + self.stop_index.heap_bytes()
-            + self.members.heap_bytes()
-            + self.access.heap_bytes()
-            + self.transfer_rows.heap_bytes()
-            + self.transfer_shortcut_rows.heap_bytes()
-            + self.manifest.heap_bytes()
-            + self.metadata.heap_bytes()
-            + self.street_bounds.heap_bytes()
-            + self.context.header.heap_bytes()
-            + tt.map_or(0, Heap::heap_bytes)
+        let dictionary = *self.static_heap_bytes.get_or_init(|| {
+            self.stops.heap_bytes()
+                + self.stop_index.heap_bytes()
+                + self.members.heap_bytes()
+                + self.access.heap_bytes()
+                + self.transfer_rows.heap_bytes()
+                + self.transfer_shortcut_rows.heap_bytes()
+                + self.manifest.heap_bytes()
+                + self.metadata.heap_bytes()
+                + self.street_bounds.heap_bytes()
+                + self.context.header.heap_bytes()
+        }) + tt.map_or(0, Heap::heap_bytes)
             + self.calendar.get().map_or(0, |c| c.heap_bytes())
             + self
                 .flex_catalog
@@ -188,10 +203,7 @@ impl City {
             .sum::<usize>();
         let cache = inactive_timetables
             + self.timetable_cache.source_heap_bytes()
-            + self
-                .linked_candidates
-                .as_ref()
-                .map_or(0, super::linked_trips::Candidates::estimated_bytes)
+            + self.linked_candidates.estimated_bytes()
             + self.shape_cache.retained_bytes()
             + self.route_metadata.heap_bytes()
             + self.trip_shape_ids.heap_bytes()

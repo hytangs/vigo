@@ -111,7 +111,7 @@ await import(${JSON.stringify(pathToFileURL(path.join(repositoryRoot, 'src/serve
   } finally {
     await fs.writeFile(cleanupRelease, 'continue').catch(() => {})
     await api?.stop()
-    await fs.rm(root, { recursive: true, force: true })
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
   }
 } else {
   console.log('macOS library access policy does not apply on this platform.')

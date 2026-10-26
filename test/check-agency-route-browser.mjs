@@ -104,7 +104,7 @@ try {
   assert.equal(routeBrowserFreshness(outdated, now + 181_000).predictions, false)
 } finally {
   context.close()
-  await fs.rm(directory, { recursive: true, force: true })
+  await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
 
 const cacheDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-route-browser-vite-'))
@@ -152,6 +152,6 @@ try {
   assert.match(unknownTimezone, /Service date unknown/)
 } finally {
   await server.close()
-  await fs.rm(cacheDirectory, { recursive: true, force: true })
+  await fs.rm(cacheDirectory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
 console.log('Route browser: source-aware filters, independent alerts, retained-source expiry, cancellation semantics, natural/attention/delay sorting, accessible controls and visible pagination passed.')

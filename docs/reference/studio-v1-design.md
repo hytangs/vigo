@@ -513,4 +513,4 @@ Polling includes City identity and is aborted on Studio reset.
 4. **Finish the token migration.** Retire component aliases after verifying
    both appearances and map overlays.
 5. **Release acceptance.** Complete the platform milestones and sustained
-   real-City validation in [Poros readiness](poros-v1-readiness.md).
+   real-City validation.

@@ -32,4 +32,4 @@ try {
   assert.equal(nationalOsmWayWalkable({ highway: 'platform', area: 'no' }), true)
   assert.equal(nationalOsmWayWalkable({ highway: 'footway', access: 'private' }), false)
   console.log('Platform outlines cannot trap coordinate walking; both runtimes retain the mapped street route.')
-} finally { fs.rmSync(folder, { recursive: true, force: true }) }
+} finally { fs.rmSync(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

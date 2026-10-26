@@ -83,5 +83,5 @@ try {
   console.log(JSON.stringify({ status: 'passed', ...counts, warmLookupsPerMs: Math.round(many.length / elapsedMs) }))
 } finally {
   await api?.stop()
-  await fs.rm(folder, { recursive: true, force: true })
+  await fs.rm(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

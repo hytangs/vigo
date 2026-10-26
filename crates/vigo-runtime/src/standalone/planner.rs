@@ -17,6 +17,19 @@ fn plans(mut result: Value) -> Vec<Value> {
 fn clock(v: &Value, key: &str) -> f64 {
     v[key].as_f64().unwrap_or(f64::INFINITY)
 }
+// Match the rider's elapsed trip after waiting at the origin for the first ride.
+fn travel_minutes(v: &Value) -> f64 {
+    let mut access = 0.;
+    for leg in v["legs"].as_array().into_iter().flatten() {
+        if leg["kind"] == "ride" {
+            let initial_wait =
+                (clock(leg, "departureMinutes") - clock(v, "departureMinutes") - access).max(0.);
+            return clock(v, "durationMinutes") - initial_wait;
+        }
+        access += leg["durationMinutes"].as_f64().unwrap_or(0.);
+    }
+    clock(v, "durationMinutes")
+}
 fn transit(v: &Value) -> bool {
     v["legs"]
         .as_array()
@@ -137,11 +150,47 @@ impl City {
                 }
             }
         }
+        // Searches at the requested minute miss a journey that leaves later
+        // for the same arrival. One reverse search to the earliest arrival
+        // finds the latest such departure.
+        if !arrive {
+            let requested = clock(&primary, "departureMinutes");
+            let best_arrival = pool
+                .iter()
+                .filter(|p| transit(p))
+                .map(|p| clock(p, "arrivalMinutes"))
+                .fold(f64::INFINITY, f64::min);
+            if best_arrival.is_finite() && requested.is_finite() {
+                let mut latest = base.clone();
+                let o = latest.as_object_mut().unwrap();
+                for key in ["alternatives", "alternativeRanking", "time", "serviceDay"] {
+                    o.remove(key);
+                }
+                latest["timePreference"] = json!("arrive_by");
+                latest["timeMinutes"] = json!(best_arrival);
+                if let Ok(result) = self.route(&latest) {
+                    pool.extend(plans(result).into_iter().filter(|p| {
+                        transit(p)
+                            && clock(p, "departureMinutes") > requested
+                            && clock(p, "arrivalMinutes") <= best_arrival
+                    }));
+                }
+            }
+        }
         pool.sort_by(|a, b| {
             let time = if arrive {
                 clock(b, "departureMinutes").total_cmp(&clock(a, "departureMinutes"))
             } else {
-                clock(a, "arrivalMinutes").total_cmp(&clock(b, "arrivalMinutes"))
+                // Equal arrivals: within the walking limit, then the shorter
+                // trip, which leaves later.
+                clock(a, "arrivalMinutes")
+                    .total_cmp(&clock(b, "arrivalMinutes"))
+                    .then_with(|| {
+                        a.get("expandedWalkingLimitKm")
+                            .is_some()
+                            .cmp(&b.get("expandedWalkingLimitKm").is_some())
+                    })
+                    .then_with(|| travel_minutes(a).total_cmp(&travel_minutes(b)))
             };
             time.then_with(|| {
                 super::alternatives::walking(a).total_cmp(&super::alternatives::walking(b))

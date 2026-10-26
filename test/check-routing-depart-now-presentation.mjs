@@ -121,4 +121,4 @@ try {
   assert.doesNotMatch(renderConnection({ ...connection, legs: [connection.legs[0], { ...connection.legs[1], tripId: 'first-trip' }] }), /No time between vehicles/,
     'Remaining on the same trip is not presented as a vehicle change.')
   console.log('Depart now presentation passed: fixed realtime clock, retained research date/time and arrive-by, current-date failure, and unchanged street controls.')
-} finally { await server.close(); await rm(directory, { recursive: true, force: true }) }
+} finally { await server.close(); await rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

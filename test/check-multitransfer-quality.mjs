@@ -65,4 +65,4 @@ try {
   }
  }
  console.log(JSON.stringify({status:'passed',routes,replayedRides,matrixCells,depths:[2,4,6,8,12,16],overnight:true,publishedTransferMinimumSeconds:60},null,2))
-} finally {disposeAllNationalGtfsStores();await fs.rm(root,{recursive:true,force:true})}
+} finally {disposeAllNationalGtfsStores();await fs.rm(root,{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 })}

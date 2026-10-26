@@ -574,5 +574,5 @@ try {
   }, null, 2))
 } finally {
   await stopApi()
-  await fsp.rm(temporaryRoot, { recursive: true, force: true })
+  await fsp.rm(temporaryRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

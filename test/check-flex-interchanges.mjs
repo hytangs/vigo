@@ -103,4 +103,4 @@ try {
   assert.equal(wheelchairZone('route',{...base,wheelchair:true,origin:{coordinate:[-77.0500001,38.9]}}).status,'not_found','Zero walking does not allow a real road attachment gap')
   assert.throws(()=>wheelchairZone('route',{...base,flex:undefined,wheelchair:true,mode:'drive'}),/supports transit and walk/)
   console.log('Flex interchange directions, reverse clocks, scoped restrictions, Matrix parity, wheelchair and directed continuous pickup passed.')
-} finally { fs.rmSync(folder,{recursive:true,force:true}) }
+} finally { fs.rmSync(folder,{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

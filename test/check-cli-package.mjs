@@ -86,5 +86,5 @@ try {
     platform: process.platform, architecture: process.arch, zipBytes: bytes.length, payloadBytes: audit.bytes,
     files: audit.files, commands: publicCliCommands, isolatedRuntime: true }, null, 2))
 } finally {
-  await fs.rm(temporary, { recursive: true, force: true })
+  await fs.rm(temporary, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

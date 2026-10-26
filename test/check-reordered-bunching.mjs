@@ -102,4 +102,4 @@ try {
   const strongerGap = { ...event, id: 'wider', type: 'service-gap', severity: 'critical', vehicleId: 'vehicle-T3', tripId: 'T3', evidence: { scheduledHeadwaySeconds: 600, observedHeadwaySeconds: 2400 } }
   assert.equal(frame([...shared.mapOperationalEvents, strongerGap]).vehicles.find(vehicle => vehicle.id === 'vehicle-T3').bunchingLinks.length, 2, 'A stronger gap warning must not hide supported bunching links')
   console.log('Reordered bunching: three-bus indicators, pair retention, conservative baseline, exact identity, freshness, and metric separation passed.')
-} finally { await server.close(); context.close(); await fs.rm(directory, { recursive: true, force: true }) }
+} finally { await server.close(); context.close(); await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

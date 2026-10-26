@@ -56,4 +56,4 @@ try {
   const timer=setTimeout(()=>child.kill(),60_000)
   try{const code=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',resolve)});if(code!==0)throw Error(`Journey fixture exited ${code}`)}finally{clearTimeout(timer)}
   console.log(`Journey options verified: ${directory}`)
-} finally {await server.close();await Promise.all(['vite-cache','profile'].map(name=>fs.rm(path.join(directory,name),{recursive:true,force:true})))}
+} finally {await server.close();await Promise.all(['vite-cache','profile'].map(name=>fs.rm(path.join(directory,name),{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 })))}

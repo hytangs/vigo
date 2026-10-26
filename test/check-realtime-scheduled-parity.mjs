@@ -150,7 +150,7 @@ try {
   }
 } finally {
   for (const store of stores) disposeNationalGtfsStore(store)
-  await fs.rm(folder, { recursive: true, force: true })
+  await fs.rm(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
 assert.equal(pairs, 1536)
 console.log(`Realtime/scheduled parity check passed (${pairs} paired public queries across ${cases.length} independently imported timetables).`)

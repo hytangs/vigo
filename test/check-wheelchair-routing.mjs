@@ -36,7 +36,9 @@ for (const row of [
 ]) assert.equal(wheelchairPathwaySeconds(row), null)
 assert.equal(wheelchairPathwaySeconds({ pathway_mode: 1, traversal_time: 15, max_slope: .02, min_width: 1.2 }), 15)
 assert.equal(wheelchairWayAllowed({ highway: 'footway', wheelchair: 'yes' }), true)
-for (const tags of [{ highway: 'footway' }, { highway: 'steps', wheelchair: 'yes' }, { wheelchair: 'limited' }, { wheelchair: 'yes', incline: '20%' }]) assert.equal(wheelchairWayAllowed(tags), false)
+// Untagged ways are usable; recorded barriers, rough surfaces and steep or narrow ways are not.
+for (const tags of [{ highway: 'footway' }, { highway: 'residential', sidewalk: 'both' }, { highway: 'footway', surface: 'paving_stones' }, { highway: 'path', surface: 'sett', wheelchair: 'yes' }]) assert.equal(wheelchairWayAllowed(tags), true)
+for (const tags of [{ highway: 'steps', wheelchair: 'yes' }, { wheelchair: 'limited' }, { wheelchair: 'no' }, { wheelchair: 'yes', incline: '20%' }, { highway: 'path', surface: 'gravel' }, { highway: 'footway', smoothness: 'very_bad' }, { highway: 'footway', width: '0.6' }, { highway: 'footway', conveying: 'yes' }]) assert.equal(wheelchairWayAllowed(tags), false)
 for (const tags of [{ barrier: 'stile', wheelchair: 'yes' }, { barrier: 'gate' }, { kerb: 'raised' }, { wheelchair: 'no' }, { 'wheelchair:conditional': 'yes @ (Mo-Fr)' }]) assert.equal(wheelchairNodeAllowed(tags), false)
 // Malformed slope tags must not turn unknown access into an accessible edge.
 for (const incline of ['.%', '1.2.3%', '+.%', '--2%', 'NaN%', 'Infinity%']) {
@@ -312,5 +314,5 @@ try {
 } finally {
   if (server) { server.kill(); await once(server, 'exit') }
   if (process.env.VIGO_KEEP_TEST_FIXTURES) console.log(folder)
-  else fs.rmSync(folder, { recursive: true, force: true })
+  else fs.rmSync(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

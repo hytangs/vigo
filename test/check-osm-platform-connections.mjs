@@ -89,5 +89,5 @@ try {
   console.log('Platform connections passed: mapped public junctions, both directions, private gates/platforms, isolated outlines, excluded tracks, and source identity.')
 } finally {
   for (const store of streetStores) disposeNationalOsmStore(store)
-  fs.rmSync(folder, { recursive: true, force: true })
+  fs.rmSync(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

@@ -38,7 +38,6 @@
     {"id": "project", "title": "Project"}
   ],
   "pages": [
-    {"id": "poros-readiness", "title": "Poros preview readiness", "group": "project", "source": "docs/reference/poros-v1-readiness.md"},
     {"id": "overview", "title": "Welcome", "group": "start", "source": "docs/guide.md", "section": "build-a-network-answer-a-transport-question"},
     {"id": "install", "title": "Install", "heading": "Install VIGO", "group": "start", "source": "docs/guide.md", "section": "install-vigo"},
     {"id": "quickstart", "title": "Quickstart", "heading": "Quickstart: Boston in ten minutes", "group": "start", "source": "docs/guide.md", "section": "quickstart"},
@@ -114,7 +113,6 @@
     {"id": "python-troubleshooting", "title": "Python troubleshooting", "heading": "Troubleshooting VIGO Python", "badge": "VIGO Python {python}", "group": "python", "source": "python/docs/guide.md", "section": "troubleshooting"},
 
     {"id": "release", "title": "What’s new in 1.0.0-rc.1", "group": "project", "source": "docs/releases/1.0.0-rc.1.md"},
-    {"id": "history", "title": "Historical records", "group": "project", "parent": "release", "source": "docs/history.md"},
     {"id": "format", "title": "Prepared-data contract", "heading": "V1 prepared-data compatibility", "group": "project", "source": "docs/reference/city-format.md"},
     {"id": "developers", "title": "Developer resources", "group": "project", "source": "docs/developer.md", "section": "developer-resources"},
     {"id": "architecture", "title": "Architecture", "group": "project", "parent": "developers", "source": "docs/developer.md", "section": "architecture"},

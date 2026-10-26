@@ -208,5 +208,5 @@ try {
   }
   console.log('Scheduled vehicle audit passed (shape variants, sparse shapes, dwell, loops, service dates, extended hours, malformed schedules, and realtime stop matching).')
 } finally {
-  await fs.rm(directory, { recursive: true, force: true })
+  await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

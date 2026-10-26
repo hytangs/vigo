@@ -84,5 +84,5 @@ try {
   console.log('Authorized access: upload, local import, retry, validation, gate routing and return to public passed.')
 } finally {
   await runtime?.stop()
-  await fs.rm(directory, { recursive: true, force: true })
+  await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

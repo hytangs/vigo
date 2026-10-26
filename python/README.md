@@ -90,11 +90,11 @@ Results use service-day **minutes**; the engine's public CLI and HTTP JSON use s
 ```python
 import vigo
 
-with vigo.build("./boston", gtfs="./data/MBTA_GTFS.zip", osm="./data/boston.osm.pbf") as city:
-    print(city.name, city.revision_id)
+with vigo.build("./boston", gtfs="./data/MBTA_GTFS.zip", osm="./data/massachusetts-latest.osm.pbf") as city:
+    print(city.name, city.revision_id, city.service_period())
 ```
 
-Build once, then reopen the directory with `vigo.open()` in later sessions; replacing an existing City requires `replace=True`. Keep the whole directory, and keep the original GTFS and OSM files for reproducibility.
+Build prints its stages in notebooks and terminals and checks the inputs before starting. Build once, then reopen the directory with `vigo.open()` in later sessions; replacing an existing City requires `replace=True`. Keep the whole directory, and keep the original GTFS and OSM files for reproducibility.
 
 ## Performance
 

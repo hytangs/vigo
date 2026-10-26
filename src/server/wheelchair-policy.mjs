@@ -1,7 +1,8 @@
 // This profile describes source constraints, not a survey or live facility check.
 export const wheelchairProfile = 'wheelchair-strict-v1'
 export const wheelchairLimitations = [
-  'Unknown vehicle, boarding and street accessibility is excluded; coverage may be sparse.',
+  'Unknown vehicle, boarding and station-path accessibility is excluded; coverage may be sparse.',
+  'Streets and paths are used unless OpenStreetMap records a barrier such as steps, raised kerbs, rough surfaces, narrow width or steep incline; sidewalk condition is not verified.',
   'Coordinate attachments are geometric; door-to-street access is not verified.',
   'Elevator outages, temporary obstructions and individual chair dimensions are not modeled.',
 ]
@@ -60,10 +61,20 @@ export function wheelchairPathwaySeconds(row) {
   return null
 }
 
+// Rough surfaces that a mapped wheelchair=yes may still override.
+const roughSurfaces = new Set(['cobblestone', 'unhewn_cobblestone', 'sett', 'gravel', 'pebblestone', 'sand',
+  'grass', 'dirt', 'earth', 'mud', 'ground', 'rock', 'stepping_stones', 'woodchips', 'unpaved'])
+const roughSmoothness = new Set(['bad', 'very_bad', 'horrible', 'very_horrible', 'impassable'])
+
+// Very few sidewalks carry wheelchair=yes. Requiring it left about 0.4% of
+// Boston's walkable network, so riders could neither reach most stops nor
+// transfer between them. Exclude ways whose tags record a barrier instead.
 export function wheelchairWayAllowed(tags) {
-  if (tag(tags.wheelchair) !== 'yes' || tag(tags['wheelchair:conditional'])) return false
+  if (tag(tags['wheelchair:conditional'])) return false
   if (['steps', 'construction', 'proposed'].includes(tag(tags.highway))) return false
   if (tag(tags.conveying) && tag(tags.conveying) !== 'no') return false
+  if (tag(tags.wheelchair) !== 'yes'
+    && (roughSurfaces.has(tag(tags.surface)) || roughSmoothness.has(tag(tags.smoothness)))) return false
   return wheelchairNodeAllowed(tags)
 }
 

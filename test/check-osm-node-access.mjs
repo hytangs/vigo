@@ -117,4 +117,4 @@ try {
     [{ foot: 'yes', 'foot:conditional': 'yes @ (Mo-Fr)', opening_hours: '08:00-17:00' }, false],
   ]) assert.equal(nationalOsmWayWalkable({ highway: 'service', ...tags }), allowed, JSON.stringify(tags))
   console.log('OSM node access passed: regular/dense tags, signed IDs, barriers, overrides, conditional access and malformed tags.')
-} finally { await fs.rm(folder, { recursive: true, force: true }) }
+} finally { await fs.rm(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

@@ -73,6 +73,6 @@ try {
   await assert.rejects(writeScenarioLibrary(directory, library, 2, writeJsonAtomic), /kept unchanged/, 'A damaged copy is never overwritten.')
   assert.equal(await fs.readFile(scenarioLibraryPath(directory), 'utf8'), '{"damaged":')
 } finally {
-  await fs.rm(directory, { recursive: true, force: true })
+  await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
 console.log('Scenario libraries keep remixes and changes, reject stale or invalid writes, and never overwrite a damaged copy.')

@@ -15,7 +15,7 @@ if (process.argv[2] !== '--worker') {
     execFileSync(process.execPath, [import.meta.filename, '--worker', directory], {
       stdio: 'inherit', env: process.env,
     })
-    fs.rmSync(directory, { recursive: true, force: true })
+    fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
   } catch (error) {
     console.error(`Accuracy fixtures retained for reproduction: ${directory}`)
     throw error

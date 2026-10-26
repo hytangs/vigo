@@ -561,6 +561,36 @@ class VigoPythonTest(unittest.TestCase):
                 vigo.build(self.root / "unsupported-city", gtfs=gtfs, osm=osm, private_access="endpoints", runtime=city.runtime)
             self.assertFalse((self.root / "unsupported-city").exists())
 
+    def test_build_checks_inputs_and_existing_city_before_starting(self) -> None:
+        gtfs = self.root / "feed.zip"
+        gtfs.touch()
+        with self.assertRaisesRegex(vigo.VigoError, "OSM input not found"):
+            vigo.build(self.root / "missing-osm", gtfs=gtfs, osm=self.root / "absent.pbf", runtime=self.command)
+        with self.assertRaisesRegex(vigo.VigoError, "GTFS input not found"):
+            vigo.build(self.root / "missing-gtfs", gtfs=self.root / "absent.zip", osm=gtfs, runtime=self.command)
+        with self.assertRaisesRegex(vigo.VigoError, "already exists.*replace=True"):
+            vigo.build(self.city_path, gtfs=gtfs, osm=gtfs, runtime=self.command)
+
+    def test_service_period_spans_regular_and_added_dates(self) -> None:
+        import sqlite3
+
+        with vigo.open(self.city_path, runtime=self.command) as city:
+            routing = city.path / "routing" / "project.sqlite"
+            routing.unlink()
+            db = sqlite3.connect(routing)
+            db.executescript(
+                "CREATE TABLE calendar(service_id TEXT, start_date INTEGER, end_date INTEGER);"
+                "CREATE TABLE calendar_dates(service_id TEXT, date INTEGER, exception_type INTEGER);"
+                "INSERT INTO calendar VALUES ('weekday', 20261014, 20261212);"
+                "INSERT INTO calendar_dates VALUES ('extra', 20261215, 1), ('weekday', 20261001, 2);"
+            )
+            db.commit()
+            db.close()
+            self.assertEqual(
+                city.service_period(),
+                (dt.date(2026, 10, 14), dt.date(2026, 12, 15)),
+            )
+
     def test_arrive_by_matrix_preserves_direction_time_and_large_origins(self) -> None:
         with vigo.open(self.city_path, runtime=self.command) as city:
             query = vigo.Matrix(

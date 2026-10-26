@@ -87,6 +87,6 @@ try {
   assert.deepEqual(await fs.readdir(agencyDirectory), ['network.sqlite', 'notebook.sqlite'])
 } finally {
   service?.close(); observation?.close()
-  await fs.rm(directory, { recursive: true, force: true })
+  await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
 console.log('Network service: live inspection, retired actions, access, persistence, disconnect, source replacement, in-flight invalidation and legacy data preservation passed.')

@@ -207,4 +207,4 @@ try {
   nextSnapshot.tripUpdates.push({ ...nextSnapshot.tripUpdates[0], id: 'duplicate-loop-report' })
   assert.equal(nextDetail().nextPrediction, undefined, 'Ambiguous trip reports cannot supply the next prediction')
   console.log('Agency route line: bidirectional patterns, branches, loops, exact vehicle stops, separate current-stop and downstream predictions, terminal arrivals, duplicate identities, freshness and missing predictions passed.')
-} finally { context?.close(); await fs.rm(directory, { recursive: true, force: true }) }
+} finally { context?.close(); await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

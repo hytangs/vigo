@@ -69,4 +69,4 @@ try {
   assert.equal(scoped.status, 'ok')
   assert(scoped.ms < baseline.ms * 5 + 750, `Trip-scoped rule activation took ${scoped.ms.toFixed(0)} ms (baseline ${baseline.ms.toFixed(0)} ms)`)
   console.log(`Transfer rule specificity: platform rules override station rules, route and trip selectors still rank first, trip-scoped rules resolve in ${scoped.ms.toFixed(0)} ms.`)
-} finally { fs.rmSync(folder, { recursive: true, force: true }) }
+} finally { fs.rmSync(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

@@ -20,7 +20,7 @@ export async function processFixtureDirectory(moduleUrl, prefix) {
       env: process.env,
     })
   } finally {
-    await fs.rm(folder, { recursive: true, force: true })
+    await fs.rm(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
   }
   process.exit(0)
 }

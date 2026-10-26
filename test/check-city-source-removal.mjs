@@ -124,5 +124,5 @@ try {
   throw error
 } finally {
   await runtime?.stop()
-  await fs.rm(directory, { recursive: true, force: true })
+  await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

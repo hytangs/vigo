@@ -223,4 +223,4 @@ try {
       child.on('exit', (code) => resolve(code ?? 1))
     })
   } finally { clearTimeout(timeout) }
-} finally { await server.close(); await rm(temporary,{recursive:true,force:true}); }
+} finally { await server.close(); await rm(temporary,{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 }); }

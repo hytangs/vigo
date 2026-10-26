@@ -78,5 +78,5 @@ try {
   finally { clearTimeout(timeout) }
 } finally {
   await server.close()
-  await Promise.all(['vite-cache', 'profile'].map(name => fs.rm(path.join(directory, name), { recursive: true, force: true })))
+  await Promise.all(['vite-cache', 'profile'].map(name => fs.rm(path.join(directory, name), { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })))
 }

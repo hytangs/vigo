@@ -447,15 +447,31 @@ impl City {
                 v["directionId"] = details["direction"].clone();
                 v["headsign"] = details["headsign"].clone();
                 v["tripShortName"] = details["shortName"].clone();
-                let (indexes, first, last) = t.kernel.ride_stop_sequence(
-                    trip,
-                    leg.board_sequence.ok_or("Missing board sequence")?,
-                    leg.alight_sequence.ok_or("Missing alight sequence")?,
-                )?;
-                // Source timing limitations, flagged exactly as Node flags them.
                 let board = leg.board_sequence.ok_or("Missing board sequence")?;
                 let alight = leg.alight_sequence.ok_or("Missing alight sequence")?;
-                let gaps = t.kernel.ride_bridged_gaps(trip, board, alight);
+                // A linked trip rides only inside its through run. Read its calls
+                // there, then keep the trip's own span for stops and shapes.
+                let (ride_trip, ride_board, ride_alight, span) =
+                    match (t.links.through(trip, board), t.links.through(trip, alight)) {
+                        (Some((run, board, span)), Some((_, alight, _))) => {
+                            (run, board, alight, Some(span))
+                        }
+                        _ => (trip, board, alight, None),
+                    };
+                let (mut indexes, mut first, mut last) =
+                    t.kernel
+                        .ride_stop_sequence(ride_trip, ride_board, ride_alight)?;
+                let mut calls = t.kernel.ride_calls(ride_trip);
+                if let Some([start, end]) = span {
+                    let (_, from, to) = t.kernel.ride_stop_sequence(ride_trip, start, end)?;
+                    indexes = indexes[from..=to].to_vec();
+                    calls = calls.drain(from..=to).collect();
+                    (first, last) = (first - from, last - from);
+                }
+                // Source timing limitations, flagged exactly as Node flags them.
+                let gaps = t
+                    .kernel
+                    .ride_bridged_gaps(ride_trip, ride_board, ride_alight);
                 if gaps > 0 {
                     v["bridgedUntimedGapCount"] = json!(gaps);
                 }
@@ -486,13 +502,10 @@ impl City {
                     })?;
                 }
                 let shift = if estimate.is_some() {
-                    leg.departure
-                        - t.kernel
-                            .ride_departure(trip, leg.board_sequence.unwrap_or(0.))?
+                    leg.departure - t.kernel.ride_departure(ride_trip, ride_board)?
                 } else {
                     0.
                 };
-                let calls = t.kernel.ride_calls(trip);
                 v["intermediateStops"] = Value::Array(calls[first + 1..last].iter().map(|c| {
                     let id = &t.stop_ids[c.stop as usize];
                     let stop = self.stop(id)?;

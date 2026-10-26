@@ -53,4 +53,4 @@ try {
     stdio:['ignore','ignore','pipe'],timeout:120000})
   verify(reference,candidate)
   console.log('Published 0.5.0 City reader, optional place-name upgrade, and native compiler writer compatibility passed: route, arrive-by, walk, matrix, reach.')
-} finally { fs.rmSync(temporary,{recursive:true,force:true}) }
+} finally { fs.rmSync(temporary,{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

@@ -53,4 +53,4 @@ try{
  const child=spawn(electronPath,[...(process.platform==='linux'&&process.env.CI?['--no-sandbox']:[]),main],{env,stdio:'inherit'})
  const timeout=setTimeout(()=>child.kill(),30000)
  try{const code=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('exit',resolve)});if(code!==0)throw Error(`Place fixture exited ${code}`)}finally{clearTimeout(timeout)}
-}finally{await server.close();await Promise.all(['vite-cache','profile'].map(n=>fs.rm(path.join(directory,n),{recursive:true,force:true})))}
+}finally{await server.close();await Promise.all(['vite-cache','profile'].map(n=>fs.rm(path.join(directory,n),{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 })))}

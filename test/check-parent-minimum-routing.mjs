@@ -98,5 +98,5 @@ try {
   console.log('Parent minimum floors, forward/reverse/Matrix contracts, overlapping/directed rules and stale snapshot rejection passed.')
 }finally{
   disposeNationalGtfsStore(storePath)
-  await fs.rm(folder,{recursive:true,force:true})
+  await fs.rm(folder,{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

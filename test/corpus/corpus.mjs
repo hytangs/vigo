@@ -279,7 +279,7 @@ async function recordOrCheck(write) {
       }
     }
   } finally {
-    fs.rmSync(workspace, { recursive: true, force: true })
+    fs.rmSync(workspace, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
   }
   const verb = write ? 'recorded' : 'replayed'
   console.log(JSON.stringify({ status: failures ? 'failed' : 'passed', [verb]: selected.length, failures, varying: Object.keys(VARYING) }))

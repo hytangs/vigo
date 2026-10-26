@@ -281,5 +281,5 @@ try {
     'Full paths should only be unpacked for primary-optimal candidate ties.')
   console.log('Native matrix checks passed: directed distances, target replacement, repeated rows, unsnapped origins, and drive paths.')
 } finally {
-  fs.rmSync(directory, { recursive: true, force: true })
+  fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

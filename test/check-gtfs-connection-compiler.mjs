@@ -87,4 +87,4 @@ try {
   assert.equal(fs.existsSync(`${f.store}.missing`), false)
   assert.throws(() => compileNativeGtfsConnections({ storePath: f.store, stopTimesPath: f.stagePath, excludedTripIds: [], cacheKib: 0 }), /cacheKiB/)
   console.log('Rust GTFS compiler regression: 80 seeded feeds, scoped identities, gaps, frequencies, permissions, malformed input and native rollback passed.')
-} finally { fs.rmSync(root, { recursive: true, force: true }) }
+} finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

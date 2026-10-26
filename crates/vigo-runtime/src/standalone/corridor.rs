@@ -304,8 +304,8 @@ mod tests {
         let mut departure_offset = vec![0u32];
         let mut departure_order = vec![];
         for stop in 0..stop_count {
-            for segment in 0..4 {
-                if stops[segment] == stop {
+            for (segment, &from) in stops[..4].iter().enumerate() {
+                if from == stop {
                     departure_order.push(segment as u32);
                 }
             }
@@ -355,7 +355,10 @@ mod tests {
             from: stops[first..first + 2].to_vec(),
             to: stops[first + 1..first + 3].to_vec(),
         };
-        (kernel, Links::from([(0, vec![part(0), part(2)])]))
+        (
+            kernel,
+            Links::new(HashMap::from([(0, vec![part(0), part(2)])])),
+        )
     }
 
     fn input(origin: u32, destination: u32) -> TimetableMatrixQueryInput {

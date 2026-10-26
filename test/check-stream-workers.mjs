@@ -41,5 +41,5 @@ try {
   console.log('CLI stream workers: ordering, resident reuse, interactive input and crash cleanup passed')
 } finally {
   process.argv[1] = previous
-  fs.rmSync(directory, {recursive: true, force: true})
+  fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

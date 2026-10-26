@@ -119,5 +119,5 @@ try {
   console.log(`Realtime past-prefix check passed (${pairs} crates/vigo-runtime/literal comparisons, prefix boarding exclusion, and future-header cache crossing).`)
 } finally {
   for (const store of stores) disposeNationalGtfsStore(store)
-  await fs.rm(folder, { recursive: true, force: true })
+  await fs.rm(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

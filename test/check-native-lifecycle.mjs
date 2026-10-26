@@ -82,6 +82,6 @@ if (!isMainThread) {
     }
     console.log('Native lifecycle passed: 64 worker retirements and 8 process exits with resident kernels and typed arrays.')
   } finally {
-    await fs.rm(directory, { recursive: true, force: true })
+    await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
   }
 }

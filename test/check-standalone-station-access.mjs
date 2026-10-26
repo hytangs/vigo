@@ -105,6 +105,6 @@ try {
     }
   }
   console.log('Standalone station access passed: selected directed pathway costs and unverified transfer interiors.')
-} finally { fs.rmSync(directory, { recursive: true, force: true }) }
+} finally { fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }
 
 function unpack(result) { return result.trace ?? result }

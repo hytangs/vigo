@@ -161,4 +161,4 @@ try {
     }
   }
   console.log('Calendar boundaries passed: weekday/weekend/holiday, previous service day, overnight depart/arrive, DST absolute realtime, prior-service realtime, native CLI/HTTP/stream and Node parity.')
-} finally {for(const child of children) if(child.exitCode===null) {child.kill(); await once(child,'exit')} fs.rmSync(dir,{recursive:true,force:true})}
+} finally {for(const child of children) if(child.exitCode===null) {child.kill(); await once(child,'exit')} fs.rmSync(dir,{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 })}

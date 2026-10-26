@@ -161,7 +161,7 @@ try {
   assert.throws(() => source.readShape('loop'), /closed/)
   assert.deepEqual(nativeShapeLegPolyline(native, 3, 5).coordinates, coordinates.slice(3))
 } finally {
-  fs.rmSync(directory, { recursive: true, force: true })
+  fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
 
 console.log(JSON.stringify({ check: 'selected-trip-geometry', status: 'passed' }))

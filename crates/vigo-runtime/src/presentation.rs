@@ -293,6 +293,144 @@ fn journey_row(row: &mut Value, geometry: bool) -> Value {
         Value::Array(project_values(cells, geometry, journey))
     })
 }
+// Routing records one walk per pathway or street edge. A rider walks the
+// whole stretch, so back-to-back walks become one leg whose components keep
+// the street and station costs and whose quality keeps the weakest evidence.
+fn mergeable(a: &Value, b: &Value) -> bool {
+    a["type"] == "walk"
+        && b["type"] == "walk"
+        && a["arrivalTime"] == b["departureTime"]
+        && a["geometry"].is_null() == b["geometry"].is_null()
+        && (a["endpointConnector"].is_null() || b["endpointConnector"].is_null())
+}
+fn merge_walk(mut a: Value, mut b: Value) -> Value {
+    let part = |l: &Value| -> Vec<Value> {
+        if let Some(c) = l["components"].as_array() {
+            return c.clone();
+        }
+        let source = l["quality"]["geometrySource"].as_str().unwrap_or("");
+        let kind = if source == "gtfs_pathway" {
+            "station"
+        } else {
+            "street"
+        };
+        let mut c = json!({"type":kind,"durationSeconds":l["durationSeconds"],
+            "distanceMeters":l["distanceMeters"]});
+        if source == "osm" || source == "gtfs_pathway" {
+            c["sources"] = json!([source]);
+        }
+        vec![c]
+    };
+    if !a["components"].is_null() || !b["components"].is_null() {
+        let mut components = vec![];
+        for kind in ["street", "station"] {
+            let parts: Vec<_> = part(&a)
+                .into_iter()
+                .chain(part(&b))
+                .filter(|c| c["type"] == kind)
+                .collect();
+            if parts.is_empty() {
+                continue;
+            }
+            let total = |key: &str| {
+                parts
+                    .iter()
+                    .map(|c| c[key].as_i64())
+                    .sum::<Option<i64>>()
+                    .map_or(Value::Null, |n| json!(n))
+            };
+            let mut component = json!({"type":kind,"durationSeconds":total("durationSeconds"),
+                "distanceMeters":total("distanceMeters")});
+            let mut sources: Vec<Value> = parts
+                .iter()
+                .filter_map(|c| c["sources"].as_array())
+                .flatten()
+                .cloned()
+                .collect();
+            if !sources.is_empty() {
+                sources.sort_by_key(Value::to_string);
+                sources.dedup();
+                component["sources"] = json!(sources);
+            }
+            components.push(component);
+        }
+        a["components"] = json!(components);
+    }
+    for key in ["durationSeconds", "distanceMeters"] {
+        match (a[key].as_i64(), b[key].as_i64()) {
+            (Some(x), Some(y)) => a[key] = json!(x + y),
+            _ => {
+                a.as_object_mut().unwrap().remove(key);
+            }
+        }
+    }
+    a["to"] = b["to"].take();
+    a["arrivalTime"] = b["arrivalTime"].take();
+    let (qa, qb) = (&a["quality"], &b["quality"]);
+    let verified = qa["streetGeometry"] == "verified" && qb["streetGeometry"] == "verified";
+    let source = match (qa["geometrySource"].as_str(), qb["geometrySource"].as_str()) {
+        (Some(x), Some(y)) if x == y => x.to_owned(),
+        (Some(x), Some(y)) => {
+            let weak = ["unknown", "unverified_transfer"];
+            weak.iter()
+                .find(|w| x == **w || y == **w)
+                .map_or("osm_and_station_path", |w| w)
+                .to_owned()
+        }
+        _ => "unknown".to_owned(),
+    };
+    let station_path = match (qa["stationPath"].as_str(), qb["stationPath"].as_str()) {
+        (Some("source_path") | None, Some("source_path") | None)
+            if !qa["stationPath"].is_null() || !qb["stationPath"].is_null() =>
+        {
+            json!("source_path")
+        }
+        (None, None) => Value::Null,
+        _ => json!("inferred"),
+    };
+    let estimated = qa["stationTime"] == "estimated" || qb["stationTime"] == "estimated";
+    let quality = &mut a["quality"];
+    quality["streetGeometry"] = json!(if verified { "verified" } else { "unverified" });
+    quality["geometrySource"] = json!(source);
+    let fields = quality.as_object_mut().unwrap();
+    fields.remove("stationPath");
+    fields.remove("stationTime");
+    if !station_path.is_null() {
+        fields.insert("stationPath".into(), station_path);
+    }
+    if estimated {
+        fields.insert("stationTime".into(), json!("estimated"));
+    }
+    if a["endpointConnector"].is_null() && !b["endpointConnector"].is_null() {
+        a["endpointConnector"] = b["endpointConnector"].take();
+    }
+    // `get_mut`: indexing an absent geometry mutably would create one.
+    let coordinates = |l: &mut Value| {
+        l.get_mut("geometry")
+            .and_then(|g| g.get_mut("coordinates"))
+            .and_then(Value::as_array_mut)
+            .map(std::mem::take)
+    };
+    if let (Some(mut x), Some(y)) = (coordinates(&mut a), coordinates(&mut b)) {
+        let skip = usize::from(x.last() == y.first());
+        x.extend(y.into_iter().skip(skip));
+        a["geometry"]["coordinates"] = Value::Array(x);
+    }
+    a
+}
+fn merge_walks(legs: Vec<Value>) -> Vec<Value> {
+    let mut out: Vec<Value> = Vec::with_capacity(legs.len());
+    for leg in legs {
+        match out.last() {
+            Some(last) if mergeable(last, &leg) => {
+                let last = out.pop().unwrap();
+                out.push(merge_walk(last, leg));
+            }
+            _ => out.push(leg),
+        }
+    }
+    out
+}
 fn journey(v: &mut Value, geometry: bool) -> Value {
     if v.is_null() || v["status"] == "blocked" {
         return Value::Null;
@@ -302,10 +440,13 @@ fn journey(v: &mut Value, geometry: bool) -> Value {
     if departure.is_null() || arrival.is_null() {
         return Value::Null;
     }
-    let mut legs: Vec<_> = v["legs"]
-        .as_array_mut()
-        .map(|a| a.iter_mut().map(|v| leg(v, geometry)).collect())
-        .unwrap_or_default();
+    // Each waypoint segment merges its own walks; a requested stop stays a boundary.
+    let mut legs: Vec<_> = merge_walks(
+        v["legs"]
+            .as_array_mut()
+            .map(|a| a.iter_mut().map(|v| leg(v, geometry)).collect())
+            .unwrap_or_default(),
+    );
     if let Some(segments) = v["segments"].as_array_mut() {
         for segment in segments {
             if let Value::Array(part) = journey(segment, geometry)["legs"].take() {
@@ -1001,6 +1142,125 @@ pub fn format_owned(kind: &str, request: &Value, mut raw: Value) -> Value {
 
 #[cfg(test)]
 mod tests {
+    fn walk(
+        from: &str,
+        to: &str,
+        start: &str,
+        end: &str,
+        source: &str,
+        line: Option<Value>,
+    ) -> Value {
+        let mut leg = json!({"type":"walk","from":{"name":from},"to":{"name":to},
+            "departureTime":start,"arrivalTime":end,"durationSeconds":60,"distanceMeters":50,
+            "quality":{"streetGeometry":if source == "osm" {"verified"} else {"unverified"},
+                "geometrySource":source}});
+        if source == "gtfs_pathway" {
+            leg["components"] = json!([{"type":"station","durationSeconds":60,
+                "distanceMeters":50,"sources":["gtfs_pathway"]}]);
+            leg["quality"]["stationPath"] = json!("source_path");
+        }
+        if let Some(line) = line {
+            leg["geometry"] = json!({"type":"LineString","coordinates":line});
+        }
+        leg
+    }
+
+    #[test]
+    fn contiguous_walks_merge_with_components_and_weakest_quality() {
+        let legs = vec![
+            walk(
+                "Park",
+                "Concourse",
+                "09:00:00",
+                "09:01:00",
+                "gtfs_pathway",
+                Some(json!([[0, 0], [1, 0]])),
+            ),
+            walk(
+                "Concourse",
+                "Exit",
+                "09:01:00",
+                "09:02:00",
+                "gtfs_pathway",
+                Some(json!([[1, 0], [2, 0]])),
+            ),
+            walk(
+                "Exit",
+                "South",
+                "09:02:00",
+                "09:03:00",
+                "osm",
+                Some(json!([[2, 0], [3, 0]])),
+            ),
+        ];
+        let merged = merge_walks(legs);
+        assert_eq!(merged.len(), 1);
+        let leg = &merged[0];
+        assert_eq!(leg["from"]["name"], "Park");
+        assert_eq!(leg["to"]["name"], "South");
+        assert_eq!(leg["departureTime"], "09:00:00");
+        assert_eq!(leg["arrivalTime"], "09:03:00");
+        assert_eq!(leg["durationSeconds"], 180);
+        assert_eq!(leg["distanceMeters"], 150);
+        assert_eq!(leg["quality"]["geometrySource"], "osm_and_station_path");
+        assert_eq!(leg["quality"]["streetGeometry"], "unverified");
+        assert_eq!(leg["quality"]["stationPath"], "source_path");
+        assert_eq!(
+            leg["geometry"]["coordinates"],
+            json!([[0, 0], [1, 0], [2, 0], [3, 0]])
+        );
+        assert_eq!(
+            leg["components"],
+            json!([{"type":"street","durationSeconds":60,"distanceMeters":50,"sources":["osm"]},
+                {"type":"station","durationSeconds":120,"distanceMeters":100,"sources":["gtfs_pathway"]}])
+        );
+    }
+
+    #[test]
+    fn walks_stay_separate_across_waits_rides_and_missing_geometry() {
+        let gap = vec![
+            walk("A", "B", "09:00:00", "09:01:00", "osm", None),
+            walk("B", "C", "09:03:00", "09:04:00", "osm", None),
+        ];
+        assert_eq!(
+            merge_walks(gap).len(),
+            2,
+            "a wait between walks stays visible"
+        );
+        let mixed = vec![
+            walk(
+                "A",
+                "B",
+                "09:00:00",
+                "09:01:00",
+                "osm",
+                Some(json!([[0, 0], [1, 0]])),
+            ),
+            walk("B", "C", "09:01:00", "09:02:00", "gtfs_pathway", None),
+        ];
+        assert_eq!(
+            merge_walks(mixed).len(),
+            2,
+            "no line is bridged across a missing vertex"
+        );
+        let unmapped = merge_walks(vec![
+            walk("A", "B", "09:00:00", "09:01:00", "gtfs_pathway", None),
+            walk("B", "C", "09:01:00", "09:02:00", "gtfs_pathway", None),
+        ]);
+        assert_eq!(unmapped.len(), 1);
+        assert!(
+            unmapped[0].get("geometry").is_none(),
+            "absent geometry stays absent"
+        );
+        let ride = json!({"type":"transit","departureTime":"09:01:00","arrivalTime":"09:05:00"});
+        let around = merge_walks(vec![
+            walk("A", "B", "09:00:00", "09:01:00", "osm", None),
+            ride,
+            walk("C", "D", "09:05:00", "09:06:00", "osm", None),
+        ]);
+        assert_eq!(around.len(), 3);
+    }
+
     #[test]
     fn parallel_matrix_projection_preserves_order_nulls_and_geometry() {
         for (rows, columns) in [(128, 1), (1, 128), (17, 17)] {

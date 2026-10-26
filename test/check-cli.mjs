@@ -686,5 +686,5 @@ try {
 
   console.log('Canonical VIGO CLI passed.')
 } finally {
-  fs.rmSync(temporaryRoot, { recursive: true, force: true })
+  fs.rmSync(temporaryRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

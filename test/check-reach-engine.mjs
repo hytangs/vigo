@@ -587,5 +587,5 @@ try {
   disposeNationalGtfsStore(mergedStorePath)
   disposeNationalGtfsStore(terminalStorePath)
   disposeNationalOsmStore(streetStorePath)
-  await fsp.rm(folder, { recursive: true, force: true })
+  await fsp.rm(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

@@ -40,7 +40,7 @@ try {
     /incomplete/,
   )
   assert.equal(validateCityDirectory(output).marker, 'old')
-  fs.rmSync(incomplete, { recursive: true, force: true })
+  fs.rmSync(incomplete, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 
   const outdated = createCityStagingDirectory(output)
   writePackage(outdated, 'outdated')
@@ -49,7 +49,7 @@ try {
   oldRouting.close()
   assert.throws(() => publishCity(outdated, output, { replace: true }), /Transfer semantics/)
   assert.equal(validateCityDirectory(output).marker, 'old')
-  fs.rmSync(outdated, { recursive: true, force: true })
+  fs.rmSync(outdated, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 
   // Upgrades must reject old formats before moving the working City.
   for (const format of ['manifest', 'routing']) {
@@ -66,7 +66,7 @@ try {
     assert.throws(() => publishCity(candidate, output, { replace: true }), /[Rr]ebuild/)
     assert.deepEqual(fs.readFileSync(path.join(output, 'network.json')), before)
     assert.equal(validateCityDirectory(output).marker, 'old')
-    fs.rmSync(candidate, { recursive: true, force: true })
+    fs.rmSync(candidate, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
   }
 
   const staged = createCityStagingDirectory(output)
@@ -83,5 +83,5 @@ try {
   )
   console.log('Atomic City publication passed.')
 } finally {
-  fs.rmSync(root, { recursive: true, force: true })
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

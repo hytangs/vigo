@@ -81,5 +81,5 @@ try {
   console.log(JSON.stringify({ checkedCells: cells, chunkedCells: n.surface.values.length, modes: ['walk', 'transit', 'drive'], maxTransfers: [0, 1], repeat: 'identical' }))
 } finally {
   await Promise.all(processes.filter(p => p.exitCode === null).map(async p => { const ended = once(p, 'exit'); p.kill(); await ended }))
-  fs.rmSync(directory, { recursive: true, force: true })
+  fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

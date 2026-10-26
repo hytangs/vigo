@@ -32,7 +32,7 @@ try {
     fs.unlinkSync(executable)
   }
 } finally {
-  fs.rmSync(locations, { recursive: true, force: true })
+  fs.rmSync(locations, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
 
 const spawned = []

@@ -68,5 +68,5 @@ try {
   console.log('Low-memory import and missing, damaged, unwritable accelerator safeguards passed.')
 } finally {
   os.totalmem = originalTotalmem; syncBuiltinESMExports()
-  fs.rmSync(root, {recursive:true,force:true})
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

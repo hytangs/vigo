@@ -129,4 +129,4 @@ try {
     if(old===null)zip.remove(name);else zip.file(name,old)
   }
   console.log('Flex: source preservation, no fabricated timetable, conditional bookings, windows, arrive-by and Matrix/Route agreement passed.')
-} finally { fs.rmSync(folder,{recursive:true,force:true}) }
+} finally { fs.rmSync(folder,{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

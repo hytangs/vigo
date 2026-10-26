@@ -41,11 +41,11 @@ with vigo.open("./boston") as city:
     )
 ```
 
-`city.path`, `name`, `revision_id`, `built_at`, and `sources` identify the opened model. `details` returns its manifest; `capabilities` returns the selected runtime's advertised capabilities. `city.runtime` is the resolved `RuntimeInfo`. `close()` releases resident processes; already returned Results remain usable.
+`city.path`, `name`, `revision_id`, `built_at`, and `sources` identify the opened model. `service_period()` returns the first and last dates with scheduled service as `datetime.date` values, or `None`; choose `service_date` inside it. `details` returns its manifest; `capabilities` returns the selected runtime's advertised capabilities. `city.runtime` is the resolved `RuntimeInfo`. `close()` releases resident processes; already returned Results remain usable.
 
 ## Build a City
 
-`vigo.build(output, *, gtfs, osm, private_access="public", street_modes="walk,drive", replace=False, runtime=None, timeout=1800.0, progress=False)` writes one complete City and returns it opened for queries. `gtfs` accepts one ZIP path or a sequence of paths; `osm` accepts one OSM PBF path.
+`vigo.build(output, *, gtfs, osm, private_access="public", street_modes="walk,drive", replace=False, runtime=None, timeout=1800.0, progress=None)` writes one complete City and returns it opened for queries. `gtfs` accepts one ZIP path or a sequence of paths; `osm` accepts one OSM PBF path. Missing input files raise `VigoError` before the build starts.
 
 ```python
 with vigo.build(
@@ -59,10 +59,11 @@ with vigo.build(
 
 Use `street_modes="walk"` for a walking/transit-only City; the default `"walk,drive"` also prepares driving data.
 
-Pass `replace=True` only when you intend to replace an existing City.
-Pass `progress=True` to show Build stages and elapsed time with the optional
-`tqdm` dependency. It defaults to `False`; see [Runtime and loading](guide.md#runtime-and-loading)
-for installation and separate raw-build, first-query, and reopening timings.
+An existing City at `output` raises `VigoError`; pass `replace=True` only when you intend to replace it.
+`progress=None` shows Build stages and elapsed time in notebooks and terminals and
+stays quiet otherwise; `True` or `False` forces it. Stages print as plain lines, or
+as a `tqdm` status line when that optional package is installed. See [Runtime and loading](guide.md#runtime-and-loading)
+for separate raw-build, first-query, and reopening timings.
 
 For travelers authorized to use internal roads at their own origin and destination,
 pass `private_access="endpoints"` to `vigo.build()`. The default is `"public"`.

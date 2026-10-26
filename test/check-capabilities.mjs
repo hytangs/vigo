@@ -56,7 +56,7 @@ try {
   assert.deepEqual(body.capabilities, result)
 } finally {
   await api?.stop()
-  await fs.rm(temporary, { recursive: true, force: true })
+  await fs.rm(temporary, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
 
 console.log('VIGO product model passed.')

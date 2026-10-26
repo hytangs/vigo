@@ -125,4 +125,4 @@ try {
   assert.throws(() => board('unknown'), /exact stop/)
   assert.ok(stopBoard(context, null, { stopId: 'B' }, Date.parse('2026-10-01T12:00:00Z') / 1000).warnings.length, 'Expired schedule is explained')
   console.log('Stop board: station grouping, both directions, vehicle identities, separate arrival/departure, terminals, cancellations, skipped stops, duplicate/unknown/stale reports, loops, midnight and schedule fallback passed.')
-} finally { context?.close(); await fs.rm(directory, { recursive: true, force: true }) }
+} finally { context?.close(); await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

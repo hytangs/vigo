@@ -45,5 +45,5 @@ try {
   assert.equal(route.transferChange, null)
   console.log('Result comparison preserves missing travel times and grid identity.')
 } finally {
-  fs.rmSync(directory, { recursive: true, force: true })
+  fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

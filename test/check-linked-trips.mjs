@@ -145,4 +145,4 @@ try {
   }
  }
  console.log(JSON.stringify({status:'passed',checks}))
-} finally {for(const child of children)child.kill();fs.rmSync(dir,{recursive:true,force:true})}
+} finally {for(const child of children)child.kill();fs.rmSync(dir,{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 })}

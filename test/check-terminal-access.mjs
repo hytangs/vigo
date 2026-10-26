@@ -182,4 +182,4 @@ try {
   fs.writeFileSync(file, JSON.stringify(graph))
   assert.throws(() => kernel.configureTerminalAccess(file), /does not match/)
   console.log(JSON.stringify({ status: 'passed', endpointPrivateAccess: true, throughPrivateShortcuts: false, privateRegionReentry: false, directedPaths: true, matrixParity: true }))
-} finally { fs.rmSync(directory, { recursive: true, force: true }) }
+} finally { fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

@@ -120,5 +120,5 @@ try {
 
   console.log(`Realtime alerts and query kinds passed (${checks} checks: NO_SERVICE routes and stops, active periods, leg alerts, stale and agency entities, realtime schedule quality, Node runtime parity, Matrix, Reach and scenarios).`)
 } finally {
-  fs.rmSync(directory, { recursive: true, force: true })
+  fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
