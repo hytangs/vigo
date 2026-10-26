@@ -32,8 +32,8 @@
 use super::point::{self, WINDOW_ARRIVAL_SLACK_SECONDS};
 use super::query::{Candidates, Options, Point};
 use super::{City, Result, fail, flag, materialize::MatrixMaterializationCache, number};
-use crate::TimetableMatrixJourney;
 use crate::route_alternatives::RouteAlternativeRequest;
+use crate::{TimetableMatrixJourney, TimetableMatrixLeg};
 use serde_json::{Value, json};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -789,6 +789,54 @@ fn without_options(q: &Value) -> Value {
     request
 }
 
+/// `journey` ending with a walk from where its last ride but one leaves the
+/// rider, when that walk (`egress` seconds per stop) reaches the destination
+/// at least a minute earlier than the final ride and its wait. The walk may
+/// exceed the ordinary limit; callers decide whether it is admitted.
+fn walk_the_rest(
+    journey: &TimetableMatrixJourney,
+    egress: &HashMap<u32, f64>,
+) -> Option<TimetableMatrixJourney> {
+    let rides: Vec<usize> = (0..journey.legs.len())
+        .filter(|&i| journey.legs[i].trip.is_some())
+        .collect();
+    let &kept = rides.iter().rev().nth(1)?;
+    let leave = &journey.legs[kept];
+    let walk = *egress.get(&leave.to_stop?)?;
+    let arrival = leave.arrival + walk;
+    if arrival + 60. > journey.arrival {
+        return None;
+    }
+    let mut legs = journey.legs[..=kept].to_vec();
+    legs.push(TimetableMatrixLeg {
+        in_seat_seconds: None,
+        kind: "walk".into(),
+        from_stop: leave.to_stop,
+        to_stop: None,
+        trip: None,
+        board_sequence: None,
+        alight_sequence: None,
+        departure: leave.arrival,
+        arrival,
+    });
+    let seconds = |ride: bool| -> f64 {
+        legs.iter()
+            .filter(|l| l.trip.is_some() == ride)
+            .map(|l| l.arrival - l.departure)
+            .sum()
+    };
+    let (walking_seconds, ride_seconds) = (seconds(false), seconds(true));
+    Some(TimetableMatrixJourney {
+        departure: journey.departure,
+        arrival,
+        boardings: journey.boardings.saturating_sub(1),
+        walking_seconds,
+        ride_seconds,
+        waiting_seconds: (arrival - journey.departure - walking_seconds - ride_seconds).max(0.),
+        legs,
+    })
+}
+
 impl City {
     /// The earliest-arrival journey at one clock, from the window's endpoints.
     fn window_search(
@@ -895,6 +943,83 @@ impl City {
             value["returnedStationCycle"] = cycle;
         }
         Ok(value)
+    }
+
+    /// Replace each transit choice whose last ride `walk_the_rest` beats.
+    fn walk_the_rest_choices(
+        &mut self,
+        ends: &Endpoints,
+        opt: &Options,
+        horizon: f64,
+        km: f64,
+        plans: &mut [Plan],
+        tradeoffs: &mut [Plan],
+    ) -> Result<()> {
+        let wide = Options {
+            walk_m: km * 1000.,
+            ..*opt
+        };
+        let (a, b) = self.point_candidates(&ends.origin, &ends.destination, &wide)?;
+        let egress: HashMap<u32, f64> =
+            b.stops
+                .iter()
+                .zip(&b.seconds)
+                .fold(HashMap::new(), |mut out, (&stop, &walk)| {
+                    let entry = out.entry(stop).or_insert(f64::INFINITY);
+                    *entry = entry.min(walk);
+                    out
+                });
+        let wide_ends = Endpoints {
+            origin: ends.origin.clone(),
+            destination: ends.destination.clone(),
+            a,
+            b,
+        };
+        let mut cache = MatrixMaterializationCache::default();
+        let mut found: HashMap<String, Option<(TimetableMatrixJourney, Value)>> = HashMap::new();
+        for plan in plans.iter_mut().chain(tradeoffs.iter_mut()) {
+            let Some((journey, t)) = &plan.source else {
+                continue;
+            };
+            let key = format!("{t}:{}", serde_json::to_string(&journey.legs)?);
+            if !found.contains_key(&key) {
+                let at = Options {
+                    time: t * 60.,
+                    start: t * 60.,
+                    end: t * 60. + horizon,
+                    ..*opt
+                };
+                let shorter = match walk_the_rest(journey, &egress) {
+                    // Materialization proves the wider endpoint evidence covers
+                    // the whole journey; otherwise the choice stays as it was.
+                    Some(shorter) => self
+                        .window_journey(&wide_ends, &shorter, &at, &mut cache, true)
+                        .ok()
+                        .map(|value| (shorter, value)),
+                    None => None,
+                };
+                found.insert(key.clone(), shorter);
+            }
+            let Some((shorter, value)) = &found[&key] else {
+                continue;
+            };
+            let mut value = if (depart(value) - depart(&plan.value)).abs() < 1e-9 {
+                value.clone()
+            } else {
+                retime(value, depart(&plan.value), latest_catch(value))
+            };
+            let ordinary = shorter
+                .legs
+                .last()
+                .and_then(|l| l.from_stop)
+                .is_some_and(|stop| ends.b.stops.contains(&stop));
+            if !ordinary {
+                value["expandedWalkingLimitKm"] = json!(km);
+            }
+            plan.value = value;
+            plan.source = Some((shorter.clone(), *t));
+        }
+        Ok(())
     }
 
     /// Composed journey choices for a Route; see the module documentation.
@@ -1227,6 +1352,17 @@ impl City {
             .iter()
             .find(|p| (depart(&p.value) - center).abs() < 1e-6)
             .map(|p| p.value.clone());
+        // A final ride that only shortens an over-limit walk, at the cost of
+        // its wait, gives way to that walk when the wider-walk setup allows
+        // it: the choice is replaced, never added.
+        if let Some(km) = q
+            .get("expandedWalkKm")
+            .map(|_| number(q, "expandedWalkKm", 2.4, 0.2, 5.))
+            .transpose()?
+            .filter(|_| q["wheelchair"] != true)
+        {
+            self.walk_the_rest_choices(&ends, &opt, horizon, km, &mut plans, &mut tradeoffs)?;
+        }
         // A sample's own journey that still detours through a turnaround is
         // left out while the window offers any other transit journey.
         let detoured = |plan: &Plan| {
@@ -1384,6 +1520,61 @@ mod tests {
             .sum();
         json!({"status":"ready","mode":"transit","departureMinutes":depart,"arrivalMinutes":arrival,
             "durationMinutes":arrival - depart,"walkMinutes":walk,"waitMinutes":0,"legs":legs})
+    }
+
+    fn kernel_leg(
+        trip: Option<u32>,
+        from: Option<u32>,
+        to: Option<u32>,
+        at: [f64; 2],
+    ) -> TimetableMatrixLeg {
+        TimetableMatrixLeg {
+            in_seat_seconds: None,
+            kind: if trip.is_some() { "ride" } else { "walk" }.into(),
+            from_stop: from,
+            to_stop: to,
+            trip,
+            board_sequence: trip.map(|_| 0.),
+            alight_sequence: trip.map(|_| 1.),
+            departure: at[0],
+            arrival: at[1],
+        }
+    }
+
+    #[test]
+    fn a_short_final_ride_gives_way_to_walking_the_rest() {
+        // Rail to stop 2 at 600 s, walk to stop 3, wait 8 min, 2 min bus to
+        // stop 4, then walk: arrival 1800 s.
+        let journey = TimetableMatrixJourney {
+            departure: 0.,
+            arrival: 1800.,
+            boardings: 2,
+            walking_seconds: 600.,
+            ride_seconds: 720.,
+            waiting_seconds: 480.,
+            legs: vec![
+                kernel_leg(None, None, Some(1), [0., 60.]),
+                kernel_leg(Some(7), Some(1), Some(2), [60., 660.]),
+                kernel_leg(None, Some(2), Some(3), [660., 900.]),
+                kernel_leg(Some(8), Some(3), Some(4), [1380., 1500.]),
+                kernel_leg(None, Some(4), None, [1500., 1800.]),
+            ],
+        };
+        // Walking on from stop 2 takes 1080 s: arrival 1740 s, a minute sooner.
+        let shorter = walk_the_rest(&journey, &HashMap::from([(2, 1080.), (4, 300.)])).unwrap();
+        assert_eq!((shorter.arrival, shorter.boardings), (1740., 1));
+        assert_eq!(shorter.legs.len(), 3);
+        assert_eq!(
+            (shorter.legs[2].from_stop, shorter.legs[2].to_stop),
+            (Some(2), None)
+        );
+        assert_eq!(
+            (shorter.walking_seconds, shorter.ride_seconds),
+            (1140., 600.)
+        );
+        // Under a minute sooner, or out of reach, keeps the ride.
+        assert!(walk_the_rest(&journey, &HashMap::from([(2, 1100.)])).is_none());
+        assert!(walk_the_rest(&journey, &HashMap::from([(4, 300.)])).is_none());
     }
 
     #[test]

@@ -1986,7 +1986,11 @@ points. Arrive-by retains a 15-minute earlier-arrival window sampled every five 
 when the user sets a binding walking limit. A wider choice must beat every
 ordinary choice on the time objective by at least one minute (earlier arrival,
 or later departure for arrive-by); walking farther for a shorter but later
-journey is not offered. Wider choices carry `expandedWalkingLimitKm`. A whole-trip walk uses at most
+journey is not offered. In supported windows, a choice whose final ride, with
+its wait, reaches the destination later than walking on from where the
+previous ride ends is replaced by that walk, when the walk fits the wider
+budget and arrives at least a minute sooner. Wider choices carry
+`expandedWalkingLimitKm`. A whole-trip walk uses at most
 `maxWalkKm` unless `allowLongWalk` explicitly permits `maxStreetKm`. Limits below
 50 metres do not trigger a widened street query. `requireTransitRide` excludes
 walking-only choices. Optional wider-search failures preserve ordinary results.

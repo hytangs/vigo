@@ -5,6 +5,7 @@
 - Board looping vehicles on their last pass and drop alternatives that stay aboard through a turnaround only to return to their own corridor. Forward in-seat continuations are unchanged.
 - Keep route-distinct Pareto alternatives within the arrival slack, and merge journeys on one vehicle chain in both rankings.
 - Offer wider-walk ("More walking") choices only when they arrive at least a minute before every ordinary choice.
+- Replace a short final ride, and its wait, with walking the rest of the way when that arrives at least a minute sooner within the wider-walk budget.
 - Stop the one-to-many Matrix scan once no later departure can improve any target: identical results, about 3.6× faster 5×5 Matrices on Boston.
 - Studio turns walks between nearby stops on by default.
 
