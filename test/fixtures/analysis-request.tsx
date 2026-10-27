@@ -15,7 +15,7 @@ const config = { schemaVersion: 'vigo.config.v1', configured: true, setupRequire
 let savedScenarios = { library: null, revision: 0 }
 window.fetch = async (input, options = {}) => {
   const url = String(input)
-  if (url === '/api/health') return Response.json({ ok: true, version: '1.0.0-rc.1', config, offline: config.offline })
+  if (url === '/api/health') return Response.json({ ok: true, version: '1.0.0-rc.2', config, offline: config.offline })
   if (url === '/api/config') return Response.json({ config })
   if (url === '/api/projects') return Response.json({ projects: [project] })
   if (url === '/api/projects/test-city') return Response.json({ project })

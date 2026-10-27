@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0rc2
+
+- Publish Python metadata as `1.0.0rc2` (PEP 440), corresponding to Engine `1.0.0-rc.2`.
+
 ## 1.0.0rc1
 
 - Support VIGO V1 release candidates with explicit API and format validation.

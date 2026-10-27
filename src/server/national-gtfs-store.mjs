@@ -2,7 +2,7 @@ import { importFlexCatalog, copyFlexCatalogs } from './gtfs/flex.mjs'
 import { stationHierarchyMembers } from './gtfs/station-hierarchy.mjs'
 import { compileNativeGtfsConnections } from './native-routing-kernel.mjs'
 import { MatrixJourneyCache } from './gtfs/matrix-materialization.mjs'
-import { wheelchairProfile, wheelchairDescription, wheelchairBoardingValues, wheelchairPathwaySeconds } from './wheelchair-policy.mjs'
+import { wheelchairProfile, wheelchairDescriptionFor, wheelchairBoardingValues, wheelchairPathwaySeconds } from './wheelchair-policy.mjs'
 import { selectedSourceScopes, serviceInSources, scopedServiceResolution } from './gtfs/source-selection.mjs'
 import { estimatedPathwaySeconds } from './gtfs/pathway-cost.mjs'
 import { recoverNativeArriveByBoundary } from './gtfs/arrive-by-reconstruction.mjs'
@@ -1005,13 +1005,13 @@ function linkNearbyTransferStops(db, options = {}) {
   return { candidateCount, inferredTransferCount: 0, stopCount: stopPoints.length }
 }
 
-export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress, forCity = false, wheelchair = false }) {
-  return importGtfsFeed({ zipPath, outputPath, onProgress, forCity, wheelchair })
+export async function buildNationalGtfsStore({ zipPath, outputPath, onProgress, forCity = false, wheelchair = false, wheelchairStreets = 'inferred' }) {
+  return importGtfsFeed({ zipPath, outputPath, onProgress, forCity, wheelchair, wheelchairStreets })
 }
 
 // City feeds share the final database. Namespace references at the CSV boundary
 // so the same validation and connection compiler serve both build paths.
-async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false, sharedDatabase = null, scope = '', wheelchair = false }) {
+async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false, sharedDatabase = null, scope = '', wheelchair = false, wheelchairStreets = 'inferred' }) {
   const startedAt = performance.now()
   const archive = await inspectGtfsZip(zipPath)
   const sourceFingerprint = await sha256File(zipPath)
@@ -1575,7 +1575,8 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
       : db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count)
     const storeId = sourceFingerprint.slice(0, 20)
     const metadata = {
-      ...(wheelchair ? { accessibility: wheelchairDescription } : {}),
+      // Streets are prepared separately; the description records their evidence.
+      ...(wheelchair ? { accessibility: wheelchairDescriptionFor(wheelchairStreets) } : {}),
       schemaVersion: storeSchemaVersion,
       storeId,
       sourceFingerprint,
@@ -1644,7 +1645,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
   }
 }
 
-export async function buildNationalGtfsCityStore({ feeds, outputPath, onProgress, wheelchair = false }) {
+export async function buildNationalGtfsCityStore({ feeds, outputPath, onProgress, wheelchair = false, wheelchairStreets = 'inferred' }) {
   if (!Array.isArray(feeds) || !feeds.length) throw new Error('At least one GTFS feed is required.')
   const descriptors = feeds.map((feed) => ({ scope: String(feed.scope ?? '').trim(), zipPath: path.resolve(feed.path) }))
     .sort((left, right) => left.scope.localeCompare(right.scope))
@@ -1652,7 +1653,7 @@ export async function buildNationalGtfsCityStore({ feeds, outputPath, onProgress
     throw new Error('GTFS scopes must be non-empty and unique.')
   }
   if (descriptors.length === 1) {
-    return buildNationalGtfsStore({ zipPath: descriptors[0].zipPath, outputPath, onProgress, forCity: true, wheelchair })
+    return buildNationalGtfsStore({ zipPath: descriptors[0].zipPath, outputPath, onProgress, forCity: true, wheelchair, wheelchairStreets })
   }
   const started = performance.now()
   await fsp.mkdir(path.dirname(outputPath), { recursive: true })
@@ -1665,7 +1666,7 @@ export async function buildNationalGtfsCityStore({ feeds, outputPath, onProgress
     const metadataByStore = []
     for (const feed of descriptors) {
       metadataByStore.push(await importGtfsFeed({
-        zipPath: feed.zipPath, outputPath, sharedDatabase, scope: feed.scope, forCity: true, wheelchair,
+        zipPath: feed.zipPath, outputPath, sharedDatabase, scope: feed.scope, forCity: true, wheelchair, wheelchairStreets,
         onProgress: onProgress ? (event) => onProgress({ ...event, phase: `${feed.scope}: ${event.phase}` }) : undefined,
       }))
     }

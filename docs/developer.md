@@ -1,4 +1,4 @@
-# VIGO 1.0.0-rc.1 developer guide
+# VIGO 1.0.0-rc.2 developer guide
 
 Canonical source for the developer chapters of the [VIGO guide](guide.html). Edit the relevant chapter, then run `npm run docs:build`.
 
@@ -578,7 +578,7 @@ The independent suite validates the generated graph and timetable models under t
 
 ## Runtime limits and recovery
 
-The following admission limits and recovery behavior apply to VIGO 1.0.0-rc.1.
+The following admission limits and recovery behavior apply to VIGO 1.0.0-rc.2.
 See [public results](reference/results.md) for the current result schemas.
 
 ### Memory and request admission
@@ -769,12 +769,31 @@ URLs and notice requirements. `bookingStatus: "required"` means the journey is
 conditional: VIGO has neither made a booking nor verified the booking deadline
 or available capacity. `bookingConfirmed: true` records only the caller's claim.
 
-Rust composes a conditional service leg with a scheduled journey in either
-order, including arrive-by searches. It applies trip/route-scoped transfer
-restrictions, published minimum times, the request transfer buffer and boarding
-limit. Matrix uses the same composition as Route. Search work is bounded at
-4,096 interchange stops, candidate endpoint pairs and connection retries;
-exceeding a bound returns an error instead of silently pruning it.
+Flex and fixed service share one timetable search. A conditional ride that
+ends at a transit stop becomes time-dependent access to the scan, and one that
+starts at a transit stop becomes time-dependent egress, so a journey can use
+Flex to reach fixed service, Flex to leave it, or both, departing or arriving
+by. Every Flex clock is first-in first-out, so the earliest arrival at a stop
+is the only arrival its egress needs. The search applies trip/route-scoped
+transfer restrictions, published minimum times, the request transfer buffer and
+the boarding limit, where each Flex ride counts as a boarding. Matrix uses the
+same search as Route. A journey combining Flex and fixed service is returned
+only when it is strictly better than the scheduled journey.
+
+The integrated search runs only for requests near Flex service. It is bounded
+by the scheduled journey: a relaxed scan that ignores transfer-rule state
+first checks whether any Flex journey could arrive earlier (arrive-by: depart
+later), and most requests stop there. That check may miss a Flex journey that
+depends on a rule-only transfer, a scoped or timed rule between two stops with
+no ordinary transfer path. Otherwise the egress clocks (arrive-by: access
+clocks) come from one one-to-many scan, and the certified search confirms the
+journey with the same tie rules as scheduled service. If a transfer rule at a
+Flex interchange is broken, Rust falls back to composing the conditional and
+scheduled halves separately.
+
+A deviated route keeps its fixed calls. A rider carried past a fixed stop is
+picked up in time for the vehicle to reach that stop on schedule, and dropped
+after it leaves, with assumption `deviated_route`.
 
 Continuous pickup/drop-off follows the directed GTFS shape and stop-time
 permission overrides. Intermediate clocks are interpolated by shape distance
@@ -785,15 +804,17 @@ accessible vehicles and published accessible fixed stops are used, with the
 strict OSM walking graph. Roadside coordinate attachments retain the City's
 published accessibility limitations; no live lift or capacity guarantee is made.
 
-Vehicle dispatch and routes through mandatory intermediate fixed calls are
-not modeled. Realtime, scenario, journey-window and alternative-policy requests
+Vehicle dispatch is not modeled: estimates assume a vehicle is available for
+each requested ride. Realtime, scenario, journey-window and alternative-policy requests
 are rejected with Flex. Matrix is limited to 4,096 cells. Reach does not accept
 Flex. Returned estimates must not be presented as guaranteed departures or
 confirmed reservations.
 
 Flex work is bounded without failing the request. Pickup and drop-off
-candidates beyond the walking limit are skipped before any street search. A
-search stops after 4,096 walkable pickup/drop-off pairs and returns the
+candidates beyond the walking limit are skipped before any street search, and
+street walks are priced only for rides that survive the straight-line bound. A
+search stops after 4,096 walkable pickup/drop-off pairs, 65,536 rides to or
+from transit stops, or 65,536 priced drives in one batch, and returns the
 journeys found, scheduled results included, with a `flex_search_truncated`
 warning. Each feed's Flex catalog is limited to 32 MiB: past it, the build
 omits fixed-route continuous-stopping and booking trips first, then on-demand
@@ -801,10 +822,12 @@ trips, and reports them as `flex_catalog_limit`. Scheduled service is
 unaffected.
 
 Public synthetic coverage is in `test/check-flex.mjs`,
-`test/check-flex-interchanges.mjs` and `test/check-flex-limits.mjs`: conditional fixed stops, zones, location
-groups, pure-Flex feeds, windows, arrive-by, zero walking limits, booking
-metadata, independent Drive duration, transfer restrictions, later feasible
-connections, continuous permissions, wheelchair filtering, Matrix/Route
+`test/check-flex-interchanges.mjs`, `test/check-flex-integrated.mjs` and
+`test/check-flex-limits.mjs`: conditional fixed stops, zones, location groups,
+pure-Flex feeds, windows, arrive-by, zero walking limits, booking metadata,
+independent Drive duration, transfer restrictions, later feasible connections,
+continuous permissions, wheelchair filtering, Flex on both ends of a fixed
+ride, egress windows that make the rider wait, deviated routes, Matrix/Route
 agreement, catalog budgets and bounded pair searches.
 
 ### Semantic coverage written to store metadata

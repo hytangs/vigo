@@ -1,6 +1,6 @@
 # VIGO Rust standalone manual
 
-VIGO 1.0.0-rc.1 · CLI and HTTP reference · Prepared City format 1
+VIGO 1.0.0-rc.2 · CLI and HTTP reference · Prepared City format 1
 
 VIGO runs routing and isochrone queries from a single Rust executable. The executable contains the routing kernels, City loader, JSON interface, and HTTP server. It needs no Node, Python, browser, external routing service, or internet connection at query time. SQLite is compiled in. City data is supplied separately and opened read-only.
 
@@ -352,6 +352,7 @@ Use `vigo route --help` for the general command overview. `--name value` and `--
 | `--street-edges` | Reach | Include directed street evidence |
 | `--scenario ID` | Data commands on a collection | Select a scenario; omission uses `defaultScenario` |
 | `--wheelchair` | Route, Matrix, Reach | Require the City's strict wheelchair profile |
+| `--wheelchair-streets` | build | `inferred` (default) or `verified` wheelchair street evidence |
 | `--format text\|json` | One-shot JSON commands | Terminal text or JSON; pipes and files use JSON |
 | `--diagnostics LEVEL` | Query commands | `none`, `summary`, `profile`, or `trace` |
 | `--include-geometry`, `--include-limitations` | Query commands | Route geometry is on by default; Matrix geometry and limitations are opt-in |
@@ -1714,8 +1715,8 @@ Terminate HTTPS at a reverse proxy or hosting platform. Give its upstream timeou
 Build the native service image from the repository root:
 
 ```sh
-docker build -f deploy/Dockerfile -t vigo:1.0.0-rc.1 .
-export VIGO_IMAGE=vigo:1.0.0-rc.1
+docker build -f deploy/Dockerfile -t vigo:1.0.0-rc.2 .
+export VIGO_IMAGE=vigo:1.0.0-rc.2
 export VIGO_CITY=/absolute/path/to/prepared-city
 # Set VIGO_API_TOKEN through your deployment secret store.
 docker compose -f deploy/compose.yml up -d --wait
@@ -1940,12 +1941,22 @@ boarding or alighting. Unknown values are excluded. Search considers accessible
 alternatives directly, including later vehicles; it does not filter a completed
 unrestricted journey.
 
-OSM ways require `wheelchair=yes` and ordinary pedestrian permission. Steps,
-escalators, mapped inaccessible or limited nodes, raised kerbs, unverified
-barriers and conditional accessibility are excluded. Published widths below
-0.9 m and inclines above 8.3% are excluded. Untagged shape vertices inherit the
-way's accessibility. These are fixed profile limits, not a personalized chair
-model.
+Street evidence is chosen at build time with `--wheelchair-streets` and
+reported as `accessibility.streetEvidence` on every result:
+
+| Value | Build option | OSM ways used |
+| --- | --- | --- |
+| `inferred-step-free-v1` | default, or `--wheelchair-streets inferred` | Ordinary pedestrian ways unless OSM records `wheelchair=no` or `limited`, steps, a rough surface, bad smoothness, a mountain trail grade, or (for paths, tracks and bridleways) no paved surface |
+| `wheelchair-yes-only` | `--wheelchair-streets verified` | Only ways tagged `wheelchair=yes` |
+
+Both require ordinary pedestrian permission and exclude escalators, mapped
+inaccessible or limited nodes, raised kerbs and conditional accessibility.
+Published widths below 0.9 m and inclines above 8.3% are excluded. A mapped
+kerb must be lowered or flush. Inferred evidence passes unlocked gates and
+bollards; other barriers need `wheelchair=yes`. Untagged shape vertices inherit
+the way's accessibility. These are fixed profile limits, not a personalized
+chair model. Inferred streets are not surveyed: few cities tag every sidewalk,
+so verified evidence alone usually leaves little or no network.
 
 Station paths require either a positive published `wheelchair_traversal_time`
 (the MBTA extension) or step-free mode with published width at least 0.9 m,
@@ -1957,7 +1968,7 @@ not establish accessible paths. For transit access, station platforms are reache
 accessible entrances and paths, rather than snapped directly from the street.
 
 Every successful or no-route response carries `accessibility`, including the
-profile and its limitations. Coordinate-to-network attachments are geometric;
+profile, its street evidence and its limitations. Coordinate-to-network attachments are geometric;
 door-to-street access is not verified. Live elevator outages, temporary barriers
 and individual chair dimensions are not modeled. Strict source requirements
 can leave sparse coverage or no route. A no-route result is not evidence that

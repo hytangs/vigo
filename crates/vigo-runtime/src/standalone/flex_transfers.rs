@@ -27,7 +27,7 @@ fn choices(mut result: Value) -> Vec<Value> {
     choices
 }
 impl City {
-    fn flex_transfer_minimum(&self, from: &Value, to: &Value) -> Result<Option<f64>> {
+    pub(super) fn flex_transfer_minimum(&self, from: &Value, to: &Value) -> Result<Option<f64>> {
         let (Some(a), Some(b)) = (from["toStopId"].as_str(), to["fromStopId"].as_str()) else {
             return Ok(Some(0.));
         };

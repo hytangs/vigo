@@ -25,11 +25,12 @@
   },
   "result": {
     "accessibility": {
-      "limitations": ["Unknown vehicle, boarding and street accessibility is excluded; coverage may be sparse.","Coordinate attachments are geometric; door-to-street access is not verified.","Elevator outages, temporary obstructions and individual chair dimensions are not modeled."],
+      "limitations": ["Unknown vehicle and boarding accessibility is excluded; coverage may be sparse.","Untagged paved pedestrian ways are assumed step-free unless OpenStreetMap records a barrier, steps, rough surface, steep incline, narrow width or raised kerb.","Coordinate attachments are geometric; door-to-street access is not verified.","Elevator outages, temporary obstructions and individual chair dimensions are not modeled."],
       "maximumSlope": 0.083,
       "minimumWidthMeters": 0.9,
       "profile": "wheelchair-strict-v1",
       "stationPaths": "published-wheelchair-time-or-dimensioned-step-free",
+      "streetEvidence": "inferred-step-free-v1",
       "unknownData": "exclude"
     },
     "journey": {
@@ -77,7 +78,7 @@
       "cityRevision": "city-revision",
       "computeScope": "query_dispatch_including_materialization",
       "computeUs": 0,
-      "engineVersion": "1.0.0-rc.1",
+      "engineVersion": "1.0.0-rc.2",
       "queryFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
       "requestId": "vigo-request"
     },

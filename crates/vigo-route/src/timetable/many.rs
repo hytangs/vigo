@@ -318,6 +318,14 @@ impl TimetableKernel {
         self.route_many_csa_impl(&input)
     }
 
+    /// One-to-many twin of `route_scalar_relaxed_csa`, with the same bound.
+    pub fn route_many_relaxed_csa(
+        &mut self,
+        input: &TimetableManyQueryInput,
+    ) -> Result<Option<TimetableManyQueryResult>> {
+        self.relaxed(|kernel| kernel.route_many_csa_impl(input))
+    }
+
     pub(super) fn route_many_csa_impl(
         &mut self,
         input: &TimetableManyQueryInput,

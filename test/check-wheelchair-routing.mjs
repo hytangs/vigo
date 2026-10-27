@@ -11,7 +11,7 @@ import { DatabaseSync } from 'node:sqlite'
 import JSZip from 'jszip'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 import { standaloneBinary } from './helpers/standalone-runtime.mjs'
-import { wheelchairBoardingValues, wheelchairPathwaySeconds, wheelchairWayAllowed, wheelchairNodeAllowed } from '../src/server/wheelchair-policy.mjs'
+import { wheelchairBoardingValues, wheelchairPathwaySeconds, wheelchairWayAllowed, wheelchairNodeAllowed, wheelchairStreetPolicy } from '../src/server/wheelchair-policy.mjs'
 
 assert.deepEqual([...wheelchairBoardingValues(new Map([
   ['child', { boarding: 0, parent: 'parent' }], ['parent', { boarding: 1 }],
@@ -36,8 +36,18 @@ for (const row of [
 ]) assert.equal(wheelchairPathwaySeconds(row), null)
 assert.equal(wheelchairPathwaySeconds({ pathway_mode: 1, traversal_time: 15, max_slope: .02, min_width: 1.2 }), 15)
 assert.equal(wheelchairWayAllowed({ highway: 'footway', wheelchair: 'yes' }), true)
-for (const tags of [{ highway: 'footway' }, { highway: 'steps', wheelchair: 'yes' }, { wheelchair: 'limited' }, { wheelchair: 'yes', incline: '20%' }]) assert.equal(wheelchairWayAllowed(tags), false)
-for (const tags of [{ barrier: 'stile', wheelchair: 'yes' }, { barrier: 'gate' }, { kerb: 'raised' }, { wheelchair: 'no' }, { 'wheelchair:conditional': 'yes @ (Mo-Fr)' }]) assert.equal(wheelchairNodeAllowed(tags), false)
+// Verified street evidence uses only ways tagged wheelchair=yes.
+for (const tags of [{ highway: 'footway' }, { highway: 'steps', wheelchair: 'yes' }, { wheelchair: 'limited' }, { wheelchair: 'yes', incline: '20%' }]) assert.equal(wheelchairWayAllowed(tags, 'verified'), false)
+for (const tags of [{ barrier: 'stile', wheelchair: 'yes' }, { barrier: 'gate' }, { barrier: 'kerb', kerb: 'lowered' }, { kerb: 'raised' }, { wheelchair: 'no' }, { 'wheelchair:conditional': 'yes @ (Mo-Fr)' }]) assert.equal(wheelchairNodeAllowed(tags, 'verified'), false)
+// Inferred street evidence uses ordinary paved ways unless the map records a barrier.
+for (const tags of [{ highway: 'footway' }, { highway: 'residential' }, { highway: 'path', surface: 'asphalt' }, { highway: 'footway', incline: '5%' }]) assert.equal(wheelchairWayAllowed(tags), true, JSON.stringify(tags))
+for (const tags of [{ highway: 'path' }, { highway: 'track', surface: 'gravel' }, { highway: 'footway', surface: 'cobblestone' }, { highway: 'footway', smoothness: 'bad' },
+  { highway: 'path', surface: 'asphalt', sac_scale: 'mountain_hiking' }, { highway: 'steps' }, { highway: 'footway', wheelchair: 'no' }, { highway: 'footway', incline: '12%' }, { highway: 'footway', width: '0.6' }]) {
+  assert.equal(wheelchairWayAllowed(tags), false, JSON.stringify(tags))
+}
+for (const tags of [{ barrier: 'gate' }, { barrier: 'bollard' }, { barrier: 'kerb', kerb: 'lowered' }, {}]) assert.equal(wheelchairNodeAllowed(tags), true, JSON.stringify(tags))
+for (const tags of [{ barrier: 'gate', locked: 'yes' }, { barrier: 'kerb' }, { barrier: 'stile' }, { barrier: 'cycle_barrier' }, { kerb: 'raised' }, { wheelchair: 'no' }]) assert.equal(wheelchairNodeAllowed(tags), false, JSON.stringify(tags))
+assert.throws(() => wheelchairStreetPolicy('assumed'), /inferred or verified/)
 // Malformed slope tags must not turn unknown access into an accessible edge.
 for (const incline of ['.%', '1.2.3%', '+.%', '--2%', 'NaN%', 'Infinity%']) {
   assert.equal(wheelchairWayAllowed({ highway: 'footway', wheelchair: 'yes', incline }), false, incline)
@@ -76,6 +86,7 @@ try {
   build(gtfsPath, osmPath, accessible, ['--wheelchair'])
   const manifest = JSON.parse(fs.readFileSync(path.join(accessible, 'network.json')))
   assert.equal(manifest.accessibility.profile, 'wheelchair-strict-v1')
+  assert.equal(manifest.accessibility.streetEvidence, 'inferred-step-free-v1', 'Wheelchair Cities infer step-free streets by default')
   assert.deepEqual(manifest.modes, ['transit', 'walk'])
   // Studio must select the same constrained City and never substitute ordinary paths.
   const studio = path.join(folder, 'cities', 'fixture', '.vigo')
@@ -189,6 +200,7 @@ try {
       origin: { coordinate: [-77.049, 38.9005] }, destination: { coordinate: [-77.031, 38.9095] } }, native)
     assert.equal(walk.status, 'ok')
     assert.equal(walk.accessibility.profile, 'wheelchair-strict-v1')
+    assert.equal(walk.accessibility.streetEvidence, 'inferred-step-free-v1', 'Results name their street evidence')
     for (const wheelchair of [undefined, true]) {
       const q = { ...base, ...(wheelchair === undefined ? {} : { wheelchair }) }
       const result = run(accessible, 'route', q, native)
@@ -308,7 +320,20 @@ try {
   const changed = JSON.parse(fs.readFileSync(regularManifestPath)); changed.accessibility = manifest.accessibility
   fs.writeFileSync(regularManifestPath, JSON.stringify(changed))
   for (const native of [false, true]) assert.throws(() => run(regular, 'route', { ...base, wheelchair: true }, native), /Command failed/)
-  console.log('Wheelchair routing passed: inheritance, barriers, accessible alternatives, CLI/native/HTTP/Studio, reverse, Matrix, Reach, transfer reserve, profile attachment and invalid requests.')
+  // Untagged ordinary streets: inferred evidence routes over them; verified
+  // evidence has no street to use and refuses to build a graphless City.
+  fs.mkdirSync(path.join(folder, 'untagged'))
+  const untagged = await writeCliFixtureInputs(path.join(folder, 'untagged'))
+  const inferred = path.join(folder, 'untagged-inferred')
+  build(untagged.gtfsPath, untagged.osmPath, inferred, ['--wheelchair'])
+  for (const native of [false, true]) {
+    const walk = run(inferred, 'route', { ...base, origin: { coordinate: [-77.05, 38.9] }, destination: { coordinate: [-77.04, 38.905] }, mode: 'walk', wheelchair: true, requireTransitRide: false }, native)
+    assert.equal(walk.status, 'ok', JSON.stringify(walk).slice(0, 500))
+    assert.equal(walk.accessibility.streetEvidence, 'inferred-step-free-v1')
+  }
+  assert.throws(() => build(untagged.gtfsPath, untagged.osmPath, path.join(folder, 'untagged-verified'), ['--wheelchair', '--wheelchair-streets', 'verified']), /Command failed/)
+  assert.throws(() => build(untagged.gtfsPath, untagged.osmPath, path.join(folder, 'untagged-bad'), ['--wheelchair', '--wheelchair-streets', 'assumed']), /Command failed/)
+  console.log('Wheelchair routing passed: inferred and verified street evidence, inheritance, barriers, accessible alternatives, CLI/native/HTTP/Studio, reverse, Matrix, Reach, transfer reserve, profile attachment and invalid requests.')
 } finally {
   if (server) { server.kill(); await once(server, 'exit') }
   if (process.env.VIGO_KEEP_TEST_FIXTURES) console.log(folder)

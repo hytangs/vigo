@@ -14,7 +14,7 @@
       "trips": 2
     },
     "datasetLimitations": [],
-    "engineVersion": "1.0.0-rc.1",
+    "engineVersion": "1.0.0-rc.2",
     "memory": {
       "access": {
         "anchorCount": 0,

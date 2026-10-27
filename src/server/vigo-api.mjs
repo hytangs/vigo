@@ -1,5 +1,4 @@
-import { wheelchairDescription } from './wheelchair-policy.mjs'
-import { studioWheelchairAvailability, studioWheelchairSelection } from './studio-wheelchair.mjs'
+import { studioWheelchairAccessibility, studioWheelchairAvailability, studioWheelchairSelection } from './studio-wheelchair.mjs'
 import { buildStudioWheelchair, wheelchairBuildSources } from './studio-wheelchair-build.mjs'
 import { routingResultStatus } from './gtfs/route-results.mjs'
 import { cityCaseFeedIds, assertCaseRouteSources } from './gtfs/source-selection.mjs'
@@ -4576,7 +4575,7 @@ async function route(request, response) {
         const result = await runNationalRoute(projectId, body, signal)
         if (signal.aborted) throw makeAbortError()
         const decorate = plan => decorateRoutingPlan(body.wheelchair
-          ? { ...plan, diagnostics: { ...plan.diagnostics, accessibility: wheelchairDescription } } : plan)
+          ? { ...plan, diagnostics: { ...plan.diagnostics, accessibility: studioWheelchairAccessibility(projectMetaDir(projectId)) } } : plan)
         sendJson(response, 200, { ...result, choices: result.choices.map(decorate) })
       })
       return true
