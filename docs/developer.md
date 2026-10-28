@@ -515,6 +515,23 @@ endpoints, zero-duration connections, and reuse after a bulk query. The syntheti
 cutoff fixture examines fewer than 10 connections rather than at least 1,002.
 These are work counts for that fixture, not a production latency guarantee.
 
+Full arrive-by journeys use a shared forward prefix bound before reverse
+journey rounds. Each requested origin is seeded at its already proven latest
+departure for that destination, including only its permitted initial transfer.
+The prefix scan ignores the boarding cap to remain optimistic, retains direct
+walking seeds, and permits post-ride transfers. Reverse candidates earlier than
+all reachable prefixes are discarded before transfer/frontier comparisons. The
+exact rounds still choose boardings, walking, actual arrival, and full witnesses.
+A conservative floating-point tolerance retains boundary-equal candidates.
+
+The prefix pass reuses the many-target scan with endpoint-cutoff bookkeeping
+disabled: it needs all stops through the horizon. Its work is included in Matrix
+search counters. Prefix scratch is recomputed per destination and reused across
+requests; it does not cache answers. `reverse_prefix_bounds_preserve_complete_journeys`
+compares complete witnesses with pruning disabled across fractional access costs,
+empty/duplicate endpoints, directed terminal transfers, boarding caps, transfer
+buffers, zero-time connections, and changes of direction on a reused kernel.
+
 ### Reproduce a kernel comparison
 
 Build each version with `npm run build:rust-routing-kernel` using the same toolchain and release settings. Save the earlier `crates/vigo-runtime/vigo-routing-kernel.node` under a separate path before building the changed version. Then run:

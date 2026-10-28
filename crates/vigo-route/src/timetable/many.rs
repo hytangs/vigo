@@ -321,6 +321,15 @@ impl TimetableKernel {
         &mut self,
         input: &TimetableManyQueryInput,
     ) -> Result<TimetableManyQueryResult> {
+        self.route_many_csa_scan::<true>(input)
+    }
+
+    // Prefix reachability needs every stop through the horizon. Reuse the
+    // same scan and readout without constructing endpoint cutoff bookkeeping.
+    pub(super) fn route_many_csa_scan<const TARGET_BOUNDS: bool>(
+        &mut self,
+        input: &TimetableManyQueryInput,
+    ) -> Result<TimetableManyQueryResult> {
         let started = Instant::now();
         let destination_count = input.destination_offsets.len().saturating_sub(1);
         if input
@@ -447,33 +456,40 @@ impl TimetableKernel {
         // no later departure can improve any target, the scan stops. This is
         // the final read-out below, bounded early; it never changes a result.
         let destination_epoch = destination_workspace.begin_query();
-        let mut terminals = Terminals::new(destination_count);
-        for destination in 0..destination_count {
-            let start = input.destination_offsets[destination] as usize;
-            let end = input.destination_offsets[destination + 1] as usize;
-            let transfers = input
-                .allow_post_ride_transfers
-                .as_ref()
-                .is_none_or(|allowed| allowed[destination]);
-            for seed in start..end {
-                let target = input.destination_stops[seed] as usize;
-                let walk = input.destination_walk_seconds[seed];
-                terminals.add(target, destination, walk);
-                if transfers {
-                    for edge in &reverse_transfer_edges[reverse_transfer_offset[target] as usize
-                        ..reverse_transfer_offset[target + 1] as usize]
-                    {
-                        terminals.add(edge.stop(), destination, walk + f64::from(edge.duration()));
+        let mut terminals = Terminals::new(if TARGET_BOUNDS { destination_count } else { 0 });
+        if TARGET_BOUNDS {
+            for destination in 0..destination_count {
+                let start = input.destination_offsets[destination] as usize;
+                let end = input.destination_offsets[destination + 1] as usize;
+                let transfers = input
+                    .allow_post_ride_transfers
+                    .as_ref()
+                    .is_none_or(|allowed| allowed[destination]);
+                for seed in start..end {
+                    let target = input.destination_stops[seed] as usize;
+                    let walk = input.destination_walk_seconds[seed];
+                    terminals.add(target, destination, walk);
+                    if transfers {
+                        for edge in &reverse_transfer_edges[reverse_transfer_offset[target] as usize
+                            ..reverse_transfer_offset[target + 1] as usize]
+                        {
+                            terminals.add(
+                                edge.stop(),
+                                destination,
+                                walk + f64::from(edge.duration()),
+                            );
+                        }
                     }
                 }
             }
+            for &stop in terminals.entries.keys() {
+                destination_workspace.destination_generation[stop] = destination_epoch;
+            }
+            terminals.finish();
         }
-        for &stop in terminals.entries.keys() {
-            destination_workspace.destination_generation[stop] = destination_epoch;
-        }
-        terminals.finish();
-        let is_terminal =
-            |stop: usize| destination_workspace.destination_generation[stop] == destination_epoch;
+        let is_terminal = |stop: usize| {
+            TARGET_BOUNDS && destination_workspace.destination_generation[stop] == destination_epoch
+        };
         let epoch = many_workspace.begin_query();
         let has_excluded_trips = !input.excluded_trips.is_empty();
         for trip in &input.excluded_trips {

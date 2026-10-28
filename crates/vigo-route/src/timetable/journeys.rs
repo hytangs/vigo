@@ -331,6 +331,9 @@ struct Labels {
     fronts: Vec<Vec<FrontierLabel>>,
     touched_fronts: Vec<usize>,
     reverse: bool,
+    // Optional optimistic origin-to-stop times for reverse journey selection.
+    // This is recomputed for each destination, never an answer cache.
+    prefix_arrivals: Vec<f64>,
 }
 
 impl Labels {
@@ -342,6 +345,14 @@ impl Labels {
     }
 
     fn offer(&mut self, candidate: Label) -> Result<()> {
+        // Floating-point endpoint offsets can be reassociated by the prefix
+        // query. A conservative tolerance keeps boundary-equal witnesses.
+        if self.reverse
+            && !self.prefix_arrivals.is_empty()
+            && -candidate.time + 1e-7 < self.prefix_arrivals[candidate.stop]
+        {
+            return Ok(());
+        }
         let state = candidate.stop * 4
             + usize::from(candidate.boardings > 0) * 2
             + usize::from(candidate.transfer);
@@ -442,6 +453,7 @@ pub(super) struct JourneyWorkspace {
 impl JourneyWorkspace {
     pub(super) fn rebind(&mut self, stops: usize, runs: usize) {
         self.labels.clear();
+        self.labels.prefix_arrivals.clear();
         for stop in self.boarding_stops.drain(..) {
             self.boarding_labels[stop].clear();
         }
@@ -463,6 +475,7 @@ impl JourneyWorkspace {
                 fronts: vec![Vec::new(); stops * 4],
                 touched_fronts: Vec::new(),
                 reverse: false,
+                prefix_arrivals: Vec::new(),
             },
             boarding_labels: vec![Vec::new(); stops],
             boarding_stops: Vec::new(),
@@ -473,7 +486,8 @@ impl JourneyWorkspace {
     }
 
     pub(super) fn byte_length(&self) -> usize {
-        self.labels.arena.capacity() * std::mem::size_of::<Label>()
+        self.labels.prefix_arrivals.capacity() * std::mem::size_of::<f64>()
+            + self.labels.arena.capacity() * std::mem::size_of::<Label>()
             + (self.labels.fronts.capacity() + self.boarding_labels.capacity())
                 * std::mem::size_of::<Vec<usize>>()
             + (self.labels.touched_fronts.capacity()
@@ -518,28 +532,93 @@ impl TimetableKernel {
             .journey_workspace
             .take()
             .unwrap_or_else(|| JourneyWorkspace::new(self.stop_count, self.run_count));
-        let result = self.matrix_journeys_with_workspace(input, output, &mut workspace);
+        let result = self.matrix_journeys_with_workspace::<true>(input, output, &mut workspace);
         // Restore even after a capacity/error return; the next source clears
         // every touched frontier before it can observe a previous query.
         self.query.journey_workspace = Some(workspace);
         result
     }
 
-    fn matrix_journeys_with_workspace(
-        &self,
+    // Earliest reachable prefix from any requested origin, seeded at that
+    // origin's exact latest departure for this destination. Ignoring the
+    // boarding cap is optimistic; every feasible selected journey survives.
+    // Expand each origin's permitted terminal transfer once before seeding;
+    // the shared scan must not chain a second pre-ride walking edge.
+    // Allowing post-ride transfers here includes every valid prefix, including
+    // a transfer into the next ride. Keep initial walking seeds separately:
+    // route_many's results require a ride. The exact reverse rounds still own
+    // all boarding, walking and actual-arrival tie selection.
+    fn reverse_journey_prefixes(
+        &mut self,
+        input: &TimetableMatrixQueryInput,
+        output: &mut TimetableMatrixQueryResult,
+        destination: usize,
+        earliest: f64,
+        mut seeds: Vec<f64>,
+    ) -> Result<Vec<f64>> {
+        seeds.resize(self.stop_count, f64::INFINITY);
+        seeds.fill(f64::INFINITY);
+        let destinations = input.destination_offsets.len() - 1;
+        for origin in 0..input.origin_offsets.len() - 1 {
+            let departure = output.times[origin * destinations + destination];
+            if !departure.is_finite() {
+                continue;
+            }
+            for i in
+                input.origin_offsets[origin] as usize..input.origin_offsets[origin + 1] as usize
+            {
+                let stop = input.origin_stops[i] as usize;
+                let arrival = departure + input.origin_walk_seconds[i];
+                seeds[stop] = seeds[stop].min(arrival);
+                if input.allow_pre_ride_transfers[origin] {
+                    let edges = &self.transfer_edges[self.transfer_offset[stop] as usize
+                        ..self.transfer_offset[stop + 1] as usize];
+                    output.explicit_transfer_checks += edges.len() as f64;
+                    for edge in edges {
+                        seeds[edge.stop()] =
+                            seeds[edge.stop()].min(arrival + f64::from(edge.duration()));
+                    }
+                }
+            }
+        }
+        let mut query = TimetableManyQueryInput {
+            origin_stops: Vec::new(),
+            origin_walk_seconds: Vec::new(),
+            destination_offsets: (0..=self.stop_count as u32).collect(),
+            destination_stops: (0..self.stop_count as u32).collect(),
+            destination_walk_seconds: vec![0.; self.stop_count],
+            excluded_trips: Vec::new(),
+            departure: earliest,
+            horizon: input.horizon,
+            allow_pre_ride_transfers: false,
+            allow_post_ride_transfers: None,
+            maximum_boardings: None,
+        };
+        for (stop, &time) in seeds.iter().enumerate() {
+            if time.is_finite() {
+                query.origin_stops.push(stop as u32);
+                query.origin_walk_seconds.push((time - earliest).max(0.));
+            }
+        }
+        let result = self.route_many_csa_scan::<false>(&query)?;
+        output.forward_searches += 1;
+        output.scanned_departures += f64::from(result.scanned_departures);
+        output.relaxed_stops += f64::from(result.relaxed_stops);
+        output.expanded_trip_runs += f64::from(result.expanded_trip_runs);
+        output.dominated_trip_boardings += f64::from(result.dominated_trip_boardings);
+        output.explicit_transfer_checks += f64::from(result.explicit_transfer_checks);
+        for (seed, time) in seeds.iter_mut().zip(result.best_arrivals) {
+            *seed = seed.min(time);
+        }
+        Ok(seeds)
+    }
+
+    fn matrix_journeys_with_workspace<const PREFIX_BOUNDS: bool>(
+        &mut self,
         input: &TimetableMatrixQueryInput,
         mut output: TimetableMatrixQueryResult,
         workspace: &mut JourneyWorkspace,
     ) -> Result<TimetableMatrixQueryResult> {
-        let source_departure_seconds = self.departure_seconds.view();
-        let source_arrival_seconds = self.arrival_seconds.view();
-        let source_from_stop = self.from_stop.view();
-        let source_to_stop = self.to_stop.view();
-        let source_sequence = self.sequence.view();
-        let source_continuity_break = self.continuity_break.view();
-        let source_can_board = self.can_board.view();
-        let source_can_alight = self.can_alight.view();
-
         let reverse = input.arrive_by;
         let origins = input.origin_offsets.len() - 1;
         let destinations = input.destination_offsets.len() - 1;
@@ -611,6 +690,22 @@ impl TimetableKernel {
             let end_time = if reverse { -minimum_time } else { maximum_time };
 
             labels.clear();
+            if PREFIX_BOUNDS && reverse {
+                let seeds = std::mem::take(&mut labels.prefix_arrivals);
+                labels.prefix_arrivals =
+                    self.reverse_journey_prefixes(input, &mut output, source, minimum_time, seeds)?;
+            } else {
+                labels.prefix_arrivals.clear();
+            }
+            let source_departure_seconds = self.departure_seconds.view();
+            let source_arrival_seconds = self.arrival_seconds.view();
+            let source_from_stop = self.from_stop.view();
+            let source_to_stop = self.to_stop.view();
+            let source_sequence = self.sequence.view();
+            let source_continuity_break = self.continuity_break.view();
+            let source_can_board = self.can_board.view();
+            let source_can_alight = self.can_alight.view();
+
             let initial_transfers = if reverse {
                 input
                     .allow_post_ride_transfers
@@ -1218,5 +1313,108 @@ mod workspace_tests {
             assert_eq!(&stops[start..=end], &[0, 1, 2]);
         }
         assert!(kernel.ride_stop_sequence(0, 1.0, 1.25).is_err());
+    }
+    #[test]
+    fn reverse_prefix_bounds_preserve_complete_journeys() {
+        let mut edges = vec![
+            (0, 1, 100, 110),
+            (1, 2, 115, 125),
+            (1, 2, 120, 130),
+            (0, 2, 80, 125),
+            (4, 1, 90, 100),
+            (0, 1, 105, 105),
+            (1, 2, 105, 105),
+            (5, 2, 120, 132),
+        ];
+        // These suffixes fit the destination's clock, but none of the requested
+        // origins can reach stop 3. They must not consume journey frontiers.
+        edges.extend((0..80).map(|i| (3, 2, 106 + i % 25, 132 + i % 8)));
+        let count = edges.len() as u32;
+        for buffer in [0, 7] {
+            for forbidden in [0, 1] {
+                let mut order: Vec<_> = (0..count).collect();
+                order.sort_by_key(|&i| (edges[i as usize].0, edges[i as usize].2));
+                let mut kernel = TimetableKernel::new(TimetableKernelInput {
+                    stop_count: 6,
+                    run_count: count,
+                    departure_seconds: edges.iter().map(|e| e.2).collect::<Vec<_>>().into(),
+                    arrival_seconds: edges.iter().map(|e| e.3).collect::<Vec<_>>().into(),
+                    from_stop: edges.iter().map(|e| e.0).collect::<Vec<_>>().into(),
+                    to_stop: edges.iter().map(|e| e.1).collect::<Vec<_>>().into(),
+                    sequence: vec![1; count as usize].into(),
+                    segment_trip: (0..count).collect::<Vec<_>>().into(),
+                    segment_run: (0..count).collect::<Vec<_>>().into(),
+                    continuity_break: vec![1; count as usize].into(),
+                    can_board: vec![1; count as usize].into(),
+                    can_alight: vec![1; count as usize].into(),
+                    trip_start: (0..=count).collect::<Vec<_>>().into(),
+                    departure_offset: (0..=6)
+                        .map(|s| edges.iter().filter(|e| e.0 < s).count() as u32)
+                        .collect::<Vec<_>>()
+                        .into(),
+                    departure_order: order.into(),
+                    transfer_offset: vec![0, 0, 1, 1, 1, 2, 2].into(),
+                    transfer_to: vec![5, 0].into(),
+                    transfer_duration: vec![3, 1].into(),
+                    forbidden_same_stop: vec![0, forbidden, 0, 0, 0, 0].into(),
+                    same_stop_transfer_minimum: None,
+                    minimum_transfer_buffer_seconds: Some(buffer),
+                })
+                .unwrap();
+                for cap in [None, Some(1), Some(2), Some(4)] {
+                    for terminals in [false, true] {
+                        for reverse in [true, false, true] {
+                            let input = TimetableMatrixQueryInput {
+                                origin_offsets: vec![0, 2, 3, 3],
+                                origin_stops: vec![0, 0, 4],
+                                origin_walk_seconds: vec![10.25, 0.25, 2.125],
+                                allow_pre_ride_transfers: if terminals {
+                                    vec![true, false, true]
+                                } else {
+                                    vec![false; 3]
+                                },
+                                destination_offsets: vec![0, 1, 2],
+                                destination_stops: vec![2, 1],
+                                destination_walk_seconds: vec![0.75, 3.125],
+                                allow_post_ride_transfers: Some(if terminals {
+                                    vec![true, false]
+                                } else {
+                                    vec![false; 2]
+                                }),
+                                departure: 0.,
+                                horizon: 140.,
+                                arrive_by: reverse,
+                                maximum_boardings: cap,
+                                include_journeys: Some(true),
+                            };
+                            let actual = kernel.route_matrix_csa(input.clone()).unwrap();
+                            let bounds = kernel
+                                .route_matrix_csa(TimetableMatrixQueryInput {
+                                    include_journeys: Some(false),
+                                    ..input.clone()
+                                })
+                                .unwrap();
+                            let mut scratch =
+                                JourneyWorkspace::new(kernel.stop_count, kernel.run_count);
+                            let expected = kernel
+                                .matrix_journeys_with_workspace::<false>(
+                                    &input,
+                                    bounds,
+                                    &mut scratch,
+                                )
+                                .unwrap();
+                            assert_eq!(actual.times, expected.times);
+                            assert_eq!(
+                                serde_json::to_vec(&actual.journeys).unwrap(),
+                                serde_json::to_vec(&expected.journeys).unwrap()
+                            );
+                            if reverse && cap.is_none() && buffer == 0 && forbidden == 0 {
+                                assert!(actual.relaxed_stops < expected.relaxed_stops);
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
