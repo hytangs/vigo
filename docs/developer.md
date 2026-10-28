@@ -780,16 +780,22 @@ the boarding limit, where each Flex ride counts as a boarding. Matrix uses the
 same search as Route. A journey combining Flex and fixed service is returned
 only when it is strictly better than the scheduled journey.
 
-The integrated search runs only for requests near Flex service. It is bounded
-by the scheduled journey: a relaxed scan that ignores transfer-rule state
-first checks whether any Flex journey could arrive earlier (arrive-by: depart
-later), and most requests stop there. That check may miss a Flex journey that
-depends on a rule-only transfer, a scoped or timed rule between two stops with
-no ordinary transfer path. Otherwise the egress clocks (arrive-by: access
-clocks) come from one one-to-many scan, and the certified search confirms the
-journey with the same tie rules as scheduled service. If a transfer rule at a
-Flex interchange is broken, Rust falls back to composing the conditional and
-scheduled halves separately.
+Flex does not run a search of its own for most requests. The scheduled search
+scans Flex access and egress too, with optimistic values: straight-line walks,
+and egress (arrive-by: access) as if the vehicle were waiting. When its winner
+uses no Flex ride, no Flex journey can be strictly better. When it does, Rust
+prices that winner's walks on the street graph and its clocks exactly, and runs
+the scheduled search alone for comparison. If the street walks lengthen the
+winner by more than 60 seconds, the fused search repeats once with them. A
+winner within that margin is returned and may be up to 60 seconds later than
+the best conditional journey; other journeys were lower bounds. Otherwise the
+clock that depends on the scan comes from one one-to-many scan and a certified
+search, after a relaxed pruning scan where one is still needed. That relaxed
+scan ignores transfer-rule state, so it may miss a Flex journey that depends on
+a rule-only transfer, a scoped or timed rule between two stops with no
+ordinary transfer path. If a transfer rule at a Flex interchange is broken,
+Rust falls back to composing the conditional and scheduled halves separately.
+A boarding limit (`maxTransfers`) uses the separate search.
 
 A deviated route keeps its fixed calls. A rider carried past a fixed stop is
 picked up in time for the vehicle to reach that stop on schedule, and dropped

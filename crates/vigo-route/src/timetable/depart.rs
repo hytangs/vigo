@@ -5,35 +5,14 @@ impl TimetableKernel {
         self.route_scalar_csa_impl::<true>(&input)
     }
 
-    /// Earliest arrival without transfer-rule state or the transfer buffer,
-    /// for pruning. Rules and the buffer only remove journeys, so this bounds
-    /// every journey that uses no rule-only transfer edge (a scoped or timed
-    /// rule between different stops with no ordinary path). `None` when
-    /// frequency windows need the stateful search.
+    /// Earliest arrival over the relaxed transfer graph: a lower bound on
+    /// the stateful transfer-rule search, for pruning. `None` when frequency
+    /// windows need the stateful search.
     pub fn route_scalar_relaxed_csa(
         &mut self,
         input: &TimetableQueryInput,
     ) -> Result<Option<TimetableQueryResult>> {
         self.relaxed(|kernel| kernel.route_scalar_csa_impl::<false>(input))
-    }
-
-    pub(super) fn relaxed<T>(
-        &mut self,
-        search: impl FnOnce(&mut Self) -> Result<T>,
-    ) -> Result<Option<T>> {
-        if self
-            .service
-            .as_ref()
-            .is_some_and(|s| !s.data.headways.is_empty())
-        {
-            return Ok(None);
-        }
-        let service = self.service.take();
-        let buffer = std::mem::take(&mut self.minimum_transfer_buffer_seconds);
-        let result = search(self);
-        self.service = service;
-        self.minimum_transfer_buffer_seconds = buffer;
-        result.map(Some)
     }
 
     pub(super) fn route_scalar_csa_impl<const RETAIN_JOURNEY: bool>(
@@ -69,7 +48,7 @@ impl TimetableKernel {
             let mut result = if let Some(result) = self.guarded_scalar(input)? {
                 result
             } else {
-                self.service_scalar(input)?
+                self.windowed_service_scalar(input)?
             };
             result.query_ns = started.elapsed().as_nanos() as f64;
             return Ok(result);
@@ -198,6 +177,7 @@ impl TimetableKernel {
         let transfer_buffer_seconds = self.minimum_transfer_buffer_seconds;
         let Self {
             service: _,
+            relaxed_graph: _,
             stop_count: _,
             run_count: _,
             departure_seconds: _,

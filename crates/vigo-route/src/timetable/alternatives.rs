@@ -116,13 +116,14 @@ impl TimetableKernel {
                 self.record_ordinary_search();
                 result?
             } else {
-                self.service_pareto(&input)?
+                self.validated_service_pareto(&input)?
             };
             result.query_ns = started.elapsed().as_nanos() as f64;
             return Ok(result);
         }
         let Self {
             service: _,
+            relaxed_graph: _,
             stop_count,
             run_count,
             departure_seconds,

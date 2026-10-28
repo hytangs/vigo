@@ -20,7 +20,7 @@ pub(super) struct Zone {
     pub stops: Vec<u32>,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) enum Place {
     Zone(u32),
     Group(u32),

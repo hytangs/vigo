@@ -3313,6 +3313,7 @@ pub struct TimetableKernel {
     exit_event_offset: Vec<u32>,
     exit_events: Vec<ExitEvent>,
     query: TimetableQueryWorkspace,
+    relaxed_graph: Option<relaxed::RelaxedGraph>,
 }
 
 // Query scratch is independent of the immutable schedule. A sequential worker
@@ -3472,6 +3473,7 @@ impl TimetableKernel {
 }
 mod alternatives;
 mod arrive;
+mod relaxed;
 mod construction;
 mod depart;
 mod diagnostics;

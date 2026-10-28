@@ -322,6 +322,10 @@ pub struct City {
     pub(crate) timetable_preparation_profile: Value,
     pub(crate) flex_catalog: OnceLock<Arc<Value>>,
     pub(super) flex_index: OnceLock<Arc<super::flex_index::FlexIndex>>,
+    /// One-shot optimistic Flex access and egress per timetable stop for the
+    /// next transit search, and whether that search's winner used them.
+    pub(super) flex_overlay: Option<(HashMap<u32, f64>, HashMap<u32, f64>)>,
+    pub(super) flex_witness: Option<super::flex_search::Witness>,
     pub(crate) calendar: std::sync::OnceLock<super::calendar::CalendarIndex>,
     pub(crate) transfer_inputs: OnceLock<Arc<TransferInputs>>,
     pub(crate) route_types: OnceLock<Arc<HashMap<String, i64>>>,
@@ -710,6 +714,8 @@ impl City {
             timetable_preparation_profile: Value::Null,
             flex_catalog: Default::default(),
             flex_index: Default::default(),
+            flex_overlay: None,
+            flex_witness: None,
             calendar: Default::default(),
             transfer_inputs: OnceLock::new(),
             route_types: OnceLock::new(),

@@ -48,7 +48,7 @@ impl TimetableKernel {
                 self.record_ordinary_search();
                 ordinary
             } else {
-                self.service_arrive(&input)?
+                self.windowed_service_arrive(&input)?
             };
             result.query_ns = started.elapsed().as_nanos() as f64;
             return Ok(result);
@@ -166,6 +166,7 @@ impl TimetableKernel {
         let transfer_buffer_seconds = self.minimum_transfer_buffer_seconds;
         let Self {
             service: _,
+            relaxed_graph: _,
             stop_count: _,
             run_count: _,
             departure_seconds: _,

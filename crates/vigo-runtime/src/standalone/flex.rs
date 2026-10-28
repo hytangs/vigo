@@ -1,6 +1,6 @@
 //! GTFS Flex journeys retain time windows and booking requirements. Driving
 //! estimates come from the same native OSM graph as Drive, never a straight line.
-use super::flex_search::{FLEX_PAIR_LIMIT, Integrated, Want};
+use super::flex_search::{FLEX_PAIR_LIMIT, Integrated, Resolved, Want};
 use super::{
     City, Result, fail, flag, number,
     query::{Options, Point},
@@ -135,14 +135,72 @@ impl City {
         let mut choices = self.flex_direct(q, &opt, &mut hops, [&origin, &destination], 9)?;
         let mut ordinary = q.clone();
         ordinary.as_object_mut().unwrap().remove("flex");
+        // The scheduled search also scans optimistic Flex access and egress.
+        // A winner without Flex proves no Flex journey is strictly better, so
+        // most requests need no search of their own.
+        let mut integrate = interchange && opt.max_boardings.is_some();
         let scheduled = if scheduled_service {
-            self.route(&ordinary)?
+            let fuse = interchange && opt.max_boardings.is_none();
+            let buffer = number(q, "minimumTransferBufferMinutes", 0., 0., 60.)? * 60.;
+            let mut scheduled: Option<Value> = None;
+            // A second fused search runs only when street walks replaced the
+            // straight-line bounds of the first winner's rides.
+            for attempt in 0..2 {
+                if fuse {
+                    self.activate(&ordinary)?;
+                    let index = hops.index.clone();
+                    let extra = move |end: &super::flex_search::End| {
+                        if end.stop.is_some_and(|s| index.rule_stops.contains(&s)) {
+                            0.
+                        } else {
+                            buffer
+                        }
+                    };
+                    let (access, egress) = self.flex_seeds(&opt, &hops, true, true, &extra);
+                    if !access.seconds.is_empty() || !egress.seconds.is_empty() {
+                        self.flex_overlay = Some((access.seconds, egress.seconds));
+                    }
+                }
+                self.flex_witness = None;
+                let fused = self.route(&ordinary);
+                self.flex_overlay = None;
+                let Some(witness) = self.flex_witness.take() else {
+                    if scheduled.is_none() {
+                        scheduled = Some(fused?);
+                    }
+                    break;
+                };
+                if scheduled.is_none() {
+                    scheduled = Some(self.route(&ordinary)?);
+                }
+                let plan = scheduled.as_ref().unwrap();
+                let key = if opt.arrive {
+                    "departureMinutes"
+                } else {
+                    "arrivalMinutes"
+                };
+                let bound = (plan["status"] == "ready")
+                    .then(|| plan[key].as_f64().map(|m| m * 60.))
+                    .flatten();
+                let endpoints = [&origin, &destination];
+                match self.flex_resolve(q, &opt, &mut hops, endpoints, witness, bound)? {
+                    Resolved::Journey(journey) => choices.push(journey),
+                    Resolved::Worse => {}
+                    Resolved::Repriced if attempt == 0 => continue,
+                    Resolved::Repriced | Resolved::Unresolved => {
+                        hops.promising = true;
+                        integrate = true;
+                    }
+                }
+                break;
+            }
+            scheduled.unwrap()
         } else if q["requireTransitRide"] == true {
             json!({"status":"blocked"})
         } else {
             self.flex_direct_walk(q)?
         };
-        if interchange {
+        if integrate {
             let bound = (scheduled["status"] == "ready")
                 .then(|| {
                     let key = if opt.arrive {

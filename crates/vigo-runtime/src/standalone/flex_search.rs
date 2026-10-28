@@ -19,6 +19,7 @@ use crate::{
 use chrono::NaiveDate;
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// Walkable board/alight pairs one direct Flex search evaluates before it stops.
@@ -27,6 +28,11 @@ pub(super) const FLEX_PAIR_LIMIT: usize = 4096;
 const FLEX_HUB_HOP_LIMIT: usize = 65_536;
 /// Driving cells priced in one batch.
 const FLEX_DRIVE_CELL_LIMIT: usize = 65_536;
+/// Seconds a street walk may lengthen a straight-line bound before the
+/// scheduled search's Flex winner is re-searched with exact clocks. Every
+/// other journey's value was a lower bound, so the winner is then at most this
+/// much later than the best conditional journey.
+const FLEX_WALK_GAP: f64 = 60.;
 
 #[derive(Clone, Copy, PartialEq)]
 pub(super) enum Side {
@@ -101,6 +107,9 @@ pub(super) struct Hops {
     pub list: Vec<Hop>,
     pub days: Vec<(NaiveDate, f64)>,
     pub truncated: bool,
+    /// The scheduled search already found a Flex journey under optimistic
+    /// values, so the pruning probe would pass.
+    pub promising: bool,
 }
 
 type Key = (u64, u64);
@@ -256,6 +265,7 @@ impl City {
             list: vec![],
             days: vec![],
             truncated: false,
+            promising: false,
         };
         if index.trips.is_empty() {
             return Ok(hops);
@@ -413,6 +423,35 @@ impl City {
         let excluded_routes = q["excludedRouteIds"].as_array();
         let mut shells: Vec<Shell> = vec![];
         let (mut direct_pairs, mut hub_hops) = (0usize, 0usize);
+        // Transit-stop ends of each place, shared by every trip calling there.
+        let mut hub_ends: HashMap<Place, Rc<Vec<End>>> = HashMap::new();
+        for &t in &touched {
+            for call in &index.trips[t as usize].calls {
+                hub_ends.entry(call.place).or_insert_with(|| {
+                    let members: Vec<u32> = match call.place {
+                        Place::Stop(s) if s != u32::MAX => vec![s],
+                        Place::Stop(_) => vec![],
+                        place => index.place_stops(place).to_vec(),
+                    };
+                    Rc::new(
+                        members
+                            .into_iter()
+                            .map(|s| {
+                                let stop = &self.stops[s as usize];
+                                End {
+                                    coordinate: [stop.lon, stop.lat],
+                                    stop: Some(s),
+                                    walk: 0.,
+                                    meters: 0.,
+                                    priced: true,
+                                }
+                            })
+                            .collect(),
+                    )
+                });
+            }
+        }
+        let none: Rc<Vec<End>> = Rc::new(vec![]);
         for (day, services) in active.iter().enumerate() {
             let offset = hops.days[day].1;
             for &t in &touched {
@@ -486,72 +525,69 @@ impl City {
                 }
                 let factor = trip.factor.unwrap_or(fallback_factor);
                 let flex_offset = trip.offset.unwrap_or(fallback_offset);
-                let ends = |e: &Entry, role: usize, side: Side| -> Vec<End> {
+                let ends = |e: &Entry, role: usize, side: Side| -> Rc<Vec<End>> {
                     if let Some((r, end)) = &e.carried {
                         return if side == Side::Free && *r == role {
-                            vec![end.clone()]
+                            Rc::new(vec![end.clone()])
                         } else {
-                            vec![]
+                            none.clone()
                         };
                     }
                     let place = calls[e.call].place;
-                    let single = [match place {
-                        Place::Stop(s) => s,
-                        _ => u32::MAX,
-                    }];
-                    let members: &[u32] = match place {
-                        Place::Stop(s) if s != u32::MAX => &single,
-                        Place::Stop(_) => &[],
-                        _ => index.place_stops(place),
-                    };
                     match (side, place) {
+                        (Side::Hub, _) => hub_ends
+                            .get(&place)
+                            .cloned()
+                            .unwrap_or_else(|| none.clone()),
                         (Side::Free, Place::Zone(z)) => {
                             if inside[role][z as usize] && roadside[role] {
-                                vec![End {
+                                Rc::new(vec![End {
                                     coordinate: points[role].coordinate,
                                     stop: None,
                                     walk: 0.,
                                     meters: 0.,
                                     priced: true,
-                                }]
+                                }])
                             } else {
-                                vec![]
+                                none.clone()
                             }
                         }
-                        (Side::Free, _) => members
-                            .iter()
-                            .filter_map(|s| near[role].get(s).cloned())
-                            .collect(),
-                        (Side::Hub, _) => members
-                            .iter()
-                            .map(|&s| {
-                                let stop = &self.stops[s as usize];
-                                End {
-                                    coordinate: [stop.lon, stop.lat],
-                                    stop: Some(s),
-                                    walk: 0.,
-                                    meters: 0.,
-                                    priced: true,
-                                }
-                            })
-                            .collect(),
+                        (Side::Free, Place::Stop(s)) => match near[role].get(&s) {
+                            Some(end) => Rc::new(vec![end.clone()]),
+                            None => none.clone(),
+                        },
+                        (Side::Free, _) => {
+                            let found: Vec<End> = index
+                                .place_stops(place)
+                                .iter()
+                                .filter_map(|s| near[role].get(s).cloned())
+                                .collect();
+                            if found.is_empty() {
+                                none.clone()
+                            } else {
+                                Rc::new(found)
+                            }
+                        }
                     }
                 };
-                // Board and alight points of each entry, resolved once per trip.
-                let resolve = |role: usize, side: Side| -> Vec<Vec<End>> {
+                let resolve = |role: usize, side: Side| -> Vec<Rc<Vec<End>>> {
                     entries.iter().map(|e| ends(e, role, side)).collect()
                 };
                 let free_board = resolve(0, Side::Free);
                 let free_alight = resolve(1, Side::Free);
+                // Every hop has a free end; a trip that serves neither yields none.
+                if free_board.iter().chain(&free_alight).all(|e| e.is_empty()) {
+                    continue;
+                }
                 let hub_board = if want.egress {
                     resolve(0, Side::Hub)
                 } else {
-                    vec![vec![]; entries.len()]
+                    vec![none.clone(); entries.len()]
                 };
                 let hub_alight = if want.access {
                     resolve(1, Side::Hub)
                 } else {
-                    vec![vec![]; entries.len()]
+                    vec![none.clone(); entries.len()]
                 };
                 let anchor_point = |call: usize| match calls[call].place {
                     Place::Stop(s) if s != u32::MAX => {
@@ -652,6 +688,16 @@ impl City {
                             if sa == Side::Free && sb == Side::Free && !want.direct {
                                 continue;
                             }
+                            // A fixed-schedule vehicle already carries a rider who
+                            // boarded upstream, so continuous egress starts at the
+                            // call just before the drop-off point. Earlier calls
+                            // would only add optimistic, loose values.
+                            if sa == Side::Hub
+                                && !trip.on_demand
+                                && b.projection.is_some_and(|c| c.interval != a.call)
+                            {
+                                continue;
+                            }
                             let boards = if sa == Side::Free {
                                 &free_board[ai]
                             } else {
@@ -662,8 +708,8 @@ impl City {
                             } else {
                                 &hub_alight[bi]
                             };
-                            for board in boards {
-                                for alight in alights {
+                            for board in boards.iter() {
+                                for alight in alights.iter() {
                                     if board.coordinate == alight.coordinate {
                                         continue;
                                     }
@@ -800,7 +846,7 @@ impl City {
         opt: &Options,
         hops: &mut Hops,
         endpoints: [&Point; 2],
-        selected: impl Fn(&Hop) -> bool,
+        selected: impl Fn(usize, &Hop) -> bool,
     ) -> Result<()> {
         let mut walkq = q.clone();
         walkq["allowLongWalk"] = json!(false);
@@ -812,7 +858,12 @@ impl City {
         for role in 0..2 {
             let mut points: Vec<[f64; 2]> = vec![];
             let mut seen = std::collections::HashSet::new();
-            for hop in hops.list.iter().filter(|h| selected(h)) {
+            for (_, hop) in hops
+                .list
+                .iter()
+                .enumerate()
+                .filter(|(i, h)| selected(*i, h))
+            {
                 let (side, end) = if role == 0 {
                     (hop.sides.0, &hop.board)
                 } else {
@@ -1036,7 +1087,7 @@ impl City {
     ) -> Result<Vec<Value>> {
         let direct = |h: &Hop| h.sides == (Side::Free, Side::Free);
         if hops.list.iter().any(direct) {
-            self.flex_price_walks(q, opt, hops, endpoints, direct)?;
+            self.flex_price_walks(q, opt, hops, endpoints, |_, h| direct(h))?;
         }
         let hops = &*hops;
         let mut ranked = vec![];
@@ -1114,9 +1165,28 @@ impl City {
 /// One side of the integrated search: per timetable stop, the best static
 /// value and the hops that realize it.
 #[derive(Default)]
-struct Seeds {
-    seconds: HashMap<u32, f64>,
+pub(super) struct Seeds {
+    pub seconds: HashMap<u32, f64>,
     hops: HashMap<u32, Vec<usize>>,
+}
+
+/// The scheduled search's winner when it used optimistic Flex values, with
+/// the stops whose values came from Flex and the walking candidates.
+pub(super) struct Witness {
+    pub journey: TimetableMatrixJourney,
+    pub flexible: [Vec<u32>; 2],
+    pub walks: [Candidates; 2],
+}
+
+pub(super) enum Resolved {
+    Journey(Value),
+    /// No Flex journey is strictly better than the scheduled one.
+    Worse,
+    /// The optimistic values did not hold; search with exact clocks.
+    Unresolved,
+    /// Street walks replaced straight-line bounds on the winner's rides;
+    /// search again with them.
+    Repriced,
 }
 
 pub(super) enum Integrated {
@@ -1204,7 +1274,7 @@ impl City {
         // scan repeated.
         // Optimistic values first: a probe with them rejects most requests
         // before any exact one-to-many scan.
-        let (mut exact, mut probe) = (false, true);
+        let (mut exact, mut probe) = (false, !hops.promising);
         for _ in 0..8 {
             if access.seconds.is_empty() && egress.seconds.is_empty() {
                 return Ok(Integrated::None);
@@ -1247,7 +1317,7 @@ impl City {
                 .iter()
                 .any(|h| interchange(h) && (!h.board.priced || !h.alight.priced))
             {
-                self.flex_price_walks(q, opt, hops, endpoints, interchange)?;
+                self.flex_price_walks(q, opt, hops, endpoints, |_, h| interchange(h))?;
                 (access, egress) = self.flex_seeds(opt, hops, use_access, use_egress, &extra);
                 // Walks only lengthen: the certified scan below decides.
                 probe = false;
@@ -1360,9 +1430,124 @@ impl City {
         Ok(Integrated::None)
     }
 
+    /// Confirm the scheduled search's Flex winner with street walks and exact
+    /// clocks. Other Flex values were lower bounds, so a winner whose clocks
+    /// hold within `FLEX_WALK_GAP` is within that gap of the best Flex
+    /// journey; it is kept only when strictly better than `bound`, the
+    /// scheduled arrival (departure arriving by).
+    pub(super) fn flex_resolve(
+        &mut self,
+        q: &Value,
+        opt: &Options,
+        hops: &mut Hops,
+        endpoints: [&Point; 2],
+        witness: Witness,
+        bound: Option<f64>,
+    ) -> Result<Resolved> {
+        let buffer = number(q, "minimumTransferBufferMinutes", 0., 0., 60.)? * 60.;
+        let index = hops.index.clone();
+        let extra = move |end: &End| {
+            if end.stop.is_some_and(|s| index.rule_stops.contains(&s)) {
+                0.
+            } else {
+                buffer
+            }
+        };
+        let journey = &witness.journey;
+        let legs = &journey.legs;
+        if !legs.iter().any(|l| l.trip.is_some()) {
+            return Ok(Resolved::Unresolved);
+        }
+        let member = |set: &[u32], stop: Option<u32>| stop.filter(|s| set.binary_search(s).is_ok());
+        let first = legs.first().filter(|l| l.from_stop.is_none());
+        let last = legs.last().filter(|l| l.to_stop.is_none());
+        let flex_in = member(&witness.flexible[0], first.and_then(|l| l.to_stop));
+        let flex_out = member(&witness.flexible[1], last.and_then(|l| l.from_stop));
+        let (access, egress) = self.flex_seeds(opt, hops, true, true, &extra);
+        let used: std::collections::HashSet<usize> = [
+            flex_in.and_then(|s| access.hops.get(&s)),
+            flex_out.and_then(|s| egress.hops.get(&s)),
+        ]
+        .into_iter()
+        .flatten()
+        .flatten()
+        .copied()
+        .collect();
+        let unpriced = used
+            .iter()
+            .any(|&i| !hops.list[i].board.priced || !hops.list[i].alight.priced);
+        self.flex_price_walks(q, opt, hops, endpoints, |i, _| used.contains(&i))?;
+        let unresolved = if unpriced {
+            Resolved::Repriced
+        } else {
+            Resolved::Unresolved
+        };
+        let access_choice = match flex_in {
+            None => None,
+            Some(stop) => {
+                let at = legs.get(1).map_or(first.unwrap().arrival, |l| l.departure);
+                let choice = self.flex_pick_access(opt, hops, &access, stop, at, &extra);
+                if choice.is_none_or(|c| {
+                    opt.arrive
+                        && c.1 - hops.list[c.0].board.walk < journey.departure - FLEX_WALK_GAP
+                }) {
+                    return Ok(unresolved);
+                }
+                choice
+            }
+        };
+        let egress_choice = match flex_out {
+            None => None,
+            Some(stop) => {
+                let at = legs
+                    .len()
+                    .checked_sub(2)
+                    .map_or(last.unwrap().departure, |i| legs[i].arrival);
+                let choice = self.flex_pick_egress(opt, hops, &egress, stop, at, &extra);
+                if choice.is_none_or(|c| {
+                    !opt.arrive
+                        && c.2 + hops.list[c.0].alight.walk > journey.arrival + FLEX_WALK_GAP
+                }) {
+                    return Ok(unresolved);
+                }
+                choice
+            }
+        };
+        let walks = [&witness.walks[0], &witness.walks[1]];
+        let value = match self.flex_splice(
+            q,
+            opt,
+            hops,
+            endpoints,
+            journey,
+            walks,
+            access_choice,
+            egress_choice,
+        )? {
+            Integrated::Journey(value) => value,
+            Integrated::RuleBound | Integrated::None => return Ok(Resolved::Unresolved),
+        };
+        let better = bound.is_none_or(|b| {
+            if opt.arrive {
+                value["departureMinutes"]
+                    .as_f64()
+                    .is_some_and(|d| d * 60. > b + 1e-6)
+            } else {
+                value["arrivalMinutes"]
+                    .as_f64()
+                    .is_some_and(|a| a * 60. < b - 1e-6)
+            }
+        });
+        Ok(if better {
+            Resolved::Journey(value)
+        } else {
+            Resolved::Worse
+        })
+    }
+
     /// Static values per timetable stop: exact for the side whose clock the
     /// request fixes, optimistic for the side whose clock the scan fixes.
-    fn flex_seeds(
+    pub(super) fn flex_seeds(
         &self,
         opt: &Options,
         hops: &Hops,
@@ -1708,6 +1893,49 @@ impl City {
             legs.extend(after);
             flex_legs += 1;
         }
+        // A conditional ride that continues the same vehicle as the adjacent
+        // fixed ride is one boarding: merge the two legs.
+        let mut merged = 0;
+        for i in (1..legs.len()).rev() {
+            let (before, after) = (&legs[i - 1], &legs[i]);
+            if before["kind"] == "ride"
+                && after["kind"] == "ride"
+                && before["tripId"] == after["tripId"]
+                && (before["flexEstimate"].is_object() != after["flexEstimate"].is_object())
+            {
+                let (fixed, flexible) = if before["flexEstimate"].is_object() {
+                    (i, i - 1)
+                } else {
+                    (i - 1, i)
+                };
+                let fixed_leg = legs[fixed].clone();
+                let leg = &mut legs[flexible];
+                let mut line: Vec<Value> =
+                    leg["coordinates"].as_array().cloned().unwrap_or_default();
+                let more = fixed_leg["coordinates"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default();
+                if fixed < flexible {
+                    for key in ["from", "fromStopId", "departureMinutes"] {
+                        leg[key] = fixed_leg[key].clone();
+                    }
+                    line.splice(0..0, more);
+                } else {
+                    for key in ["to", "toStopId", "arrivalMinutes"] {
+                        leg[key] = fixed_leg[key].clone();
+                    }
+                    line.extend(more);
+                }
+                leg["coordinates"] = Value::Array(line);
+                leg["distanceMeters"] = Value::Null;
+                let span = leg["arrivalMinutes"].as_f64().unwrap_or(0.)
+                    - leg["departureMinutes"].as_f64().unwrap_or(0.);
+                leg["durationMinutes"] = json!(span);
+                legs.remove(fixed);
+                merged += 1;
+            }
+        }
         // Each interchange obeys the same transfer rules as fixed service.
         let rides: Vec<usize> = (0..legs.len())
             .filter(|&i| legs[i]["kind"] == "ride")
@@ -1746,7 +1974,7 @@ impl City {
         // The fixed-service clocks above describe only the middle; the whole
         // journey is summarized afresh, as every composed Flex journey is.
         Ok(Integrated::Journey(
-            json!({"status":"ready","mode":"transit","clockDate":q["serviceDate"],"departureMinutes":departure,"arrivalMinutes":arrival,"durationMinutes":arrival-departure,"transfers":journey.boardings+flex_legs-1,"legs":legs,
+            json!({"status":"ready","mode":"transit","clockDate":q["serviceDate"],"departureMinutes":departure,"arrivalMinutes":arrival,"durationMinutes":arrival-departure,"transfers":journey.boardings+flex_legs-1-merged,"legs":legs,
                 "warnings":[{"code":"flex_estimate","detail":"Conditional service: booking and vehicle availability are not confirmed."}]}),
         ))
     }
@@ -1769,7 +1997,7 @@ fn departure_first(
 
 /// Walking candidates plus Flex values; a stop keeps its better value.
 /// Returns the merged set and the stops whose value came from Flex.
-fn merge(walk: &Candidates, flex: &HashMap<u32, f64>) -> (Candidates, Vec<u32>) {
+pub(super) fn merge(walk: &Candidates, flex: &HashMap<u32, f64>) -> (Candidates, Vec<u32>) {
     let mut seconds: HashMap<u32, f64> = HashMap::new();
     for (&s, &v) in walk.stops.iter().zip(&walk.seconds) {
         let slot = seconds.entry(s).or_insert(f64::INFINITY);

@@ -51,9 +51,30 @@ trip clocks, identical prepared access/egress permissions, and unchanged active
 service. Kernel validation enforces the numeric input conditions. A cached
 certificate belongs to one resident timetable and includes endpoint candidates,
 access times, departure, pre-ride policy and transfer buffer. A narrower horizon,
-boarding cap or trip exclusion cannot introduce a new feasible prefix. Failure
-to certify selects the stateful search. Errors restore the service index before
-returning.
+boarding cap or trip exclusion cannot introduce a new feasible prefix. Errors
+restore the service index before returning.
+
+## Relaxed bound before the stateful search
+
+When the certificate fails, a relaxed scan runs before any stateful search. It
+uses a transfer graph that keeps every ordinary edge and adds every rule that
+permits a transfer (recommended, timed or minimum-time, scoped or not) as an
+unscoped edge at its smallest minimum, with no transfer buffer and no forbidden
+same-stop transfers. Rules and buffers can only remove journeys from this
+graph, so the relaxed scan reaches every stop no later than the stateful search.
+
+- If the relaxed scan finds no journey, none exists, and no stateful search
+  runs.
+- If its earliest journey (or, for the boarding and walking certification,
+  every journey on its frontier) obeys every transfer rule as the stateful
+  search evaluates it, that answer is exact and returned.
+- Otherwise the stateful search runs in windows after the relaxed bound: 10
+  minutes, 30 minutes, an hour, then the whole horizon. The earliest journey
+  inside a window is the earliest overall.
+
+Arrive-by and one-to-many searches use the bound and windows; their results
+carry no single chain to validate. Timetables with headway service keep the
+stateful search, because the ordinary scan does not price frequency waits.
 
 ## Validation and observability
 

@@ -391,7 +391,7 @@ impl TimetableKernel {
                 self.record_ordinary_search();
                 result?
             } else {
-                self.service_many(input)?
+                self.windowed_service_many(input)?
             };
             result.query_ns = started.elapsed().as_nanos() as f64;
             return Ok(result);
@@ -408,6 +408,7 @@ impl TimetableKernel {
         let transfer_buffer_seconds = self.minimum_transfer_buffer_seconds;
         let Self {
             service: _,
+            relaxed_graph: _,
             stop_count: _,
             run_count: _,
             departure_seconds: _,
