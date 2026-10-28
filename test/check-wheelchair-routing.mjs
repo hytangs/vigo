@@ -94,6 +94,9 @@ try {
   assert(manifest.accessibility.limitations.some(text => text.includes('can lack wheelchair or surface tags')),
     'Results must describe the inferred street evidence honestly')
   assert.deepEqual(manifest.modes, ['transit', 'walk'])
+  // Shared bases must not silently switch the receiving City's street policy.
+  assert.throws(() => build(gtfsPath, osmPath, path.join(folder, 'mismatched-street-policy'),
+    ['--wheelchair', '--wheelchair-streets', 'verified', '--streets-from', accessible]), /Command failed/)
   // The City profile is active even when the optional request flag is absent.
   // This destination needs the expanded walking budget, so the planner must
   // not find it through a search suppressed for explicit wheelchair requests.

@@ -289,6 +289,8 @@ function snapshotPathForStore(storePath) {
 }
 
 function cchPrefix(snapshotPath, format) {
+  // Admit one immutable hierarchy for file-linked scenario street bases.
+  if (fs.existsSync(snapshotPath)) snapshotPath = fs.realpathSync(snapshotPath)
   const source = snapshotIdentity(snapshotPath)
   const fingerprint = source?.identity?.sourceFingerprint
   const generation = /^[a-f0-9]{64}$/u.test(fingerprint ?? '') ? fingerprint.slice(0, 16) : 'prepared'

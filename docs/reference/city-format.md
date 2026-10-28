@@ -71,3 +71,29 @@ a coordinate search to refresh already displayed labels. Studio also needs a
 build containing coordinate-search naming: quit an older running Studio before
 opening the updated application, because its single-instance lock otherwise
 keeps the older process active.
+
+## Scenario street bases and endpoint overlays
+
+Scenario collections built from the same OSM bytes and preparation profile keep
+one immutable base under `streets/<osm-sha256>/`. Public-only Cities retain the
+existing relative `osm` directory link. Endpoint-enabled Cities have their own
+`osm/` directory: relative symbolic links point to the common street database and pedestrian
+snapshot, and hard links expose the same immutable CCH members inside each City
+for published readers that enforce adjacent-file resolution. Meanwhile,
+`street-index.sqlite.terminal-access-v1.json` remains a regular City-local file.
+Its boundary components depend on that City's timetable stop anchors and must
+never be copied from another scenario. The existing filenames and formats remain
+readable by published runtimes. Moving the entire collection preserves its links;
+copying one City alone still requires including or materializing its referenced
+base files.
+
+Archives must preserve hard links to retain the storage savings (for example,
+use tar); a copying/export tool may materialize duplicate CCH files without
+changing routing results.
+
+The resident runtime identifies the base by the resolved snapshot directory,
+shares only the immutable graph and hierarchy, and installs the receiving City's
+endpoint overlay. Overlay heap usage is charged per City, separately from the
+shared base. `check-scenario-endpoint-access.mjs` compares distinct-boundary
+scenarios with separately built Cities, including resident switching, eviction,
+relocation and optional published-reader checks.
