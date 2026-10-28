@@ -502,8 +502,8 @@ impl City {
                         continue;
                     }
                     let mut extra = vec![];
-                    for role in 0..2 {
-                        if !free[role] {
+                    for (role, &wanted) in free.iter().enumerate() {
+                        if !wanted {
                             continue;
                         }
                         for (c, end) in projected.get(&(p, role)).into_iter().flatten() {
@@ -855,7 +855,7 @@ impl City {
         } else {
             0.
         };
-        for role in 0..2 {
+        for (role, endpoint) in endpoints.iter().enumerate() {
             let mut points: Vec<[f64; 2]> = vec![];
             let mut seen = std::collections::HashSet::new();
             for (_, hop) in hops
@@ -876,8 +876,7 @@ impl City {
             if points.is_empty() {
                 continue;
             }
-            let walks =
-                self.flex_walks(endpoints[role].coordinate, &points, role == 1, reach, opt)?;
+            let walks = self.flex_walks(endpoint.coordinate, &points, role == 1, reach, opt)?;
             let priced: HashMap<Key, (f64, f64)> = points
                 .iter()
                 .zip(walks)
@@ -902,6 +901,7 @@ impl City {
 
     /// Public legs for one hop: the walk to it, the conditional ride and the
     /// walk from it, timed from `departure` (boarding) to `arrival`.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn flex_hop_legs(
         &mut self,
         q: &Value,
@@ -1803,6 +1803,7 @@ impl City {
     }
 
     /// Exact access values from the latest departure at every Flex stop.
+    #[allow(clippy::too_many_arguments)]
     fn flex_exact_access(
         &mut self,
         opt: &Options,
