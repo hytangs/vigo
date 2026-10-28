@@ -1199,7 +1199,7 @@ export function routeNativeTimetablePareto(kernel, request) {
 export function routeNativeTimetableAlternatives(kernel, request) {
   const record = prepareNativeTimetableKernel(kernel)
   const { maximumBoardings, ...endpoints } = timetableEndpointQuery(request)
-  const result = record.kernel.routeAlternativesCsa({
+  const result = record.kernel.routeAlternativeCandidatesCsa({
     ...endpoints,
     departure: request.departure,
     horizon: request.horizon,

@@ -602,6 +602,12 @@ console.log(`Ride horizons and legal terminal walks matched explicit fixtures ($
   assert.deepEqual(found({ ranking: 'ranked', limit: 2 }), [[200, 1], [230, 1]])
   assert.deepEqual(found({ ranking: 'ranked', arrivalSlackSeconds: 35 }), [[200, 1], [230, 1]])
   assert.throws(() => found({ ranking: 'best' }), /pareto or ranked/)
+  // Route needs a larger candidate pool before choosing distinct routes and
+  // merging vehicle chains. That must not change the native API above.
+  for (const ranking of [undefined, 'pareto', 'ranked']) {
+    const candidates = kernel.routeAlternativeCandidatesCsa({ ...request, ranking, limit: 2 }).alternatives
+    assert.deepEqual([...new Set(candidates.map(plan => plan.bestArrival))].sort((a, b) => a - b), [200, 230, 240])
+  }
   console.log('Requested Pareto and ranked alternatives matched an explicit fixture.')
 }
 

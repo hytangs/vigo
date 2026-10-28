@@ -119,8 +119,8 @@ export function SearchPalette({
           value={value}
           role="combobox"
           aria-label="Search VIGO"
-          aria-controls="vigo-search-results"
-          aria-expanded={open}
+          aria-controls={open && results.length ? 'vigo-search-results' : undefined}
+          aria-expanded={open && results.length > 0}
           aria-autocomplete="list"
           aria-activedescendant={open && results[activeIndex] ? `vigo-search-option-${activeIndex}` : undefined}
           autoComplete="off"
@@ -182,13 +182,14 @@ export function SearchPalette({
 
       {open ? (
         <div className="search-palette__results">
-          <div
-            id="vigo-search-results"
-            className="search-palette__scroll"
-            role="listbox"
-            aria-label={`${results.length} search ${results.length === 1 ? 'result' : 'results'}`}
-          >
-            {groupedResults.length ? groupedResults.map(([group, items]) => (
+          {results.length ? (
+            <div
+              id="vigo-search-results"
+              className="search-palette__scroll"
+              role="listbox"
+              aria-label={`${results.length} search ${results.length === 1 ? 'result' : 'results'}`}
+            >
+            {groupedResults.map(([group, items]) => (
               <section
                 key={group}
                 className="search-palette__group"
@@ -203,6 +204,7 @@ export function SearchPalette({
                       key={result.id}
                       id={`vigo-search-option-${index}`}
                       type="button"
+                      tabIndex={-1}
                       role="option"
                       aria-selected={selected}
                       className={classNames('search-palette__option', selected && 'is-active')}
@@ -222,14 +224,15 @@ export function SearchPalette({
                   )
                 })}
               </section>
-            )) : (
-              <div className="search-palette__empty" role="status">
-                <Search size={18} aria-hidden="true" />
-                <strong>No results for “{value.trim()}”</strong>
-                <span>Try a service number, stop, network, or action.</span>
-              </div>
-            )}
-          </div>
+            ))}
+            </div>
+          ) : (
+            <div className="search-palette__empty" role="status">
+              <Search size={18} aria-hidden="true" />
+              <strong>No results for “{value.trim()}”</strong>
+              <span>Try a service number, stop, network, or action.</span>
+            </div>
+          )}
 
           {results.length ? (
             <div className="search-palette__help" aria-hidden="true">

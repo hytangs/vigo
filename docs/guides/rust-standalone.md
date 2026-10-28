@@ -1914,7 +1914,9 @@ The Engine CLI and HTTP service use that City for Route, Matrix and Reach. Add
 `"wheelchair": true` to the request, or `--wheelchair` to an Engine CLI query.
 Omitting the option inherits the City's profile. Ordinary Cities reject a true
 request; wheelchair Cities reject false, Drive, realtime transit and query-time
-scenario overlays. Compile changed inputs into a new wheelchair City.
+scenario overlays. Expanded-walking choices are suppressed for this profile,
+including when the wheelchair flag is omitted. Compile changed inputs into a
+new wheelchair City.
 Serve the prepared wheelchair City using the same `serve --city wheelchair-city`
 command and authenticated `/v1/route`, `/v1/matrix` and `/v1/reach` endpoints.
 

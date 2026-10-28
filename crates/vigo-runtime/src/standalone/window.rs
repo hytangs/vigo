@@ -1047,7 +1047,8 @@ impl City {
             .map(|_| number(q, "expandedWalkKm", 2.4, 0.2, 5.))
             .transpose()?;
         let Some(km) = km.filter(|_| {
-            q["mode"].as_str().unwrap_or("transit") == "transit" && q["wheelchair"] != true
+            q["mode"].as_str().unwrap_or("transit") == "transit"
+                && self.metadata["accessibility"]["profile"] != "wheelchair-strict-v1"
         }) else {
             return self.journeys_once(q, evidence);
         };
@@ -1468,7 +1469,7 @@ impl City {
             .get("expandedWalkKm")
             .map(|_| number(q, "expandedWalkKm", 2.4, 0.2, 5.))
             .transpose()?
-            .filter(|_| q["wheelchair"] != true)
+            .filter(|_| self.metadata["accessibility"]["profile"] != "wheelchair-strict-v1")
         {
             self.walk_the_rest_choices(&ends, &opt, horizon, km, &mut plans, &mut tradeoffs)?;
         }

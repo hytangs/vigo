@@ -13,8 +13,26 @@ impl TimetableKernel {
         &mut self,
         input: TimetableAlternativeQueryInput,
     ) -> Result<TimetableParetoQueryResult> {
+        self.alternative_collection(input, false)
+    }
+
+    /// Candidate pool for the public Route selector. Include route-distinct
+    /// completions and oversample ranked results before vehicle-chain merging;
+    /// these candidates are not the native Pareto frontier or a limited result.
+    pub fn route_alternative_candidates_csa(
+        &mut self,
+        input: TimetableAlternativeQueryInput,
+    ) -> Result<TimetableParetoQueryResult> {
+        self.alternative_collection(input, true)
+    }
+
+    fn alternative_collection(
+        &mut self,
+        input: TimetableAlternativeQueryInput,
+        candidates: bool,
+    ) -> Result<TimetableParetoQueryResult> {
         let ranked = input.ranking.as_deref() == Some("ranked");
-        let pareto = input.ranking.as_deref() == Some("pareto");
+        let pareto = input.ranking.as_deref().unwrap_or("pareto") == "pareto";
         let cap = input
             .maximum_boardings
             .unwrap_or(u32::MAX)
@@ -47,14 +65,18 @@ impl TimetableKernel {
             alternative_ranking: input.ranking,
             // Variants of one vehicle chain merge into one choice later;
             // search enough completions to leave distinct chains.
-            alternative_limit: input.limit.map(|n| n.max(DISTINCT_ALTERNATIVE_CANDIDATES)),
+            alternative_limit: if candidates {
+                input.limit.map(|n| n.max(DISTINCT_ALTERNATIVE_CANDIDATES))
+            } else {
+                input.limit
+            },
             restriction_mode: None,
             deadline_objective: Some(false),
         };
         // Pareto also offers route-distinct journeys inside the slack that the
         // frontier dominates: the same pass reports its earliest ranked
         // completions beside the frontier.
-        let distinct = pareto.then_some(DISTINCT_ALTERNATIVE_CANDIDATES as usize);
+        let distinct = (candidates && pareto).then_some(DISTINCT_ALTERNATIVE_CANDIDATES as usize);
         let result = self.pareto_rounds(request.clone(), distinct)?;
         // The corridor is an accelerator. An origin outside it repeats the
         // same bounded search without corridor pruning.

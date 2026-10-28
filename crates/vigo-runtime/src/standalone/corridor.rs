@@ -32,13 +32,16 @@ impl Reach<'_> {
     }
     /// The rider was at `stop` at `time`, and may walk on from there.
     fn visit(&mut self, stop: u32, time: f64) {
-        self.put(stop, time);
+        self.put(stop, time + self.buffer);
         for (to, seconds) in self.kernel.transfer_walks(stop) {
             self.put(to, time + f64::from(seconds) + self.buffer);
         }
     }
     fn reached_by(&self, stop: u32, time: f64) -> bool {
-        self.earliest.get(&stop).is_some_and(|&t| t <= time)
+        // These clocks omit the incoming vehicle and transfer anchor. A
+        // conditional interchange must retain its certified through ride.
+        !self.kernel.boarding_needs_transfer_context(stop)
+            && self.earliest.get(&stop).is_some_and(|&t| t <= time)
     }
 }
 
@@ -113,7 +116,9 @@ pub(super) fn board_last_pass(
         let Some(parts) = links.get(&trip) else {
             continue;
         };
-        if kernel.is_headway_trip(trip) {
+        if kernel.is_headway_trip(trip)
+            || (!first_ride && kernel.boarding_needs_transfer_context(stop))
+        {
             continue;
         }
         // Only source trips after the one boarded follow a boundary.
@@ -253,7 +258,9 @@ pub(super) fn detours(
                     }
                 }
                 // Walking on from the boundary is not a return to the corridor.
-                reach.put(boundary.stop, boundary.time);
+                if boundary.leave {
+                    reach.put(boundary.stop, boundary.time + reach.buffer);
+                }
             } else {
                 for (i, v) in calls.iter().enumerate() {
                     if present(i, v) {
@@ -432,9 +439,30 @@ mod tests {
     }
 
     #[test]
+    fn leaving_and_reboarding_at_the_same_stop_needs_the_transfer_buffer() {
+        // Stop 1 is reached at 20 and again at 50. Staying aboard remains
+        // necessary when the requested transfer buffer exceeds that gap.
+        let (mut kernel, links) = block([0, 1, 2, 1, 4], &[]);
+        let query = input(0, 4);
+        let journey = ride(0, 4, 0., 10.);
+        kernel.set_minimum_transfer_buffer_seconds(31);
+        assert!(!detours(&kernel, &links, &query, &journey));
+        kernel.set_minimum_transfer_buffer_seconds(30);
+        assert!(detours(&kernel, &links, &query, &journey));
+    }
+
+    #[test]
     fn a_stop_without_drop_off_is_not_a_place_the_rider_was() {
         // Riders may not leave at stop 1, so they cannot walk across to 3.
         let (kernel, links) = block_with([0, 1, 2, 3, 4], &[(1, 3, 20)], [0, 1, 1, 1]);
+        assert!(!detours(
+            &kernel,
+            &links,
+            &input(0, 4),
+            &ride(0, 4, 0., 10.)
+        ));
+        // The same restriction applies at the continuation boundary.
+        let (kernel, links) = block_with([0, 1, 2, 2, 4], &[], [1, 0, 1, 1]);
         assert!(!detours(
             &kernel,
             &links,

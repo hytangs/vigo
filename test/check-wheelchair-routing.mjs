@@ -79,6 +79,26 @@ try {
   const manifest = JSON.parse(fs.readFileSync(path.join(accessible, 'network.json')))
   assert.equal(manifest.accessibility.profile, 'wheelchair-strict-v1')
   assert.deepEqual(manifest.modes, ['transit', 'walk'])
+  // The City profile is active even when the optional request flag is absent.
+  // This destination needs the expanded walking budget, so the planner must
+  // not find it through a search suppressed for explicit wheelchair requests.
+  const expanded = { ...base, destination: { coordinate: [-77.035, 38.9075] },
+    expandedWalkKm: 2.4, journeyPolicy: 'alternatives-v1' }
+  for (const wheelchair of [undefined, true]) {
+    const request = { ...expanded, ...(wheelchair === undefined ? {} : { wheelchair }) }
+    assert.equal(run(accessible, 'route', request).status, 'not_found',
+      'The active wheelchair profile must suppress expanded-walking candidates')
+  }
+  // A nearer destination has an ordinary journey, so the supported-window
+  // path must retain that journey rather than widen its final walk.
+  const supported = { ...base, destination: { coordinate: [-77.0305, 38.90975] },
+    expandedWalkKm: 2.4, windowMinutes: 10, windowStepMinutes: 5, windowChoices: 'supported' }
+  for (const wheelchair of [undefined, true]) {
+    const request = { ...supported, ...(wheelchair === undefined ? {} : { wheelchair }) }
+    const result = run(accessible, 'route', request)
+    assert.equal(result.journey.arrivalTime, '08:30:39',
+      'Window choices must apply the inherited wheelchair profile')
+  }
   // Studio must select the same constrained City and never substitute ordinary paths.
   const studio = path.join(folder, 'cities', 'fixture', '.vigo')
   fs.mkdirSync(studio, { recursive: true })

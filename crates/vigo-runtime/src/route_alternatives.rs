@@ -8,8 +8,9 @@ use std::cmp::Ordering;
 use napi_derive::napi;
 
 /// The validated alternative request; `count` excludes the primary journey.
-/// `limit` bounds the kernel's ranked completions, which may include the
-/// primary journey; Pareto frontiers are returned complete.
+/// `limit` requests ranked completions including the primary journey. The
+/// candidate collector oversamples before vehicle-chain merging; Pareto
+/// frontiers are returned complete.
 #[cfg_attr(feature = "node", napi(object))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct RouteAlternativeRequest {

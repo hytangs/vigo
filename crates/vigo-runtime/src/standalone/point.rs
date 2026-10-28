@@ -76,7 +76,7 @@ pub(super) fn alternatives(
     } else {
         input.departure
     };
-    let result = kernel.route_alternatives_csa(TimetableAlternativeQueryInput {
+    let query = TimetableAlternativeQueryInput {
         origin_stops: input.origin_stops.clone(),
         origin_walk_seconds: input.origin_walk_seconds.clone(),
         origin_candidate_indices: (0..input.origin_stops.len() as u32).collect(),
@@ -101,7 +101,12 @@ pub(super) fn alternatives(
         maximum_boardings: request.and(input.maximum_boardings),
         ranking: request.map(|r| r.ranking.clone()),
         limit: request.and_then(|r| r.limit),
-    })?;
+    };
+    let result = if request.is_some() {
+        kernel.route_alternative_candidates_csa(query)?
+    } else {
+        kernel.route_alternatives_csa(query)?
+    };
     if !result.supported {
         let reason = result.reason.unwrap_or_default();
         if request.is_some() {

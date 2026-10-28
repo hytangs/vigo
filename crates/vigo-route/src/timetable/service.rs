@@ -693,6 +693,19 @@ impl TimetableKernel {
             events
         })
     }
+    /// A stop at which a clock alone cannot certify a new transfer. Journey
+    /// simplifiers do not retain the search's incoming-trip/anchor state and
+    /// must keep the certified boarding at these stops.
+    pub fn boarding_needs_transfer_context(&self, stop: u32) -> bool {
+        let stop = stop as usize;
+        stop >= self.stop_count
+            || self.forbidden_same_stop[stop] != 0
+            || self.same_stop_transfer_minimum[stop] != 0
+            || self
+                .service
+                .as_ref()
+                .is_some_and(|s| s.reverse_rule_anchors[stop])
+    }
     fn physical_trip(&self, trip: u32, sequence: u32) -> u32 {
         self.service
             .as_ref()

@@ -2,11 +2,17 @@
 
 ## 1.0.0-rc.2
 
+- Apply the wheelchair City's expanded-walking policy even when a request inherits its profile without an explicit wheelchair flag.
+- Keep keyboard focus in Studio search while moving through results, and announce an empty search outside the listbox.
 - Board looping vehicles on their last pass and drop alternatives that stay aboard through a turnaround only to return to their own corridor. Forward in-seat continuations are unchanged.
+- Preserve certified boardings at interchanges with transfer rules or minimum connection times, so waiting for a later pass cannot create an invalid transfer.
+- Keep stay-aboard journeys when leaving and reboarding on the return pass would violate the requested transfer buffer or drop-off restrictions.
+- Update Studio to Electron 44.9.3 and refresh Undici to 7.30.1 for their security fixes.
 - Keep route-distinct Pareto alternatives within the arrival slack, and merge journeys on one vehicle chain in both rankings.
+- Keep the native alternatives API's Pareto frontier and ranked limits separate from the expanded candidate pool used by Route.
 - Offer wider-walk ("More walking") choices only when they arrive at least a minute before every ordinary choice.
 - Replace a short final ride, and its wait, with walking the rest of the way when that arrives at least a minute sooner within the wider-walk budget.
-- Stop the one-to-many Matrix scan once no later departure can improve any target: identical results, about 3.6× faster 5×5 Matrices on Boston.
+- Stop the one-to-many Matrix scan once no later departure can improve any target, preserving arrival results.
 - Studio turns walks between nearby stops on by default.
 - Answer long Routes in Cities with transfer rules instead of failing a search budget: the earliest-arrival search compares clocks only and shares labels whose anchor no rule selects. An oversized alternative collection reports `alternativeSearch.status: "unavailable"` and keeps the primary journey, as documented.
 
