@@ -319,6 +319,14 @@ impl TimetableKernel {
         self.route_many_csa_impl(&input)
     }
 
+    /// One-to-many twin of `route_scalar_relaxed_csa`, with the same bound.
+    pub fn route_many_relaxed_csa(
+        &mut self,
+        input: &TimetableManyQueryInput,
+    ) -> Result<Option<TimetableManyQueryResult>> {
+        self.relaxed(|kernel| kernel.route_many_csa_impl(input))
+    }
+
     pub(super) fn route_many_csa_impl(
         &mut self,
         input: &TimetableManyQueryInput,
@@ -384,7 +392,7 @@ impl TimetableKernel {
                 self.record_ordinary_search();
                 result?
             } else {
-                self.service_many(input)?
+                self.windowed_service_many(input)?
             };
             result.query_ns = started.elapsed().as_nanos() as f64;
             return Ok(result);
@@ -401,6 +409,7 @@ impl TimetableKernel {
         let transfer_buffer_seconds = self.minimum_transfer_buffer_seconds;
         let Self {
             service: _,
+            relaxed_graph: _,
             stop_count: _,
             run_count: _,
             departure_seconds: _,

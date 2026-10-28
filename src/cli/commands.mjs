@@ -10,6 +10,7 @@ export const options = {
   "include-geometry": ["", "Include journey GeoJSON", "boolean"],
   "include-limitations": ["", "Include dataset limitations", "boolean"],
   wheelchair: ['', 'Use a strict wheelchair City (build prepares this profile)', 'boolean'],
+  "wheelchair-streets": ['MODE', 'Wheelchair street evidence: inferred (step-free unless mapped otherwise) or verified (wheelchair=yes only)'],
   city: ['PATH', 'Complete VIGO City directory'],
   gtfs: ['PATH', 'GTFS ZIP; repeat for multiple sources', 'repeat'],
   'gtfs-scope': ['VALUE', 'Unique source scope; one per --gtfs', 'repeat'],
@@ -58,7 +59,7 @@ export const commands = {
   'build-scenarios': {
     summary: 'Prepare a portable scenario collection with one shared street network.',
     usage: ['--spec scenarios.source.json --output ./scenario-set'],
-    options: ['spec', 'output', 'wheelchair'],
+    options: ['spec', 'output', 'wheelchair', 'wheelchair-streets'],
     notes: ['Queries use the standalone Rust runtime with scenarioId. Street data is prepared once.',
       'Source paths are relative to the spec. Input SHA-256 values, if supplied, must match.',
       'Use --wheelchair or wheelchair: true in the spec for a strict wheelchair collection.'],
@@ -66,7 +67,7 @@ export const commands = {
   build: {
     summary: 'Compile GTFS and OSM into a reusable City.',
     usage: ['--gtfs feed.zip --osm region.osm.pbf --output ./city [--replace]'],
-    options: ['gtfs', 'gtfs-scope', 'osm', 'output', 'wheelchair', 'private-access', 'street-modes', 'streets-from', 'prepare-date', 'replace'],
+    options: ['gtfs', 'gtfs-scope', 'osm', 'output', 'wheelchair', 'wheelchair-streets', 'private-access', 'street-modes', 'streets-from', 'prepare-date', 'replace'],
     notes: ['--output is the City directory. Existing Cities require --replace.',
       'Progress goes to stderr; the completed City manifest goes to stdout.'],
   },
@@ -125,9 +126,9 @@ export const commands = {
     options: ['before', 'after', 'output'],
     notes: ['Both results must be from the same query family. Reach results must use the same grid.'],
   },
-  '_build-city': { options: ['flex-driving', 'gtfs', 'gtfs-scope', 'osm', 'wheelchair', 'private-access', 'street-modes', 'streets-from', 'prepare-date', 'output', 'city-name'] },
-  '_build-osm-store': { options: ['flex-driving', 'osm-pbf', 'output-store', 'street-modes', 'wheelchair'] },
-  '_build-gtfs-store': { options: ['gtfs', 'gtfs-scope', 'output-store', 'wheelchair'] },
+  '_build-city': { options: ['flex-driving', 'gtfs', 'gtfs-scope', 'osm', 'wheelchair', 'wheelchair-streets', 'private-access', 'street-modes', 'streets-from', 'prepare-date', 'output', 'city-name'] },
+  '_build-osm-store': { options: ['flex-driving', 'osm-pbf', 'output-store', 'street-modes', 'wheelchair', 'wheelchair-streets'] },
+  '_build-gtfs-store': { options: ['gtfs', 'gtfs-scope', 'output-store', 'wheelchair', 'wheelchair-streets'] },
   '_prepare-osm-routing': { options: ['street-store'] },
   '_prepare-osm-drive': { options: ['street-store'] },
 }

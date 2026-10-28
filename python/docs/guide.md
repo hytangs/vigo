@@ -1,10 +1,10 @@
-# VIGO Python 1.0.0rc1 guide
+# VIGO Python 1.0.0rc2 guide
 
 Canonical source for the [documentation reader](index.html). Edit the relevant chapter, then rebuild the reader.
 
 ## Routing from Python, without rebuilding the network.
 
-VIGO Python 1.0.0rc1 gives scripts and notebooks a small set of objects for transport analysis. Build or open a City, run Route, Matrix, or Reach, and retain the Result. Reuse one open City for repeated work.
+VIGO Python 1.0.0rc2 gives scripts and notebooks a small set of objects for transport analysis. Build or open a City, run Route, Matrix, or Reach, and retain the Result. Reuse one open City for repeated work.
 
 ### Start with a working example
 
@@ -49,18 +49,18 @@ Use a context manager, retain the open City, and request Matrix journeys or geom
 
 ### Reference and support
 
-[Read these docs offline](index.html) · [Python API](reference.md) · [Troubleshooting](#troubleshooting) · [Examples](../examples/README.md) · [1.0.0rc1 release notes](releases/1.0.0rc1.md) · [Contributing](../CONTRIBUTING.md)
+[Read these docs offline](index.html) · [Python API](reference.md) · [Troubleshooting](#troubleshooting) · [Examples](../examples/README.md) · [1.0.0rc2 release notes](releases/1.0.0rc2.md) · [Contributing](../CONTRIBUTING.md)
 
 ## Your first Python query
 
-Install VIGO Python 1.0.0rc1, select Engine 1.0, and open a prepared City. The example below asks for a journey from Harvard Square to South Station.
+Install VIGO Python 1.0.0rc2, select Engine 1.0, and open a prepared City. The example below asks for a journey from Harvard Square to South Station.
 
 ### 1. Install
 
 For a packaged installation, download the `VIGO-Python-…` ZIP matching your OS and CPU from the [VIGO releases page](https://github.com/hytangs/vigo/releases) and unzip it. It contains the wheel, `INSTALL.txt`, and the runtime manifest. Replace the filename below with the unzipped wheel:
 
 ```sh
-python -m pip install "/path/to/vigo-1.0.0rc1-py3-none-PLATFORM.whl[speed]"
+python -m pip install "/path/to/vigo-1.0.0rc2-py3-none-PLATFORM.whl[speed]"
 ```
 
 Platform wheels include Node, the headless CLI bundle, and the Rust kernel. The optional `speed` extra adds accelerated JSON decoding. Omit the extra for the dependency-free Python package; the packaged Engine is still included. Python 3.10 or newer is required.
@@ -563,7 +563,7 @@ Timing describes execution, not accuracy. Synthetic integration tests check cont
 | Source checkout or universal development wheel | Select a compatible external Engine | Wrapper development or an independently managed Engine |
 | Python with a complete Studio installation | Select the app or extracted distribution | Reusing the Engine shipped with Studio |
 
-Python requires version 3.10 or newer. Install a local platform wheel with `python -m pip install /path/to/vigo-1.0.0rc1-py3-none-PLATFORM.whl`, substituting its real filename. The package has no mandatory Python dependencies. `tqdm` optionally draws Build progress as a live status line.
+Python requires version 3.10 or newer. Install a local platform wheel with `python -m pip install /path/to/vigo-1.0.0rc2-py3-none-PLATFORM.whl`, substituting its real filename. The package has no mandatory Python dependencies. `tqdm` optionally draws Build progress as a live status line.
 
 For a source install, run `python -m pip install -e .` from the wrapper checkout, then select a compatible runtime explicitly. An adjacent Engine checkout is not automatically selected. Maintainers can [stage and build a headless platform wheel](../CONTRIBUTING.md#build-a-headless-wheel).
 

@@ -327,6 +327,11 @@ pub struct City {
     /// Heap of the stop dictionary, access and manifest data, which never
     /// change after opening; measured once for the memory ledger.
     pub(crate) static_heap_bytes: OnceLock<usize>,
+    pub(super) flex_index: OnceLock<Arc<super::flex_index::FlexIndex>>,
+    /// One-shot optimistic Flex access and egress per timetable stop for the
+    /// next transit search, and whether that search's winner used them.
+    pub(super) flex_overlay: Option<(HashMap<u32, f64>, HashMap<u32, f64>)>,
+    pub(super) flex_witness: Option<super::flex_search::Witness>,
     pub(crate) calendar: std::sync::OnceLock<super::calendar::CalendarIndex>,
     pub(crate) transfer_inputs: OnceLock<Arc<TransferInputs>>,
     pub(crate) route_types: OnceLock<Arc<HashMap<String, i64>>>,
@@ -715,6 +720,9 @@ impl City {
             timetable_activation_ms: 0.,
             timetable_preparation_profile: Value::Null,
             flex_catalog: Default::default(),
+            flex_index: Default::default(),
+            flex_overlay: None,
+            flex_witness: None,
             calendar: Default::default(),
             transfer_inputs: OnceLock::new(),
             route_types: OnceLock::new(),

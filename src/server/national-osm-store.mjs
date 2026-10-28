@@ -1,4 +1,4 @@
-import { wheelchairDescription, wheelchairWayAllowed, wheelchairNodeAllowed } from './wheelchair-policy.mjs'
+import { wheelchairDescriptionFor, wheelchairStreetPolicy, wheelchairWayAllowed, wheelchairNodeAllowed } from './wheelchair-policy.mjs'
 import fs from 'node:fs/promises'
 import fsSync from 'node:fs'
 import crypto from 'node:crypto'
@@ -346,12 +346,14 @@ export async function buildNationalOsmStore({
   buildDrivingProfile = process.env.VIGO_BUILD_DRIVE_ACCELERATOR === '1',
   includeDriving = true,
   wheelchair = false,
+  wheelchairStreets = 'inferred',
   flexDriving = false,
 }) {
   if (wheelchair && includeDriving && !flexDriving) throw new Error('Wheelchair Cities require walk street preparation')
-  const wayAllowed = tags => nationalOsmWayWalkable(tags) && (!wheelchair || wheelchairWayAllowed(tags))
-  const platformAllowed = tags => nationalOsmPlatformAreaWalkable(tags) && (!wheelchair || wheelchairWayAllowed(tags))
-  const nodeAllowed = tags => nationalOsmNodeWalkable(tags) && (!wheelchair || wheelchairNodeAllowed(tags))
+  const streets = wheelchairStreetPolicy(wheelchairStreets)
+  const wayAllowed = tags => nationalOsmWayWalkable(tags) && (!wheelchair || wheelchairWayAllowed(tags, streets))
+  const platformAllowed = tags => nationalOsmPlatformAreaWalkable(tags) && (!wheelchair || wheelchairWayAllowed(tags, streets))
+  const nodeAllowed = tags => nationalOsmNodeWalkable(tags) && (!wheelchair || wheelchairNodeAllowed(tags, streets))
   const started = performance.now()
   const source = await fs.stat(pbfPath)
   const tempPath = `${outputPath}.building`
@@ -659,10 +661,12 @@ export async function buildNationalOsmStore({
     // during every walk/transit build only inflates cold work and disk use.
     // SQLite analyzes the indexes that are actually present.
     db.exec('ANALYZE;')
-    if (wheelchair && edgeCount === 0) throw new Error('No streets meet the strict wheelchair profile in this OSM source (wheelchair=yes and no known barriers required).')
+    if (wheelchair && edgeCount === 0) throw new Error(streets === 'verified'
+      ? 'No streets meet the wheelchair profile in this OSM source (wheelchair=yes and no known barriers required).'
+      : 'No streets meet the wheelchair profile in this OSM source.')
     const metadata = {
       schemaVersion: streetStoreSchemaVersion,
-      ...(wheelchair ? { accessibility: wheelchairDescription } : {}),
+      ...(wheelchair ? { accessibility: wheelchairDescriptionFor(streets) } : {}),
       sourceModel: 'pbf',
       sourceFingerprint,
       sourceFile: path.basename(pbfPath),

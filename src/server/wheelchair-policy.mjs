@@ -1,17 +1,36 @@
 // This profile describes source constraints, not a survey or live facility check.
+// The profile fixes transit semantics: unknown vehicle and boarding
+// accessibility is excluded. Street evidence is chosen at preparation:
+// `inferred` can use ordinary pedestrian ways without a surface or wheelchair tag;
+// `verified` uses only ways tagged wheelchair=yes, which is sparse in most cities.
 export const wheelchairProfile = 'wheelchair-strict-v1'
-export const wheelchairLimitations = [
-  'Unknown vehicle, boarding and station-path accessibility is excluded; coverage may be sparse.',
-  'Streets and paths are used unless OpenStreetMap records a barrier such as steps, raised kerbs, rough surfaces, narrow width or steep incline; sidewalk condition is not verified.',
-  'Coordinate attachments are geometric; door-to-street access is not verified.',
-  'Elevator outages, temporary obstructions and individual chair dimensions are not modeled.',
-]
-export const wheelchairDescription = Object.freeze({
-  profile: wheelchairProfile, unknownData: 'exclude',
-  stationPaths: 'published-wheelchair-time-or-dimensioned-step-free',
-  minimumWidthMeters: 0.9, maximumSlope: 0.083,
-  limitations: wheelchairLimitations,
+export const wheelchairStreetPolicies = Object.freeze({
+  inferred: 'inferred-step-free-v1',
+  verified: 'wheelchair-yes-only',
 })
+export function wheelchairStreetPolicy(value = 'inferred') {
+  if (!Object.hasOwn(wheelchairStreetPolicies, value)) throw new Error('--wheelchair-streets must be inferred or verified')
+  return value
+}
+export function wheelchairDescriptionFor(streets = 'inferred') {
+  wheelchairStreetPolicy(streets)
+  return Object.freeze({
+    profile: wheelchairProfile, unknownData: 'exclude',
+    streetEvidence: wheelchairStreetPolicies[streets],
+    stationPaths: 'published-wheelchair-time-or-dimensioned-step-free',
+    minimumWidthMeters: 0.9, maximumSlope: 0.083,
+    limitations: Object.freeze([
+      'Unknown vehicle and boarding accessibility is excluded; coverage may be sparse.',
+      streets === 'verified'
+        ? 'Unknown street accessibility is excluded; only ways tagged wheelchair=yes are used.'
+        : 'Inferred streets can lack wheelchair or surface tags. An explicit wheelchair=yes overrides surface and trail filters; mapped dimensions and some barriers are still checked.',
+      'Coordinate attachments are geometric; door-to-street access is not verified.',
+      'Elevator outages, temporary obstructions and individual chair dimensions are not modeled.',
+    ]),
+  })
+}
+export const wheelchairDescription = wheelchairDescriptionFor('inferred')
+export const wheelchairLimitations = wheelchairDescription.limitations
 const tag = value => String(value ?? '').trim().toLowerCase()
 const suppliedNumber = value => tag(value) !== '' && Number.isFinite(Number(value)) ? Number(value) : null
 
@@ -61,21 +80,28 @@ export function wheelchairPathwaySeconds(row) {
   return null
 }
 
-// Rough surfaces that a mapped wheelchair=yes may still override.
-const roughSurfaces = new Set(['cobblestone', 'unhewn_cobblestone', 'sett', 'gravel', 'pebblestone', 'sand',
-  'grass', 'dirt', 'earth', 'mud', 'ground', 'rock', 'stepping_stones', 'woodchips', 'unpaved'])
+// Surfaces and trail grades on which a wheelchair cannot be assumed to pass.
+const roughSurfaces = new Set(['unpaved', 'gravel', 'fine_gravel', 'pebblestone', 'dirt', 'earth', 'ground', 'grass',
+  'grass_paver', 'mud', 'sand', 'woodchips', 'rock', 'stone', 'cobblestone', 'unhewn_cobblestone', 'sett', 'stepping_stones', 'snow', 'ice', 'salt'])
 const roughSmoothness = new Set(['bad', 'very_bad', 'horrible', 'very_horrible', 'impassable'])
+const pavedSurfaces = new Set(['paved', 'asphalt', 'concrete', 'concrete:plates', 'concrete:lanes', 'paving_stones', 'metal', 'wood', 'rubber', 'tartan', 'chipseal'])
+// Barriers a wheelchair normally passes; anything else needs wheelchair=yes.
+const passableBarriers = new Set(['gate', 'bollard', 'lift_gate', 'swing_gate', 'sliding_gate', 'entrance', 'height_restrictor', 'no'])
 
-// Very few sidewalks carry wheelchair=yes. Requiring it left about 0.4% of
-// Boston's walkable network, so riders could neither reach most stops nor
-// transfer between them. Exclude ways whose tags record a barrier instead.
-export function wheelchairWayAllowed(tags) {
+export function wheelchairWayAllowed(tags, streets = 'inferred') {
+  const access = tag(tags.wheelchair)
   if (tag(tags['wheelchair:conditional'])) return false
   if (['steps', 'construction', 'proposed'].includes(tag(tags.highway))) return false
   if (tag(tags.conveying) && tag(tags.conveying) !== 'no') return false
-  if (tag(tags.wheelchair) !== 'yes'
-    && (roughSurfaces.has(tag(tags.surface)) || roughSmoothness.has(tag(tags.smoothness)))) return false
-  return wheelchairNodeAllowed(tags)
+  if (access !== 'yes') {
+    if (streets !== 'inferred' || ['no', 'limited'].includes(access)) return false
+    const surface = tag(tags.surface)
+    if (roughSurfaces.has(surface) || roughSmoothness.has(tag(tags.smoothness))) return false
+    if (tag(tags.sac_scale) && tag(tags.sac_scale) !== 'hiking') return false
+    // Paths and tracks are paved only when the map says so.
+    if (['path', 'track', 'bridleway'].includes(tag(tags.highway)) && !pavedSurfaces.has(surface)) return false
+  }
+  return wheelchairNodeAllowed(tags, streets)
 }
 
 function metricLength(value) {
@@ -84,16 +110,24 @@ function metricLength(value) {
   return Number(match[1]) * ({ m: 1, cm: .01, mm: .001 }[match[2] ?? 'm'])
 }
 
-export function wheelchairNodeAllowed(tags) {
+export function wheelchairNodeAllowed(tags, streets = 'inferred') {
   if (['no', 'limited'].includes(tag(tags.wheelchair)) || tag(tags['wheelchair:conditional'])) return false
   if (tag(tags.highway) === 'steps' || ['raised', 'yes'].includes(tag(tags.kerb))) return false
+  // A mapped kerb is passable only when it is recorded as lowered or flush.
+  if (tag(tags.barrier) === 'kerb' && !['lowered', 'flush', 'no'].includes(tag(tags.kerb))) {
+    if (tag(tags.wheelchair) !== 'yes') return false
+  }
   if (tag(tags['kerb:height'])) {
     const height = metricLength(tags['kerb:height'])
     if (height == null || height > 0.03) return false
   }
   if (['stile', 'turnstile', 'full-height_turnstile', 'kissing_gate', 'wall', 'fence'].includes(tag(tags.barrier))) return false
-  // Ordinary untagged geometry vertices inherit the way; tagged obstacles do not.
-  if ((tag(tags.barrier) && tag(tags.barrier) !== 'no') || tag(tags.highway) === 'elevator') {
+  // Ordinary untagged geometry vertices inherit the way; tagged obstacles do
+  // not. Inferred streets also pass ordinary unlocked gates and bollards.
+  const barrier = tag(tags.barrier)
+  const passable = streets === 'inferred' && passableBarriers.has(barrier) && tag(tags.locked) !== 'yes'
+  const lowered = streets === 'inferred' && barrier === 'kerb'
+  if ((barrier && barrier !== 'no' && !lowered && !passable) || tag(tags.highway) === 'elevator') {
     if (tag(tags.wheelchair) !== 'yes') return false
   }
   const width = metricLength(tags.width)

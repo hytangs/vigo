@@ -7,7 +7,7 @@
   "result": {
     "allocator": null,
     "defaultScenario": "current",
-    "engineVersion": "1.0.0-rc.1",
+    "engineVersion": "1.0.0-rc.2",
     "memory": {
       "cacheHeapBytes": 0,
       "lastOutput": null,

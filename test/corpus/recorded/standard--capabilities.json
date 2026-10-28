@@ -90,7 +90,7 @@
     "schemaVersion": "vigo.standalone.capabilities.v1",
     "standalone": true,
     "timePreferences": ["depart_at","arrive_by"],
-    "version": "1.0.0-rc.1",
+    "version": "1.0.0-rc.2",
     "wheelchair": {
       "dataMode": "scheduled",
       "modes": ["transit","walk"],

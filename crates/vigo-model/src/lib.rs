@@ -1,7 +1,7 @@
 //! The public VIGO contract: the requests the engine accepts and the Results it
 //! returns, typed, with their JSON Schema.
 //!
-//! Every type serializes to the JSON VIGO 1.0.0-rc.1 writes, field for field. The
+//! Every type serializes to the JSON VIGO 1.0.0-rc.2 writes, field for field. The
 //! golden corpus in `test/corpus` holds Results recorded from the executable;
 //! `tests/corpus.rs` reads each one into these types and writes it back
 //! unchanged. Schema, OpenAPI, TypeScript and Python files in `generated/` are

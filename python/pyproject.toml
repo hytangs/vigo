@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vigo"
-version = "1.0.0rc1"
+version = "1.0.0rc2"
 description = "Python interface for building and querying VIGO City models."
 readme = "README.md"
 requires-python = ">=3.10"

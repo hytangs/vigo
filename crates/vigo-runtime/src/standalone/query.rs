@@ -985,9 +985,17 @@ impl City {
         }
         self.activate(q)?;
         let (a, b) = self.point_candidates(&origin, &destination, &opt)?;
+        // Opt-in Flex rides this same scan as extra access and egress.
+        let flexible = self.flex_overlay.take().map(|(o, d)| {
+            (
+                super::flex_search::merge(&a, &o),
+                super::flex_search::merge(&b, &d),
+            )
+        });
+        let (scan_a, scan_b) = flexible.as_ref().map_or((&a, &b), |(o, d)| (&o.0, &d.0));
         let input = Self::matrix_input(
-            std::slice::from_ref(&a),
-            std::slice::from_ref(&b),
+            std::slice::from_ref(scan_a),
+            std::slice::from_ref(scan_b),
             &opt,
             true,
         );
@@ -995,7 +1003,7 @@ impl City {
         // the optional direct-walk comparison below, but avoid a timetable scan
         // that cannot produce a transit witness.
         let primary_started = Instant::now();
-        let mut result = if a.stops.is_empty() || b.stops.is_empty() {
+        let mut result = if scan_a.stops.is_empty() || scan_b.stops.is_empty() {
             TimetableMatrixQueryResult {
                 journeys: None,
                 times: vec![if opt.arrive {
@@ -1025,6 +1033,24 @@ impl City {
             .journeys
             .take()
             .and_then(|mut rows| rows.pop().flatten());
+        // A winner that uses Flex is resolved by the Flex planner.
+        if let (Some((o, d)), Some(j)) = (flexible, journey.as_ref()) {
+            let member = |set: &[u32], stop: Option<u32>| {
+                stop.is_some_and(|s| set.binary_search(&s).is_ok())
+            };
+            let first = j.legs.first().filter(|l| l.from_stop.is_none());
+            let last = j.legs.last().filter(|l| l.to_stop.is_none());
+            if member(&o.1, first.and_then(|l| l.to_stop))
+                || member(&d.1, last.and_then(|l| l.from_stop))
+            {
+                self.flex_witness = Some(super::flex_search::Witness {
+                    journey: journey.unwrap(),
+                    flexible: [o.1, d.1],
+                    walks: [a, b],
+                });
+                return Ok(json!({"status":"flex_witness","mode":"transit"}));
+            }
+        }
         if let (Some(j), Some(t)) = (journey.as_mut(), self.timetable.as_ref())
             && !t.links.is_empty()
         {

@@ -6,14 +6,14 @@ VIGO Python is the Python interface to the [VIGO routing engine](https://github.
 
 The package imports as `vigo`. It is versioned separately from the engine: **VIGO Python V1 uses the VIGO V1 engine** and opens compatible prepared Cities.
 
-[Quickstart](docs/guide.md#your-first-python-query) · [Walkthrough notebook](examples/walkthrough.ipynb) · [Guide](docs/guide.md) · [API reference](docs/reference.md) · [Release notes](docs/releases/1.0.0rc1.md)
+[Quickstart](docs/guide.md#your-first-python-query) · [Walkthrough notebook](examples/walkthrough.ipynb) · [Guide](docs/guide.md) · [API reference](docs/reference.md) · [Release notes](docs/releases/1.0.0rc2.md)
 
 ## Install
 
 Python 3.10 or newer. Install the platform wheel for your operating system and CPU from the releases, substituting its filename:
 
 ```bash
-python -m pip install "/path/to/vigo-1.0.0rc1-py3-none-PLATFORM.whl[speed]"
+python -m pip install "/path/to/vigo-1.0.0rc2-py3-none-PLATFORM.whl[speed]"
 python -c "import vigo; print(vigo.__version__, vigo.resolve_runtime().product_version)"
 ```
 

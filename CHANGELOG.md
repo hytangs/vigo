@@ -15,6 +15,11 @@
 - Stop the one-to-many Matrix scan once no later departure can improve any target, preserving arrival results.
 - Studio turns walks between nearby stops on by default.
 - Answer long Routes in Cities with transfer rules instead of failing a search budget: the earliest-arrival search compares clocks only and shares labels whose anchor no rule selects. An oversized alternative collection reports `alternativeSearch.status: "unavailable"` and keeps the primary journey, as documented.
+- Describe unknown street tags and `wheelchair=yes` overrides accurately in inferred wheelchair City's limitations.
+- Search GTFS Flex and fixed service together: Flex access and egress are time-dependent endpoints of one timetable scan, on either or both ends, departing or arriving by.
+- Serve deviated routes through their fixed calls on schedule, and price continuous stopping once per shared shape pattern.
+- Prepare wheelchair Cities with inferred step-free street evidence by default; `--wheelchair-streets verified` keeps the `wheelchair=yes`-only rule. Results report `accessibility.streetEvidence`.
+- Preserve compatible prepared Cities, API 1.0, City format 1 and Result schema 1.
 
 ## 1.0.0-rc.1
 

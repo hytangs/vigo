@@ -205,6 +205,7 @@ impl TimetableKernel {
             exit_event_offset,
             exit_events,
             query: TimetableQueryWorkspace::new(stop_count, run_count, trip_count),
+            relaxed_graph: None,
         })
     }
 }

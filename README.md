@@ -130,13 +130,13 @@ One searchable, offline guide, [`docs/guide.html`](docs/guide.html): the page th
 - [VIGO Python](python/README.md), with a [walkthrough notebook](python/examples/walkthrough.ipynb).
 - [Developer resources](docs/developer.md#developer-resources): architecture, performance measurement and routing accuracy.
 
-## VIGO 1.0.0-rc.1
+## VIGO 1.0.0-rc.2
 
 **A faster engine. From build to route.**
 
 VIGO's next chapter brings City compilation, scenario computation and routing into one shared Rust-native engine, built for faster network preparation, larger analyses and the applications you want to create. Follow it at [vigo.city](https://vigo.city/).
 
-Compatible prepared Cities remain readable in V1 without rebuilding; API 1.0, City format 1, and Result schema 1 are unchanged. [Release notes](docs/releases/1.0.0-rc.1.md) · [Changelog](CHANGELOG.md) · [Prepared-data contract](docs/reference/city-format.md)
+Compatible prepared Cities remain readable in V1 without rebuilding; API 1.0, City format 1, and Result schema 1 are unchanged. [Release notes](docs/releases/1.0.0-rc.2.md) · [Changelog](CHANGELOG.md) · [Prepared-data contract](docs/reference/city-format.md)
 
 ## Contribute
 

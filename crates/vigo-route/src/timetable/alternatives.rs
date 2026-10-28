@@ -100,7 +100,7 @@ impl TimetableKernel {
     /// The bounded Pareto rounds. With `distinct`, a Pareto collection also
     /// returns up to that many earliest distinct completions, as `ranked`
     /// would: the rounds then keep dominated completions as witnesses.
-    fn pareto_rounds(
+    pub(super) fn pareto_rounds(
         &mut self,
         input: TimetableParetoQueryInput,
         distinct: Option<usize>,
@@ -162,13 +162,14 @@ impl TimetableKernel {
                 self.record_ordinary_search();
                 result?
             } else {
-                self.service_pareto(&input, distinct)?
+                self.validated_service_pareto(&input, distinct)?
             };
             result.query_ns = started.elapsed().as_nanos() as f64;
             return Ok(result);
         }
         let Self {
             service: _,
+            relaxed_graph: _,
             stop_count,
             run_count,
             departure_seconds,
