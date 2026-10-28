@@ -47,6 +47,7 @@ pub(super) struct End {
     pub coordinate: [f64; 2],
     /// City stop index.
     pub stop: Option<u32>,
+    pub planned_stop: Option<String>,
     /// Walking seconds between the free endpoint and this point.
     pub walk: f64,
     pub meters: f64,
@@ -259,6 +260,9 @@ impl City {
         destination: &Point,
         want: Want,
     ) -> Result<Hops> {
+        if self.planned_flex.is_some() {
+            return self.planned_hops(q, opt, origin, destination, want);
+        }
         let index = self.flex_index()?;
         let mut hops = Hops {
             index: index.clone(),
@@ -334,6 +338,7 @@ impl City {
             End {
                 coordinate: to,
                 stop: None,
+                planned_stop: None,
                 walk: meters / speed * 3.6,
                 meters,
                 priced: false,
@@ -353,6 +358,7 @@ impl City {
                     let end = End {
                         coordinate,
                         stop: Some(s),
+                        planned_stop: None,
                         walk: 0.,
                         meters: 0.,
                         priced: true,
@@ -374,6 +380,7 @@ impl City {
                         End {
                             coordinate: here,
                             stop: None,
+                            planned_stop: None,
                             walk: 0.,
                             meters: 0.,
                             priced: true,
@@ -441,6 +448,7 @@ impl City {
                                 End {
                                     coordinate: [stop.lon, stop.lat],
                                     stop: Some(s),
+                                    planned_stop: None,
                                     walk: 0.,
                                     meters: 0.,
                                     priced: true,
@@ -544,6 +552,7 @@ impl City {
                                 Rc::new(vec![End {
                                     coordinate: points[role].coordinate,
                                     stop: None,
+                                    planned_stop: None,
                                     walk: 0.,
                                     meters: 0.,
                                     priced: true,
@@ -916,7 +925,10 @@ impl City {
         let trip = &index.trips[hop.trip as usize];
         let point = |end: &End| Point {
             coordinate: end.coordinate,
-            stop: end.stop.map(|s| self.stops[s as usize].id.clone()),
+            stop: end
+                .planned_stop
+                .clone()
+                .or_else(|| end.stop.map(|s| self.stops[s as usize].id.clone())),
         };
         let (board, alight) = (point(&hop.board), point(&hop.alight));
         let mut walkq = q.clone();
@@ -935,7 +947,13 @@ impl City {
             return Ok(None);
         }
         let calls = &trip.calls;
-        let (coordinates, distance, source) = if trip.on_demand {
+        let (coordinates, distance, source) = if trip.planned.is_some() {
+            (
+                json!([board.coordinate, alight.coordinate]),
+                json!(haversine(board.coordinate, alight.coordinate)),
+                "scenario_estimate",
+            )
+        } else if trip.on_demand {
             let mut road = vec![];
             let mut meters = 0.;
             let mut stops: Vec<[f64; 2]> = vec![board.coordinate];
@@ -1010,13 +1028,17 @@ impl City {
         let coordination = [&hop.a, &hop.b]
             .iter()
             .any(|s| s.projection.is_some_and(|c| c.kind == 3));
-        let route: Value = match self.route_metadata.get(&trip.route_id) {
-            Some(route) => route.clone(),
-            None => {
-                let route = self.db.query_row("SELECT short_name,long_name,route_type,color FROM routes WHERE route_id=?", [&trip.route_id], |r| Ok(json!({"shortName":r.get::<_,Option<String>>(0)?,"longName":r.get::<_,Option<String>>(1)?,"type":r.get::<_,Option<i64>>(2)?,"color":r.get::<_,Option<String>>(3)?})))?;
-                self.route_metadata
-                    .insert(trip.route_id.clone(), route.clone());
-                route
+        let route: Value = if let Some(plan) = &trip.planned {
+            json!({"shortName":plan["name"],"longName":plan["name"],"type":3})
+        } else {
+            match self.route_metadata.get(&trip.route_id) {
+                Some(route) => route.clone(),
+                None => {
+                    let route = self.db.query_row("SELECT short_name,long_name,route_type,color FROM routes WHERE route_id=?", [&trip.route_id], |r| Ok(json!({"shortName":r.get::<_,Option<String>>(0)?,"longName":r.get::<_,Option<String>>(1)?,"type":r.get::<_,Option<i64>>(2)?,"color":r.get::<_,Option<String>>(3)?})))?;
+                    self.route_metadata
+                        .insert(trip.route_id.clone(), route.clone());
+                    route
+                }
             }
         };
         let access_s = access["durationMinutes"].as_f64().unwrap_or(0.) * 60.;
@@ -1043,7 +1065,9 @@ impl City {
         if access_s > 0. {
             legs.extend(retime(&mut access, departure - access_s));
         }
-        let assumption = if continuous {
+        let assumption = if trip.planned.is_some() {
+            "planned_zone_distance_and_wait"
+        } else if continuous {
             "interpolated_shape"
         } else if !trip.on_demand {
             "published_timetable"
@@ -1557,8 +1581,13 @@ impl City {
     ) -> (Seeds, Seeds) {
         let t = self.timetable.as_ref().unwrap();
         let stop_of = |end: &End| {
-            end.stop
-                .and_then(|s| t.index.get(&self.stops[s as usize].id).copied())
+            end.planned_stop
+                .as_ref()
+                .and_then(|id| t.index.get(id).copied())
+                .or_else(|| {
+                    end.stop
+                        .and_then(|s| t.index.get(&self.stops[s as usize].id).copied())
+                })
         };
         let mut access = Seeds::default();
         let mut egress = Seeds::default();

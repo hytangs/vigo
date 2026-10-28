@@ -4,8 +4,8 @@ use std::collections::HashMap;
 impl TimetableKernel {
     /// One destination and deadline, shared by every origin. Reverse labels
     /// retain the latest feasible first boarding at each stop; endpoint access
-    /// and its permitted single pre-ride transfer are reduced only after the
-    /// timetable scan. The scalar workspace is reused without stop-sized
+    /// and its permitted single pre-ride transfer bound the scan as soon as
+    /// every endpoint is settled. The scalar workspace is reused without stop-sized
     /// allocations or a timetable scan per origin.
     pub fn route_arrive_by_many_csa(
         &mut self,
@@ -88,27 +88,44 @@ impl TimetableKernel {
         for trip in &input.excluded_trips {
             self.query.many_workspace.excluded_trip_generation[*trip as usize] = excluded_epoch;
         }
-        // A scalar request can stop at a proven latest departure. Reuse an
-        // otherwise unused label slot for its directed access offsets; bulk
-        // requests still share the full scan without per-origin bookkeeping.
+        // Both directions share the same endpoint-bound accumulator. Reverse
+        // times are negated so improving a departure is also minimization.
+        // Keep the allocation-free single-origin path used by point queries.
+        let mut terminals = (origin_count > 1).then(|| Terminals::new(origin_count));
         let mut minimum_origin_offset = f64::INFINITY;
-        if origin_count == 1 {
-            for (&stop, &walk) in input.origin_stops.iter().zip(&input.origin_walk_seconds) {
-                retain_reverse_origin_offset(workspace, epoch, stop as usize, walk);
+        let mut stats = SearchStats::default();
+        for origin in 0..origin_count {
+            let range =
+                input.origin_offsets[origin] as usize..input.origin_offsets[origin + 1] as usize;
+            for seed in range {
+                let stop = input.origin_stops[seed] as usize;
+                let walk = input.origin_walk_seconds[seed];
+                retain_reverse_origin_offset(workspace, epoch, stop, walk);
                 minimum_origin_offset = minimum_origin_offset.min(walk);
-                if input.allow_pre_ride_transfers[0] {
-                    let edges = &self.transfer_edges[self.transfer_offset[stop as usize] as usize
-                        ..self.transfer_offset[stop as usize + 1] as usize];
+                if let Some(targets) = &mut terminals {
+                    targets.add(stop, origin, walk);
+                }
+                if input.allow_pre_ride_transfers[origin] {
+                    let edges = &self.transfer_edges[self.transfer_offset[stop] as usize
+                        ..self.transfer_offset[stop + 1] as usize];
+                    stats.explicit_transfer_checks = stats
+                        .explicit_transfer_checks
+                        .saturating_add(edges.len() as u32);
                     for edge in edges {
                         let offset = walk + f64::from(edge.duration());
                         retain_reverse_origin_offset(workspace, epoch, edge.stop(), offset);
                         minimum_origin_offset = minimum_origin_offset.min(offset);
+                        if let Some(targets) = &mut terminals {
+                            targets.add(edge.stop(), origin, offset);
+                        }
                     }
                 }
             }
         }
+        if let Some(targets) = &mut terminals {
+            targets.finish();
+        }
         let mut latest_origin_departure = f64::NEG_INFINITY;
-        let mut stats = SearchStats::default();
         let mut excluded_departures = 0_u32;
         let mut latest_destination_deadline = f64::NEG_INFINITY;
         for (stop, walk) in input
@@ -146,7 +163,10 @@ impl TimetableKernel {
         let time_end = scan_time_upper_bound(&self.scan_times, latest_destination_deadline);
         for time_index in (first_time..time_end).rev() {
             let departure = f64::from(self.scan_times[time_index]);
-            if origin_count == 1 && departure - minimum_origin_offset <= latest_origin_departure {
+            if terminals.as_ref().map_or_else(
+                || departure - minimum_origin_offset <= latest_origin_departure,
+                |targets| -departure > targets.cutoff,
+            ) {
                 break;
             }
             let start = self.scan_time_offsets[time_index] as usize;
@@ -197,19 +217,15 @@ impl TimetableKernel {
                                 <= workspace.destination_egress[input_offset + arrival.to as usize];
                         if flags & SCAN_CAN_BOARD != 0 && (run_was_feasible || direct_exit_feasible)
                         {
-                            if origin_count == 1 {
-                                let access =
-                                    workspace.labels[base_stop * STATE_STRIDE + (STATE_STRIDE - 2)];
-                                if access.generation == epoch {
+                            let access =
+                                workspace.labels[base_stop * STATE_STRIDE + (STATE_STRIDE - 2)];
+                            if access.generation == epoch {
+                                if let Some(targets) = &mut terminals {
+                                    targets.reach(base_stop, -departure);
+                                } else {
                                     latest_origin_departure =
                                         latest_origin_departure.max(departure - access.arrival);
                                 }
-                            }
-                            let boarding =
-                                &mut workspace.labels[stop * STATE_STRIDE + (STATE_STRIDE - 1)];
-                            if boarding.generation != epoch || departure > boarding.arrival {
-                                boarding.generation = epoch;
-                                boarding.arrival = departure;
                             }
                             if transfer_allowed(forbidden_same_stop[base_stop] != 0, None, false) {
                                 relax_reverse_post_ride_deadline(
@@ -266,37 +282,11 @@ impl TimetableKernel {
                 }
             }
         }
-        let mut latest_departures = vec![f64::NEG_INFINITY; origin_count];
-        for (origin, latest) in latest_departures.iter_mut().enumerate() {
-            let start = input.origin_offsets[origin] as usize;
-            let end = input.origin_offsets[origin + 1] as usize;
-            for seed in start..end {
-                for layer in first_layer..=maximum_layer {
-                    let layer_offset = layer * self.stop_count;
-                    let base_stop = input.origin_stops[seed] as usize;
-                    let stop = layer_offset + base_stop;
-                    let walk = input.origin_walk_seconds[seed];
-                    let boarding = workspace.labels[stop * STATE_STRIDE + (STATE_STRIDE - 1)];
-                    if boarding.generation == epoch {
-                        *latest = latest.max(boarding.arrival - walk);
-                    }
-                    if input.allow_pre_ride_transfers[origin] {
-                        let edges = &self.transfer_edges[self.transfer_offset[base_stop] as usize
-                            ..self.transfer_offset[base_stop + 1] as usize];
-                        stats.explicit_transfer_checks = stats
-                            .explicit_transfer_checks
-                            .saturating_add(edges.len() as u32);
-                        for edge in edges {
-                            let boarding = workspace.labels
-                                [(layer_offset + edge.stop()) * STATE_STRIDE + (STATE_STRIDE - 1)];
-                            if boarding.generation == epoch {
-                                *latest = latest
-                                    .max(boarding.arrival - walk - f64::from(edge.duration()));
-                            }
-                        }
-                    }
-                }
-            }
+        let mut latest_departures = match terminals {
+            Some(targets) => targets.bounds.into_iter().map(|time| -time).collect(),
+            None => vec![latest_origin_departure],
+        };
+        for latest in &mut latest_departures {
             if *latest < input.earliest {
                 *latest = f64::NEG_INFINITY;
             }
@@ -457,13 +447,7 @@ impl TimetableKernel {
         // no later departure can improve any target, the scan stops. This is
         // the final read-out below, bounded early; it never changes a result.
         let destination_epoch = destination_workspace.begin_query();
-        let mut terminals = Terminals {
-            entries: HashMap::new(),
-            bounds: vec![f64::INFINITY; destination_count],
-            minimum_egress: vec![f64::INFINITY; destination_count],
-            unreached: 0,
-            cutoff: f64::INFINITY,
-        };
+        let mut terminals = Terminals::new(destination_count);
         for destination in 0..destination_count {
             let start = input.destination_offsets[destination] as usize;
             let end = input.destination_offsets[destination + 1] as usize;
@@ -474,8 +458,6 @@ impl TimetableKernel {
             for seed in start..end {
                 let target = input.destination_stops[seed] as usize;
                 let walk = input.destination_walk_seconds[seed];
-                terminals.minimum_egress[destination] =
-                    terminals.minimum_egress[destination].min(walk);
                 terminals.add(target, destination, walk);
                 if transfers {
                     for edge in &reverse_transfer_edges[reverse_transfer_offset[target] as usize
@@ -489,12 +471,7 @@ impl TimetableKernel {
         for &stop in terminals.entries.keys() {
             destination_workspace.destination_generation[stop] = destination_epoch;
         }
-        // A target without stops is unreachable and never bounds the scan.
-        terminals.unreached = terminals
-            .minimum_egress
-            .iter()
-            .filter(|walk| walk.is_finite())
-            .count();
+        terminals.finish();
         let is_terminal =
             |stop: usize| destination_workspace.destination_generation[stop] == destination_epoch;
         let epoch = many_workspace.begin_query();
@@ -796,27 +773,49 @@ impl TimetableKernel {
     }
 }
 
-/// Per-target arrival bounds for the one-to-many scan.
+/// Endpoint bounds shared by forward and reverse batch scans. Reverse scans
+/// supply negated departures; endpoint walking offsets stay nonnegative.
 struct Terminals {
     /// Stop to (target, walk from the stop to the target's endpoint).
     entries: HashMap<usize, Vec<(usize, f64)>>,
     bounds: Vec<f64>,
-    minimum_egress: Vec<f64>,
+    minimum_offset: Vec<f64>,
     /// Targets with stops but no arrival yet; the cutoff waits for them.
     unreached: usize,
-    /// Departures after this cannot improve any target.
+    /// Scan times after this (negated in reverse) cannot improve a target.
     cutoff: f64,
 }
 
 impl Terminals {
+    fn new(count: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            bounds: vec![f64::INFINITY; count],
+            minimum_offset: vec![f64::INFINITY; count],
+            unreached: 0,
+            cutoff: f64::INFINITY,
+        }
+    }
+    fn finish(&mut self) {
+        // Empty endpoint frontiers are known unreachable and need no scan.
+        self.unreached = self
+            .minimum_offset
+            .iter()
+            .filter(|walk| walk.is_finite())
+            .count();
+        if self.unreached == 0 {
+            self.cutoff = f64::NEG_INFINITY;
+        }
+    }
     fn add(&mut self, stop: usize, destination: usize, egress: f64) {
+        self.minimum_offset[destination] = self.minimum_offset[destination].min(egress);
         let entry = self.entries.entry(stop).or_default();
         match entry.iter_mut().find(|(d, _)| *d == destination) {
             Some((_, walk)) => *walk = walk.min(egress),
             None => entry.push((destination, egress)),
         }
     }
-    /// A ride reached `stop` at `time`.
+    /// A feasible ride reached an endpoint candidate at the signed scan time.
     fn reach(&mut self, stop: usize, time: f64) {
         let mut improved = false;
         for &(destination, egress) in &self.entries[&stop] {
@@ -829,13 +828,206 @@ impl Terminals {
             }
         }
         if improved && self.unreached == 0 {
-            // A later departure reaches a target no sooner than its least walk.
+            // Future scan events cannot beat this endpoint's bound even with
+            // its smallest access/egress walk. All reachable targets must agree.
             self.cutoff = self
                 .bounds
                 .iter()
-                .zip(&self.minimum_egress)
+                .zip(&self.minimum_offset)
+                .filter(|(_, walk)| walk.is_finite())
                 .map(|(bound, walk)| bound - walk)
                 .fold(f64::NEG_INFINITY, f64::max);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CLOCK: u32 = 2_000;
+    // Each edge is a distinct trip. Mirroring swaps boarding/alighting, the
+    // direction of directed walking edges, and both event clocks.
+    fn kernel(edges: &[(u32, u32, u32, u32)], mirror: bool, buffer: u32) -> TimetableKernel {
+        let edges: Vec<_> = edges
+            .iter()
+            .map(|&(from, to, dep, arr)| {
+                if mirror {
+                    (to, from, CLOCK - arr, CLOCK - dep)
+                } else {
+                    (from, to, dep, arr)
+                }
+            })
+            .collect();
+        let count = edges.len() as u32;
+        let mut order: Vec<u32> = (0..count).collect();
+        order.sort_by_key(|&i| (edges[i as usize].0, edges[i as usize].2));
+        let offset: Vec<u32> = (0..=7)
+            .map(|stop| edges.iter().filter(|e| e.0 < stop).count() as u32)
+            .collect();
+        let mut transfers = if mirror {
+            vec![(0, 4, 7), (5, 2, 9)]
+        } else {
+            vec![(4, 0, 7), (2, 5, 9)]
+        };
+        transfers.sort_by_key(|e| e.0);
+        TimetableKernel::new(TimetableKernelInput {
+            stop_count: 7,
+            run_count: count,
+            departure_seconds: edges.iter().map(|e| e.2).collect::<Vec<_>>().into(),
+            arrival_seconds: edges.iter().map(|e| e.3).collect::<Vec<_>>().into(),
+            from_stop: edges.iter().map(|e| e.0).collect::<Vec<_>>().into(),
+            to_stop: edges.iter().map(|e| e.1).collect::<Vec<_>>().into(),
+            sequence: vec![1; count as usize].into(),
+            segment_trip: (0..count).collect::<Vec<_>>().into(),
+            segment_run: (0..count).collect::<Vec<_>>().into(),
+            continuity_break: vec![1; count as usize].into(),
+            can_board: vec![1; count as usize].into(),
+            can_alight: vec![1; count as usize].into(),
+            trip_start: (0..=count).collect::<Vec<_>>().into(),
+            departure_offset: offset.into(),
+            departure_order: order.into(),
+            transfer_offset: (0..=7)
+                .map(|stop| transfers.iter().filter(|e| e.0 < stop).count() as u32)
+                .collect::<Vec<_>>()
+                .into(),
+            transfer_to: transfers.iter().map(|e| e.1).collect::<Vec<_>>().into(),
+            transfer_duration: transfers.iter().map(|e| e.2).collect::<Vec<_>>().into(),
+            forbidden_same_stop: vec![0; 7].into(),
+            same_stop_transfer_minimum: None,
+            minimum_transfer_buffer_seconds: Some(buffer),
+        })
+        .unwrap()
+    }
+
+    fn request() -> TimetableArriveByManyQueryInput {
+        TimetableArriveByManyQueryInput {
+            origin_offsets: vec![0, 2, 3, 4, 4],
+            origin_stops: vec![0, 0, 1, 4],
+            origin_walk_seconds: vec![13., 3., 5., 2.],
+            allow_pre_ride_transfers: vec![false, false, true, true],
+            destination_stops: vec![5],
+            destination_walk_seconds: vec![11.],
+            earliest: 0.,
+            deadline: 1_900.,
+            excluded_trips: vec![],
+            allow_post_ride_transfers: Some(true),
+            maximum_boardings: None,
+        }
+    }
+
+    #[test]
+    fn reverse_batch_matches_mirrored_forward_and_unpruned_scan() {
+        let mut edges = vec![
+            (0, 1, 1_700, 1_700),
+            (1, 2, 1_700, 1_700),
+            (0, 2, 1_600, 1_800),
+        ];
+        let mut random = 73_u32;
+        for _ in 0..160 {
+            let mut next = || {
+                random = random.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                random
+            };
+            let from = next() % 3;
+            let to = (from + 1 + next() % 2) % 3;
+            let dep = 100 + next() % 1_600;
+            let arr = dep + next() % 180;
+            edges.push((from, to, dep, arr));
+        }
+        for buffer in [0, 17] {
+            let mut reverse = kernel(&edges, false, buffer);
+            let mut forward = kernel(&edges, true, buffer);
+            for cap in [None, Some(1), Some(2), Some(4)] {
+                for deadline in [900., 1_700., 1_900.] {
+                    for post in [false, true] {
+                        for excluded in [vec![], vec![0, 2, 40]] {
+                            let mut input = request();
+                            input.maximum_boardings = cap;
+                            input.deadline = deadline;
+                            input.allow_post_ride_transfers = Some(post);
+                            input.excluded_trips = excluded;
+                            let result = reverse.route_arrive_by_many_csa_impl(&input).unwrap();
+                            let reflected = forward
+                                .route_many_csa(TimetableManyQueryInput {
+                                    origin_stops: input.destination_stops.clone(),
+                                    origin_walk_seconds: input.destination_walk_seconds.clone(),
+                                    destination_offsets: input.origin_offsets.clone(),
+                                    destination_stops: input.origin_stops.clone(),
+                                    destination_walk_seconds: input.origin_walk_seconds.clone(),
+                                    excluded_trips: input.excluded_trips.clone(),
+                                    departure: f64::from(CLOCK) - input.deadline,
+                                    horizon: f64::from(CLOCK) - input.earliest,
+                                    allow_pre_ride_transfers: post,
+                                    allow_post_ride_transfers: Some(
+                                        input.allow_pre_ride_transfers.clone(),
+                                    ),
+                                    maximum_boardings: cap,
+                                })
+                                .unwrap();
+                            let expected: Vec<_> = reflected
+                                .best_arrivals
+                                .iter()
+                                .map(|t| f64::from(CLOCK) - t)
+                                .collect();
+                            assert_eq!(
+                                result.latest_departures, expected,
+                                "buffer={buffer} cap={cap:?} deadline={deadline} post={post}"
+                            );
+                            // A real but disconnected origin prevents the cutoff. Its
+                            // presence must not change any other endpoint's answer.
+                            input.origin_stops.push(6);
+                            input.origin_walk_seconds.push(0.);
+                            input.origin_offsets.push(input.origin_stops.len() as u32);
+                            input.allow_pre_ride_transfers.push(true);
+                            let full = reverse.route_arrive_by_many_csa_impl(&input).unwrap();
+                            assert_eq!(result.latest_departures, full.latest_departures[..4]);
+                            // Reusing the same workspace for a scalar must clear all
+                            // bulk markers and preserve the minimum duplicate offset.
+                            input.origin_offsets = vec![0, 2];
+                            input.origin_stops.truncate(2);
+                            input.origin_walk_seconds.truncate(2);
+                            input.allow_pre_ride_transfers = vec![false];
+                            let scalar = reverse.route_arrive_by_many_csa_impl(&input).unwrap();
+                            assert_eq!(scalar.latest_departures[0], expected[0]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn reverse_batch_stops_after_all_endpoints_are_settled() {
+        let mut edges: Vec<_> = (0..1_000).map(|t| (0, 2, t, t + 1)).collect();
+        edges.extend([(0, 2, 1_800, 1_810), (1, 2, 1_800, 1_810)]);
+        let mut reverse = kernel(&edges, false, 0);
+        let input = request();
+        let pruned = reverse.route_arrive_by_many_csa_impl(&input).unwrap();
+        assert_eq!(
+            pruned.latest_departures,
+            [1_797., 1_795., 1_791., f64::NEG_INFINITY]
+        );
+        assert!(
+            pruned.scanned_departures < 10,
+            "{}",
+            pruned.scanned_departures
+        );
+        let mut full_input = request();
+        full_input.origin_stops.push(6);
+        full_input.origin_walk_seconds.push(0.);
+        full_input.origin_offsets.push(5);
+        full_input.allow_pre_ride_transfers.push(false);
+        let full = reverse.route_arrive_by_many_csa_impl(&full_input).unwrap();
+        assert_eq!(pruned.latest_departures, full.latest_departures[..4]);
+        assert!(full.scanned_departures >= 1_002);
+        let mut empty = request();
+        empty.origin_offsets = vec![0, 0, 0];
+        empty.origin_stops.clear();
+        empty.origin_walk_seconds.clear();
+        empty.allow_pre_ride_transfers = vec![true, false];
+        let empty = reverse.route_arrive_by_many_csa_impl(&empty).unwrap();
+        assert_eq!(empty.latest_departures, [f64::NEG_INFINITY; 2]);
+        assert_eq!(empty.scanned_departures, 0);
     }
 }

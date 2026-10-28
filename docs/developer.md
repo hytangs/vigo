@@ -498,6 +498,23 @@ The standalone City reader deserializes the used access-context fields directly 
 
 Rust Matrix defaults to full display and walking-evidence detail. Node Matrix returns compact timed witnesses. For a comparable analytical workload, request Rust `journeyFormat: "compact"` with `includeJourneys: true`, or request duration-only matrices from both. Compact changes response detail only: the same native journey search runs, with the same trips, boarding sequences, clocks, and transfer count. Full remains the default and the required format for geometry and walking-evidence consumers. The stream uses bounded 64 KiB serialization scratch instead of retaining another complete encoded response.
 
+Forward and reverse batch bounds share one endpoint accumulator. Reverse scans
+minimize negated departure times with nonnegative access offsets, and stop once
+all nonempty endpoint frontiers have a bound that earlier connections cannot
+improve. Empty frontiers remain unreachable; an unreached nonempty frontier
+keeps the scan open. Directed terminal transfers and equal-time closure retain
+their existing semantics. This removes the former full-horizon scan for bulk
+arrive-by queries and the separate per-origin readout. Matrix still shares one
+forward scan per origin or one reverse scan per destination, so rectangular
+matrices can have different costs in the two directions.
+
+`cargo test -p vigo-route timetable::many::tests` checks reverse batches against
+time-mirrored forward queries and scans forced to retain the entire horizon,
+including boarding caps, directed transfers, excluded trips, duplicate and empty
+endpoints, zero-duration connections, and reuse after a bulk query. The synthetic
+cutoff fixture examines fewer than 10 connections rather than at least 1,002.
+These are work counts for that fixture, not a production latency guarantee.
+
 ### Reproduce a kernel comparison
 
 Build each version with `npm run build:rust-routing-kernel` using the same toolchain and release settings. Save the earlier `crates/vigo-runtime/vigo-routing-kernel.node` under a separate path before building the changed version. Then run:
@@ -735,6 +752,31 @@ whole store.
 | Broken core references | Rejected | Unknown trip routes/services, parent stations, transfer endpoints, frequency trips, and stop-time trip/stop references abort the temporary build. Missing shapes remain a supported timetable-only case as declared above. | Rejected malformed input with adversarial atomicity coverage. |
 
 ### Conditional GTFS Flex journeys
+
+#### Planned scenario zones
+
+Route and transit Reach also accept `scenario.flexZones`, alongside the
+scenario's fixed services and exclusions. Studio sends its saved zone outlines
+through this field. Each zone has `id`, `name`, a GeoJSON Polygon `geometry`,
+`startMinutes`, `endMinutes`, `averageSpeedKph`, and `waitMinutes`.
+
+These are planning estimates: travel time is the typical wait plus direct
+distance divided by the configured speed, rounded up to seconds. They do not
+model a booked vehicle, a road itinerary, dispatch capacity, or operator
+availability. Both endpoints of a direct ride must lie inside the zone; fixed
+transit interchanges must be stops inside it. A journey can use a zone at either
+or both ends of its fixed-service portion. Each zone ride consumes one boarding,
+and its full estimated duration must fit inside the service hours. Depart-at and
+arrive-by use the same time model, including the scenario's added stops.
+
+Reach uses the same zone clocks and reserves boardings for both conditional
+ends. Zone egress is evaluated at the requested raster resolution; walking
+beyond its sampled endpoints follows the prepared street graph. Reach therefore
+has raster discretization error, while the point Route query evaluates its exact
+coordinates. Zone requests use transit Reach with street sampling. Prepared City
+files remain unchanged; zones and scenario views are query-local.
+
+#### Imported service
 
 Route and Matrix accept `"flex": {}` to include conditional service from
 GTFS location groups, Polygon/MultiPolygon zones, pickup/drop-off windows and

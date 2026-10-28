@@ -54,6 +54,7 @@ pub(super) struct Pattern {
 }
 
 pub(super) struct Trip {
+    pub planned: Option<Value>,
     pub trip_id: String,
     pub route_id: String,
     pub service_id: String,
@@ -517,6 +518,7 @@ impl City {
                     .or_default()
                     .push(index.trips.len() as u32);
                 index.trips.push(Trip {
+                    planned: None,
                     trip_id: trip["trip_id"].as_str().unwrap_or_default().to_owned(),
                     route_id: trip["route_id"].as_str().unwrap_or_default().to_owned(),
                     service_id,

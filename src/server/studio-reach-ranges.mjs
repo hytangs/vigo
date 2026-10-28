@@ -42,7 +42,8 @@ export function nativeReachRangeRequest(range, { sourceScopes } = {}) {
     throw Object.assign(new Error('Reach surfaces use a square raster.'), { statusCode: 400 })
   }
   const services = range.scenarioServices ?? []
-  const changed = services.length || range.excludedRouteIds?.length || range.excludedTripIds?.length
+  const flexZones = range.scenarioFlexZones ?? []
+  const changed = flexZones.length || services.length || range.excludedRouteIds?.length || range.excludedTripIds?.length
   return {
     kind: 'reach',
     // Studio draws its own areas from the surface and reads typed arrays.
@@ -73,6 +74,7 @@ export function nativeReachRangeRequest(range, { sourceScopes } = {}) {
       ...(sourceScopes ? { sourceScopes } : {}),
     } : {}),
     ...(changed ? { scenario: {
+      ...(flexZones.length ? { flexZones } : {}),
       excludedRouteIds: range.excludedRouteIds ?? [],
       excludedTripIds: range.excludedTripIds ?? [],
       ...(services.length ? { services: services.map(plannedService) } : {}),

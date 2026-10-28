@@ -9,7 +9,7 @@ import {
   routingLegPrimaryLabel,
   routingLegTextColor,
 } from '../app/presentation'
-import { routingPlanStartWaitMinutes, routingPlanTotalElapsedMinutes } from '../app/routingPlan'
+import { routingPlanStartWaitMinutes, routingPlanJourneyMinutes } from '../app/routingPlan'
 import { classNames } from '../domain'
 import type { RoutingPlan } from '../routingModel'
 import { formatScheduleClock } from '../scheduledVehicles'
@@ -59,11 +59,12 @@ export function RoutingItinerary({ plan, destinationLabel }: { plan: RoutingPlan
   let previousEnd = plan.departMinutes
   const viaStarts = viaSegmentStarts(plan)
   return <section className="journey-itinerary" aria-label="Detailed itinerary">
-    {initialWait > 0 ? <p className="journey-start-wait"><Clock3 size={12} aria-hidden="true" />Leave {formatRoutingMinutes(initialWait)} after your requested time.</p> : null}
+    {initialWait >= 0.5 ? <p className="journey-start-wait"><Clock3 size={12} aria-hidden="true" />Leave {formatRoutingMinutes(initialWait)} after your requested time.</p> : null}
     {plan.diagnostics.expandedWalkingLimitKm ? <p className="journey-start-wait">More walking allowed · up to {plan.diagnostics.expandedWalkingLimitKm} km at each end</p> : null}
     <ol className="journey-timeline">
       {plan.legs.map((leg, index) => {
         const wait = leg.inSeatSeconds != null ? 0 : Math.max(0, leg.startMinutes - previousEnd)
+        const arrivalAtStop = previousEnd
         previousEnd = leg.endMinutes
         const ride = leg.type === 'ride'
         const frequency = plan.sharedLegAlternatives?.frequencies?.find(f => f.legIndex === index)
@@ -84,14 +85,14 @@ export function RoutingItinerary({ plan, destinationLabel }: { plan: RoutingPlan
         const via = viaStarts.get(index)
         const viaLabel = via === undefined ? '' : journeyPlace(plan.waypoints![via].label, `Via stop ${via + 1}`)
         return <li key={index} className={classNames('journey-leg', `is-${kind}`, nodeColor && 'has-station', via !== undefined && 'is-via')} style={style}>
-          <time className="journey-clock">{formatScheduleClock(leg.startMinutes)}</time>
+          <time className="journey-clock" aria-label={wait > 0 && index > 0 ? `Arrive ${formatScheduleClock(arrivalAtStop)}` : undefined}>{formatScheduleClock(wait > 0 && index > 0 ? arrivalAtStop : leg.startMinutes)}</time>
           <span className="journey-node-mark" aria-hidden="true" />
           <strong className="journey-place">{index === 0 ? journeyPlace(leg.fromName, plan.origin.label && !coordinateLabel.test(plan.origin.label) ? plan.origin.label : 'Start')
             : via !== undefined ? <>{viaLabel}{/^Via stop \d+$/.test(viaLabel) ? null : <span className="journey-via-tag">Via {via + 1}</span>}</> : leg.fromName}</strong>
           <div className="journey-leg-body">
             {leg.headwayEstimate ? <p className="journey-caution">Estimated timing · every {formatRoutingMinutes(leg.headwayEstimate.headwaySeconds / 60)} · assumes {formatRoutingMinutes(leg.headwayEstimate.expectedWaitSeconds / 60)} waiting</p> : null}
             {leg.inSeatSeconds != null ? <p className="journey-wait">Stay aboard{leg.inSeatSeconds > 0 ? ` · ${formatRoutingMinutes(leg.inSeatSeconds / 60)} onboard layover` : ''}</p> : null}
-            {wait > 0 ? <p className="journey-wait"><Clock3 size={12} aria-hidden="true" />{formatRoutingMinutes(wait)} wait at {leg.fromName}</p> : null}
+            {wait > 0 ? <p className="journey-wait"><Clock3 size={12} aria-hidden="true" />{formatRoutingMinutes(wait)} wait at {leg.fromName} · depart {formatScheduleClock(leg.startMinutes)}</p> : null}
             {immediateVehicleChange ? <p className="journey-caution">No time between vehicles</p> : null}
             {ride ? <div className="journey-ride">
               <span className="journey-route"><RouteTypeIcon routeType={leg.routeType} size={13} />{routingLegPrimaryLabel(leg)}</span>
@@ -171,7 +172,7 @@ export function RoutingDetailPanel({
         <div className="routing-detail-title">
           <p className="journey-eyebrow">{plan.travelMode === 'transit' ? routingDataModeLabel(plan) || 'Transit' : plan.travelMode === 'drive' ? 'Drive' : 'Walk'} journey</p>
           <div className="routing-detail-time">
-            <h2><JourneyDuration minutes={routingPlanTotalElapsedMinutes(plan)} suffix=" total" /></h2>
+            <h2><JourneyDuration minutes={routingPlanJourneyMinutes(plan)} suffix=" total" /></h2>
             <p className="journey-time-range">{formatScheduleClock(plan.departMinutes)} <span aria-hidden="true">→</span> {formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}</p>
           </div>
         </div>

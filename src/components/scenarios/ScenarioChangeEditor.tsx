@@ -313,7 +313,7 @@ function FlexZoneSettings({ change }: { change: ScenarioChangeDraft }) {
         onChange={(value) => { if (value !== undefined) updateScenarioChange(change.id, { averageSpeedKph: value }) }} />
       <ServiceHours change={change} />
     </div>
-    <p className="scenario-hint">Saved with the scenario and drawn on every map. Route and Reach do not route through planned Flex zones yet; they run the scenario’s lines.</p>
+    <p className="scenario-hint">Route and Reach include this zone during its service hours. Times estimate the configured wait plus direct distance at the vehicle speed; they do not confirm vehicle availability.</p>
   </>
 }
 

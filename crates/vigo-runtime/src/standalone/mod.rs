@@ -9,6 +9,7 @@ mod corridor;
 mod encoding;
 mod fare_store;
 mod flex;
+mod planned_flex;
 mod flex_index;
 mod flex_search;
 mod flex_transfers;

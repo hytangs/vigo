@@ -334,6 +334,7 @@ pub struct City {
     pub(super) flex_index: OnceLock<Arc<super::flex_index::FlexIndex>>,
     /// One-shot optimistic Flex access and egress per timetable stop for the
     /// next transit search, and whether that search's winner used them.
+    pub(super) planned_flex: Option<Vec<super::planned_flex::Zone>>,
     pub(super) flex_overlay: Option<(HashMap<u32, f64>, HashMap<u32, f64>)>,
     pub(super) flex_witness: Option<super::flex_search::Witness>,
     pub(crate) calendar: std::sync::OnceLock<super::calendar::CalendarIndex>,
@@ -731,6 +732,7 @@ impl City {
             timetable_preparation_profile: Value::Null,
             flex_catalog: Default::default(),
             flex_index: Default::default(),
+            planned_flex: None,
             flex_overlay: None,
             flex_witness: None,
             calendar: Default::default(),

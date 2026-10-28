@@ -862,7 +862,7 @@ export function validateReachRequest(value) {
   const surfaceSampling = mode === 'drive' ? 'cell-center' : value.surfaceSampling ?? 'street'
   if (!['street', 'cell-center'].includes(value.surfaceSampling ?? 'street')) throw badRequest('surfaceSampling must be street or cell-center.')
   if (!['transit', 'walk', 'drive'].includes(mode)) throw badRequest('Reach supports transit, walk, or drive.')
-  if ((mode === 'walk' || surfaceSampling === 'cell-center') && (scenario.services.length
+  if ((mode === 'walk' || surfaceSampling === 'cell-center') && (scenario.flexZones.length || scenario.services.length
     || scenario.excludedRouteIds.length || scenario.excludedTripIds.length || scenario.excludedPatternIds.length)) {
     throw badRequest('Planned transit changes require transit Reach with street sampling.')
   }
@@ -906,7 +906,7 @@ export function compileReachScenario(value) {
   const scenarioValue = value && typeof value === 'object' && !Array.isArray(value)
     ? value
     : {}
-  for (const field of ['services', 'excludedRouteIds', 'excludedTripIds', 'excludedPatternIds']) {
+  for (const field of ['services', 'flexZones', 'excludedRouteIds', 'excludedTripIds', 'excludedPatternIds']) {
     if (scenarioValue[field] !== undefined && !Array.isArray(scenarioValue[field])) {
       throw badRequest(`scenario.${field} must be an array.`)
     }
@@ -959,6 +959,7 @@ export function compileReachScenario(value) {
     id: compactText(scenarioValue.id, 'scenario', 80),
     name: compactText(scenarioValue.name, 'Scenario'),
     services,
+    flexZones: scenarioValue.flexZones ?? [],
     excludedRouteIds,
     excludedTripIds,
     excludedPatternIds,
@@ -983,12 +984,13 @@ export function compileReachScenario(value) {
  */
 export function compileRouteScenario(value) {
   const { scenario, overlay, directions, runDirections } = compileReachScenario(value)
-  const changed = Boolean(overlay || scenario.excludedRouteIds.length || scenario.excludedTripIds.length)
+  const changed = Boolean(overlay || scenario.flexZones.length || scenario.excludedRouteIds.length || scenario.excludedTripIds.length)
   if (!changed) return null
   const plan = {
     id: scenario.id,
     name: scenario.name,
     overlay,
+    flexZones: scenario.flexZones,
     runDirections,
     directions: directions.map((direction) => ({
       id: direction.id,
@@ -1140,6 +1142,7 @@ export async function computeReachResult(
   const scenarioTransitQueryChanged = (
     remixed
     || request.scenario.services.length > 0
+    || request.scenario.flexZones.length > 0
     || request.scenario.excludedRouteIds.length > 0
     || request.scenario.excludedTripIds.length > 0
   )
@@ -1158,6 +1161,7 @@ export async function computeReachResult(
       excludedRouteIds: request.scenario.excludedRouteIds,
       excludedTripIds: request.scenario.excludedTripIds,
       scenarioServices: request.scenario.services,
+      scenarioFlexZones: request.scenario.flexZones,
       scenarioOverlay: compiledScenario.overlay,
       surface: reachSurface,
     })
@@ -1245,6 +1249,7 @@ export async function computeReachResult(
   const hasScenarioChanges = Boolean(
     remixed
     || request.scenario.services.length
+    || request.scenario.flexZones.length
     || request.scenario.excludedRouteIds.length
     || request.scenario.excludedTripIds.length
   )

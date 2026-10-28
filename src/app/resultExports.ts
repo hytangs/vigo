@@ -76,8 +76,8 @@ function markdownItinerary(plan: RoutingPlan) {
     'Clocks are hours after service-day midnight; hours above 23 belong to the following calendar day.', '',
     `Leave ${clock(summary.departMinutes)} · arrive ${clock(summary.arriveMinutes)}`,
     ...(summary.requestedTimeMinutes === null ? [] : [`Requested ${summary.timePreference === 'arrive' ? 'arrival' : 'departure'}: ${clock(summary.requestedTimeMinutes)}`]),
-    summary.timePreference === 'arrive' ? `Journey duration: ${summary.journeyMinutes} min`
-      : `Total from requested departure: ${summary.totalElapsedMinutes} min · journey: ${summary.journeyMinutes} min · initial wait: ${summary.initialWaitMinutes} min`,
+    `Journey duration: ${summary.journeyMinutes} min`,
+    ...(summary.timePreference === 'depart' ? [`Before leaving: ${summary.initialWaitMinutes} min after requested departure · total from requested departure: ${summary.totalElapsedMinutes} min`] : []),
     `${summary.walkMinutes} min walking · ${summary.rideMinutes} min riding/driving · ${summary.waitMinutes} min waiting en route · ${summary.transfers} transfers`, '',
     ...plan.legs.flatMap((leg, index) => [
       `${index + 1}. ${clock(leg.startMinutes)}–${clock(leg.endMinutes)} · ${leg.type === 'ride' ? `Ride ${text(leg.routeShortName ?? leg.routeId ?? '')}` : leg.type === 'drive' ? 'Drive' : 'Walk'} · ${text(leg.fromName)} → ${text(leg.toName)}`,

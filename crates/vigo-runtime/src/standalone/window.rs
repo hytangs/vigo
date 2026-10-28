@@ -649,11 +649,15 @@ fn choice_depart(v: &Value) -> f64 {
     }
 }
 
+fn useful_against_walk(plan: &Value, walk_minutes: f64) -> bool {
+    rides(plan).next().is_none()
+        || walking(plan) + 1e-6 < walk_minutes
+        || arrive(plan) - choice_depart(plan) + 1e-6 < walk_minutes
+}
+
 /// Distinct, nondominated services from a window's choices and ranked
 /// alternatives. The first plan, the exact primary witness, always stays.
 fn merge_services(plans: &[Value], limit: usize) -> Vec<usize> {
-    let ride_trips =
-        |v: &Value| -> Vec<Value> { rides(v).map(|leg| leg["tripId"].clone()).collect() };
     let mut candidates: Vec<usize> = (0..plans.len())
         .filter(|&i| plans[i]["status"] == "ready")
         .collect();
@@ -662,56 +666,39 @@ fn merge_services(plans: &[Value], limit: usize) -> Vec<usize> {
             return true;
         }
         let candidate = &plans[i];
-        let candidate_trips = ride_trips(candidate);
         !plans.iter().enumerate().any(|(j, other)| {
             if j == i || other["status"] != "ready" {
                 return false;
             }
-            let simpler = ride_trips(other);
-            let dominates = arrive(other) <= arrive(candidate)
-                && walking(other) <= walking(candidate)
-                && choice_depart(other) >= choice_depart(candidate)
-                && simpler.len() <= candidate_trips.len()
-                && (arrive(other) < arrive(candidate)
-                    || walking(other) < walking(candidate)
-                    || simpler.len() < candidate_trips.len());
-            // Stop variants on the same public lines often trade seconds of
-            // walking against seconds of arrival. Keep one when those changes
-            // disappear at the minute precision of the journey cards. This
-            // only selects optional alternatives; exact clocks and the primary
-            // witness above remain untouched.
-            if family(other) == family(candidate) {
-                let metrics = |v: &Value| {
-                    [
-                        arrive(v).round(),
-                        walking(v).round(),
-                        -choice_depart(v).round(),
-                    ]
-                };
-                let (a, b) = (metrics(other), metrics(candidate));
-                let no_worse =
-                    a.iter().zip(b).all(|(a, b)| *a <= b) && simpler.len() <= candidate_trips.len();
-                let preferred_tie = arrive(other)
+            // Compare the minutes shown to riders, across all line families.
+            // Every removal needs a feasible witness that gives up no arrival,
+            // walking, departure, or boarding benefit. Route diversity alone
+            // does not justify a worse journey or a needless vehicle change.
+            let metrics = |v: &Value| {
+                [
+                    arrive(v).round(),
+                    walking(v).round(),
+                    -choice_depart(v).round(),
+                ]
+            };
+            let (a, b) = (metrics(other), metrics(candidate));
+            let no_worse =
+                a.iter().zip(b).all(|(a, b)| *a <= b) && boardings(other) <= boardings(candidate);
+            if !no_worse {
+                return false;
+            }
+            if a != b || boardings(other) < boardings(candidate) {
+                return true;
+            }
+            // Keep tied different services, but collapse equivalent variants
+            // of the same family deterministically without changing clocks.
+            family(other) == family(candidate)
+                && arrive(other)
                     .total_cmp(&arrive(candidate))
                     .then(walking(other).total_cmp(&walking(candidate)))
                     .then(choice_depart(candidate).total_cmp(&choice_depart(other)))
                     .then(j.cmp(&i))
-                    .is_lt();
-                return no_worse
-                    && (a != b || simpler.len() < candidate_trips.len() || preferred_tie);
-            }
-            if !dominates {
-                return false;
-            }
-            // A station return may be required by directed platforms. Drop it
-            // only with a feasible dominating witness, never on geometry alone.
-            let returns = candidate["returnedStationCycle"].is_object();
-            let needless_change = !simpler.is_empty()
-                && simpler.len() < candidate_trips.len()
-                && simpler
-                    .iter()
-                    .all(|trip| trip.is_string() && candidate_trips.contains(trip));
-            returns || needless_change
+                    .is_lt()
         })
     });
     candidates.sort_by(|&a, &b| {
@@ -1040,6 +1027,37 @@ impl City {
 
     /// Composed journey choices for a Route; see the module documentation.
     pub(super) fn route_journeys(&mut self, q: &Value) -> Result<Value> {
+        let mut result = self.route_journeys_inner(q)?;
+        // Optional transit choices must buy something over the actual walking
+        // path. A tiny bus detour that walks at least as long and takes at least
+        // as long has no benefit, even if its vehicle chain is distinct.
+        if q["requireTransitRide"] != true && via(q).is_none_or(|v| v.is_empty()) {
+            let origin = self.point(&q["origin"])?;
+            let destination = self.point(&q["destination"])?;
+            let opt = Options::parse(q)?;
+            let mut walkq = q.clone();
+            walkq["allowLongWalk"] = json!(true);
+            if let Ok(walk) = self.street_route(&walkq, &origin, &destination, &opt, "walk")
+                && walk["status"] == "ready"
+                && let Some(duration) = walk["durationMinutes"].as_f64()
+                && let Some(plans) = result["choices"].as_array_mut()
+            {
+                let selected = plans.first().cloned();
+                plans.retain(|p| useful_against_walk(p, duration));
+                // Preserve a useful primary when no optional choices survived;
+                // the ordinary walking limit still governs walk-only results.
+                if plans.is_empty()
+                    && let Some(selected) = selected
+                {
+                    plans.push(selected);
+                }
+                result["selectedChoice"] = json!(0);
+            }
+        }
+        Ok(result)
+    }
+
+    fn route_journeys_inner(&mut self, q: &Value) -> Result<Value> {
         validate(q)?;
         let evidence = flag(q, "includeEarliestTransit", false)?;
         let km = q
@@ -1784,8 +1802,8 @@ mod tests {
     #[test]
     fn merged_services_keep_distinct_lines_before_repeat_departures() {
         let primary = plan(480., vec![ride("m1", "M", "A", "B", 480., 504.)]);
-        let repeat = plan(480., vec![ride("m2", "M", "A", "B", 482., 506.)]);
-        let rail = plan(480., vec![ride("r", "Rail", "A", "B", 483., 507.)]);
+        let repeat = plan(482., vec![ride("m2", "M", "A", "B", 482., 506.)]);
+        let rail = plan(483., vec![ride("r", "Rail", "A", "B", 483., 507.)]);
         assert_eq!(
             merge_services(&[primary.clone(), repeat, rail], 2),
             vec![0, 2]
@@ -1863,6 +1881,81 @@ mod tests {
             ),
             vec![0, 4, 3, 2]
         );
+    }
+
+    #[test]
+    fn merged_services_drop_cross_family_detours_and_keep_real_tradeoffs() {
+        let better = plan(
+            484.,
+            vec![
+                walk(484., 488.),
+                ride("red", "Red", "Kendall", "Harvard", 488., 500.),
+                walk(500., 503.),
+                ride("bus", "66", "X", "Y", 504., 506.),
+                walk(506., 513.),
+            ],
+        );
+        let change = plan(
+            484.,
+            vec![
+                walk(484., 488.),
+                ride("red", "Red", "Kendall", "Central", 488., 490.),
+                ride("later", "Red", "Central", "Harvard", 494., 498.),
+                walk(498., 522.),
+            ],
+        );
+        let fewer = plan(
+            484.,
+            vec![
+                walk(484., 488.),
+                ride("one", "Red", "Kendall", "Central", 488., 490.),
+                walk(490., 517.),
+            ],
+        );
+        let less_walk = plan(
+            484.,
+            vec![
+                walk(484., 486.),
+                ride("shuttle", "Shuttle", "A", "B", 486., 520.),
+                walk(520., 522.),
+            ],
+        );
+        let later = plan(
+            490.,
+            vec![
+                walk(490., 494.),
+                ride("late", "Other", "A", "B", 494., 500.),
+                walk(500., 524.),
+            ],
+        );
+        assert_eq!(
+            merge_services(&[better, change, fewer, less_walk, later], 10),
+            vec![0, 2, 3, 4]
+        );
+    }
+
+    #[test]
+    fn tiny_rides_must_improve_on_walking() {
+        let detour = plan(
+            480.,
+            vec![
+                walk(480., 496.),
+                ride("bus", "83", "A", "B", 496., 497.),
+                walk(497., 522.),
+            ],
+        );
+        assert!(!useful_against_walk(&detour, 34.));
+        let useful = plan(
+            480.,
+            vec![
+                walk(480., 482.),
+                ride("bus", "83", "A", "B", 482., 483.),
+                walk(483., 487.),
+            ],
+        );
+        assert!(useful_against_walk(&useful, 34.));
+        let blocked_walk = f64::INFINITY;
+        assert!(useful_against_walk(&detour, blocked_walk));
     }
 
     #[test]

@@ -262,6 +262,7 @@ impl City {
                     "id",
                     "name",
                     "services",
+                    "flexZones",
                     "excludedTripIds",
                     "excludedRouteIds",
                     "overlay",
@@ -326,13 +327,17 @@ impl City {
         }
         if sampling == "cell-center" {
             if q.get("scenario").is_some_and(|s| {
-                ["services", "excludedTripIds", "excludedRouteIds"]
-                    .iter()
-                    .any(|k| {
-                        s.get(k)
-                            .is_some_and(|v| v.as_array().is_none_or(|a| !a.is_empty()))
-                    })
-                    || q["scenario"].get("overlay").is_some()
+                [
+                    "services",
+                    "flexZones",
+                    "excludedTripIds",
+                    "excludedRouteIds",
+                ]
+                .iter()
+                .any(|k| {
+                    s.get(k)
+                        .is_some_and(|v| v.as_array().is_none_or(|a| !a.is_empty()))
+                }) || q["scenario"].get("overlay").is_some()
             }) {
                 return fail("Planned transit changes require transit Reach with street sampling");
             }
@@ -412,7 +417,25 @@ impl City {
         let mut seed_members = vec![-1];
         let mut stops = vec![];
         let mut transit = Value::Null;
-        if mode == "transit" && opt.arrive {
+        let mut zone_surface = None;
+        if mode == "transit"
+            && q["scenario"]["flexZones"]
+                .as_array()
+                .is_some_and(|z| !z.is_empty())
+        {
+            let (reached, surface) = self.planned_zone_reach(q, &place, &opt, maximum)?;
+            for (point, duration) in reached {
+                let id = point.stop.as_deref().unwrap();
+                seeds.extend(point.coordinate);
+                durations.push(duration);
+                seed_members.push(members.get(id).copied().unwrap_or(-1));
+                stops.push(
+                    json!({"stopId":id,"coordinate":point.coordinate,"durationMinutes":duration}),
+                );
+            }
+            transit = json!({"supported":true,"plannedFlex":{"model":"direct_distance_plus_wait","confirmsAvailability":false}});
+            zone_surface = Some(surface);
+        } else if mode == "transit" && opt.arrive {
             transit = self.arrive_by_stops(
                 q,
                 &place,
@@ -720,6 +743,22 @@ impl City {
                 polygons,
             ));
         }
+        if let Some(zone) = &zone_surface {
+            for y in 0..size {
+                for x in 0..size {
+                    let p = [
+                        bounds[0] + (x as f64 + 0.5) / size as f64 * (bounds[2] - bounds[0]),
+                        bounds[3] - (y as f64 + 0.5) / size as f64 * (bounds[3] - bounds[1]),
+                    ];
+                    let minutes = zone.minutes(p);
+                    if minutes.is_finite() && minutes <= maximum {
+                        seeds.extend(p);
+                        durations.push(minutes);
+                        seed_members.push(-1);
+                    }
+                }
+            }
+        }
         // A comparison keeps its reference surface ("baseline") for the
         // scenario that follows it in this process ("scenario"); the street
         // kernel reuses it only when every seed is unchanged or earlier.
@@ -753,6 +792,30 @@ impl City {
             result.full_surface_values = Some(values.clone());
             result.values = values;
             result.full_surface_bounds = Some(bounds.clone());
+        }
+        if let Some(zone) = &zone_surface {
+            let merge = |values: &mut Vec<f64>, b: &[f64]| {
+                for y in 0..size {
+                    for x in 0..size {
+                        let p = [
+                            b[0] + (x as f64 + 0.5) / size as f64 * (b[2] - b[0]),
+                            b[3] - (y as f64 + 0.5) / size as f64 * (b[3] - b[1]),
+                        ];
+                        let t = zone.minutes(p);
+                        if t <= maximum {
+                            values[y * size + x] = values[y * size + x].min(t);
+                        }
+                    }
+                }
+            };
+            merge(&mut result.values, &bounds);
+            if let Some(values) = result.full_surface_values.as_mut() {
+                merge(
+                    values,
+                    result.full_surface_bounds.as_ref().unwrap_or(&bounds),
+                );
+            }
+            result.reached_pixels = result.values.iter().filter(|v| v.is_finite()).count() as u32;
         }
         let full_bounds = result.full_surface_bounds.as_ref().unwrap_or(&bounds);
         let full_values = result

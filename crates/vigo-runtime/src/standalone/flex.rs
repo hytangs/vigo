@@ -118,7 +118,7 @@ impl City {
         let opt = Options::parse(q)?;
         let origin = self.point(&q["origin"])?;
         let destination = self.point(&q["destination"])?;
-        let scheduled_service = self.has_scheduled_connections()?;
+        let scheduled_service = self.planned_flex.is_some() || self.has_scheduled_connections()?;
         // One hop enumeration serves direct rides and both interchange sides.
         let interchange = scheduled_service && opt.max_boardings != Some(1);
         let mut hops = self.flex_hops(

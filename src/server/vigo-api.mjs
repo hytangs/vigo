@@ -3298,6 +3298,7 @@ async function nativeRouteScenario(selection, body) {
     excludedRouteIds: scenario.excludedRouteIds,
     excludedTripIds: scenario.excludedTripIds,
     services: scenario.services.map(plannedService),
+    ...(scenario.flexZones.length ? { flexZones: scenario.flexZones } : {}),
   }
 }
 

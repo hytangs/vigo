@@ -31,7 +31,6 @@ import {
 import {
   routingPlanJourneyMinutes,
   routingPlanStartWaitMinutes,
-  routingPlanTotalElapsedMinutes,
   type RoutingActivity,
   type RoutingServiceCoverage,
   type RoutingServiceDateAvailability,
@@ -175,12 +174,11 @@ export function PathfinderRouteList({
             const departureRow = (option: RoutingPlan) => (
               <button key={option.id} type="button" aria-pressed={selectedPlanId === option.id} onClick={() => onSelect(option.id)}>
                 <strong>{formatScheduleClock(option.departMinutes)}–{formatScheduleClock(option.arriveMinutes ?? option.departMinutes + option.durationMinutes)}</strong>
-                <span>{services.length > 1 ? `${routingPlanRouteSequence(option).replaceAll(' -> ', ' → ')} · ` : ''}{formatRoutingMinutes(routingPlanTotalElapsedMinutes(option))}</span>
+                <span>{services.length > 1 ? `${routingPlanRouteSequence(option).replaceAll(' -> ', ' → ')} · ` : ''}{formatRoutingMinutes(routingPlanJourneyMinutes(option))}</span>
               </button>
             )
             const startWaitMinutes = routingPlanStartWaitMinutes(plan)
             const journeyMinutes = routingPlanJourneyMinutes(plan)
-            const totalElapsedMinutes = routingPlanTotalElapsedMinutes(plan)
             const fastest = readyPlans[0]
             const fewerTransfers = fastest.transfers - plan.transfers
             // Compare the whole minutes each card shows: what this journey gains, then what it costs.
@@ -215,12 +213,10 @@ export function PathfinderRouteList({
                 role="radio"
                 aria-checked={selected}
                 tabIndex={selected || (!displayedPlans.some(candidate => candidate.id === selectedPlanId) && plan === displayedPlans[0]) ? 0 : -1}
-                aria-label={`${formatScheduleClock(plan.departMinutes)} to ${formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}, ${formatRoutingMinutes(totalElapsedMinutes)} total${plan.timePreference === 'depart' ? ' from requested departure' : ''}, ${plan.transfers} transfer${plan.transfers === 1 ? '' : 's'}, ${formatRoutingMinutes(plan.walkMinutes)} walking${plan.travelMode === 'transit' && plan.legs.some((leg) => leg.type === 'ride') ? `, via ${routingPlanRouteSequence(plan).replaceAll(' -> ', ' then ')}` : ''}. ${tradeoff || (plan.timePreference === 'arrive' ? 'Latest departure' : 'Earliest arrival')}. Open journey.`}
+                aria-label={`${formatScheduleClock(plan.departMinutes)} to ${formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}, ${formatRoutingMinutes(journeyMinutes)} journey${startWaitMinutes >= 0.5 ? `, leaves ${formatRoutingMinutes(startWaitMinutes)} after your requested time` : ''}, ${plan.transfers} transfer${plan.transfers === 1 ? '' : 's'}, ${formatRoutingMinutes(plan.walkMinutes)} walking${plan.travelMode === 'transit' && plan.legs.some((leg) => leg.type === 'ride') ? `, via ${routingPlanRouteSequence(plan).replaceAll(' -> ', ' then ')}` : ''}. ${tradeoff || (plan.timePreference === 'arrive' ? 'Latest departure' : 'Earliest arrival')}. Open journey.`}
               >
-                <span className="pathfinder-route-time" title={startWaitMinutes > 0 ? `Leaves ${formatRoutingMinutes(startWaitMinutes)} after your requested time` : undefined}>
-                  <b title={plan.timePreference === 'depart'
-                    ? `${formatRoutingMinutes(totalElapsedMinutes)} from the requested departure, including ${formatRoutingMinutes(startWaitMinutes)} before leaving; ${formatRoutingMinutes(journeyMinutes)} travelling`
-                    : 'Time from leaving to arriving'}><JourneyDuration minutes={totalElapsedMinutes} /></b>
+                <span className="pathfinder-route-time" title={startWaitMinutes >= 0.5 ? `Leaves ${formatRoutingMinutes(startWaitMinutes)} after your requested time` : undefined}>
+                  <b title="Time from leaving to arriving"><JourneyDuration minutes={journeyMinutes} /></b>
                   <strong>{formatScheduleClock(plan.departMinutes)}–{formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}</strong>
                 </span>
                 {plan.diagnostics.expandedWalkingLimitKm ? <span className="pathfinder-route-rationale">More walking</span> : null}
@@ -231,9 +227,10 @@ export function PathfinderRouteList({
                   <span className="pathfinder-route-metrics" aria-hidden="true">
                     {plan.travelMode === 'transit' ? <span><b>{plan.transfers}</b><small>transfer{plan.transfers === 1 ? '' : 's'}</small></span> : null}
                     <span><b>{formatRoutingMinutes(plan.walkMinutes)}</b><small>{plan.travelMode === 'drive' ? 'access' : 'walk'}</small></span>
-                    {totalElapsedMinutes - plan.walkMinutes - plan.rideMinutes >= 0.5 ? <span title="Includes waiting before departure and between vehicles"><b>{formatRoutingMinutes(Math.max(0, totalElapsedMinutes - plan.walkMinutes - plan.rideMinutes))}</b><small>wait</small></span> : null}
+                    {plan.waitMinutes >= 0.5 ? <span title="Waiting en route"><b>{formatRoutingMinutes(plan.waitMinutes)}</b><small>wait</small></span> : null}
                     {plan.travelMode !== 'walk' ? <span><b>{formatRoutingMinutes(plan.rideMinutes)}</b><small>{plan.travelMode === 'drive' ? 'drive' : 'ride'}</small></span> : <span><b>0</b><small>vehicles</small></span>}
                   </span>
+                  {startWaitMinutes >= 0.5 ? <span className="pathfinder-route-sequence">Leave {formatRoutingMinutes(startWaitMinutes)} after your requested time.</span> : null}
                   {routeSequence || waypointNote ? <span className="pathfinder-route-sequence">{[routeSequence, waypointNote].filter(Boolean).join(' · ')}</span> : null}
                 </span>
                 <ChevronRight className="pathfinder-route-open" size={14} aria-hidden="true" />
