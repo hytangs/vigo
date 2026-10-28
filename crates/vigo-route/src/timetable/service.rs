@@ -2093,6 +2093,63 @@ mod tests {
         }
     }
     #[test]
+    fn relaxed_alternatives_preserve_candidate_scope_and_transfer_rules() {
+        let mut kernel = kernel(vec![rule(Some(0), 3, 0)], vec![]);
+        let mut input = TimetableParetoQueryInput {
+            origin_stops: vec![0],
+            origin_walk_seconds: vec![0.],
+            origin_candidate_indices: vec![0],
+            destination_stops: vec![1],
+            destination_walk_seconds: vec![0.],
+            destination_candidate_indices: vec![0],
+            departure: 90.,
+            horizon: 210.,
+            allow_pre_ride_transfers: false,
+            earliest_arrival: 130.,
+            boarding_upper_bound: 1,
+            candidate_destination_index: 0,
+            candidate_walking_seconds: 0.,
+            arrival_slack_seconds: 60.,
+            transfer_penalty_seconds: 0.,
+            walk_reluctance: 0.,
+            collect_alternatives: Some(true),
+            alternative_ranking: Some("pareto".into()),
+            alternative_limit: Some(1),
+            restriction_mode: None,
+            allow_post_ride_transfers: Some(false),
+            deadline_objective: Some(false),
+        };
+        for (distinct, expected) in [(None, vec![130.]), (Some(8), vec![130., 140.])] {
+            let result = kernel.validated_service_pareto(&input, distinct).unwrap();
+            let mut arrivals: Vec<_> = result
+                .alternatives
+                .unwrap()
+                .iter()
+                .map(|a| a.best_arrival)
+                .collect();
+            arrivals.sort_by(f64::total_cmp);
+            arrivals.dedup();
+            assert_eq!(arrivals, expected);
+        }
+        // The optimistic chain via trip 0 is forbidden at the interchange.
+        // Its validation must fall back to the legal trip 1 prefix.
+        input.destination_stops = vec![2];
+        input.earliest_arrival = 200.;
+        input.boarding_upper_bound = 2;
+        for distinct in [None, Some(8)] {
+            let result = kernel.validated_service_pareto(&input, distinct).unwrap();
+            assert_eq!(result.best_arrival, Some(200.));
+            let trips: Vec<_> = result
+                .chain_kinds
+                .iter()
+                .zip(&result.chain_trip_or_candidate)
+                .filter_map(|(kind, trip)| (*kind == 2).then_some(*trip))
+                .collect();
+            assert_eq!(trips, [1, 2]);
+        }
+    }
+
+    #[test]
     fn guarded_scalar_matches_stateful_search_across_transfer_rules() {
         let mut accepted = 0;
         let mut fallback = 0;

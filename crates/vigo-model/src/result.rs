@@ -229,8 +229,12 @@ pub struct Notice {
 pub struct Accessibility {
     /// `wheelchair-strict-v1`.
     pub profile: String,
-    /// `exclude`: unknown accessibility counts as inaccessible.
+    /// `exclude`: unknown vehicle and boarding accessibility is excluded.
+    /// Street inference is described separately by `streetEvidence`.
     pub unknown_data: String,
+    /// The prepared street policy; absent in older compatible Cities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub street_evidence: Option<String>,
     pub station_paths: String,
     pub maximum_slope: Number,
     pub minimum_width_meters: Number,

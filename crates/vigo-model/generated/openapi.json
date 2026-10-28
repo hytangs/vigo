@@ -109,8 +109,12 @@
           "stationPaths": {
             "type": "string"
           },
+          "streetEvidence": {
+            "description": "The prepared street policy; absent in older compatible Cities.",
+            "type": "string"
+          },
           "unknownData": {
-            "description": "`exclude`: unknown accessibility counts as inaccessible.",
+            "description": "`exclude`: unknown vehicle and boarding accessibility is excluded.\nStreet inference is described separately by `streetEvidence`.",
             "type": "string"
           }
         },

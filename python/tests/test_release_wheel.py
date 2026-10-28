@@ -29,7 +29,7 @@ def test_exact_release_bundle(tmp_path, newline):
 
 
 @pytest.mark.parametrize("metadata", [
-    "Name: vigo\nVersion: 1.0.0rc2\n",
+    "Name: vigo\nVersion: 1.0.0rc1\n",
     "Name: vigo\nVersion: 1.0.0rc2\nVersion: 1.0.0rc2\n",
     "Name: vigo\n\nDescription with\nVersion: 1.0.0rc2\n",
 ])

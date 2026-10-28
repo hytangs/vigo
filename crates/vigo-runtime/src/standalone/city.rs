@@ -413,12 +413,11 @@ impl City {
         let path = layout.root.clone();
         // File-level links let each City keep its own terminal overlay while
         // the base snapshot and hierarchy live in one shared directory.
-        let street_directory = fs::canonicalize(
-            path.join("osm/street-index.sqlite.street-accelerator-v7.bin"),
-        )?
-        .parent()
-        .ok_or("Street snapshot has no parent directory")?
-        .to_path_buf();
+        let street_directory =
+            fs::canonicalize(path.join("osm/street-index.sqlite.street-accelerator-v7.bin"))?
+                .parent()
+                .ok_or("Street snapshot has no parent directory")?
+                .to_path_buf();
         let mut manifest = layout.manifest.clone();
         if manifest["schemaVersion"] != "vigo.city.v1" {
             return fail("Expected a prepared vigo.city.v1 City");
