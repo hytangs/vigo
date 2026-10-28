@@ -254,7 +254,13 @@ parentPort.on('message', async (message) => {
   operationCounts[operation] = Number(operationCounts[operation] ?? 0) + 1
   try {
     let result
-    if (operation === 'gtfs-route-analysis') {
+    if (operation === 'gtfs-feed-preview') {
+      const { buildProjectFeedPreview } = await import('./project-feed-preview.mjs')
+      result = await buildProjectFeedPreview(storePath, request)
+    } else if (operation === 'network-signature') {
+      const { networkSignatureSvg } = await import('./network-signature.mjs')
+      result = { svg: networkSignatureSvg(request.previews) }
+    } else if (operation === 'gtfs-route-analysis') {
       const { readGtfsRouteAnalysis } = await import('./gtfs-analysis-store.mjs')
       result = readGtfsRouteAnalysis(storePath, request.routeId, {
         sourceScope: request.sourceScope, serviceDate: request.serviceDate,

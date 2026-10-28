@@ -132,10 +132,10 @@ struct ForwardCertificate {
 }
 pub(super) struct ServiceIndex {
     pub(super) data: Arc<ServiceSemantics>,
-    departures: Vec<Vec<usize>>,
-    arrivals: Vec<Vec<usize>>,
-    headway_departures: Vec<Vec<usize>>,
-    headway_arrivals: Vec<Vec<usize>>,
+    departures: Vec<Vec<u32>>,
+    arrivals: Vec<Vec<u32>>,
+    headway_departures: Vec<Vec<u32>>,
+    headway_arrivals: Vec<Vec<u32>>,
     rules: HashMap<(u32, u32), PairRules>,
     windows: HashMap<u32, Vec<usize>>,
     extra_forward: Vec<Vec<u32>>,
@@ -374,18 +374,18 @@ impl TimetableKernel {
         }
         for i in 0..self.departure_seconds.len() {
             if index.windows.contains_key(&self.segment_trip.view()[i]) {
-                index.headway_departures[self.from_stop.view()[i] as usize].push(i);
-                index.headway_arrivals[self.to_stop.view()[i] as usize].push(i);
+                index.headway_departures[self.from_stop.view()[i] as usize].push(i as u32);
+                index.headway_arrivals[self.to_stop.view()[i] as usize].push(i as u32);
             } else {
-                index.departures[self.from_stop.view()[i] as usize].push(i);
-                index.arrivals[self.to_stop.view()[i] as usize].push(i);
+                index.departures[self.from_stop.view()[i] as usize].push(i as u32);
+                index.arrivals[self.to_stop.view()[i] as usize].push(i as u32);
             }
         }
         for departures in &mut index.departures {
-            departures.sort_unstable_by_key(|&i| (self.departure_seconds.view()[i], i));
+            departures.sort_unstable_by_key(|&i| (self.departure_seconds.view()[i as usize], i));
         }
         for arrivals in &mut index.arrivals {
-            arrivals.sort_unstable_by_key(|&i| (self.arrival_seconds.view()[i], i));
+            arrivals.sort_unstable_by_key(|&i| (self.arrival_seconds.view()[i as usize], i));
         }
         for edges in index
             .extra_forward
@@ -508,6 +508,22 @@ impl TimetableKernel {
         }
         index.reverse_guard_events.sort_unstable();
         index.reverse_guard_events.dedup();
+        // Segment identifiers already use the validated u32 kernel domain.
+        // Freeze per-stop indexes after construction: geometric Vec growth
+        // otherwise leaves unused capacity resident in every scenario.
+        for entries in index
+            .departures
+            .iter_mut()
+            .chain(&mut index.arrivals)
+            .chain(&mut index.headway_departures)
+            .chain(&mut index.headway_arrivals)
+            .chain(&mut index.extra_forward)
+            .chain(&mut index.extra_reverse)
+        {
+            entries.shrink_to_fit();
+        }
+        index.forward_guard_events.shrink_to_fit();
+        index.reverse_guard_events.shrink_to_fit();
         self.service = Some(index);
         Ok(())
     }
@@ -716,8 +732,8 @@ impl TimetableKernel {
             };
             let lower = if reverse { start } else { l.clock };
             let upper = if reverse { l.clock } else { end };
-            let first = boardings.partition_point(|&i| f64::from(times[i]) < lower);
-            let last = boardings.partition_point(|&i| f64::from(times[i]) <= upper);
+            let first = boardings.partition_point(|&i| f64::from(times[i as usize]) < lower);
+            let last = boardings.partition_point(|&i| f64::from(times[i as usize]) <= upper);
             let headways = if reverse {
                 &s.headway_arrivals
             } else {
@@ -727,6 +743,7 @@ impl TimetableKernel {
                 .iter()
                 .chain(&headways[l.stop as usize])
             {
+                let i = i as usize;
                 operations += 1;
                 if operations > 50_000_000 {
                     return Err(Error::from_reason(

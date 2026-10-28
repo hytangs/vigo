@@ -21,20 +21,18 @@ import { Duplex, PassThrough } from 'node:stream'
 import { PreparationProcess } from './runtime/preparation-process.mjs'
 import { vigoCapabilities } from '../capabilities.mjs'
 import { createAgencyService } from './agency-api.mjs'
-import { readGtfsNetworkOverviewAsync } from './gtfs-analysis-store.mjs'
+import { readProjectPreview } from './project-preview-cache.mjs'
 import { applyLocalCors, assertLocalBindHost, localRequestAccess } from './local-http-security.mjs'
 import {
   disposeNationalGtfsStore,
   nationalFeedSummary,
-  readNationalGtfsPreview,
-  readNationalGtfsRouteCatalog,
   readNationalGtfsStoreMetadata,
   removeNationalGtfsOsmStopTransfers,
 } from './national-gtfs-store.mjs'
 import { describeNativePlaces } from './native-routing-kernel.mjs'
 import { readNationalOsmStoreMetadata } from './national-osm-store.mjs'
 import { readLocalBasemap, localBasemapBudgets } from './local-basemap-store.mjs'
-import { networkSignatureSvg, networkSignatureVersion } from './network-signature.mjs'
+import { networkSignatureVersion } from './network-signature.mjs'
 import { renderNativeLocalBasemapTile } from './native-routing-kernel.mjs'
 import { integralNumber } from './number-utils.mjs'
 import { compactReachResult, compileReachScenario, computeReachResult, reachPlace } from './reach.mjs'
@@ -977,25 +975,6 @@ function compactRouteCatalog(routes) {
   }))
 }
 
-function mergePreviewStops(primary = [], secondary = []) {
-  const merged = new Map()
-  for (const stop of [...primary, ...secondary]) {
-    const existing = merged.get(stop.id)
-    if (!existing) {
-      merged.set(stop.id, stop)
-      continue
-    }
-    merged.set(stop.id, {
-      ...existing,
-      ...stop,
-      routes: [...new Set([...(existing.routes ?? []), ...(stop.routes ?? [])])],
-      tripCount: Math.max(Number(existing.tripCount ?? 0), Number(stop.tripCount ?? 0)),
-      transferScore: Math.max(Number(existing.transferScore ?? 0), Number(stop.transferScore ?? 0)),
-    })
-  }
-  return [...merged.values()]
-}
-
 function compactFeedForClient(feed, { routingReady = false, budgets } = {}) {
   const hasMapPreview = Boolean(feed.mapPreview?.routes?.length || feed.mapPreview?.stops?.length)
   const stopPairs = feed.mapPreview?.stopPairs ?? []
@@ -1080,49 +1059,8 @@ async function refreshNationalFeedPreview(projectId, feed, options = {}) {
   let refresh = nationalPreviewRefreshes.get(cacheKey)
   if (!refresh) {
     refresh = Promise.resolve().then(async () => {
-      const routeMetrics = readNationalGtfsRouteCatalog(storePath, { sourceScope })
-      const representativeRouteIds = [...routeMetrics]
-        .sort((left, right) =>
-          Number(right.tripCount ?? 0) - Number(left.tripCount ?? 0)
-          || String(left.shortName ?? left.routeId ?? left.id).localeCompare(String(right.shortName ?? right.routeId ?? right.id)),
-        )
-        .slice(0, projectTransportAtlasBudgets.routes)
-        .map((route) => route.routeId || route.id)
-      const mapPreview = readNationalGtfsPreview(storePath, {
-        routeCount: feed.routeCount,
-        stopCount: feed.stopCount,
-        tripCount: feed.tripCount,
-        sourceScope,
-        routeLimit: projectTransportAtlasBudgets.routes,
-        representativeRouteIds,
-      })
-      const completeOverview = await readGtfsNetworkOverviewAsync(storePath, { sourceScope })
-      if (!completeOverview.routes.length) return undefined
-      const previewByRoute = new Map(completeOverview.routes.map((route) => [route.routeId || route.id, route]))
-      const hydratedRouteMetrics = routeMetrics.filter((route) => Number(route.tripCount ?? 0) > 0).map((route) => {
-        const previewRoute = previewByRoute.get(route.routeId || route.id)
-        return previewRoute
-          ? { ...route, ...previewRoute, tripCount: route.tripCount, serviceVariantCount: route.serviceVariantCount }
-          : route
-      })
-      const overviewStops = mergePreviewStops(completeOverview.stops, mapPreview.stops)
-      const completePreview = {
-        ...mapPreview,
-        routes: hydratedRouteMetrics,
-        stops: overviewStops,
-        coverage: {
-          ...completeOverview.coverage,
-          rawRouteRows: routeMetrics.length,
-          publicRouteIdentities: hydratedRouteMetrics.length,
-          stopsIndexed: overviewStops.length,
-          capped: false,
-        },
-      }
-      return {
-        routeMetrics: hydratedRouteMetrics,
-        stopMetrics: completePreview.stops,
-        mapPreview: completePreview,
-      }
+      return readProjectPreview(storePath, { sourceScope, routeCount: feed.routeCount, stopCount: feed.stopCount, tripCount: feed.tripCount },
+        request => nationalRouteWorkerPool.dispatch(storePath, 'gtfs-feed-preview', request))
     })
     nationalPreviewRefreshes.set(cacheKey, refresh)
     while (nationalPreviewRefreshes.size > 8) nationalPreviewRefreshes.delete(nationalPreviewRefreshes.keys().next().value)
@@ -1327,7 +1265,36 @@ async function readProject(projectId) {
     throw error
   }
 
-  return hydrateProjectSidecars(projectId, await normalizeProjectStoreMetadata(projectId, await readJson(projectFile)))
+  const project = await hydrateProjectSidecars(projectId, await normalizeProjectStoreMetadata(projectId, await readJson(projectFile)))
+  cacheProjectSignature(projectId, project)
+  return project
+}
+
+function projectSignatureRevision(project) {
+  return [networkSignatureVersion, project.updatedAt, ...project.feeds.map(feed =>
+    `${feed.id}:${feed.importedAt ?? ''}:${feed.routingStore?.builtAt ?? ''}`)].join('|')
+}
+
+// Library thumbnails never hydrate unopened Cities. Prepare the optional mark
+// when a City is actually opened, and reuse it on subsequent library launches.
+function cacheProjectSignature(projectId, project) {
+  const revision = projectSignatureRevision(project)
+  if (networkSignatureCache.get(projectId)?.revision === revision) return
+  const feed = project.feeds.find(feed => feed.routingStore?.status === 'ready')
+  if (!feed) return
+  const entry = { revision, svg: null }
+  networkSignatureCache.set(projectId, entry)
+  while (networkSignatureCache.size > 32) networkSignatureCache.delete(networkSignatureCache.keys().next().value)
+  entry.pending = nationalRouteWorkerPool.dispatch(feedRoutingStoreFile(projectId, feed), 'network-signature', {
+    previews: project.feeds.map(feed => feed.mapPreview),
+  }).then(async ({ svg }) => {
+    if (networkSignatureCache.get(projectId) !== entry) return
+    entry.svg = svg
+    const saved = await readJson(path.join(projectMetaDir(projectId), 'project.json'))
+    if (projectSignatureRevision(saved) === revision) {
+      await writeJsonAtomic(path.join(projectMetaDir(projectId), 'network-signature.json'), { revision, svg })
+    }
+  }).catch(() => {}).finally(() => { delete entry.pending })
 }
 
 async function writeProject(project) {
@@ -1489,12 +1456,27 @@ async function removeAbandonedStaging() {
     if (!entry.isDirectory()) continue
     if (nationalImportProjects.has(entry.name)) continue
     const targetPath = path.join(storageRoot, entry.name, '.vigo', 'staging')
-    if (await exists(targetPath)) targets.push(targetPath)
+    if (!await exists(targetPath)) continue
+    // Failed, cancelled and interrupted uploads remain retryable after a
+    // restart. Only orphaned staging entries belong to startup housekeeping.
+    const jobs = await readJsonRecords(path.join(storageRoot, entry.name, '.vigo', 'jobs'))
+    const retained = new Set(jobs.filter(job => job.status !== 'complete')
+      .flatMap(job => [job.retrySourcePath, job.sourcePath]).filter(Boolean).map(file => path.resolve(file)))
+    const children = await fs.readdir(targetPath)
+    const protectedNames = children.filter(name => [...retained].some(file => {
+      const child = path.join(targetPath, name)
+      return file === child || file.startsWith(`${child}${path.sep}`)
+    }))
+    if (!protectedNames.length) targets.push(targetPath)
+    else for (const name of children) {
+      if (!protectedNames.includes(name)) targets.push(path.join(targetPath, name))
+    }
   }
   await Promise.all(targets.map((targetPath) => fs.rm(targetPath, { recursive: true, force: true })))
 }
 
 function invalidateProjectRuntimeCaches(projectId) {
+  networkSignatureCache.delete(projectId)
   const projectMetaRoot = `${path.resolve(projectMetaDir(projectId))}${path.sep}`
   for (const [key, entry] of nationalRoutingServiceCoverageCache) {
     if (String(entry?.storePath ?? '').startsWith(projectMetaRoot)) {
@@ -4421,15 +4403,13 @@ async function route(request, response) {
     }
 
     if (request.method === 'GET' && action === 'signature') {
-      const project = await readProject(projectId)
-      const revision = [networkSignatureVersion, project.updatedAt, ...project.feeds.map((feed) => `${feed.id}:${feed.importedAt ?? ''}`)].join('|')
-      let svg = networkSignatureCache.get(projectId)?.revision === revision ? networkSignatureCache.get(projectId).svg : undefined
-      if (svg === undefined) {
-        svg = networkSignatureSvg(project.feeds.map((feed) => feed.mapPreview))
-        networkSignatureCache.delete(projectId)
-        networkSignatureCache.set(projectId, { revision, svg })
-        while (networkSignatureCache.size > 32) networkSignatureCache.delete(networkSignatureCache.keys().next().value)
-      }
+      const project = await readProjectMetadata(projectId)
+      const revision = projectSignatureRevision(project)
+      const entry = networkSignatureCache.get(projectId)
+      if (entry?.revision === revision) await entry.pending
+      const saved = entry?.revision === revision ? entry
+        : await readJson(path.join(projectMetaDir(projectId), 'network-signature.json')).catch(() => null)
+      const svg = saved?.revision === revision ? saved.svg : null
       if (!svg) {
         response.writeHead(204, { 'Cache-Control': 'no-store' })
         response.end()
