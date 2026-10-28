@@ -5,6 +5,16 @@ impl TimetableKernel {
         self.route_scalar_csa_impl::<true>(&input)
     }
 
+    /// Earliest arrival over the relaxed transfer graph: a lower bound on
+    /// the stateful transfer-rule search, for pruning. `None` when frequency
+    /// windows need the stateful search.
+    pub fn route_scalar_relaxed_csa(
+        &mut self,
+        input: &TimetableQueryInput,
+    ) -> Result<Option<TimetableQueryResult>> {
+        self.relaxed(|kernel| kernel.route_scalar_csa_impl::<false>(input))
+    }
+
     pub(super) fn route_scalar_csa_impl<const RETAIN_JOURNEY: bool>(
         &mut self,
         input: &TimetableQueryInput,
@@ -38,7 +48,7 @@ impl TimetableKernel {
             let mut result = if let Some(result) = self.guarded_scalar(input)? {
                 result
             } else {
-                self.service_scalar(input)?
+                self.windowed_service_scalar(input)?
             };
             result.query_ns = started.elapsed().as_nanos() as f64;
             return Ok(result);
@@ -167,6 +177,7 @@ impl TimetableKernel {
         let transfer_buffer_seconds = self.minimum_transfer_buffer_seconds;
         let Self {
             service: _,
+            relaxed_graph: _,
             stop_count: _,
             run_count: _,
             departure_seconds: _,

@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { cityCaseFeedIds } from './gtfs/source-selection.mjs'
 import { validateCityDirectory } from '../city.mjs'
-import { validateWheelchairRequest, wheelchairProfile } from './wheelchair-policy.mjs'
+import { validateWheelchairRequest, wheelchairDescriptionFor, wheelchairProfile } from './wheelchair-policy.mjs'
 
 // A separately compiled City keeps inaccessible edges out of every search stage.
 // Never fall back to the ordinary graph when the requested profile is missing.
@@ -56,4 +56,14 @@ export function studioWheelchairAvailability(directory, project, request) {
     if (error.statusCode === 400 || error.code === 'wheelchair_profile_unavailable') return { available: false, reason: error.message }
     throw error
   }
+}
+
+// Describe the prepared network's own street evidence. Networks prepared
+// before street evidence was recorded used only wheelchair=yes ways.
+export function studioWheelchairAccessibility(projectDirectory) {
+  try {
+    const { accessibility } = JSON.parse(fs.readFileSync(path.join(projectDirectory, 'wheelchair', 'network.json'), 'utf8'))
+    if (accessibility?.profile) return accessibility.streetEvidence ? accessibility : wheelchairDescriptionFor('verified')
+  } catch {}
+  return wheelchairDescriptionFor('inferred')
 }

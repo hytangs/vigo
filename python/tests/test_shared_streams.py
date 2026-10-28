@@ -17,7 +17,7 @@ class FakeStream:
 
 class SharedStreamsTest(unittest.TestCase):
     def test_serial_queries_prefer_recent_worker_after_a_batch(self):
-        runtime = RuntimeInfo("1.0.0-rc.1", "1.0", "test", "unused", ("unused",),
+        runtime = RuntimeInfo("1.0.0-rc.2", "1.0", "test", "unused", ("unused",),
                               {"output": {"requestServiceDate": True}})
         with tempfile.TemporaryDirectory() as directory, patch("vigo.model._QueryStream", FakeStream):
             city = City(Path(directory), runtime, {})

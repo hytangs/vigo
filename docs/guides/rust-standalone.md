@@ -1,6 +1,6 @@
 # VIGO Rust standalone manual
 
-VIGO 1.0.0-rc.1 · CLI and HTTP reference · Prepared City format 1
+VIGO 1.0.0-rc.2 · CLI and HTTP reference · Prepared City format 1
 
 VIGO runs routing and isochrone queries from a single Rust executable. The executable contains the routing kernels, City loader, JSON interface, and HTTP server. It needs no Node, Python, browser, external routing service, or internet connection at query time. SQLite is compiled in. City data is supplied separately and opened read-only.
 
@@ -352,6 +352,7 @@ Use `vigo route --help` for the general command overview. `--name value` and `--
 | `--street-edges` | Reach | Include directed street evidence |
 | `--scenario ID` | Data commands on a collection | Select a scenario; omission uses `defaultScenario` |
 | `--wheelchair` | Route, Matrix, Reach | Require the City's strict wheelchair profile |
+| `--wheelchair-streets` | build | `inferred` (default) or `verified` wheelchair street evidence |
 | `--format text\|json` | One-shot JSON commands | Terminal text or JSON; pipes and files use JSON |
 | `--diagnostics LEVEL` | Query commands | `none`, `summary`, `profile`, or `trace` |
 | `--include-geometry`, `--include-limitations` | Query commands | Route geometry is on by default; Matrix geometry and limitations are opt-in |
@@ -524,8 +525,10 @@ Ask for several journeys at one time, plan through intermediate points, or compa
 
 `alternativeRanking` chooses them:
 
-- `pareto` (default) keeps only trade-offs: an alternative must beat every other returned journey on arrival, boardings, or walking. It uses no more boardings than the primary journey. When more trade-offs exist than requested, the fewest boardings and the least walking are kept first.
-- `ranked` keeps the earliest arrivals even when another journey is better in every respect, then prefers less walking and fewer boardings. A returned candidate with the same arrival and less walking replaces the primary journey, preserving any genuinely earlier arrival. This tie policy applies to ranked alternatives; scalar queries without alternatives retain their boarding-first tie policy. It admits one more boarding than the primary journey, within `maxTransfers`. Journeys on the same sequence of vehicles count once, whatever stops they use to change or leave.
+- `pareto` (default) keeps trade-offs first: an alternative must beat every other returned journey on arrival, boardings, or walking. It uses no more boardings than the primary journey. When more trade-offs exist than requested, the fewest boardings and the least walking are kept first. Remaining places go to journeys within the arrival slack that ride a set of routes no listed journey rides, earliest first, even when the primary journey is better in every respect. A primary journey with little walking therefore still lists distinct routes.
+- `ranked` keeps the earliest arrivals even when another journey is better in every respect, then prefers less walking and fewer boardings. A returned candidate with the same arrival and less walking replaces the primary journey, preserving any genuinely earlier arrival. This tie policy applies to ranked alternatives; scalar queries without alternatives retain their boarding-first tie policy. It admits one more boarding than the primary journey, within `maxTransfers`.
+
+In both rankings, journeys on one vehicle chain are one choice: the same vehicles, whatever stops they use to change or leave, or the same vehicles followed by further rides. The earliest arrival, then less walking and fewer boardings, represents the chain.
 
 `alternativeSlackMinutes` (0–120, default 15) bounds how much later than the primary journey an alternative may arrive. `alternativeSearch` records `coverage: "requested_time"`, `ranking`, `maximumJourneys` (including the primary), `arrivalSlackMinutes`, and `status`. A search that exceeds the kernel's label budget reports `status: "unavailable"` with a `reason` and returns the primary journey alone. Alternatives are transit journeys; a faster direct walk remains the primary journey. Requests that combine alternatives with arrive-by, via points, or a journey window are rejected, except a window with `windowChoices: "supported"` (see [Supported window choices](#supported-window-choices)).
 
@@ -661,7 +664,7 @@ Transit via requests require a boarding on every segment. They reject an explici
 
 | Field | Meaning |
 | --- | --- |
-| `expandedWalkKm` | Above `maxWalkKm` (default 2.4): also search with this walking budget and add choices that walk farther but arrive earlier |
+| `expandedWalkKm` | Above `maxWalkKm` (default 2.4): also search with this walking budget and add choices that walk farther but arrive at least a minute earlier |
 | `includeEarliestTransit` | Add `earliestTransit`, the first boarding and arrival of the earliest transit choice, even when walking wins |
 
 With `via` points, supported choices compose each segment at the exact clock the previous segment reaches its point. Arrive-by requests accept `windowChoices` only without a window.
@@ -1714,8 +1717,8 @@ Terminate HTTPS at a reverse proxy or hosting platform. Give its upstream timeou
 Build the native service image from the repository root:
 
 ```sh
-docker build -f deploy/Dockerfile -t vigo:1.0.0-rc.1 .
-export VIGO_IMAGE=vigo:1.0.0-rc.1
+docker build -f deploy/Dockerfile -t vigo:1.0.0-rc.2 .
+export VIGO_IMAGE=vigo:1.0.0-rc.2
 export VIGO_CITY=/absolute/path/to/prepared-city
 # Set VIGO_API_TOKEN through your deployment secret store.
 docker compose -f deploy/compose.yml up -d --wait
@@ -1912,7 +1915,9 @@ The Engine CLI and HTTP service use that City for Route, Matrix and Reach. Add
 `"wheelchair": true` to the request, or `--wheelchair` to an Engine CLI query.
 Omitting the option inherits the City's profile. Ordinary Cities reject a true
 request; wheelchair Cities reject false, Drive, realtime transit and query-time
-scenario overlays. Compile changed inputs into a new wheelchair City.
+scenario overlays. Expanded-walking choices are suppressed for this profile,
+including when the wheelchair flag is omitted. Compile changed inputs into a
+new wheelchair City.
 Serve the prepared wheelchair City using the same `serve --city wheelchair-city`
 command and authenticated `/v1/route`, `/v1/matrix` and `/v1/reach` endpoints.
 
@@ -1928,8 +1933,9 @@ Restart Studio after attaching or replacing the network. Attachment checks the
 source fingerprints and profile, preserves the ordinary City, and retains any
 previous wheelchair network as a backup. Studio currently supports this profile
 for single-feed, scheduled Route queries without via points or scenario overlays;
-use the Engine CLI for wheelchair Matrix and Reach. Unknown accessibility is
-excluded. A missing, incomplete or source-mismatched wheelchair network returns
+use the Engine CLI for wheelchair Matrix and Reach. Unknown vehicle and boarding
+accessibility is excluded; inferred streets can have unknown accessibility.
+A missing, incomplete or source-mismatched wheelchair network returns
 an error; it never silently substitutes an unrestricted route. The option does
 not certify elevator operation or access between a building and the street.
 
@@ -1940,12 +1946,28 @@ boarding or alighting. Unknown values are excluded. Search considers accessible
 alternatives directly, including later vehicles; it does not filter a completed
 unrestricted journey.
 
-OSM ways require `wheelchair=yes` and ordinary pedestrian permission. Steps,
-escalators, mapped inaccessible or limited nodes, raised kerbs, unverified
-barriers and conditional accessibility are excluded. Published widths below
-0.9 m and inclines above 8.3% are excluded. Untagged shape vertices inherit the
-way's accessibility. These are fixed profile limits, not a personalized chair
-model.
+Street evidence is chosen at build time with `--wheelchair-streets` and
+reported as `accessibility.streetEvidence` on every result:
+
+| Value | Build option | OSM ways used |
+| --- | --- | --- |
+| `inferred-step-free-v1` | default, or `--wheelchair-streets inferred` | Ordinary pedestrian ways, including ways without a surface or wheelchair tag, subject to the filters below |
+| `wheelchair-yes-only` | `--wheelchair-streets verified` | Only ways tagged `wheelchair=yes` |
+
+For inferred evidence without `wheelchair=yes`, rough surfaces, bad smoothness,
+mountain trail grades and paths, tracks or bridleways without a mapped paved
+surface are excluded. An explicit `wheelchair=yes` overrides those surface and
+trail filters. Both policies require ordinary pedestrian permission and exclude steps, escalators, mapped
+inaccessible or limited nodes, raised kerbs and conditional accessibility.
+Published widths below 0.9 m and inclines above 8.3% are excluded. A mapped
+kerb must be lowered or flush. Inferred evidence passes unlocked gates and
+bollards; other barriers need `wheelchair=yes`. Untagged shape vertices inherit
+the way's accessibility. These are fixed profile limits, not a personalized
+chair model. Although `accessibility.unknownData` is `exclude`, the inferred
+street policy can admit ways whose wheelchair or surface tags are unknown; check
+`accessibility.streetEvidence` and the limitations. Inferred streets are not
+surveyed: few cities tag every sidewalk, so verified evidence alone usually
+leaves little or no network.
 
 Station paths require either a positive published `wheelchair_traversal_time`
 (the MBTA extension) or step-free mode with published width at least 0.9 m,
@@ -1957,7 +1979,7 @@ not establish accessible paths. For transit access, station platforms are reache
 accessible entrances and paths, rather than snapped directly from the street.
 
 Every successful or no-route response carries `accessibility`, including the
-profile and its limitations. Coordinate-to-network attachments are geometric;
+profile, its street evidence and its limitations. Coordinate-to-network attachments are geometric;
 door-to-street access is not verified. Live elevator outages, temporary barriers
 and individual chair dimensions are not modeled. Strict source requirements
 can leave sparse coverage or no route. A no-route result is not evidence that
@@ -1981,8 +2003,14 @@ are bundled; GTFS parent-station identifiers determine station membership. Do no
 points. Arrive-by retains a 15-minute earlier-arrival window sampled every five minutes.
 
 `expandedWalkKm` is explicit permission for a wider transit-access search; omit it
-when the user sets a binding walking limit. Wider choices must improve the time
-objective or shorten travel after initial waiting, and carry `expandedWalkingLimitKm`. A whole-trip walk uses at most
+when the user sets a binding walking limit. A wider choice must beat every
+ordinary choice on the time objective by at least one minute (earlier arrival,
+or later departure for arrive-by); walking farther for a shorter but later
+journey is not offered. In supported windows, a choice whose final ride, with
+its wait, reaches the destination later than walking on from where the
+previous ride ends is replaced by that walk, when the walk fits the wider
+budget and arrives at least a minute sooner. Wider choices carry
+`expandedWalkingLimitKm`. A whole-trip walk uses at most
 `maxWalkKm` unless `allowLongWalk` explicitly permits `maxStreetKm`. Limits below
 50 metres do not trigger a widened street query. `requireTransitRide` excludes
 walking-only choices. Optional wider-search failures preserve ordinary results.

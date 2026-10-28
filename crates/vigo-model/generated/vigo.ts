@@ -41,7 +41,10 @@ export interface Accessibility {
   /** `wheelchair-strict-v1`. */
   profile: string;
   stationPaths: string;
-  /** `exclude`: unknown accessibility counts as inaccessible. */
+  /** The prepared street policy; absent in older compatible Cities. */
+  streetEvidence?: string;
+  /** `exclude`: unknown vehicle and boarding accessibility is excluded. */
+  /** Street inference is described separately by `streetEvidence`. */
   unknownData: string;
 }
 

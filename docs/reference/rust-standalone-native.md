@@ -1,6 +1,6 @@
 # Native Rust field reference
 
-Generated for VIGO 1.0.0-rc.1 from public Rust structs. Regenerate with `npm run docs:standalone`.
+Generated for VIGO 1.0.0-rc.2 from public Rust structs. Regenerate with `npm run docs:standalone`.
 
 Use the [native operation reference](../guides/rust-standalone.md#18-native-operation-reference) for units, index domains, and examples. In requests, an optional field accepts omission or null. Result objects include every listed field; an unavailable optional value is null. Native arrays become JSON arrays, and non-finite result numbers become null. The runtime also checks compatible array lengths, indices, and values.
 

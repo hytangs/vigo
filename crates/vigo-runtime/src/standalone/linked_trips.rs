@@ -42,7 +42,7 @@ impl<'a> IntoIterator for &'a Links {
 }
 
 impl Links {
-    fn new(runs: HashMap<u32, Vec<Part>>) -> Self {
+    pub(super) fn new(runs: HashMap<u32, Vec<Part>>) -> Self {
         let mut physical = HashMap::new();
         for (&run, parts) in &runs {
             for (index, part) in parts.iter().enumerate() {

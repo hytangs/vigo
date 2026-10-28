@@ -7,6 +7,14 @@ pub struct RideCall {
     pub arrival: Option<u32>,
     pub departure: Option<u32>,
 }
+/// A stop a ride passes; see `TimetableKernel::ride_visits`.
+#[derive(Clone, Copy)]
+pub struct RideVisit {
+    pub stop: u32,
+    pub time: f64,
+    pub leave: bool,
+    pub board: bool,
+}
 impl TimetableKernel {
     pub fn ride_calls(&self, trip: u32) -> Vec<RideCall> {
         let source_departure_seconds = self.departure_seconds.view();
@@ -37,6 +45,79 @@ impl TimetableKernel {
             });
         }
         calls
+    }
+    /// The stops a ride passes from `board` to `alight`, in order. Each has
+    /// the time the vehicle is there (departure at the boarding stop, arrival
+    /// elsewhere), whether a rider may leave there, and whether a rider may
+    /// board there to continue the ride; the last stop needs no boarding.
+    pub fn ride_visits(&self, trip: u32, board: f64, alight: f64) -> Vec<RideVisit> {
+        let source_departure_seconds = self.departure_seconds.view();
+        let source_arrival_seconds = self.arrival_seconds.view();
+        let source_from_stop = self.from_stop.view();
+        let source_to_stop = self.to_stop.view();
+        let source_sequence = self.sequence.view();
+        let source_can_board = self.can_board.view();
+        let source_can_alight = self.can_alight.view();
+        let source_trip_start = self.trip_start.view();
+
+        let trip = trip as usize;
+        let mut visits: Vec<RideVisit> = vec![];
+        if trip + 1 >= self.trip_start.len() {
+            return visits;
+        }
+        for i in source_trip_start[trip] as usize..source_trip_start[trip + 1] as usize {
+            let sequence = f64::from(source_sequence[i]);
+            if sequence < board {
+                continue;
+            }
+            if sequence > alight {
+                break;
+            }
+            match visits.last_mut() {
+                Some(previous) => previous.board = source_can_board[i] == 1,
+                None => visits.push(RideVisit {
+                    stop: source_from_stop[i],
+                    time: f64::from(source_departure_seconds[i]),
+                    leave: false,
+                    board: source_can_board[i] == 1,
+                }),
+            }
+            visits.push(RideVisit {
+                stop: source_to_stop[i],
+                time: f64::from(source_arrival_seconds[i]),
+                leave: source_can_alight[i] == 1,
+                board: true,
+            });
+        }
+        visits
+    }
+    /// Walking transfers leaving `stop` in the active timetable, as
+    /// `(stop, seconds)`; transfers a request disabled are absent.
+    pub fn transfer_walks(&self, stop: u32) -> impl Iterator<Item = (u32, u32)> + '_ {
+        let stop = stop as usize;
+        let range = if stop + 1 < self.transfer_offset.len() {
+            self.transfer_offset[stop] as usize..self.transfer_offset[stop + 1] as usize
+        } else {
+            0..0
+        };
+        self.transfer_edges[range]
+            .iter()
+            .map(|edge| (edge.stop() as u32, edge.duration()))
+    }
+    /// Whether a rider may board `trip` on its segment numbered `board`.
+    pub fn ride_can_board(&self, trip: u32, board: f64) -> bool {
+        let source_sequence = self.sequence.view();
+        let source_can_board = self.can_board.view();
+        let source_trip_start = self.trip_start.view();
+
+        let trip = trip as usize;
+        trip + 1 < self.trip_start.len()
+            && (source_trip_start[trip] as usize..source_trip_start[trip + 1] as usize)
+                .find(|&i| f64::from(source_sequence[i]) == board)
+                .is_some_and(|i| source_can_board[i] == 1)
+    }
+    pub fn minimum_transfer_buffer_seconds(&self) -> u32 {
+        self.minimum_transfer_buffer_seconds
     }
     pub fn ride_departure(&self, trip: u32, board: f64) -> Result<f64> {
         let source_departure_seconds = self.departure_seconds.view();

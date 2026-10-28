@@ -29,7 +29,7 @@ mod journeys;
 mod shared_legs;
 pub use shared_legs::*;
 mod overlay_quality;
-pub use journeys::{TimetableMatrixJourney, TimetableMatrixLeg};
+pub use journeys::{RideVisit, TimetableMatrixJourney, TimetableMatrixLeg};
 
 const STATE_STRIDE: usize = 8;
 const NO_STATE: i32 = -1;
@@ -3313,6 +3313,7 @@ pub struct TimetableKernel {
     exit_event_offset: Vec<u32>,
     exit_events: Vec<ExitEvent>,
     query: TimetableQueryWorkspace,
+    relaxed_graph: Option<relaxed::RelaxedGraph>,
 }
 
 // Query scratch is independent of the immutable schedule. A sequential worker
@@ -3478,6 +3479,7 @@ mod diagnostics;
 mod many;
 mod matrix;
 mod overlay;
+mod relaxed;
 
 pub fn boarding_layers(maximum: Option<u32>) -> Result<usize> {
     match maximum {

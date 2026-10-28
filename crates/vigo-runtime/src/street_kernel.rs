@@ -95,8 +95,8 @@ impl CoordinateKernel {
             }
         }
         serde_json::json!({"sharedMappedFileBytes":mapped,
-            "sharedHeapBytes":self.snapshot.heap_bytes() + self.terminal_access.as_ref().map_or(0, |g|g.heap_bytes()),
-            "accessHeapBytes":access,"accessMappedFileBytes":access_mapped,
+            "sharedHeapBytes":self.snapshot.heap_bytes(),
+            "accessHeapBytes":access + self.terminal_access.as_ref().map_or(0, |g|g.heap_bytes()),"accessMappedFileBytes":access_mapped,
             "workspaceHeapBytes":workspace,"cacheHeapBytes":cache,
             "cchForwardScratchBytes":self.street_cch.as_ref().map_or(0, |i|i.forward_query.byte_length()),
             "cchReverseScratchBytes":self.street_cch.as_ref().map_or(0, |i|i.reverse_query.byte_length()),
@@ -161,7 +161,8 @@ impl CoordinateKernel {
     #[cfg(feature = "standalone")]
     pub(crate) fn share_streets(&self) -> napi::Result<Self> {
         let mut kernel = Self::from_shared_snapshot(Arc::clone(&self.snapshot));
-        kernel.terminal_access = self.terminal_access.clone();
+        // Terminal boundaries depend on the receiving City's stop anchors.
+        // City::open_layout installs its own overlay after sharing the base.
         if let Some(index) = &self.street_cch {
             kernel.install_shared_street_cch(
                 Arc::clone(&index.structure),

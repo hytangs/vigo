@@ -1,6 +1,6 @@
 import { nativeRouteRequest, studioRouteResponse } from '../server/studio-route-plans.mjs'
 import { routingResultStatus } from '../server/gtfs/route-results.mjs'
-import { wheelchairDescription, validateWheelchairRequest } from '../server/wheelchair-policy.mjs'
+import { wheelchairDescriptionFor, wheelchairStreetPolicy, validateWheelchairRequest } from '../server/wheelchair-policy.mjs'
 import fs from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
@@ -1321,10 +1321,15 @@ function startJsonCompiler(command: string, compilerArguments: string[], label: 
   }
 }
 
-function startOsmCompiler(osmPbf: string, outputPath: string, streetModes: string, wheelchair = false, flexDriving = false) {
+// Street evidence for a wheelchair City: inferred step-free ways by default.
+function wheelchairStreets(args: CliArguments) {
+  return wheelchairStreetPolicy(value(args, 'wheelchair-streets', 'inferred'))
+}
+
+function startOsmCompiler(osmPbf: string, outputPath: string, streetModes: string, wheelchair = false, flexDriving = false, streets = 'inferred') {
   return startJsonCompiler(
     '_build-osm-store',
-    [`--osm-pbf=${osmPbf}`, `--output-store=${outputPath}`, `--street-modes=${streetModes}`, `--wheelchair=${wheelchair}`, `--flex-driving=${flexDriving}`],
+    [`--osm-pbf=${osmPbf}`, `--output-store=${outputPath}`, `--street-modes=${streetModes}`, `--wheelchair=${wheelchair}`, `--wheelchair-streets=${streets}`, `--flex-driving=${flexDriving}`],
     'OSM compiler',
   )
 }
@@ -1345,6 +1350,7 @@ async function runGtfsCompiler(args: CliArguments) {
   const result = await buildNationalGtfsCityStore({
     feeds: files.map((file, i) => ({ path: file, scope: scopes[i] })),
     wheelchair: enabled(args, 'wheelchair'),
+    wheelchairStreets: wheelchairStreets(args),
     outputPath: value(args, 'output-store'), onProgress: buildProgress('gtfs'),
   })
   process.stdout.write(JSON.stringify(result))
@@ -1369,6 +1375,7 @@ async function runOsmCompiler(args: CliArguments) {
     includeDriving: value(args, 'street-modes', 'walk,drive') === 'walk,drive' || enabled(args, 'flex-driving'),
     flexDriving: enabled(args, 'flex-driving'),
     wheelchair: enabled(args, 'wheelchair'),
+    wheelchairStreets: wheelchairStreets(args),
     onProgress: buildProgress('osm'),
   })
   process.stdout.write(JSON.stringify(result))
@@ -1389,6 +1396,24 @@ async function fileDigest(file: string) {
   const hash = createHash('sha256')
   for await (const bytes of fs.createReadStream(file)) hash.update(bytes)
   return hash.digest('hex')
+}
+
+// Keep the base graph and CCH files shared, while each City's timetable owns
+// its endpoint boundary overlay. Relative file links preserve the published
+// osm/ layout for existing readers and remain valid after moving a collection.
+const terminalAccessArtifact = 'street-index.sqlite.terminal-access-v1.json'
+function linkStreetBase(source: string, destination: string) {
+  fs.mkdirSync(destination, { recursive: true })
+  for (const name of fs.readdirSync(source)) {
+    if (name === terminalAccessArtifact) continue
+    const target = fs.realpathSync(path.join(source, name))
+    if (!fs.statSync(target).isFile()) throw new Error(`Unexpected street base member: ${name}`)
+    // Published readers require CCH members to resolve inside osm/. Hard
+    // links preserve that rule without duplicating the immutable file data.
+    if (name.endsWith('.structure') || name.endsWith('.metric')) {
+      fs.linkSync(target, path.join(destination, name))
+    } else fs.symlinkSync(path.relative(fs.realpathSync(destination), target), path.join(destination, name), 'file')
+  }
 }
 
 async function runBuildScenarios(args: CliArguments) {
@@ -1448,20 +1473,27 @@ async function runBuildScenarios(args: CliArguments) {
         ...scenario.feeds.map(feed => `--gtfs=${feed.path}`),
         ...scenario.feeds.map(feed => `--gtfs-scope=${feed.scope}`),
         ...prepareDates.map(date => `--prepare-date=${date}`),
-        `--osm=${osm.path}`, `--street-modes=${streetModes}`, `--wheelchair=${wheelchair}`, `--flex-driving=${wheelchair}`, `--private-access=${privateAccess}`,
+        `--osm=${osm.path}`, `--street-modes=${streetModes}`, `--wheelchair=${wheelchair}`, `--wheelchair-streets=${wheelchairStreets(args)}`, `--flex-driving=${wheelchair}`, `--private-access=${privateAccess}`,
         ...(firstCity ? [`--streets-from=${firstCity}`] : []),
         `--output=${compilerStage}`, `--city-name=${scenario.name}`,
       ], `Scenario ${scenario.id}`)
       const result = await compiler.outcome
       if ('error' in result) throw result.error
       publishCity(compilerStage, cityPath)
-      // Endpoint boundaries depend on each timetable's public stop anchors.
-      // Keep those overlays City-local; never reuse the first City's boundaries.
-      if (!firstCity && privateAccess === 'public') {
+      if (!firstCity) {
         const shared = path.join(staged, 'streets', osm.sha256)
+        const local = path.join(cityPath, 'osm')
         fs.mkdirSync(path.dirname(shared))
-        fs.renameSync(path.join(cityPath, 'osm'), shared)
-        fs.symlinkSync(path.relative(cityPath, shared), path.join(cityPath, 'osm'), 'dir')
+        if (privateAccess === 'public') {
+          fs.renameSync(local, shared)
+          fs.symlinkSync(path.relative(cityPath, shared), local, 'dir')
+        } else {
+          fs.mkdirSync(shared)
+          for (const name of fs.readdirSync(local)) {
+            if (name !== terminalAccessArtifact) fs.renameSync(path.join(local, name), path.join(shared, name))
+          }
+          linkStreetBase(shared, local)
+        }
         firstCity = cityPath
       }
     }
@@ -1470,18 +1502,28 @@ async function runBuildScenarios(args: CliArguments) {
       scenarios: scenarios.map(({ id, name }) => ({ id, name, city: `cities/${id}` })) }
     fs.writeFileSync(path.join(staged, 'scenarios.json'), JSON.stringify(manifest, null, 2) + '\n')
     const files: Array<{ path: string; bytes: number; sha256: string }> = []
+    const physicalFiles = new Map<string, { bytes: number; sha256: string }>()
     async function inventory(directory: string) {
       for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
         const file = path.join(directory, entry.name)
         if (entry.isSymbolicLink()) continue // Shared streets are inventoried once.
         if (entry.isDirectory()) await inventory(file)
-        else files.push({ path: path.relative(staged, file).split(path.sep).join('/'), bytes: fs.statSync(file).size, sha256: await fileDigest(file) })
+        else {
+          const stat = fs.statSync(file, { bigint: true })
+          const key = `${stat.dev}:${stat.ino}`
+          let identity = physicalFiles.get(key)
+          if (!identity) {
+            identity = { bytes: Number(stat.size), sha256: await fileDigest(file) }
+            physicalFiles.set(key, identity)
+          }
+          files.push({ path: path.relative(staged, file).split(path.sep).join('/'), ...identity })
+        }
       }
     }
     await inventory(staged)
     fs.writeFileSync(path.join(staged, 'checksums.json'), JSON.stringify({ schemaVersion: 'vigo.checksums.v1', algorithm: 'sha256', files }, null, 2) + '\n')
     fs.renameSync(staged, output)
-    process.stdout.write(JSON.stringify({ ...manifest, storageBytes: files.reduce((sum, file) => sum + file.bytes, 0), sharedStreetCopies: privateAccess === 'public' ? 1 : scenarios.length }, null, 2) + '\n')
+    process.stdout.write(JSON.stringify({ ...manifest, storageBytes: [...physicalFiles.values()].reduce((sum, file) => sum + file.bytes, 0), sharedStreetCopies: 1 }, null, 2) + '\n')
   } finally { fs.rmSync(staged, { recursive: true, force: true }) }
 }
 
@@ -1509,6 +1551,7 @@ async function runBuildCity(args: CliArguments) {
       `--private-access=${value(args, 'private-access', 'public')}`,
       `--street-modes=${value(args, 'street-modes', enabled(args, 'wheelchair') ? 'walk' : 'walk,drive')}`,
       `--wheelchair=${enabled(args, 'wheelchair')}`,
+      `--wheelchair-streets=${wheelchairStreets(args)}`,
       ...(value(args, 'streets-from') ? [`--streets-from=${path.resolve(value(args, 'streets-from'))}`] : []),
       `--output=${stagingDirectory}`,
       `--city-name=${path.basename(outputDirectory)}`,
@@ -1525,6 +1568,8 @@ async function runBuildCity(args: CliArguments) {
 
 async function runCityCompiler(args: CliArguments) {
   const wheelchair = enabled(args, 'wheelchair')
+  const streets = wheelchairStreets(args)
+  const accessibility = wheelchair ? wheelchairDescriptionFor(streets) : null
   const streetModes = value(args, 'street-modes', wheelchair ? 'walk' : 'walk,drive')
   if (wheelchair && streetModes !== 'walk') throw new Error('Wheelchair Cities require --street-modes walk')
   if (!['walk', 'walk,drive'].includes(streetModes)) throw new Error('street-modes must be walk or walk,drive')
@@ -1549,11 +1594,11 @@ async function runCityCompiler(args: CliArguments) {
   const osmSha256 = await fileDigest(osmPbf)
   const sharedCityPath = value(args, 'streets-from') ? path.resolve(value(args, 'streets-from')) : null
   const sharedCity = sharedCityPath ? validateCityDirectory(sharedCityPath) : null
-  if (sharedCity && (privateAccess !== 'public' || sharedCity.streetStore?.terminalAccess?.model !== 'public'
-      || Boolean(sharedCity.accessibility) !== wheelchair
+  if (sharedCity && (Boolean(sharedCity.accessibility) !== wheelchair
+      || (wheelchair && (sharedCity.accessibility as { streetEvidence?: string })?.streetEvidence !== accessibility?.streetEvidence)
       || sharedCity.sources?.osm?.sha256 !== osmSha256 || sharedCity.preparationPolicy !== 'vigo.city.prepare.v2'
       || sharedCity.modes?.includes('drive') !== (streetModes === 'walk,drive'))) {
-    throw new Error('Shared streets require matching OSM bytes, prepared modes, public access and preparation policy.')
+    throw new Error('Shared streets require matching OSM bytes, prepared modes, accessibility and preparation policy.')
   }
   const outputValue = value(args, 'output')
   if (!outputValue.trim()) throw new Error('build requires --output')
@@ -1575,7 +1620,11 @@ async function runCityCompiler(args: CliArguments) {
   fs.mkdirSync(stagingRouting, { recursive: true })
   if (sharedCityPath) {
     const sharedStreetPath = fs.realpathSync(path.join(sharedCityPath, 'osm'))
-    fs.symlinkSync(path.relative(fs.realpathSync(stagingDirectory), sharedStreetPath), stagingOsm, 'dir')
+    // Never inherit a donor City's endpoint overlay, including when a public
+    // City reuses the base of an endpoint-enabled City.
+    if (privateAccess === 'public' && sharedCity.streetStore?.terminalAccess?.model === 'public') {
+      fs.symlinkSync(path.relative(fs.realpathSync(stagingDirectory), sharedStreetPath), stagingOsm, 'dir')
+    } else linkStreetBase(sharedStreetPath, stagingOsm)
   } else fs.mkdirSync(stagingOsm, { recursive: true })
 
   const started = performance.now()
@@ -1594,14 +1643,14 @@ async function runCityCompiler(args: CliArguments) {
   const cityProgress = buildProgress('city')
   try {
     const stagedStreetStore = path.join(stagingOsm, 'street-index.sqlite')
-    if (parallelRawBuild) osmCompiler = startOsmCompiler(osmPbf, stagedStreetStore, streetModes, wheelchair)
+    if (parallelRawBuild) osmCompiler = startOsmCompiler(osmPbf, stagedStreetStore, streetModes, wheelchair, false, streets)
     const stagedRoutingStore = path.join(stagingRouting, 'project.sqlite')
     const gtfsStarted = performance.now()
     // Process boundaries release importer heaps and native allocations before
     // the next build stage; GC cannot account for native CCH working memory.
     gtfsCompiler = startJsonCompiler('_build-gtfs-store', [
       ...gtfs.flatMap(feed => [`--gtfs=${feed.path}`, `--gtfs-scope=${feed.scope}`]),
-      `--wheelchair=${wheelchair}`, `--output-store=${stagedRoutingStore}`,
+      `--wheelchair=${wheelchair}`, `--wheelchair-streets=${streets}`, `--output-store=${stagedRoutingStore}`,
     ], 'GTFS compiler')
     const gtfsOutcome = await gtfsCompiler.outcome
     if ('error' in gtfsOutcome) throw gtfsOutcome.error
@@ -1624,7 +1673,7 @@ async function runCityCompiler(args: CliArguments) {
     if (sharedCityPath) {
       streetResult = readNationalOsmStoreMetadata(path.join(sharedCityPath, 'osm', 'street-index.sqlite')) as Record<string, unknown>
     } else {
-      osmCompiler ??= startOsmCompiler(osmPbf, stagedStreetStore, streetModes, wheelchair, flexDriving)
+      osmCompiler ??= startOsmCompiler(osmPbf, stagedStreetStore, streetModes, wheelchair, flexDriving, streets)
       const outcome = await osmCompiler.outcome
       if ('error' in outcome) throw outcome.error
       streetResult = outcome.result
@@ -1724,7 +1773,7 @@ async function runCityCompiler(args: CliArguments) {
     }
     const summary = {
       schemaVersion: 'vigo.city.v1',
-      ...(wheelchair ? { accessibility: wheelchairDescription } : {}),
+      ...(accessibility ? { accessibility } : {}),
       productVersion: packageJson.version,
       apiVersion,
       cityFormatVersion,

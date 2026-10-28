@@ -289,6 +289,8 @@ function snapshotPathForStore(storePath) {
 }
 
 function cchPrefix(snapshotPath, format) {
+  // Admit one immutable hierarchy for file-linked scenario street bases.
+  if (fs.existsSync(snapshotPath)) snapshotPath = fs.realpathSync(snapshotPath)
   const source = snapshotIdentity(snapshotPath)
   const fingerprint = source?.identity?.sourceFingerprint
   const generation = /^[a-f0-9]{64}$/u.test(fingerprint ?? '') ? fingerprint.slice(0, 16) : 'prepared'
@@ -1199,7 +1201,7 @@ export function routeNativeTimetablePareto(kernel, request) {
 export function routeNativeTimetableAlternatives(kernel, request) {
   const record = prepareNativeTimetableKernel(kernel)
   const { maximumBoardings, ...endpoints } = timetableEndpointQuery(request)
-  const result = record.kernel.routeAlternativesCsa({
+  const result = record.kernel.routeAlternativeCandidatesCsa({
     ...endpoints,
     departure: request.departure,
     horizon: request.horizon,

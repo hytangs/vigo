@@ -294,7 +294,7 @@ class VigoPythonTest(unittest.TestCase):
 
     def test_runtime_accepts_compatible_release_versions(self) -> None:
         source = self.cli.read_text()
-        for version in ("0.5.0", "1.0.0-rc.1", "1.0.0", "1.0.1+build.2"):
+        for version in ("0.5.0", "1.0.0-rc.2", "1.0.0", "1.0.1+build.2"):
             with self.subTest(version=version):
                 self.cli.write_text(source.replace('"0.5.0"', f'"{version}"'))
                 self.assertEqual(vigo.resolve_runtime(self.command).product_version, version)

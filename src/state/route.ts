@@ -90,10 +90,10 @@ const initialRouteState = (): RouteState => ({
   routingMaxWalkKm: 1.2,
   routingWalkLimitExplicit: false,
   routingMaxTransfers: undefined,
-  // Walk-only fallbacks and walks between separate stops are opt-in; station
-  // connections inside one parent station stay available.
+  // Walk-only fallbacks are opt-in. Walks between nearby stops stay on: without
+  // them a rider cannot cross the street to the opposite-direction stop.
   routingAllowLongWalk: false,
-  routingAllowStreetTransfers: false,
+  routingAllowStreetTransfers: true,
   routingWheelchair: false,
   wheelchairAvailableKey: '',
   wheelchairPrepareKey: '',

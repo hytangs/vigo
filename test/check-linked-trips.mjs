@@ -144,5 +144,31 @@ try {
    checks++
   }
  }
+ // Deferring a boarding to a later pass changes the physical trip. An
+ // incoming rider must retain the original ride when that later transfer is
+ // forbidden or requires more time; a rider starting here has no transfer.
+ for(const rule of [3,2,null]) {
+  const inputDir=path.join(dir,`returning-${rule}`);fs.mkdirSync(inputDir)
+  const input=await writeCliFixtureInputs(inputDir)
+  const zip=await JSZip.loadAsync(fs.readFileSync(input.gtfsPath))
+  zip.file('stops.txt',(await zip.file('stops.txt').async('string'))+'O,Origin,38.899,-77.05\n')
+  zip.file('trips.txt','route_id,service_id,trip_id,direction_id,block_id\nR1,WKD,P,0,\nR1,WKD,T1,0,LOOP\nR2,WKD,T2,1,LOOP\n')
+  zip.file('stop_times.txt','trip_id,arrival_time,departure_time,stop_id,stop_sequence\nP,07:50:00,07:50:00,O,1\nP,07:55:00,07:55:00,A,2\nT1,08:00:00,08:00:00,A,1\nT1,08:10:00,08:10:00,X,2\nT2,08:15:00,08:15:00,X,1\nT2,08:20:00,08:20:00,A,2\nT2,08:30:00,08:30:00,B,3\n')
+  zip.file('transfers.txt','from_stop_id,to_stop_id,from_trip_id,to_trip_id,transfer_type,min_transfer_time\n,,T1,T2,4,\n'+(rule===null?'':`A,A,P,T2,${rule},1800\n`))
+  fs.writeFileSync(input.gtfsPath,await zip.generateAsync({type:'nodebuffer'}))
+  const city=path.join(inputDir,'city')
+  execFileSync(process.execPath,['public/vigo.mjs','build',`--gtfs=${input.gtfsPath}`,`--osm=${input.osmPath}`,`--output=${city}`],{cwd:root,stdio:'pipe'})
+  const base={kind:'route',origin:{stopId:'O'},destination:{stopId:'B'},serviceDate:'2026-07-15',timeMinutes:470,maxWalkKm:.01,maxTransfers:1,requireTransitRide:true,allowStreetTransfers:false}
+  for(const extra of [{},{alternatives:5},{windowMinutes:1,windowStepMinutes:1,windowChoices:'supported'}]) {
+   const r=JSON.parse(execFileSync(standaloneBinary,['stream','--city',city],{input:JSON.stringify({...base,...extra})+'\n',encoding:'utf8'}).trim())
+   assert.equal(r.status,'ok',JSON.stringify(r))
+   assert.deepEqual(r.journey.legs.filter(l=>l.type==='transit').map(l=>l.trip.id),rule===null?['P','T2']:['P','T1','T2'],`Later boarding must respect transfer rule ${rule}`)
+   assert.equal(r.journey.arrivalTime,'08:30:00')
+   checks++
+  }
+  const first=JSON.parse(execFileSync(standaloneBinary,['stream','--city',city],{input:JSON.stringify({...base,origin:{stopId:'A'},timeMinutes:480})+'\n',encoding:'utf8'}).trim())
+  assert.deepEqual(first.journey.legs.filter(l=>l.type==='transit').map(l=>l.trip.id),['T2'],'First boarding still uses the last pass')
+  checks++
+ }
  console.log(JSON.stringify({status:'passed',checks}))
 } finally {for(const child of children)child.kill();fs.rmSync(dir,{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 })}

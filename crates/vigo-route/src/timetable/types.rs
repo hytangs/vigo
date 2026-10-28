@@ -148,7 +148,7 @@ pub struct TimetableArriveByManyQueryResult {
     pub dominated_trip_boardings: u32,
     pub explicit_transfer_checks: u32,
 }
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimetableMatrixQueryInput {
     pub origin_offsets: Vec<u32>,

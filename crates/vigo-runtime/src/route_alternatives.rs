@@ -8,8 +8,9 @@ use std::cmp::Ordering;
 use napi_derive::napi;
 
 /// The validated alternative request; `count` excludes the primary journey.
-/// `limit` bounds the kernel's ranked completions, which may include the
-/// primary journey; Pareto frontiers are returned complete.
+/// `limit` requests ranked completions including the primary journey. The
+/// candidate collector oversamples before vehicle-chain merging; Pareto
+/// frontiers are returned complete.
 #[cfg_attr(feature = "node", napi(object))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct RouteAlternativeRequest {
@@ -108,6 +109,8 @@ struct Metrics {
     identity: String,
     /// Trips ridden, consecutive rides on one trip collapsed.
     vehicles: Vec<Value>,
+    /// The distinct routes ridden.
+    routes: Vec<String>,
 }
 
 fn clock_seconds(v: &Value) -> f64 {
@@ -117,6 +120,14 @@ fn clock_seconds(v: &Value) -> f64 {
             Some(parts.next()?.ok()? * 3600. + parts.next()?.ok()? * 60. + parts.next()?.ok()?)
         })
         .unwrap_or(f64::INFINITY)
+}
+
+/// One vehicle chain: the same trips, or one chain continuing the other with
+/// added trailing rides. Such journeys differ only by where the rider leaves a
+/// vehicle they are already on, or by an extra ride after it.
+fn same_chain(a: &[Value], b: &[Value]) -> bool {
+    let (short, long) = if a.len() <= b.len() { (a, b) } else { (b, a) };
+    !short.is_empty() && long.starts_with(short)
 }
 
 impl Metrics {
@@ -138,8 +149,18 @@ impl Metrics {
             .collect();
         let mut vehicles: Vec<Value> = rides.iter().map(|ride| ride[0].clone()).collect();
         vehicles.dedup();
+        let mut routes: Vec<String> = journey["legs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|leg| leg["type"] == "transit")
+            .map(|leg| leg["route"]["id"].to_string())
+            .collect();
+        routes.sort();
+        routes.dedup();
         Self {
             vehicles,
+            routes,
             arrival: clock_seconds(&journey["arrivalTime"]),
             boardings: journey["boardings"].as_f64().unwrap_or(0.),
             walking: journey["walkingSeconds"].as_f64().unwrap_or(0.),
@@ -155,12 +176,14 @@ impl Metrics {
     }
 }
 
-/// Choose public alternatives from distinct formatted journeys. Ranked keeps
-/// the earliest arrivals, then less walking and fewer boardings, one per
-/// sequence of vehicles (the primary's included). Pareto drops journeys
-/// dominated by the primary or an earlier alternative; when more remain than
-/// requested, the fewest boardings and least walking are kept before the
-/// earliest arrivals.
+/// Choose public alternatives from distinct formatted journeys. Journeys on
+/// one vehicle chain (see `same_chain`) are one choice: the earliest
+/// arrival, then less walking and fewer boardings, wins, the primary's chain
+/// included. Ranked keeps the earliest remaining arrivals. Pareto drops
+/// journeys dominated by the primary or an earlier alternative; when more
+/// remain than requested, the fewest boardings and least walking are kept
+/// before the earliest arrivals. Free places then go to journeys within the
+/// arrival slack that ride a set of routes no listed journey rides.
 pub(crate) fn select(primary: &Value, candidates: Vec<Value>, search: &Value) -> Vec<Value> {
     let maximum = search["maximumJourneys"]
         .as_u64()
@@ -170,15 +193,27 @@ pub(crate) fn select(primary: &Value, candidates: Vec<Value>, search: &Value) ->
         .map(|journey| (Metrics::new(&journey), journey))
         .collect();
     candidates.sort_by(|a, b| a.0.order(&b.0));
-    if search["ranking"] == "ranked" {
-        let mut seen = vec![Metrics::new(primary).vehicles];
+    let mut identities = std::collections::HashSet::new();
+    candidates.retain(|(metrics, _)| identities.insert(metrics.identity.clone()));
+    let primary_metrics = (!primary.is_null()).then(|| Metrics::new(primary));
+    {
+        let mut chains: Vec<Vec<Value>> =
+            primary_metrics.iter().map(|m| m.vehicles.clone()).collect();
         candidates.retain(|(metrics, _)| {
-            let fresh = metrics.vehicles.is_empty() || !seen.contains(&metrics.vehicles);
+            if metrics.vehicles.is_empty() {
+                return true;
+            }
+            let fresh = !chains
+                .iter()
+                .any(|chain| same_chain(chain, &metrics.vehicles));
             if fresh {
-                seen.push(metrics.vehicles.clone());
+                chains.push(metrics.vehicles.clone());
             }
             fresh
         });
+    }
+    if search["ranking"] == "ranked" {
+        // Chains are distinct already; keep the earliest arrivals.
     } else {
         // Pareto mode never removes an already accepted journey: candidates
         // arrive in order, so a later one cannot dominate an earlier one.
@@ -188,16 +223,18 @@ pub(crate) fn select(primary: &Value, candidates: Vec<Value>, search: &Value) ->
         } else {
             vec![point(&Metrics::new(primary))]
         };
-        candidates.retain(|(metrics, _)| {
-            let candidate = point(metrics);
-            let keep = !frontier
-                .iter()
-                .any(|kept| kept.iter().zip(&candidate).all(|(a, b)| a <= b));
-            if keep {
-                frontier.push(candidate);
-            }
-            keep
-        });
+        let (kept, dominated): (Vec<_>, Vec<_>) =
+            candidates.into_iter().partition(|(metrics, _)| {
+                let candidate = point(metrics);
+                let keep = !frontier
+                    .iter()
+                    .any(|kept| kept.iter().zip(&candidate).all(|(a, b)| a <= b));
+                if keep {
+                    frontier.push(candidate);
+                }
+                keep
+            });
+        candidates = kept;
         if candidates.len() > maximum {
             let mut chosen = vec![false; candidates.len()];
             let mut remaining = maximum;
@@ -224,6 +261,33 @@ pub(crate) fn select(primary: &Value, candidates: Vec<Value>, search: &Value) ->
             }
             let mut flags = chosen.into_iter();
             candidates.retain(|_| flags.next().unwrap());
+        }
+        let latest = primary_metrics
+            .as_ref()
+            .map(|m| m.arrival + search["arrivalSlackMinutes"].as_f64().unwrap_or(0.) * 60.);
+        if let Some(latest) = latest
+            && candidates.len() < maximum
+        {
+            let mut route_sets: Vec<Vec<String>> = primary_metrics
+                .iter()
+                .chain(candidates.iter().map(|(m, _)| m))
+                .map(|m| m.routes.clone())
+                .collect();
+            let mut extra = vec![];
+            for (metrics, journey) in dominated {
+                if extra.len() + candidates.len() == maximum {
+                    break;
+                }
+                if metrics.arrival <= latest
+                    && !metrics.routes.is_empty()
+                    && !route_sets.contains(&metrics.routes)
+                {
+                    route_sets.push(metrics.routes.clone());
+                    extra.push((metrics, journey));
+                }
+            }
+            candidates.extend(extra);
+            candidates.sort_by(|a, b| a.0.order(&b.0));
         }
     }
     candidates.truncate(maximum);
@@ -318,5 +382,56 @@ mod tests {
             trips(&select(&primary, candidates, &two)),
             ["fewer", "less-walk"]
         );
+    }
+
+    fn rides(arrival: &str, walking: u64, legs: &[(&str, &str)]) -> Value {
+        json!({"departureTime":"08:00:00","arrivalTime":arrival,"boardings":legs.len(),
+            "walkingSeconds":walking,"legs":legs.iter().map(|(trip, route)| json!({
+                "type":"transit","trip":{"id":trip},"route":{"id":{"id":route}}})).collect::<Vec<_>>()})
+    }
+
+    #[test]
+    fn pareto_keeps_route_distinct_journeys_within_the_slack() {
+        let search = json!({"ranking":"pareto","maximumJourneys":4,"arrivalSlackMinutes":15});
+        // The primary walks least and arrives first: it dominates everything.
+        let primary = rides("09:00:00", 300, &[("59a", "59"), ("71a", "71")]);
+        let picked = select(
+            &primary,
+            vec![
+                rides("09:07:00", 420, &[("Da", "D"), ("Reda", "Red")]),
+                rides("09:12:00", 600, &[("Db", "D"), ("Redb", "Red")]),
+                rides("09:20:00", 400, &[("86a", "86"), ("66a", "66")]),
+                rides("09:05:00", 400, &[("59b", "59"), ("71b", "71")]),
+            ],
+            &search,
+        );
+        // One D -> Red journey (the earliest); the 86 arrives beyond the slack;
+        // the later 59 -> 71 rides the primary's routes.
+        assert_eq!(trips(&picked), ["Da"]);
+    }
+
+    #[test]
+    fn variants_of_one_vehicle_chain_are_one_choice() {
+        for ranking in ["pareto", "ranked"] {
+            let search = json!({"ranking":ranking,"maximumJourneys":5,"arrivalSlackMinutes":15});
+            let primary = rides("09:53:00", 620, &[("D1", "D"), ("86x", "86")]);
+            let picked = select(
+                &primary,
+                vec![
+                    // The same two vehicles, alighting elsewhere.
+                    rides("09:53:39", 490, &[("D1", "D"), ("86x", "86")]),
+                    // The same vehicles with a bus added after them.
+                    rides(
+                        "09:56:00",
+                        300,
+                        &[("D1", "D"), ("86x", "86"), ("66z", "66")],
+                    ),
+                    rides("10:02:00", 410, &[("D1", "D"), ("RedA", "Red")]),
+                ],
+                &search,
+            );
+            assert_eq!(trips(&picked), ["D1"], "{ranking}");
+            assert_eq!(picked[0]["legs"][1]["trip"]["id"], "RedA");
+        }
     }
 }

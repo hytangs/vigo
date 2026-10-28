@@ -150,6 +150,10 @@ pub(super) struct ServiceIndex {
     reverse_classes: Vec<u32>,
     forward_identity_stops: Vec<bool>,
     reverse_identity_stops: Vec<bool>,
+    /// Stops that open a rule's stop pair in each direction. Elsewhere a
+    /// label's anchor affects later transfers only by being its own stop.
+    forward_rule_anchors: Arc<[bool]>,
+    reverse_rule_anchors: Arc<[bool]>,
     /// Alighting events at which the ordinary scan may lose transfer semantics,
     /// as (clock, stop, slack): an event matters while the buffer exceeds slack.
     forward_guard_events: Vec<(u32, u32, i64)>,
@@ -242,28 +246,50 @@ struct Search {
     completion_labels: OnceCell<HashMap<u32, Vec<usize>>>,
     queue: BinaryHeap<Queue>,
     reverse: bool,
+    /// Per stop, whether the anchor selects transfer rules in this direction.
+    rule_anchors: Arc<[bool]>,
+    /// Compare clocks only. Without a boarding cap, boardings and walking
+    /// never decide feasibility, so this keeps the exact earliest arrival;
+    /// its boarding and walking ties are certified by a later Pareto search.
+    time_only: bool,
 }
 impl Search {
-    fn retain(&mut self, label: Label) -> Result<()> {
-        if self.labels.len() >= MAX_PARETO_LABELS {
-            return Err(Error::from_reason(
-                "Service search exceeds the bounded label budget",
-            ));
-        }
-        let sign = if self.reverse { -1. } else { 1. };
-        let key = (
+    /// A label's dominance class. Transfer rules read the anchor only where it
+    /// opens a rule's stop pair; elsewhere only whether the anchor is the
+    /// current stop changes a later transfer, so other anchors share a class.
+    fn key(&self, label: &Label) -> FrontierKey {
+        let anchor = if self
+            .rule_anchors
+            .get(label.anchor as usize)
+            .copied()
+            .unwrap_or(true)
+        {
+            label.anchor
+        } else if label.anchor == label.stop {
+            u32::MAX - 1
+        } else {
+            u32::MAX
+        };
+        (
             label.stop,
             label.transfer_class,
-            label.anchor,
+            anchor,
             label.walked,
             label.scoped_path,
-        );
+        )
+    }
+    fn retain(&mut self, label: Label) -> Result<()> {
+        if self.labels.len() >= MAX_PARETO_LABELS {
+            return Err(Error::from_reason(LABEL_BUDGET));
+        }
+        let sign = if self.reverse { -1. } else { 1. };
+        let key = self.key(&label);
         let frontier = self.frontiers.entry(key).or_default();
+        let time_only = self.time_only;
         let dominates = |a: &Label, b: &Label| {
             a.clock * sign <= b.clock * sign
                 && a.anchor_clock * sign <= b.anchor_clock * sign
-                && a.boardings <= b.boardings
-                && a.walking <= b.walking
+                && (time_only || (a.boardings <= b.boardings && a.walking <= b.walking))
         };
         if frontier.iter().any(|&i| dominates(&self.labels[i], &label)) {
             return Ok(());
@@ -291,6 +317,14 @@ impl Search {
         chain
     }
 }
+/// Bounds that keep a stateful search finite. Reaching one says the search is
+/// too large, not that the request is wrong; optional alternatives degrade.
+const LABEL_BUDGET: &str = "Service search exceeds the bounded label budget";
+const ONBOARD_BUDGET: &str = "Service search exceeds the bounded onboard label budget";
+const OPERATION_BUDGET: &str = "Service search exceeds the bounded operation budget";
+fn over_budget(error: &Error) -> bool {
+    [LABEL_BUDGET, ONBOARD_BUDGET, OPERATION_BUDGET].contains(&error.reason.as_str())
+}
 #[derive(Clone)]
 struct Completion {
     time: f64,
@@ -312,6 +346,8 @@ impl TimetableKernel {
             reverse_classes: vec![],
             forward_identity_stops: vec![false; self.stop_count],
             reverse_identity_stops: vec![false; self.stop_count],
+            forward_rule_anchors: Arc::from(vec![]),
+            reverse_rule_anchors: Arc::from(vec![]),
             forward_guard_events: vec![],
             reverse_guard_events: vec![],
             forward_certificate: None,
@@ -342,6 +378,14 @@ impl TimetableKernel {
                 index.extra_reverse[r.to_stop as usize].push(r.from_stop);
             }
         }
+        let (mut forward_anchors, mut reverse_anchors) =
+            (vec![false; self.stop_count], vec![false; self.stop_count]);
+        for &(from, to) in index.rules.keys() {
+            forward_anchors[from as usize] = true;
+            reverse_anchors[to as usize] = true;
+        }
+        index.forward_rule_anchors = Arc::from(forward_anchors);
+        index.reverse_rule_anchors = Arc::from(reverse_anchors);
         // Incoming identity matters only through transfer-rule selectors. Keep
         // explicitly selected trips distinct; other trips on the same route
         // have identical transfer permissions and can share a dominance class.
@@ -649,6 +693,19 @@ impl TimetableKernel {
             events
         })
     }
+    /// A stop at which a clock alone cannot certify a new transfer. Journey
+    /// simplifiers do not retain the search's incoming-trip/anchor state and
+    /// must keep the certified boarding at these stops.
+    pub fn boarding_needs_transfer_context(&self, stop: u32) -> bool {
+        let stop = stop as usize;
+        stop >= self.stop_count
+            || self.forbidden_same_stop[stop] != 0
+            || self.same_stop_transfer_minimum[stop] != 0
+            || self
+                .service
+                .as_ref()
+                .is_some_and(|s| s.reverse_rule_anchors[stop])
+    }
     fn physical_trip(&self, trip: u32, sequence: u32) -> u32 {
         self.service
             .as_ref()
@@ -693,6 +750,7 @@ impl TimetableKernel {
         excluded: &[u32],
         distinct_trips: bool,
         target: Option<(&[u32], &[f64], bool)>,
+        time_only: bool,
     ) -> Result<Search> {
         if stops.len() != walks.len()
             || stops.len() != candidates.len()
@@ -722,6 +780,12 @@ impl TimetableKernel {
             frontiers: HashMap::new(),
             queue: BinaryHeap::new(),
             reverse,
+            rule_anchors: if reverse {
+                s.reverse_rule_anchors.clone()
+            } else {
+                s.forward_rule_anchors.clone()
+            },
+            time_only: time_only && maximum.is_none(),
         };
         for ((&stop, &walk), &candidate) in stops.iter().zip(walks).zip(candidates) {
             let clock = initial + sign * walk;
@@ -783,9 +847,7 @@ impl TimetableKernel {
                     end = end.min(l.clock + walk);
                 }
             }
-            if !search.frontiers[&(l.stop, l.transfer_class, l.anchor, l.walked, l.scoped_path)]
-                .contains(&index)
-            {
+            if !search.frontiers[&search.key(&l)].contains(&index) {
                 continue;
             }
             if !l.walked && (l.trip.is_some() || pre) {
@@ -869,9 +931,7 @@ impl TimetableKernel {
                 let i = i as usize;
                 operations += 1;
                 if operations > 50_000_000 {
-                    return Err(Error::from_reason(
-                        "Service search exceeds the bounded operation budget",
-                    ));
+                    return Err(Error::from_reason(OPERATION_BUDGET));
                 }
                 let trip = self.segment_trip.view()[i];
                 if excluded.contains(&trip)
@@ -970,7 +1030,7 @@ impl TimetableKernel {
                             .entry((j, shift.to_bits(), wait.to_bits()))
                             .or_default();
                         if frontier.iter().any(|&(boardings, walking)| {
-                            boardings <= l.boardings && walking <= l.walking
+                            search.time_only || (boardings <= l.boardings && walking <= l.walking)
                         }) {
                             break;
                         }
@@ -979,16 +1039,12 @@ impl TimetableKernel {
                         });
                         ride_labels += 1;
                         if ride_labels > MAX_PARETO_LABELS {
-                            return Err(Error::from_reason(
-                                "Service search exceeds the bounded onboard label budget",
-                            ));
+                            return Err(Error::from_reason(ONBOARD_BUDGET));
                         }
                         frontier.push((l.boardings, l.walking));
                         operations += 1;
                         if operations > 50_000_000 {
-                            return Err(Error::from_reason(
-                                "Service search exceeds the bounded operation budget",
-                            ));
+                            return Err(Error::from_reason(OPERATION_BUDGET));
                         }
                         let (board, alight) = if reverse { (j, i) } else { (i, j) };
                         if (if reverse {
@@ -1396,6 +1452,7 @@ impl TimetableKernel {
                 &input.destination_walk_seconds,
                 input.allow_post_ride_transfers.unwrap_or(true),
             )),
+            true,
         )?;
         let completions = self.service_completions(
             &search,
@@ -1454,6 +1511,7 @@ impl TimetableKernel {
                 &input.origin_walk_seconds,
                 input.allow_pre_ride_transfers,
             )),
+            false,
         )?;
         let completions = self.service_completions(
             &search,
@@ -1496,6 +1554,7 @@ impl TimetableKernel {
             &input.excluded_trips,
             false,
             None,
+            false,
         )?;
         let mut times = Vec::new();
         for (i, pair) in input.destination_offsets.windows(2).enumerate() {
@@ -1542,6 +1601,7 @@ impl TimetableKernel {
             &input.excluded_trips,
             false,
             None,
+            false,
         )?;
         let mut times = Vec::new();
         for (i, pair) in input.origin_offsets.windows(2).enumerate() {
@@ -1567,6 +1627,7 @@ impl TimetableKernel {
     pub(super) fn service_pareto(
         &self,
         input: &TimetableParetoQueryInput,
+        distinct: Option<usize>,
     ) -> Result<TimetableParetoQueryResult> {
         let started = Instant::now();
         let bound = input
@@ -1584,7 +1645,21 @@ impl TimetableKernel {
             &[],
             input.collect_alternatives.unwrap_or(false),
             None,
-        )?;
+            false,
+        );
+        // Collected alternatives are optional: an oversized collection is
+        // reported unsupported, as the round search reports its own budget.
+        let search = match search {
+            Err(error) if input.collect_alternatives == Some(true) && over_budget(&error) => {
+                return Ok(empty_pareto_result(
+                    started,
+                    false,
+                    "native_round_workspace_budget_exceeded",
+                    ParetoRestrictionMode::parse(input.restriction_mode.as_deref())?,
+                ));
+            }
+            search => search?,
+        };
         let mut completions = self.service_completions(
             &search,
             &input.destination_stops,
@@ -1646,6 +1721,16 @@ impl TimetableKernel {
         }
         if input.collect_alternatives == Some(true) {
             let ranked = input.alternative_ranking.as_deref() == Some("ranked");
+            let rank = |selected: &mut Vec<&Completion>| {
+                selected.sort_by(|a, b| {
+                    a.time
+                        .total_cmp(&b.time)
+                        .then(a.walking.total_cmp(&b.walking))
+                        .then(a.boardings.cmp(&b.boardings))
+                        .then(a.candidate.cmp(&b.candidate))
+                        .then(a.label.cmp(&b.label))
+                });
+            };
             let mut selected: Vec<_> = completions
                 .iter()
                 .filter(|c| {
@@ -1661,23 +1746,19 @@ impl TimetableKernel {
                 })
                 .collect();
             if ranked {
-                selected.sort_by(|a, b| {
-                    a.time
-                        .total_cmp(&b.time)
-                        .then(a.walking.total_cmp(&b.walking))
-                        .then(a.boardings.cmp(&b.boardings))
-                        .then(a.candidate.cmp(&b.candidate))
-                        .then(a.label.cmp(&b.label))
-                });
+                rank(&mut selected);
+                selected.truncate(input.alternative_limit.unwrap_or(10) as usize);
+            } else if let Some(limit) = distinct {
+                // The earliest completions follow the frontier, as a separate
+                // ranked collection would return them.
+                let mut earliest: Vec<_> = completions.iter().collect();
+                rank(&mut earliest);
+                earliest.truncate(limit);
+                selected.extend(earliest);
             }
             result.alternatives = Some(
                 selected
                     .into_iter()
-                    .take(if ranked {
-                        input.alternative_limit.unwrap_or(10) as usize
-                    } else {
-                        usize::MAX
-                    })
                     .map(|c| {
                         pareto_alternative(
                             c.time,
@@ -1736,6 +1817,7 @@ impl TimetableKernel {
                     &[],
                     false,
                     None,
+                    false,
                 )?;
                 let completions = self.service_completions(
                     &search,
@@ -2010,6 +2092,63 @@ mod tests {
             include_journeys: Some(true),
         }
     }
+    #[test]
+    fn relaxed_alternatives_preserve_candidate_scope_and_transfer_rules() {
+        let mut kernel = kernel(vec![rule(Some(0), 3, 0)], vec![]);
+        let mut input = TimetableParetoQueryInput {
+            origin_stops: vec![0],
+            origin_walk_seconds: vec![0.],
+            origin_candidate_indices: vec![0],
+            destination_stops: vec![1],
+            destination_walk_seconds: vec![0.],
+            destination_candidate_indices: vec![0],
+            departure: 90.,
+            horizon: 210.,
+            allow_pre_ride_transfers: false,
+            earliest_arrival: 130.,
+            boarding_upper_bound: 1,
+            candidate_destination_index: 0,
+            candidate_walking_seconds: 0.,
+            arrival_slack_seconds: 60.,
+            transfer_penalty_seconds: 0.,
+            walk_reluctance: 0.,
+            collect_alternatives: Some(true),
+            alternative_ranking: Some("pareto".into()),
+            alternative_limit: Some(1),
+            restriction_mode: None,
+            allow_post_ride_transfers: Some(false),
+            deadline_objective: Some(false),
+        };
+        for (distinct, expected) in [(None, vec![130.]), (Some(8), vec![130., 140.])] {
+            let result = kernel.validated_service_pareto(&input, distinct).unwrap();
+            let mut arrivals: Vec<_> = result
+                .alternatives
+                .unwrap()
+                .iter()
+                .map(|a| a.best_arrival)
+                .collect();
+            arrivals.sort_by(f64::total_cmp);
+            arrivals.dedup();
+            assert_eq!(arrivals, expected);
+        }
+        // The optimistic chain via trip 0 is forbidden at the interchange.
+        // Its validation must fall back to the legal trip 1 prefix.
+        input.destination_stops = vec![2];
+        input.earliest_arrival = 200.;
+        input.boarding_upper_bound = 2;
+        for distinct in [None, Some(8)] {
+            let result = kernel.validated_service_pareto(&input, distinct).unwrap();
+            assert_eq!(result.best_arrival, Some(200.));
+            let trips: Vec<_> = result
+                .chain_kinds
+                .iter()
+                .zip(&result.chain_trip_or_candidate)
+                .filter_map(|(kind, trip)| (*kind == 2).then_some(*trip))
+                .collect();
+            assert_eq!(trips, [1, 2]);
+        }
+    }
+
     #[test]
     fn guarded_scalar_matches_stateful_search_across_transfer_rules() {
         let mut accepted = 0;
@@ -2322,6 +2461,8 @@ mod tests {
                     .collect(),
                     queue: BinaryHeap::new(),
                     reverse,
+                    rule_anchors: Arc::from(vec![true; 256]),
+                    time_only: false,
                 };
                 let completions = kernel
                     .service_completions(
@@ -2351,6 +2492,8 @@ mod tests {
                 completion_labels: OnceCell::new(),
                 queue: BinaryHeap::new(),
                 reverse,
+                rule_anchors: Arc::from(vec![true; 256]),
+                time_only: false,
             };
             for i in 0..120usize {
                 let label = Label {
@@ -2527,6 +2670,7 @@ mod tests {
                     &[],
                     false,
                     None,
+                    false,
                 )
                 .unwrap();
             for stop in 0..stops as u32 {
@@ -2601,6 +2745,7 @@ mod tests {
                         &[],
                         false,
                         None,
+                        false,
                     )
                     .unwrap();
                 let bounded = kernel
@@ -2616,6 +2761,7 @@ mod tests {
                         &[],
                         false,
                         Some((&targets, &walks, true)),
+                        false,
                     )
                     .unwrap();
                 let best = |search: &Search| {

@@ -12,7 +12,7 @@ on:
       release_tag:
         description: Existing release tag matching package.json (original assets are preserved)
         type: string
-        default: v1.0.0-rc.1
+        default: v1.0.0-rc.2
 
 concurrency:
   group: release-${{ github.event.inputs.release_tag || github.ref_name }}
@@ -111,7 +111,7 @@ jobs:
         id: cli
         run: npm run package:cli
       - run: npm run check:cli-package
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
       - run: python -m pip install './python[progress,speed]' pytest

@@ -101,6 +101,16 @@ impl TimetableKernel {
             .map_err(node_error)
     }
     #[napi]
+    pub fn route_alternative_candidates_csa(
+        &mut self,
+        input: TimetableAlternativeQueryInput,
+    ) -> Result<TimetableParetoQueryResult> {
+        self.inner
+            .route_alternative_candidates_csa(input.into())
+            .map(Into::into)
+            .map_err(node_error)
+    }
+    #[napi]
     pub fn route_pareto_round_csa(
         &mut self,
         input: TimetableParetoQueryInput,

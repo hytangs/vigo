@@ -23,7 +23,10 @@ Accessibility = TypedDict(
         # `wheelchair-strict-v1`.
         "profile": str,
         "stationPaths": str,
-        # `exclude`: unknown accessibility counts as inaccessible.
+        # The prepared street policy; absent in older compatible Cities.
+        "streetEvidence": NotRequired[str],
+        # `exclude`: unknown vehicle and boarding accessibility is excluded.
+        # Street inference is described separately by `streetEvidence`.
         "unknownData": str,
     },
 )

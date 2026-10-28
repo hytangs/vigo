@@ -112,7 +112,9 @@ impl City {
                 pool.extend(plans(self.route(&walking)?));
             }
         }
-        if let Some(km) = expanded.filter(|_| q["wheelchair"] != true) {
+        if let Some(km) =
+            expanded.filter(|_| self.metadata["accessibility"]["profile"] != "wheelchair-strict-v1")
+        {
             let best_arrival = pool
                 .iter()
                 .map(|p| clock(p, "arrivalMinutes"))
@@ -121,10 +123,6 @@ impl City {
                 .iter()
                 .map(|p| clock(p, "departureMinutes"))
                 .fold(f64::NEG_INFINITY, f64::max);
-            let best_duration = pool
-                .iter()
-                .map(travel_minutes)
-                .fold(f64::INFINITY, f64::min);
             let mut wider = base.clone();
             wider["maxWalkKm"] = json!(km);
             wider["requireTransitRide"] = json!(true);
@@ -139,12 +137,14 @@ impl City {
                 }
                 if let Ok(result) = self.route(&probe) {
                     for mut p in plans(result) {
+                        // More walking must buy a strictly better time, by at
+                        // least the displayed minute; shorter alone is not enough.
                         let improves = if arrive {
-                            clock(&p, "departureMinutes") > best_departure
+                            clock(&p, "departureMinutes") >= best_departure + 1.
                         } else {
-                            clock(&p, "arrivalMinutes") < best_arrival
+                            clock(&p, "arrivalMinutes") <= best_arrival - 1.
                         };
-                        if transit(&p) && (improves || travel_minutes(&p) < best_duration) {
+                        if transit(&p) && improves {
                             p["expandedWalkingLimitKm"] = json!(km);
                             pool.push(p);
                         }

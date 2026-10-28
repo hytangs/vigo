@@ -1,10 +1,10 @@
-# VIGO 1.0.0-rc.1 guide
+# VIGO 1.0.0-rc.2 guide
 
 The canonical source for the [VIGO guide](guide.html), a single offline page that also includes the [engine reference](guides/rust-standalone.md), [Results](reference/results.md), [VIGO Python](../python/docs/guide.md), and [developer resources](developer.md#developer-resources). Edit a chapter here, then run `npm run docs:build`.
 
 ## Build a network. Answer a transport question.
 
-VIGO 1.0.0-rc.1 turns GTFS timetables and OpenStreetMap streets into a reusable City, then answers three questions about it: how to make a journey, how long every trip takes, and how far people can get. It runs on your own machine, explains each answer, and never needs an internet connection to route.
+VIGO 1.0.0-rc.2 turns GTFS timetables and OpenStreetMap streets into a reusable City, then answers three questions about it: how to make a journey, how long every trip takes, and how far people can get. It runs on your own machine, explains each answer, and never needs an internet connection to route.
 
 ### Start here
 
@@ -43,9 +43,9 @@ Every answer carries its evidence. A Route Result says whether each walk follows
 - **Stable results.** The public `vigo.route.v1`, `vigo.matrix.v1`, and `vigo.reach.v1` schemas only gain optional fields. See [Read a Result](reference/results.md).
 - **Offline by default.** Queries never fetch anything. This guide works offline too: press `/` to search, and open saved Results in the [Result viewer](#inspect-a-saved-result).
 
-### What's new in 1.0.0-rc.1
+### What's new in 1.0.0-rc.2
 
-Route can return several journeys at once with `alternatives`. The engine and the compiler now return the same Result for the same request, including fares and walking connections. Studio saves journeys and comparisons as JSON, GeoJSON, CSV, or Markdown. Read the [release notes](releases/1.0.0-rc.1.md) and the [changelog](../CHANGELOG.md).
+Opt-in GTFS Flex now joins fixed service in one search: Flex can bring you to a train, take you home from it, or both, and deviated routes keep their scheduled fixed stops. Wheelchair Cities can infer step-free access on ordinary pedestrian ways even when accessibility or surface tags are missing. Read the [release notes](releases/1.0.0-rc.2.md) and the [changelog](../CHANGELOG.md).
 
 ## Install VIGO
 
@@ -512,6 +512,7 @@ vigo-build inspect --city ./city
 | `--street-modes walk` | Build walking only and omit all driving data |
 | `--private-access endpoints` | Allow mapped private paths at trip endpoints; see [authorized endpoint access](#authorized-endpoint-access) |
 | `--wheelchair` | Build a strict wheelchair City; see [wheelchair routing](guides/rust-standalone.md#wheelchair-routing) |
+| `--wheelchair-streets` | `inferred` (default) can assume ordinary pedestrian ways are step-free when wheelchair or surface tags are missing; `verified` uses only `wheelchair=yes` ways |
 | `--streets-from ./other-city` | Reuse identical immutable streets from a prepared City |
 | `--replace` | Replace an existing output; without it, an existing City is left alone |
 
@@ -788,7 +789,7 @@ A Scenario is an immutable set of changes tied to exactly one City revision. It 
 
 Scenarios never edit the imported GTFS or OSM, and a complete alternative feed is another City revision. Drawing geometry in an editor creates no computational change until it is attached to a valid service edit. Several nonconflicting planned changes may coexist; conflicts need an explicit resolution. A Scenario never moves to another City revision, and expired live state cannot be queried.
 
-In VIGO 1.0.0-rc.1, planned service changes apply to Reach, supplied traffic to Drive Route and Drive Matrix, and supplied realtime predictions to transit Route. Transit Matrix and Reach remain scheduled. Studio can also route transit journeys on a saved scenario, on the scheduled timetable. Unsupported combinations are rejected with an explanation. The [Scenario request reference](guides/rust-standalone.md#10-scenarios) lists every field.
+In VIGO 1.0.0-rc.2, planned service changes apply to Reach, supplied traffic to Drive Route and Drive Matrix, and supplied realtime predictions to transit Route. Transit Matrix and Reach remain scheduled. Studio can also route transit journeys on a saved scenario, on the scheduled timetable. Unsupported combinations are rejected with an explanation. The [Scenario request reference](guides/rust-standalone.md#10-scenarios) lists every field.
 
 ### Planned service
 
@@ -1062,6 +1063,7 @@ VIGO models the City revision and query it is given. It does not certify real-wo
 - Support is limited to the source features listed in [GTFS support](developer.md#gtfs-support-matrix). Unsupported or malformed features are reported during the build.
 - Missing published shapes do not prevent timetable routing but limit map geometry.
 - Explicit GTFS in-seat links at a shared terminal keep passengers aboard across trip changes. Route, Matrix and Reach count one boarding and preserve onboard layovers. Studio shows “Stay aboard.” Block-based continuation is not inferred, and missing feed links are not guessed. Existing Cities must be rebuilt if their importer discarded those links.
+- Staying aboard must move the rider onward. A Route journey boards a looping vehicle where it passes for the last time, at the boarding stop or at another stop the origin walk reaches in time. Route alternatives and window choices drop a journey that stays aboard through a turnaround and then reaches a stop the rider could already have reached by then, through the same stop or one transfer walk with the transfer buffer, or that would reach the destination no later by leaving before the turnaround. Window choices leave out such a journey while another transit choice remains. The test uses only the journey's own stops and clocks, where the feed lets riders off and on, and the City's stop-to-stop walks; with walks between stops turned off, only same-stop returns count.
 
 ### Transit Route and Matrix
 
@@ -1329,7 +1331,7 @@ Run the engine executable as the HTTP service. It opens a prepared City or scena
 From the repository root with Docker installed:
 
 ```sh
-docker build -f deploy/Dockerfile -t vigo:1.0.0-rc.1 .
+docker build -f deploy/Dockerfile -t vigo:1.0.0-rc.2 .
 ```
 
 The image contains the engine with this guide embedded, license notices, and a Debian glibc runtime, and runs as UID/GID 65532. Its compiler matches `rust-toolchain.toml`; City data, JavaScript dependencies, desktop bundles, and build caches are excluded from the build context. Check the image before using it:
@@ -1337,7 +1339,7 @@ The image contains the engine with this guide embedded, license notices, and a D
 ```sh
 npm ci
 npm run build:cli-runtime
-npm run check:deployment -- --image vigo:1.0.0-rc.1
+npm run check:deployment -- --image vigo:1.0.0-rc.2
 ```
 
 The check builds public synthetic inputs and exercises the real Compose service: a read-only City, authentication, Route, Matrix, Reach, scenario switching, readiness, restart, and resource limits, and it confirms that queries never change City files. CI runs it on Linux x64 and ARM64. Measure your own City and request mix before choosing production limits; the small fixture is not a metropolitan memory or latency result.
@@ -1347,7 +1349,7 @@ The check builds public synthetic inputs and exercises the real Compose service:
 Make the City directory and its files readable by UID 65532, and keep every referenced directory inside the mounted City or collection.
 
 ```sh
-export VIGO_IMAGE=vigo:1.0.0-rc.1
+export VIGO_IMAGE=vigo:1.0.0-rc.2
 export VIGO_CITY=/absolute/path/to/prepared-city
 # Set VIGO_API_TOKEN through your shell or deployment secret store (16+ characters).
 docker compose -f deploy/compose.yml up -d --wait

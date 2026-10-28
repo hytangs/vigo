@@ -74,6 +74,10 @@ fn member_file(dir: &Path, entry: &Value) -> Result<String> {
     str_path(&path)
 }
 fn cch_files(path: &Path, kind: &str) -> Result<(String, String, Option<String>)> {
+    // Resolve the shared snapshot before admitting its adjacent hierarchy.
+    // Legacy readers use the equivalent City-local hard links.
+    let resolved = fs::canonicalize(path)?;
+    let path = resolved.as_path();
     let image = Image::open(path, false)?;
     let dir = path.parent().ok_or("Missing snapshot directory")?;
     let format = if kind == "street" {
@@ -327,6 +331,11 @@ pub struct City {
     /// Heap of the stop dictionary, access and manifest data, which never
     /// change after opening; measured once for the memory ledger.
     pub(crate) static_heap_bytes: OnceLock<usize>,
+    pub(super) flex_index: OnceLock<Arc<super::flex_index::FlexIndex>>,
+    /// One-shot optimistic Flex access and egress per timetable stop for the
+    /// next transit search, and whether that search's winner used them.
+    pub(super) flex_overlay: Option<(HashMap<u32, f64>, HashMap<u32, f64>)>,
+    pub(super) flex_witness: Option<super::flex_search::Witness>,
     pub(crate) calendar: std::sync::OnceLock<super::calendar::CalendarIndex>,
     pub(crate) transfer_inputs: OnceLock<Arc<TransferInputs>>,
     pub(crate) route_types: OnceLock<Arc<HashMap<String, i64>>>,
@@ -402,7 +411,13 @@ impl City {
         residents: &[(&Path, &CoordinateKernel)],
     ) -> Result<Self> {
         let path = layout.root.clone();
-        let street_directory = fs::canonicalize(path.join("osm"))?;
+        // File-level links let each City keep its own terminal overlay while
+        // the base snapshot and hierarchy live in one shared directory.
+        let street_directory =
+            fs::canonicalize(path.join("osm/street-index.sqlite.street-accelerator-v7.bin"))?
+                .parent()
+                .ok_or("Street snapshot has no parent directory")?
+                .to_path_buf();
         let mut manifest = layout.manifest.clone();
         if manifest["schemaVersion"] != "vigo.city.v1" {
             return fail("Expected a prepared vigo.city.v1 City");
@@ -715,6 +730,9 @@ impl City {
             timetable_activation_ms: 0.,
             timetable_preparation_profile: Value::Null,
             flex_catalog: Default::default(),
+            flex_index: Default::default(),
+            flex_overlay: None,
+            flex_witness: None,
             calendar: Default::default(),
             transfer_inputs: OnceLock::new(),
             route_types: OnceLock::new(),

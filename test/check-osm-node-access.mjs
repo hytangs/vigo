@@ -78,16 +78,19 @@ try {
     assert.equal(JSON.parse(db.prepare("SELECT value FROM metadata WHERE key='blockedWalkNodeCount'").get().value), blocked ? 1 : 0)
     db.close()
   }
-  for (const dense of [false, true]) for (const [name, tags, blocked] of [
-    ['raised-kerb', { kerb: 'raised' }, true], ['narrow', { width: '70 cm', wheelchair: 'yes' }, true],
-    ['unknown-bollard', { barrier: 'bollard' }, true], ['accessible-gate', { barrier: 'gate', wheelchair: 'yes', foot: 'yes' }, false],
+  for (const dense of [false, true]) for (const streets of ['inferred', 'verified']) for (const [name, tags, inferredBlocked, verifiedBlocked] of [
+    ['raised-kerb', { kerb: 'raised' }, true, true], ['narrow', { width: '70 cm', wheelchair: 'yes' }, true, true],
+    ['unknown-bollard', { barrier: 'bollard' }, false, true], ['accessible-gate', { barrier: 'gate', wheelchair: 'yes', foot: 'yes' }, false, false],
   ]) {
-    const pbfPath = path.join(folder, `wheelchair-${dense}-${name}.pbf`), outputPath = `${pbfPath}.sqlite`
+    const blocked = streets === 'inferred' ? inferredBlocked : verifiedBlocked
+    const pbfPath = path.join(folder, `wheelchair-${streets}-${dense}-${name}.pbf`), outputPath = `${pbfPath}.sqlite`
     await fs.writeFile(pbfPath, fixture(dense, tags, null, true))
-    await buildNationalOsmStore({ pbfPath, outputPath, wheelchair: true, includeDriving: false })
+    await buildNationalOsmStore({ pbfPath, outputPath, wheelchair: true, wheelchairStreets: streets, includeDriving: false })
     const db = new DatabaseSync(outputPath, { readOnly: true })
-    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM edges').get().n, blocked ? 2 : 6)
-    assert.equal(JSON.parse(db.prepare("SELECT value FROM metadata WHERE key='accessibility'").get().value).profile, 'wheelchair-strict-v1')
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM edges').get().n, blocked ? 2 : 6, `${streets}: ${name}`)
+    const accessibility = JSON.parse(db.prepare("SELECT value FROM metadata WHERE key='accessibility'").get().value)
+    assert.equal(accessibility.profile, 'wheelchair-strict-v1')
+    assert.equal(accessibility.streetEvidence, streets === 'inferred' ? 'inferred-step-free-v1' : 'wheelchair-yes-only')
     db.close()
   }
   for (const corrupt of ['delimiter', 'string']) {

@@ -76,7 +76,7 @@ pub(super) fn alternatives(
     } else {
         input.departure
     };
-    let result = kernel.route_alternatives_csa(TimetableAlternativeQueryInput {
+    let query = TimetableAlternativeQueryInput {
         origin_stops: input.origin_stops.clone(),
         origin_walk_seconds: input.origin_walk_seconds.clone(),
         origin_candidate_indices: (0..input.origin_stops.len() as u32).collect(),
@@ -101,7 +101,12 @@ pub(super) fn alternatives(
         maximum_boardings: request.and(input.maximum_boardings),
         ranking: request.map(|r| r.ranking.clone()),
         limit: request.and_then(|r| r.limit),
-    })?;
+    };
+    let result = if request.is_some() {
+        kernel.route_alternative_candidates_csa(query)?
+    } else {
+        kernel.route_alternatives_csa(query)?
+    };
     if !result.supported {
         let reason = result.reason.unwrap_or_default();
         if request.is_some() {
@@ -124,9 +129,13 @@ pub(super) fn alternatives(
 /// also keep their frontier: every journey arriving within the window slack
 /// with at most the scalar witness's boardings that trades arrival, boardings
 /// and walking, including the certified journey itself.
+///
+/// `collect` is cleared once a frontier proves too large to collect; later
+/// samples of the same window then certify their own journey only.
 pub(super) fn window_sample(
     kernel: &mut TimetableKernel,
     input: &TimetableMatrixQueryInput,
+    collect: &mut bool,
 ) -> Result<Option<(TimetableMatrixJourney, Vec<TimetableMatrixJourney>)>> {
     let scalar = kernel.route_scalar_csa(TimetableQueryInput {
         origin_stops: input.origin_stops.clone(),
@@ -171,7 +180,7 @@ pub(super) fn window_sample(
         arrival_slack_seconds: WINDOW_ARRIVAL_SLACK_SECONDS,
         transfer_penalty_seconds: 0.,
         walk_reluctance: 0.,
-        collect_alternatives: Some(true),
+        collect_alternatives: collect.then_some(true),
         alternative_ranking: None,
         alternative_limit: None,
         restriction_mode: None,
@@ -182,6 +191,18 @@ pub(super) fn window_sample(
     if !r.supported && r.reason.as_deref() == Some("origin_outside_kernel") {
         r = kernel.route_pareto_round_csa(TimetableParetoQueryInput {
             restriction_mode: Some("anchor-only".into()),
+            ..query.clone()
+        })?;
+    }
+    // A frontier too large to collect leaves this sample without tradeoffs;
+    // its own journey is still certified.
+    if *collect
+        && !r.supported
+        && r.reason.as_deref() == Some("native_round_workspace_budget_exceeded")
+    {
+        *collect = false;
+        r = kernel.route_pareto_round_csa(TimetableParetoQueryInput {
+            collect_alternatives: None,
             ..query
         })?;
     }
