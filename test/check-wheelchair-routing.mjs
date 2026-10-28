@@ -39,7 +39,11 @@ assert.equal(wheelchairWayAllowed({ highway: 'footway', wheelchair: 'yes' }), tr
 // Verified street evidence uses only ways tagged wheelchair=yes.
 for (const tags of [{ highway: 'footway' }, { highway: 'steps', wheelchair: 'yes' }, { wheelchair: 'limited' }, { wheelchair: 'yes', incline: '20%' }]) assert.equal(wheelchairWayAllowed(tags, 'verified'), false)
 for (const tags of [{ barrier: 'stile', wheelchair: 'yes' }, { barrier: 'gate' }, { barrier: 'kerb', kerb: 'lowered' }, { kerb: 'raised' }, { wheelchair: 'no' }, { 'wheelchair:conditional': 'yes @ (Mo-Fr)' }]) assert.equal(wheelchairNodeAllowed(tags, 'verified'), false)
-// Inferred street evidence uses ordinary paved ways unless the map records a barrier.
+// Inferred streets can lack wheelchair or surface tags. A positive wheelchair
+// tag overrides the surface and trail inference, but not physical dimensions.
+assert.equal(wheelchairWayAllowed({ highway: 'footway', surface: 'gravel' }), false)
+assert.equal(wheelchairWayAllowed({ highway: 'footway', surface: 'gravel', wheelchair: 'yes' }), true)
+assert.equal(wheelchairWayAllowed({ highway: 'footway', surface: 'gravel', wheelchair: 'yes', width: '.6' }), false)
 for (const tags of [{ highway: 'footway' }, { highway: 'residential' }, { highway: 'path', surface: 'asphalt' }, { highway: 'footway', incline: '5%' }]) assert.equal(wheelchairWayAllowed(tags), true, JSON.stringify(tags))
 for (const tags of [{ highway: 'path' }, { highway: 'track', surface: 'gravel' }, { highway: 'footway', surface: 'cobblestone' }, { highway: 'footway', smoothness: 'bad' },
   { highway: 'path', surface: 'asphalt', sac_scale: 'mountain_hiking' }, { highway: 'steps' }, { highway: 'footway', wheelchair: 'no' }, { highway: 'footway', incline: '12%' }, { highway: 'footway', width: '0.6' }]) {
@@ -87,7 +91,29 @@ try {
   const manifest = JSON.parse(fs.readFileSync(path.join(accessible, 'network.json')))
   assert.equal(manifest.accessibility.profile, 'wheelchair-strict-v1')
   assert.equal(manifest.accessibility.streetEvidence, 'inferred-step-free-v1', 'Wheelchair Cities infer step-free streets by default')
+  assert(manifest.accessibility.limitations.some(text => text.includes('can lack wheelchair or surface tags')),
+    'Results must describe the inferred street evidence honestly')
   assert.deepEqual(manifest.modes, ['transit', 'walk'])
+  // The City profile is active even when the optional request flag is absent.
+  // This destination needs the expanded walking budget, so the planner must
+  // not find it through a search suppressed for explicit wheelchair requests.
+  const expanded = { ...base, destination: { coordinate: [-77.035, 38.9075] },
+    expandedWalkKm: 2.4, journeyPolicy: 'alternatives-v1' }
+  for (const wheelchair of [undefined, true]) {
+    const request = { ...expanded, ...(wheelchair === undefined ? {} : { wheelchair }) }
+    assert.equal(run(accessible, 'route', request).status, 'not_found',
+      'The active wheelchair profile must suppress expanded-walking candidates')
+  }
+  // A nearer destination has an ordinary journey, so the supported-window
+  // path must retain that journey rather than widen its final walk.
+  const supported = { ...base, destination: { coordinate: [-77.0305, 38.90975] },
+    expandedWalkKm: 2.4, windowMinutes: 10, windowStepMinutes: 5, windowChoices: 'supported' }
+  for (const wheelchair of [undefined, true]) {
+    const request = { ...supported, ...(wheelchair === undefined ? {} : { wheelchair }) }
+    const result = run(accessible, 'route', request)
+    assert.equal(result.journey.arrivalTime, '08:30:39',
+      'Window choices must apply the inherited wheelchair profile')
+  }
   // Studio must select the same constrained City and never substitute ordinary paths.
   const studio = path.join(folder, 'cities', 'fixture', '.vigo')
   fs.mkdirSync(studio, { recursive: true })

@@ -45,7 +45,7 @@ Every answer carries its evidence. A Route Result says whether each walk follows
 
 ### What's new in 1.0.0-rc.2
 
-Opt-in GTFS Flex now joins fixed service in one search: Flex can bring you to a train, take you home from it, or both, and deviated routes keep their scheduled fixed stops. Wheelchair Cities use ordinary paved sidewalks unless OpenStreetMap records a barrier, so accessible routing works in cities that do not tag every sidewalk. Read the [release notes](releases/1.0.0-rc.2.md) and the [changelog](../CHANGELOG.md).
+Opt-in GTFS Flex now joins fixed service in one search: Flex can bring you to a train, take you home from it, or both, and deviated routes keep their scheduled fixed stops. Wheelchair Cities can infer step-free access on ordinary pedestrian ways even when accessibility or surface tags are missing. Read the [release notes](releases/1.0.0-rc.2.md) and the [changelog](../CHANGELOG.md).
 
 ## Install VIGO
 
@@ -512,7 +512,7 @@ vigo-build inspect --city ./city
 | `--street-modes walk` | Build walking only and omit all driving data |
 | `--private-access endpoints` | Allow mapped private paths at trip endpoints; see [authorized endpoint access](#authorized-endpoint-access) |
 | `--wheelchair` | Build a strict wheelchair City; see [wheelchair routing](guides/rust-standalone.md#wheelchair-routing) |
-| `--wheelchair-streets` | `inferred` (default) assumes untagged paved pedestrian ways are step-free unless mapped otherwise; `verified` uses only `wheelchair=yes` ways |
+| `--wheelchair-streets` | `inferred` (default) can assume ordinary pedestrian ways are step-free when wheelchair or surface tags are missing; `verified` uses only `wheelchair=yes` ways |
 | `--streets-from ./other-city` | Reuse identical immutable streets from a prepared City |
 | `--replace` | Replace an existing output; without it, an existing City is left alone |
 

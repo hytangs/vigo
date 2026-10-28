@@ -112,7 +112,9 @@ impl City {
                 pool.extend(plans(self.route(&walking)?));
             }
         }
-        if let Some(km) = expanded.filter(|_| q["wheelchair"] != true) {
+        if let Some(km) =
+            expanded.filter(|_| self.metadata["accessibility"]["profile"] != "wheelchair-strict-v1")
+        {
             let best_arrival = pool
                 .iter()
                 .map(|p| clock(p, "arrivalMinutes"))

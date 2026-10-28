@@ -1913,7 +1913,9 @@ The Engine CLI and HTTP service use that City for Route, Matrix and Reach. Add
 `"wheelchair": true` to the request, or `--wheelchair` to an Engine CLI query.
 Omitting the option inherits the City's profile. Ordinary Cities reject a true
 request; wheelchair Cities reject false, Drive, realtime transit and query-time
-scenario overlays. Compile changed inputs into a new wheelchair City.
+scenario overlays. Expanded-walking choices are suppressed for this profile,
+including when the wheelchair flag is omitted. Compile changed inputs into a
+new wheelchair City.
 Serve the prepared wheelchair City using the same `serve --city wheelchair-city`
 command and authenticated `/v1/route`, `/v1/matrix` and `/v1/reach` endpoints.
 
@@ -1929,8 +1931,9 @@ Restart Studio after attaching or replacing the network. Attachment checks the
 source fingerprints and profile, preserves the ordinary City, and retains any
 previous wheelchair network as a backup. Studio currently supports this profile
 for single-feed, scheduled Route queries without via points or scenario overlays;
-use the Engine CLI for wheelchair Matrix and Reach. Unknown accessibility is
-excluded. A missing, incomplete or source-mismatched wheelchair network returns
+use the Engine CLI for wheelchair Matrix and Reach. Unknown vehicle and boarding
+accessibility is excluded; inferred streets can have unknown accessibility.
+A missing, incomplete or source-mismatched wheelchair network returns
 an error; it never silently substitutes an unrestricted route. The option does
 not certify elevator operation or access between a building and the street.
 
@@ -1946,17 +1949,23 @@ reported as `accessibility.streetEvidence` on every result:
 
 | Value | Build option | OSM ways used |
 | --- | --- | --- |
-| `inferred-step-free-v1` | default, or `--wheelchair-streets inferred` | Ordinary pedestrian ways unless OSM records `wheelchair=no` or `limited`, steps, a rough surface, bad smoothness, a mountain trail grade, or (for paths, tracks and bridleways) no paved surface |
+| `inferred-step-free-v1` | default, or `--wheelchair-streets inferred` | Ordinary pedestrian ways, including ways without a surface or wheelchair tag, subject to the filters below |
 | `wheelchair-yes-only` | `--wheelchair-streets verified` | Only ways tagged `wheelchair=yes` |
 
-Both require ordinary pedestrian permission and exclude escalators, mapped
+For inferred evidence without `wheelchair=yes`, rough surfaces, bad smoothness,
+mountain trail grades and paths, tracks or bridleways without a mapped paved
+surface are excluded. An explicit `wheelchair=yes` overrides those surface and
+trail filters. Both policies require ordinary pedestrian permission and exclude steps, escalators, mapped
 inaccessible or limited nodes, raised kerbs and conditional accessibility.
 Published widths below 0.9 m and inclines above 8.3% are excluded. A mapped
 kerb must be lowered or flush. Inferred evidence passes unlocked gates and
 bollards; other barriers need `wheelchair=yes`. Untagged shape vertices inherit
 the way's accessibility. These are fixed profile limits, not a personalized
-chair model. Inferred streets are not surveyed: few cities tag every sidewalk,
-so verified evidence alone usually leaves little or no network.
+chair model. Although `accessibility.unknownData` is `exclude`, the inferred
+street policy can admit ways whose wheelchair or surface tags are unknown; check
+`accessibility.streetEvidence` and the limitations. Inferred streets are not
+surveyed: few cities tag every sidewalk, so verified evidence alone usually
+leaves little or no network.
 
 Station paths require either a positive published `wheelchair_traversal_time`
 (the MBTA extension) or step-free mode with published width at least 0.9 m,

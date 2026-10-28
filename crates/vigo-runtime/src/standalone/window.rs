@@ -906,7 +906,9 @@ impl City {
         else {
             return Ok(result);
         };
-        if q["mode"].as_str().unwrap_or("transit") != "transit" || q["wheelchair"] == true {
+        if q["mode"].as_str().unwrap_or("transit") != "transit"
+            || self.metadata["accessibility"]["profile"] == "wheelchair-strict-v1"
+        {
             return Ok(result);
         }
         let mut wider = q.clone();

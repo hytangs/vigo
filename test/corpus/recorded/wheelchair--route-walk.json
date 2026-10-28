@@ -25,7 +25,7 @@
   },
   "result": {
     "accessibility": {
-      "limitations": ["Unknown vehicle and boarding accessibility is excluded; coverage may be sparse.","Untagged paved pedestrian ways are assumed step-free unless OpenStreetMap records a barrier, steps, rough surface, steep incline, narrow width or raised kerb.","Coordinate attachments are geometric; door-to-street access is not verified.","Elevator outages, temporary obstructions and individual chair dimensions are not modeled."],
+      "limitations": ["Unknown vehicle and boarding accessibility is excluded; coverage may be sparse.","Inferred streets can lack wheelchair or surface tags. An explicit wheelchair=yes overrides surface and trail filters; mapped dimensions and some barriers are still checked.","Coordinate attachments are geometric; door-to-street access is not verified.","Elevator outages, temporary obstructions and individual chair dimensions are not modeled."],
       "maximumSlope": 0.083,
       "minimumWidthMeters": 0.9,
       "profile": "wheelchair-strict-v1",

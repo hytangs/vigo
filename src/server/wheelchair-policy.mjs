@@ -1,7 +1,7 @@
 // This profile describes source constraints, not a survey or live facility check.
 // The profile fixes transit semantics: unknown vehicle and boarding
 // accessibility is excluded. Street evidence is chosen at preparation:
-// `inferred` uses ordinary paved pedestrian ways unless OSM records a barrier;
+// `inferred` can use ordinary pedestrian ways without a surface or wheelchair tag;
 // `verified` uses only ways tagged wheelchair=yes, which is sparse in most cities.
 export const wheelchairProfile = 'wheelchair-strict-v1'
 export const wheelchairStreetPolicies = Object.freeze({
@@ -23,7 +23,7 @@ export function wheelchairDescriptionFor(streets = 'inferred') {
       'Unknown vehicle and boarding accessibility is excluded; coverage may be sparse.',
       streets === 'verified'
         ? 'Unknown street accessibility is excluded; only ways tagged wheelchair=yes are used.'
-        : 'Untagged paved pedestrian ways are assumed step-free unless OpenStreetMap records a barrier, steps, rough surface, steep incline, narrow width or raised kerb.',
+        : 'Inferred streets can lack wheelchair or surface tags. An explicit wheelchair=yes overrides surface and trail filters; mapped dimensions and some barriers are still checked.',
       'Coordinate attachments are geometric; door-to-street access is not verified.',
       'Elevator outages, temporary obstructions and individual chair dimensions are not modeled.',
     ]),

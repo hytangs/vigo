@@ -24,8 +24,9 @@ shows progress in Tasks and enables wheelchair routing after preparation. The
 ordinary City remains usable. Source fingerprints are checked before publication;
 changing either input requires preparing the profile again. If the original
 files have moved or were temporary uploads, reimport them from local files first.
-Unknown accessibility is excluded, so a prepared profile may still report no
-accessible journey. It must never substitute an ordinary walking route.
+Unknown vehicle and boarding accessibility is excluded, so a prepared profile
+may still report no accessible journey. Inferred streets can have unknown
+wheelchair or surface tags. It must never substitute an ordinary walking route.
 
 When supplied, the optional `wheelchair_length` extension provides a wheelchair
 path distance; VIGO estimates its travel time at 4.8 km/h. A published wheelchair
