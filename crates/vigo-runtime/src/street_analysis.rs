@@ -551,6 +551,27 @@ fn rasterize_surface_edge_scratch(
         constant_duration_minutes
             .unwrap_or(from_duration_minutes + edge_duration_minutes * fraction)
     };
+    // Most street edges fit wholly inside one raster cell. Their linear
+    // travel-time function reaches its minimum at an endpoint; no grid-line
+    // splitting or scratch sorting is needed. Boundary crossings retain the
+    // exact path below, including tiny corner intersections.
+    if from_x.floor() == to_x.floor()
+        && from_y.floor() == to_y.floor()
+        && from_x >= 0.0
+        && from_x < width as f64
+        && from_y >= 0.0
+        && from_y < height as f64
+        && [from_x, from_y, to_x, to_y]
+            .iter()
+            .all(|v| (v - v.round()).abs() > 1e-9)
+    {
+        let duration = duration_at(0.0).min(duration_at(1.0));
+        if duration <= maximum_duration_minutes + DURATION_EPSILON_MINUTES {
+            let cell = from_y.floor() as usize * width + from_x.floor() as usize;
+            values[cell] = values[cell].min(duration);
+        }
+        return;
+    }
     fractions.clear();
     fractions.extend([0.0, 1.0]);
     for (from, to, size) in [(from_x, to_x, width), (from_y, to_y, height)] {
@@ -613,6 +634,19 @@ mod raster_coverage_tests {
             },
         );
         values
+    }
+
+    #[test]
+    fn one_cell_edges_keep_minimum_time_and_cutoff() {
+        let values = raster([0.1, 0.2], [0.8, 0.9], 15.0, None);
+        assert_eq!(values[0], 10.0);
+        assert!(values[1..].iter().all(|v| !v.is_finite()));
+        assert_eq!(raster([0.8, 0.9], [0.1, 0.2], 15.0, Some(7.0))[0], 7.0);
+        assert!(
+            raster([0.1, 0.2], [0.8, 0.9], 9.0, None)
+                .iter()
+                .all(|v| !v.is_finite())
+        );
     }
 
     #[test]

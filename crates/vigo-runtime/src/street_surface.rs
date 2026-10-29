@@ -141,6 +141,11 @@ impl Profiles {
         for edge in self.edges {
             group.clear();
             let mut index = self.heads[edge as usize];
+            let first = &self.records[index as usize];
+            if first.next == u32::MAX {
+                result.push(first.segment);
+                continue;
+            }
             while index != u32::MAX {
                 let record = &self.records[index as usize];
                 group.push(record.segment);
@@ -153,10 +158,6 @@ impl Profiles {
                     .total_cmp(&b.start)
                     .then_with(|| a.seed.cmp(&b.seed))
             });
-            if group.len() == 1 {
-                result.push(group[0]);
-                continue;
-            }
             cuts.clear();
             cuts.extend(group.iter().flat_map(|r| [r.start, r.end]));
             cuts.sort_by(f64::total_cmp);
@@ -379,11 +380,6 @@ fn compute_graph<const ENDPOINTS: bool>(
         ));
     }
     let reverse = input.reverse_direction == Some(true);
-    if reverse && input.surface_reuse.is_some() {
-        return Err(Error::from_reason(
-            "Street surface reuse requires a forward surface.",
-        ));
-    }
     let mut graph = if reverse {
         StreetGraph::<ENDPOINTS>::reversed(snapshot)?
     } else {

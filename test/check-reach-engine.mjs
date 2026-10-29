@@ -262,19 +262,20 @@ try {
   assert.equal(normalizeRoutingPointIdentities(opaqueStorePath, { origin: { ...selectedOrigin, stopId: 'feed-local::station::platform' } }, 'feed-local').origin.stopId,
     'feed-local\u001fstation::platform')
 
-  // Arrive-by ranges name the destination and search afresh: surface reuse
-  // grows depart-at surfaces only.
+  // Both directions retain a baseline for their matching scenario surface.
   const rangeSurface = { width: 48, height: 48, bounds: [7.99, 46.99, 8.02, 47.01] }
   const departRange = { stage: 'baseline-range', origin: selectedOrigin, departMinutes: 480, cutoffMinutes: 20, surface: rangeSurface }
   const arriveRange = { stage: 'baseline-range', timePreference: 'arrive', destination: selectedDestination, departMinutes: 490, cutoffMinutes: 20, surface: rangeSurface }
   assert.deepEqual([nativeReachRangeRequest(departRange).timePreference, nativeReachRangeRequest(departRange).surfaceReuse], ['depart_at', 'baseline'])
   assert.equal(nativeReachRangeRequest({ ...departRange, stage: 'scenario-range' }).surfaceReuse, 'scenario')
+  assert.equal(nativeReachRangeRequest({ ...departRange, retainSurface: false }).surfaceReuse, undefined,
+    'Ordinary Reach must not build a comparison reference that no scenario will use')
   for (const stage of ['baseline-range', 'scenario-range']) {
     const native = nativeReachRangeRequest({ ...arriveRange, stage })
     assert.equal(native.timePreference, 'arrive_by')
     assert.deepEqual(native.destination, { stopId: 'feed-local::D', coordinate: [8, 47.005], label: 'Imported destination', source: 'stop' })
     assert.equal(native.origin, undefined)
-    assert.equal(native.surfaceReuse, undefined)
+    assert.equal(native.surfaceReuse, stage === 'baseline-range' ? 'baseline' : 'scenario')
     assert.equal(native.timeMinutes, 490)
   }
   const preliminary = nativePreliminaryRequest({ timePreference: 'arrive', seeds: [{ coordinate: [8, 47.005] }], width: 48, bounds: rangeSurface.bounds }, selectedDestination, '2026-07-20', 490)

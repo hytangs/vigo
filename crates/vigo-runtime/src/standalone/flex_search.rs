@@ -47,6 +47,7 @@ pub(super) struct End {
     pub coordinate: [f64; 2],
     /// City stop index.
     pub stop: Option<u32>,
+    pub planned_stop: Option<String>,
     /// Walking seconds between the free endpoint and this point.
     pub walk: f64,
     pub meters: f64,
@@ -259,6 +260,9 @@ impl City {
         destination: &Point,
         want: Want,
     ) -> Result<Hops> {
+        if self.planned_flex.is_some() {
+            return self.planned_hops(q, opt, origin, destination, want);
+        }
         let index = self.flex_index()?;
         let mut hops = Hops {
             index: index.clone(),
@@ -334,6 +338,7 @@ impl City {
             End {
                 coordinate: to,
                 stop: None,
+                planned_stop: None,
                 walk: meters / speed * 3.6,
                 meters,
                 priced: false,
@@ -353,6 +358,7 @@ impl City {
                     let end = End {
                         coordinate,
                         stop: Some(s),
+                        planned_stop: None,
                         walk: 0.,
                         meters: 0.,
                         priced: true,
@@ -374,6 +380,7 @@ impl City {
                         End {
                             coordinate: here,
                             stop: None,
+                            planned_stop: None,
                             walk: 0.,
                             meters: 0.,
                             priced: true,
@@ -441,6 +448,7 @@ impl City {
                                 End {
                                     coordinate: [stop.lon, stop.lat],
                                     stop: Some(s),
+                                    planned_stop: None,
                                     walk: 0.,
                                     meters: 0.,
                                     priced: true,
@@ -544,6 +552,7 @@ impl City {
                                 Rc::new(vec![End {
                                     coordinate: points[role].coordinate,
                                     stop: None,
+                                    planned_stop: None,
                                     walk: 0.,
                                     meters: 0.,
                                     priced: true,
@@ -916,7 +925,10 @@ impl City {
         let trip = &index.trips[hop.trip as usize];
         let point = |end: &End| Point {
             coordinate: end.coordinate,
-            stop: end.stop.map(|s| self.stops[s as usize].id.clone()),
+            stop: end
+                .planned_stop
+                .clone()
+                .or_else(|| end.stop.map(|s| self.stops[s as usize].id.clone())),
         };
         let (board, alight) = (point(&hop.board), point(&hop.alight));
         let mut walkq = q.clone();
@@ -935,7 +947,13 @@ impl City {
             return Ok(None);
         }
         let calls = &trip.calls;
-        let (coordinates, distance, source) = if trip.on_demand {
+        let (coordinates, distance, source) = if trip.planned.is_some() {
+            (
+                json!([board.coordinate, alight.coordinate]),
+                json!(haversine(board.coordinate, alight.coordinate)),
+                "scenario_estimate",
+            )
+        } else if trip.on_demand {
             let mut road = vec![];
             let mut meters = 0.;
             let mut stops: Vec<[f64; 2]> = vec![board.coordinate];
@@ -1010,13 +1028,17 @@ impl City {
         let coordination = [&hop.a, &hop.b]
             .iter()
             .any(|s| s.projection.is_some_and(|c| c.kind == 3));
-        let route: Value = match self.route_metadata.get(&trip.route_id) {
-            Some(route) => route.clone(),
-            None => {
-                let route = self.db.query_row("SELECT short_name,long_name,route_type,color FROM routes WHERE route_id=?", [&trip.route_id], |r| Ok(json!({"shortName":r.get::<_,Option<String>>(0)?,"longName":r.get::<_,Option<String>>(1)?,"type":r.get::<_,Option<i64>>(2)?,"color":r.get::<_,Option<String>>(3)?})))?;
-                self.route_metadata
-                    .insert(trip.route_id.clone(), route.clone());
-                route
+        let route: Value = if let Some(plan) = &trip.planned {
+            json!({"shortName":plan["name"],"longName":plan["name"],"type":3})
+        } else {
+            match self.route_metadata.get(&trip.route_id) {
+                Some(route) => route.clone(),
+                None => {
+                    let route = self.db.query_row("SELECT short_name,long_name,route_type,color FROM routes WHERE route_id=?", [&trip.route_id], |r| Ok(json!({"shortName":r.get::<_,Option<String>>(0)?,"longName":r.get::<_,Option<String>>(1)?,"type":r.get::<_,Option<i64>>(2)?,"color":r.get::<_,Option<String>>(3)?})))?;
+                    self.route_metadata
+                        .insert(trip.route_id.clone(), route.clone());
+                    route
+                }
             }
         };
         let access_s = access["durationMinutes"].as_f64().unwrap_or(0.) * 60.;
@@ -1043,7 +1065,9 @@ impl City {
         if access_s > 0. {
             legs.extend(retime(&mut access, departure - access_s));
         }
-        let assumption = if continuous {
+        let assumption = if trip.planned.is_some() {
+            "planned_zone_distance_and_wait"
+        } else if continuous {
             "interpolated_shape"
         } else if !trip.on_demand {
             "published_timetable"
@@ -1055,8 +1079,15 @@ impl City {
             "configured_driving_estimate"
         };
         let service_date = hops.days[hop.day].0.to_string();
+        let name = |point: &Point| {
+            point
+                .stop
+                .as_deref()
+                .and_then(|id| self.stop(id).ok())
+                .map(|s| s.name.as_str())
+        };
         legs.push(json!({"kind":"ride","routeId":trip.route_id,"route":route,"tripId":trip.trip_id,"serviceId":trip.service_id,"serviceDate":service_date,
-            "fromStopId":board.stop,"toStopId":alight.stop,"from":{"coordinate":board.coordinate},"to":{"coordinate":alight.coordinate},
+            "fromStopId":board.stop,"toStopId":alight.stop,"from":{"coordinate":board.coordinate,"name":name(&board)},"to":{"coordinate":alight.coordinate,"name":name(&alight)},
             "departureMinutes":departure/60.,"arrivalMinutes":arrival/60.,"durationMinutes":(arrival-departure)/60.,"distanceMeters":distance,"coordinates":coordinates,"geometrySource":source,
             "flexEstimate":{"durationFactor":hop.factor,"durationOffsetSeconds":hop.offset,"driverCoordination":coordination,"assumption":assumption,
             "bookingStatus":if confirmed {"caller_confirmed"} else if requirements.is_empty(){"not_required"} else {"required"},"bookingRequirements":requirements}}));
@@ -1213,11 +1244,13 @@ impl City {
             return Ok(Integrated::None);
         }
         let combos: Vec<(bool, bool, Option<u32>)> = match opt.max_boardings {
-            None => vec![(has_access, has_egress, None)],
-            Some(cap) => [(true, false, 1), (false, true, 1), (true, true, 2)]
+            None if self.planned_flex.is_none() => vec![(has_access, has_egress, None)],
+            cap => [(true, false, 1), (false, true, 1), (true, true, 2)]
                 .into_iter()
-                .filter(|&(a, e, used)| (!a || has_access) && (!e || has_egress) && cap > used)
-                .map(|(a, e, used)| (a, e, Some(cap - used)))
+                .filter(|&(a, e, used)| {
+                    (!a || has_access) && (!e || has_egress) && cap.is_none_or(|cap| cap > used)
+                })
+                .map(|(a, e, used)| (a, e, cap.map(|cap| cap - used)))
                 .collect(),
         };
         let mut best: Option<Value> = None;
@@ -1274,13 +1307,50 @@ impl City {
         // scan repeated.
         // Optimistic values first: a probe with them rejects most requests
         // before any exact one-to-many scan.
-        let (mut exact, mut probe) = (false, !hops.promising);
+        // A planned-zone interchange is a transit boarding, so it can be
+        // reached by a valid transfer walk. Keep that side exclusively Flex:
+        // enabling terminal transfers on ordinary coordinate egress would
+        // incorrectly extend the requested walking budget.
+        let hubs = Candidates {
+            stops: vec![],
+            seconds: vec![],
+            terminal_transfers: true,
+            evidence: None,
+        };
+        let planned = self.planned_flex.is_some();
+        // Planned zones have fully priced, time-independent ride durations.
+        // When their hours cover the whole query horizon, static hub costs
+        // are exact; a second many-stop scan cannot tighten them.
+        let static_clocks = planned
+            && hops
+                .list
+                .iter()
+                .filter(|h| {
+                    (use_access && h.sides == (Side::Free, Side::Hub))
+                        || (use_egress && h.sides == (Side::Hub, Side::Free))
+                })
+                .all(|h| h.lo <= opt.start && h.hi >= opt.end);
+        let (mut exact, mut probe) = (static_clocks, !hops.promising);
         for _ in 0..8 {
             if access.seconds.is_empty() && egress.seconds.is_empty() {
                 return Ok(Integrated::None);
             }
-            let origins = merge(&walk_a, &access.seconds);
-            let destinations = merge(&walk_b, &egress.seconds);
+            let origins = merge(
+                if planned && use_access {
+                    &hubs
+                } else {
+                    &walk_a
+                },
+                &access.seconds,
+            );
+            let destinations = merge(
+                if planned && use_egress {
+                    &hubs
+                } else {
+                    &walk_b
+                },
+                &egress.seconds,
+            );
             let mut input = super::City::matrix_input(
                 std::slice::from_ref(&origins.0),
                 std::slice::from_ref(&destinations.0),
@@ -1557,8 +1627,13 @@ impl City {
     ) -> (Seeds, Seeds) {
         let t = self.timetable.as_ref().unwrap();
         let stop_of = |end: &End| {
-            end.stop
-                .and_then(|s| t.index.get(&self.stops[s as usize].id).copied())
+            end.planned_stop
+                .as_ref()
+                .and_then(|id| t.index.get(id).copied())
+                .or_else(|| {
+                    end.stop
+                        .and_then(|s| t.index.get(&self.stops[s as usize].id).copied())
+                })
         };
         let mut access = Seeds::default();
         let mut egress = Seeds::default();
@@ -1780,7 +1855,7 @@ impl City {
             departure: opt.start,
             horizon,
             allow_pre_ride_transfers: origins.terminal_transfers,
-            allow_post_ride_transfers: Some(vec![false; stops.len()]),
+            allow_post_ride_transfers: Some(vec![self.planned_flex.is_some(); stops.len()]),
             maximum_boardings: cap,
         };
         let kernel = &mut self.timetable.as_mut().unwrap().kernel;
@@ -1815,12 +1890,13 @@ impl City {
         earliest: f64,
     ) -> Result<HashMap<u32, f64>> {
         let stops: Vec<u32> = seeds.seconds.keys().copied().collect();
+        let planned = self.planned_flex.is_some();
         let kernel = &mut self.timetable.as_mut().unwrap().kernel;
         let r = kernel.route_arrive_by_many_csa(TimetableArriveByManyQueryInput {
             origin_offsets: (0..=stops.len() as u32).collect(),
             origin_stops: stops.clone(),
             origin_walk_seconds: vec![0.; stops.len()],
-            allow_pre_ride_transfers: vec![false; stops.len()],
+            allow_pre_ride_transfers: vec![planned; stops.len()],
             destination_stops: destinations.stops.clone(),
             destination_walk_seconds: destinations.seconds.clone(),
             earliest,

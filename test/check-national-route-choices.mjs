@@ -54,8 +54,7 @@ assert(selectNationalDepartureWindowChoices([tinyRide, directWalk], { centerMinu
   'Keep the walk when one boarding buys only a small time saving')
 assert.equal(selectNationalDepartureWindowChoices([{ ...tinyRide, arriveMinutes: centerMinutes + 22, durationMinutes: 22 }, directWalk], { centerMinutes })[0].id,
   'all-walk', 'An exact arrival tie must prefer zero boardings even when the bus involves less walking')
-// Leaving later must not turn an equal-arrival multi-vehicle chain into the
-// recommendation ahead of the lower-boarding point-query optimum.
+// Default ranking uses arrival, then actual journey duration, before burden.
 const equalArrivalSimple = readyPlan({
   id: 'equal-arrival-simple', departMinutes: centerMinutes, durationMinutes: 50,
   transfers: 1, walkMinutes: 25, routes: ['Bus', 'Rail'],
@@ -67,16 +66,16 @@ const equalArrivalChain = readyPlan({
 const equalArrivalChoices = selectNationalDepartureWindowChoices(
   [equalArrivalChain, equalArrivalSimple], { centerMinutes },
 )
-assert.equal(equalArrivalChoices[0].id, equalArrivalSimple.id)
+assert.equal(equalArrivalChoices[0].id, equalArrivalChain.id)
 assert.equal(equalArrivalChoices[0].recommended, true)
 assert.equal(equalArrivalChoices[0].choiceLabel, 'Earliest arrival')
-assert(equalArrivalChoices.some(plan => plan.id === equalArrivalChain.id),
-  'The chain can remain a lower-walking alternative, without being recommended.')
+assert(equalArrivalChoices.some(plan => plan.id === equalArrivalSimple.id),
+  'The fewer-transfer journey remains a useful alternative.')
 const equalArrivalWalk = { ...equalArrivalChain, id: 'equal-arrival-walk',
   transfers: 1, walkMinutes: 30 }
 assert.equal(selectNationalDepartureWindowChoices(
   [equalArrivalWalk, equalArrivalSimple], { centerMinutes },
-)[0].id, equalArrivalSimple.id, 'Walking breaks equal-arrival, equal-transfer ties before journey duration.')
+)[0].id, equalArrivalWalk.id, 'Shorter journey breaks an arrival tie even with more walking.')
 const sameRouteEarly = readyPlan({
   id: 'same-route-early', departMinutes: 470, durationMinutes: 35,
   transfers: 0, walkMinutes: 5, routes: ['R1'], trip: 'early-trip',

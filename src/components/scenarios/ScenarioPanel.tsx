@@ -203,7 +203,7 @@ function ScenarioDetail({ scenario }: { scenario: ScenarioDraft }) {
       {scenario.interventions.length ? <div className="scenario-changes">
         {scenario.interventions.map((entry) => <ChangeRow key={entry.id} change={entry} active={entry.id === change?.id} />)}
       </div> : <p className="scenario-empty">This scenario runs its timetables as published. Include a saved change from the library, or add a new one.</p>}
-      {zones ? <p className="scenario-hint">Flex zones carry riders door to door inside their outline during their hours, and connect to transit at stops inside.</p> : null}
+      {zones ? <p className="scenario-hint">Flex zones estimate door-to-door travel inside their outline during service hours, connecting to transit at stops inside.</p> : null}
     </section>
     <ScenarioReadiness scenario={scenario} />
   </div>

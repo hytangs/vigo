@@ -17,11 +17,15 @@ AccessComponentType = Literal["street", "station"]
 Accessibility = TypedDict(
     "Accessibility",
     {
+        # Gate-cost policy; absent in older compatible Cities.
+        "fareGates": NotRequired[str],
         "limitations": list[str],
         "maximumSlope": float,
         "minimumWidthMeters": float,
         # `wheelchair-strict-v1`.
         "profile": str,
+        # Same-level walkway policy; absent in older compatible Cities.
+        "sameLevelWalkways": NotRequired[str],
         "stationPaths": str,
         # The prepared street policy; absent in older compatible Cities.
         "streetEvidence": NotRequired[str],
@@ -114,6 +118,8 @@ AlternativeSearch = TypedDict(
         "minutes": NotRequired[float],
         "ranking": NotRequired[str],
         "reason": NotRequired[str],
+        # Window samples answered by a previously certified search.
+        "reusedSamples": NotRequired[int],
         "searches": NotRequired[int],
         # `complete` or `unavailable`.
         "status": NotRequired[str],
@@ -404,6 +410,19 @@ OutputCapabilities = TypedDict(
         "schemas": list[str],
         "streamFormats": list[str],
         "trace": str,
+    },
+)
+
+PlannedFlexZone = TypedDict(
+    "PlannedFlexZone",
+    {
+        "averageSpeedKph": float,
+        "endMinutes": float,
+        "geometry": Any,
+        "id": str,
+        "name": str,
+        "startMinutes": float,
+        "waitMinutes": float,
     },
 )
 
@@ -1501,6 +1520,8 @@ Scenario = TypedDict(
         "cityRevision": NotRequired[str],
         "excludedRouteIds": NotRequired[list[str]],
         "excludedTripIds": NotRequired[list[str]],
+        # Query-local on-demand zones with an explicit planning time model.
+        "flexZones": NotRequired[list[PlannedFlexZone]],
         "id": NotRequired[str],
         "name": NotRequired[str],
         # A compiled native overlay; see the native field reference.

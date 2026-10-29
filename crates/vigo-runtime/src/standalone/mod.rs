@@ -18,6 +18,7 @@ mod linked_trips;
 mod materialize;
 pub(crate) mod memory;
 mod ordered;
+mod planned_flex;
 mod planner;
 mod point;
 mod prepared;

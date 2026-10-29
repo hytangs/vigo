@@ -362,6 +362,31 @@ impl City {
         object.remove("serviceDay");
         object.insert("timeMinutes".into(), json!(time / 60.));
         object.insert("serviceDate".into(), json!(date.to_string()));
+        // Planned fixed-service clocks belong to the requested date, just as
+        // its zone hours do. Rebase them with the internal arrival clock.
+        if let Some(services) = query
+            .get_mut("scenario")
+            .and_then(|s| s.get_mut("services"))
+            .and_then(Value::as_array_mut)
+        {
+            let offset = time - opt.time;
+            for service in services {
+                if service["scheduleMode"] == "preserve-trips" {
+                    if let Some(trips) = service["scheduledTrips"].as_array_mut() {
+                        for trip in trips {
+                            if let Some(t) = trip["departureSeconds"].as_f64() {
+                                trip["departureSeconds"] = json!(t + offset);
+                            }
+                        }
+                    }
+                } else {
+                    service["startMinutes"] =
+                        json!(service["startMinutes"].as_f64().unwrap_or(300.) + offset / 60.);
+                    service["endMinutes"] =
+                        json!(service["endMinutes"].as_f64().unwrap_or(1500.) + offset / 60.);
+                }
+            }
+        }
         Ok(Some(date.to_string()))
     }
     fn validate_wheelchair_request(&self, request: &Value) -> Result<()> {
@@ -1051,16 +1076,14 @@ impl City {
                 return Ok(json!({"status":"flex_witness","mode":"transit"}));
             }
         }
-        if let (Some(j), Some(t)) = (journey.as_mut(), self.timetable.as_ref())
-            && !t.links.is_empty()
-        {
+        if let (Some(j), Some(t)) = (journey.as_mut(), self.timetable.as_ref()) {
             let input = Self::matrix_input(
                 std::slice::from_ref(&a),
                 std::slice::from_ref(&b),
                 &opt,
                 true,
             );
-            super::corridor::board_last_pass(&t.kernel, &t.links, &input, j)?;
+            super::corridor::simplify(t, &input, j)?;
         }
         let primary_search_ms = primary_started.elapsed().as_secs_f64() * 1000.;
         let mut alternative_search_ms = 0.;
@@ -1305,10 +1328,13 @@ impl City {
         let mut choices = vec![];
         let mut first = None;
         let mut searches = 0;
-        for sample in 0..=(window / step).floor() as u32 {
+        let mut sample = 0_u32;
+        let mut reused = 0_u32;
+        while sample <= (window / step).floor() as u32 {
             let seconds =
                 opt.time + if opt.arrive { -1. } else { 1. } * f64::from(sample) * step * 60.;
             if !(0. ..=345_540.).contains(&seconds) {
+                sample += 1;
                 continue;
             }
             let mut request = q.clone();
@@ -1317,6 +1343,22 @@ impl City {
             request["windowMinutes"] = json!(0);
             let mut result = self.route_options(&request, true)?;
             searches += 1;
+            // The latest departure remains optimal for every tighter deadline
+            // that this same witness still meets. No timetable or alternative
+            // search is needed until its arrival falls outside the next sample.
+            let mut next = sample + 1;
+            if opt.arrive
+                && result["status"] == "ready"
+                && result["legs"]
+                    .as_array()
+                    .is_some_and(|ls| ls.iter().any(|l| l["kind"] == "ride"))
+                && let Some(arrival) = result["arrivalMinutes"].as_f64()
+            {
+                next = next.max(((opt.time / 60. - arrival) / step).floor().max(0.) as u32 + 1);
+                next = next.min((window / step).floor() as u32 + 1);
+            }
+            reused += next - sample - 1;
+            sample = next;
             if let Some(items) = result
                 .as_object_mut()
                 .unwrap()
@@ -1334,7 +1376,7 @@ impl City {
         // failure class instead of fabricating a generic timetable failure.
         let mut result = choices.first().cloned().unwrap_or_else(|| first.unwrap());
         result["choices"] = json!(choices);
-        result["window"] = json!({"minutes":window,"stepMinutes":step,"searches":searches,
+        result["window"] = json!({"minutes":window,"stepMinutes":step,"searches":searches,"reusedSamples":reused,
             "coverage":"sampled","direction":if opt.arrive {"earlier_arrival_deadlines"} else {"later_departures"},
             "arrivalSlackMinutes":15,"maximumJourneys":5});
         Ok(result)
@@ -1416,7 +1458,12 @@ impl City {
             .map(|rows| {
                 rows.into_iter()
                     .enumerate()
-                    .map(|(i, j)| {
+                    .map(|(i, mut j)| {
+                        if let Some(journey) = j.as_mut() {
+                            let t = self.timetable.as_ref().unwrap();
+                            super::corridor::alight_before_return(&t.kernel, &t.links, journey);
+                            super::shared_legs::depart_later(t, journey)?;
+                        }
                         j.as_ref().map_or(Ok(Value::Null), |j| {
                             if compact {
                                 return self.compact_journey(j);

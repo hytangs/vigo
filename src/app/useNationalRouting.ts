@@ -200,7 +200,7 @@ export function useNationalRouting({
       method: 'POST',
       signal: controller.signal,
       // Transfer settings let readiness activate the timetable the routes use.
-      body: JSON.stringify({ wheelchair, ...(routeScenario ? { feedIds: routeScenario.feedIds } : { feedId }), mode, routingDataMode, departNow: departNow || undefined, serviceDate: requestServiceDate, serviceDay: requestServiceDay, allowServiceDateFallback: false, allowStreetTransfers, minimumTransferBufferMinutes }),
+      body: JSON.stringify({ wheelchair, ...(routeScenario ? { feedIds: routeScenario.feedIds } : { feedId }), mode, routingDataMode, departNow: departNow || undefined, serviceDate: requestServiceDate, serviceDay: requestServiceDay, allowServiceDateFallback: false, allowStreetTransfers, minimumTransferBufferMinutes, timePreference: requestTimePreference }),
     }).then(({ routing }) => {
       if (controller.signal.aborted) return
       setServiceCoverage(routing.serviceCoverage ?? null)
@@ -213,7 +213,7 @@ export function useNationalRouting({
       setErrorStatus(reason instanceof ApiRequestError ? reason.routingStatus : 'error')
     })
     return () => controller.abort()
-  }, [routeScenario, wheelchair, active, allowStreetTransfers, departNow, feedId, minimumTransferBufferMinutes, mode, projectId, readinessKey, ready, requestServiceDate, requestServiceDay, routingDataMode, streetMode])
+  }, [routeScenario, wheelchair, active, allowStreetTransfers, departNow, feedId, minimumTransferBufferMinutes, mode, projectId, readinessKey, ready, requestServiceDate, requestServiceDay, requestTimePreference, routingDataMode, streetMode])
 
   // Early arrive-by deadlines search the preceding service day's timetable.
   // Readiness opens it while the points are picked; its answer changes nothing here.

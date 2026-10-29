@@ -1,3 +1,5 @@
+import { estimatedPathwaySeconds } from './gtfs/pathway-cost.mjs'
+
 // This profile describes source constraints, not a survey or live facility check.
 // The profile fixes transit semantics: unknown vehicle and boarding
 // accessibility is excluded. Street evidence is chosen at preparation:
@@ -18,9 +20,13 @@ export function wheelchairDescriptionFor(streets = 'inferred') {
     profile: wheelchairProfile, unknownData: 'exclude',
     streetEvidence: wheelchairStreetPolicies[streets],
     stationPaths: 'published-wheelchair-time-or-dimensioned-step-free',
+    fareGates: 'accessible-endpoints-with-published-time-or-five-second-estimate',
+    sameLevelWalkways: 'zero-wheelchair-length-with-published-walk-length-and-accessible-endpoints',
     minimumWidthMeters: 0.9, maximumSlope: 0.083,
     limitations: Object.freeze([
       'Unknown vehicle and boarding accessibility is excluded; coverage may be sparse.',
+      'Fare gates between accessible nodes use published crossing time or a five-second estimate.',
+      'Same-level walkways with accessible endpoints and a zero wheelchair length use their positive published walk length.',
       streets === 'verified'
         ? 'Unknown street accessibility is excluded; only ways tagged wheelchair=yes are used.'
         : 'Inferred streets can lack wheelchair or surface tags. An explicit wheelchair=yes overrides surface and trail filters; mapped dimensions and some barriers are still checked.',
@@ -53,7 +59,8 @@ export function wheelchairBoardingValues(stops) {
   return resolved
 }
 
-export function wheelchairPathwaySeconds(row) {
+export function wheelchairPathwayCost(row, { accessibleEndpoints = false, sameLevel = false } = {}) {
+  const published = seconds => ({ seconds, provenance: 'gtfs_pathway' })
   for (const field of ['stair_count', 'max_slope', 'min_width', 'wheelchair_traversal_time', 'wheelchair_length']) {
     if (tag(row[field]) !== '' && suppliedNumber(row[field]) == null) return null
   }
@@ -66,18 +73,40 @@ export function wheelchairPathwaySeconds(row) {
   if ((stairs != null && stairs !== 0) || (slope != null && Math.abs(slope) > 0.083)
     || (width != null && width < 0.9)) return null
   const wheelchairTime = suppliedNumber(row.wheelchair_traversal_time)
-  if (wheelchairTime != null) return wheelchairTime > 0 ? wheelchairTime : null
+  if (wheelchairTime != null) return wheelchairTime > 0 ? published(wheelchairTime) : null
   // Some feeds publish wheelchair distance instead of wheelchair time. Accept
   // that positive accessibility evidence, using the same 4.8 km/h cost as other
   // prepared pedestrian paths. It cannot override stairs, slope or width bans.
   const wheelchairLength = suppliedNumber(row.wheelchair_length)
-  if (wheelchairLength != null) return wheelchairLength > 0 && mode !== 5
-    ? Math.ceil(wheelchairLength / (4.8 / 3.6)) : null
-  // Missing dimensions cannot establish a usable walkway, gate or elevator.
-  if (width == null || (mode !== 5 && slope == null)) return null
+  if (wheelchairLength != null) {
+    if (wheelchairLength > 0 && mode !== 5) return published(Math.ceil(wheelchairLength / (4.8 / 3.6)))
+    // Feeds may publish zero wheelchair lengths for ordinary, measured
+    // same-level walkways. Keep their real walk distance, never a zero-time
+    // shortcut. Unknown levels/access and explicit prohibitions still fail.
+    const length = suppliedNumber(row.length)
+    if (wheelchairLength === 0 && mode === 1 && accessibleEndpoints && sameLevel && length > 0) {
+      return { seconds: Math.ceil(length / (4.8 / 3.6)), provenance: 'gtfs_pathway_estimated' }
+    }
+    return null
+  }
   const time = suppliedNumber(row.traversal_time)
-  if (time != null && time > 0) return time
+  // A feed can identify accessible fare-control nodes without publishing gate
+  // dimensions or wheelchair costs. A missing cost is not a ban.
+  // This exception applies only to gates with accessible endpoints; stairs,
+  // explicit wheelchair prohibitions and contradictory dimensions still fail.
+  if ([6, 7].includes(mode) && accessibleEndpoints) {
+    if (tag(row.traversal_time) && (time == null || time < 0)) return null
+    return time > 0 ? published(time)
+      : { seconds: estimatedPathwaySeconds(row), provenance: 'gtfs_pathway_estimated' }
+  }
+  // Missing dimensions cannot establish an otherwise unknown pathway.
+  if (width == null || (mode !== 5 && slope == null)) return null
+  if (time != null && time > 0) return published(time)
   return null
+}
+
+export function wheelchairPathwaySeconds(row, options) {
+  return wheelchairPathwayCost(row, options)?.seconds ?? null
 }
 
 // Surfaces and trail grades on which a wheelchair cannot be assumed to pass.

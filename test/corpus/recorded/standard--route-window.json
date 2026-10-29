@@ -28,6 +28,7 @@
       "direction": "later_departures",
       "maximumJourneys": 5,
       "minutes": 5,
+      "reusedSamples": 0,
       "searches": 6,
       "stepMinutes": 1
     },

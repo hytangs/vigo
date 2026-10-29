@@ -11,7 +11,7 @@ import { DatabaseSync } from 'node:sqlite'
 import JSZip from 'jszip'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 import { standaloneBinary } from './helpers/standalone-runtime.mjs'
-import { wheelchairBoardingValues, wheelchairPathwaySeconds, wheelchairWayAllowed, wheelchairNodeAllowed, wheelchairStreetPolicy } from '../src/server/wheelchair-policy.mjs'
+import { wheelchairBoardingValues, wheelchairPathwayCost, wheelchairPathwaySeconds, wheelchairWayAllowed, wheelchairNodeAllowed, wheelchairStreetPolicy } from '../src/server/wheelchair-policy.mjs'
 
 assert.deepEqual([...wheelchairBoardingValues(new Map([
   ['child', { boarding: 0, parent: 'parent' }], ['parent', { boarding: 1 }],
@@ -35,6 +35,31 @@ for (const row of [
   { pathway_mode: 1, wheelchair_length: 'invalid' }, { pathway_mode: 6 },
 ]) assert.equal(wheelchairPathwaySeconds(row), null)
 assert.equal(wheelchairPathwaySeconds({ pathway_mode: 1, traversal_time: 15, max_slope: .02, min_width: 1.2 }), 15)
+const zeroLengthWalk = { pathway_mode: 1, wheelchair_length: 0, length: 20 }
+assert.deepEqual(wheelchairPathwayCost(zeroLengthWalk, { accessibleEndpoints: true, sameLevel: true }),
+  { seconds: 15, provenance: 'gtfs_pathway_estimated' })
+for (const options of [{}, { accessibleEndpoints: true }, { sameLevel: true }]) {
+  assert.equal(wheelchairPathwaySeconds(zeroLengthWalk, options), null)
+}
+for (const denied of [{ length: 0 }, { length: '' }, { length: 'invalid' }, { wheelchair_length: -1 },
+  { wheelchair_traversal_time: -1 }, { pathway_mode: 2 }, { pathway_mode: 5 }, { min_width: .5 }, { max_slope: .2 }]) {
+  assert.equal(wheelchairPathwaySeconds({ ...zeroLengthWalk, ...denied }, { accessibleEndpoints: true, sameLevel: true }), null)
+}
+for (const pathway_mode of [6, 7]) {
+  assert.deepEqual(wheelchairPathwayCost({ pathway_mode }, { accessibleEndpoints: true }),
+    { seconds: 5, provenance: 'gtfs_pathway_estimated' })
+  assert.deepEqual(wheelchairPathwayCost({ pathway_mode, traversal_time: 12 }, { accessibleEndpoints: true }),
+    { seconds: 12, provenance: 'gtfs_pathway' })
+  assert.equal(wheelchairPathwaySeconds({ pathway_mode }, { accessibleEndpoints: false }), null)
+  for (const denied of [{ min_width: .5 }, { max_slope: .2 }, { stair_count: 1 },
+    { wheelchair_traversal_time: -1 }, { wheelchair_length: -1 }, { traversal_time: 'invalid' }]) {
+    assert.equal(wheelchairPathwaySeconds({ pathway_mode, ...denied }, { accessibleEndpoints: true }), null)
+  }
+}
+for (const pathway_mode of [1, 2, 4, 5]) {
+  assert.equal(wheelchairPathwaySeconds({ pathway_mode }, { accessibleEndpoints: true }), null,
+    'Accessible nodes cannot turn unknown walkways, stairs, escalators or elevators into usable paths')
+}
 assert.equal(wheelchairWayAllowed({ highway: 'footway', wheelchair: 'yes' }), true)
 // Verified street evidence uses only ways tagged wheelchair=yes.
 for (const tags of [{ highway: 'footway' }, { highway: 'steps', wheelchair: 'yes' }, { wheelchair: 'limited' }, { wheelchair: 'yes', incline: '20%' }]) assert.equal(wheelchairWayAllowed(tags, 'verified'), false)
@@ -342,6 +367,58 @@ try {
       const result = run(city, 'route', { ...base, wheelchair: true, diagnostics: 'trace' }, native)
       assert.equal(result.status, ready ? 'ok' : 'not_found', `${variant}/${native}: ${JSON.stringify(result).slice(0,500)}`)
       if (ready) assert.equal(result.journey.arrivalTime, '08:30:00')
+    }
+  }
+  // A full entrance -> elevator -> gate -> platform chain must work in both
+  // directions. Generic nodes inherit accessibility from their station; gate
+  // timing is estimated explicitly, never confused with published evidence.
+  const gateStops = stationStops
+    + 'N,Unpaid,38.905,-77.03995,3,S,0\nQ,Paid,38.905,-77.0399,3,S,0\n'
+  zip.file('trips.txt', await zip.file('trips.txt').async('string') + 'R2,WKD,REV,1,1\n')
+  zip.file('stop_times.txt', await zip.file('stop_times.txt').async('string')
+    + 'REV,08:00:00,08:00:00,B,1\nREV,08:15:00,08:15:00,P,2\n')
+  for (const variant of ['accessible-gates', 'narrow-gates', 'denied-gate-node', 'unknown-gate-node', 'zero-wheelchair-length', 'different-levels']) {
+    let stops = variant === 'denied-gate-node' ? gateStops.replace('3,S,0\nQ,Paid', '3,S,2\nQ,Paid')
+      : variant === 'unknown-gate-node' ? gateStops.replace('3,S,0\nQ,Paid', '3,,0\nQ,Paid') : gateStops
+    stops = stops.trimEnd().split('\n').map((line, i) => line + (i === 0 ? ',level_id'
+      : line.startsWith('Q,') || line.startsWith('P,') ? `,${variant === 'different-levels' && line.startsWith('Q,') ? 'other' : 'platform'}` : ',')).join('\n') + '\n'
+    zip.file('stops.txt', stops)
+    zip.remove('transfers.txt')
+    const width = variant === 'narrow-gates' ? '.5' : ''
+    const zeroLength = ['zero-wheelchair-length', 'different-levels'].includes(variant)
+    zip.file('pathways.txt', 'pathway_id,from_stop_id,to_stop_id,pathway_mode,is_bidirectional,wheelchair_traversal_time,wheelchair_length,min_width,length\n'
+      + 'lift,E,N,5,1,60,,,\n'
+      + `entry,N,Q,6,0,,,${width},\nexit,Q,N,7,0,,,${width},\n`
+      + `walk,Q,P,1,1,,${zeroLength ? 0 : 10},,10\n`
+      // An unpriced parallel stair must not erase a valid gate in either order.
+      + 'stairs,N,Q,2,0,,,\n')
+    fs.writeFileSync(gtfsPath, await zip.generateAsync({ type: 'nodebuffer' }))
+    const city = path.join(folder, variant)
+    build(gtfsPath, osmPath, city, ['--wheelchair'])
+    const ready = ['accessible-gates', 'zero-wheelchair-length'].includes(variant)
+    for (const timePreference of ['depart_at', 'arrive_by']) {
+      const result = run(city, 'route', { ...base, timePreference,
+        ...(timePreference === 'arrive_by' ? { time: '08:30' } : {}), wheelchair: true })
+      assert.equal(result.status, ready ? 'ok' : 'not_found', `${variant}/${timePreference}`)
+      if (ready) assert.equal(result.journey.arrivalTime, '08:30:00')
+    }
+    const egress = run(city, 'route', { ...base, origin: { stopId: 'B' }, destination: { coordinate: [-77.04, 38.905] }, wheelchair: true })
+    assert.equal(egress.status, ready ? 'ok' : 'not_found', `${variant}: reverse gate and elevator egress`)
+    if (ready) {
+      const db = new DatabaseSync(path.join(city, 'routing/project.sqlite'), { readOnly: true })
+      try {
+        for (const [from, to] of [['N', 'Q'], ['Q', 'N']]) {
+          const gate = db.prepare('SELECT min_transfer_time, provenance FROM transfers JOIN transfer_provenance USING(from_stop_id,to_stop_id) WHERE from_stop_id=? AND to_stop_id=?').get(from, to)
+          assert.equal(gate.min_transfer_time, 5)
+          assert.equal(gate.provenance, 'gtfs_pathway_estimated')
+        }
+        if (zeroLength) {
+          const walk = db.prepare("SELECT min_transfer_time, provenance, path_distance_m FROM transfers JOIN transfer_provenance USING(from_stop_id,to_stop_id) WHERE from_stop_id='Q' AND to_stop_id='P'").get()
+          assert.equal(walk.min_transfer_time, 8)
+          assert.equal(walk.path_distance_m, 10, 'Do not turn a zero wheelchair length into a free station shortcut')
+          assert.equal(walk.provenance, 'gtfs_pathway_estimated')
+        }
+      } finally { db.close() }
     }
   }
   // A City cannot be relabeled to opt an unrestricted graph into the profile.

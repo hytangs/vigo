@@ -118,6 +118,12 @@ try {
   assert.match(inspector, /<span>Start<\/span>/)
   assert.match(inspector, /<strong>23 min<\/strong>/, 'Elapsed time runs from leaving the point to the deadline')
   assert.match(inspector, /Leave 08:37 · arrive by 09:00/)
+  const flexSource = { ...source, result: { ...arriveResult, request: { ...arriveResult.request,
+    scenario: { id: 'flex', name: 'Planned Flex', serviceCount: 0, flexZoneCount: 1 } } } }
+  const flexInspector = renderToStaticMarkup(createElement(ReachPointInspector, { inspection: { point: start, source: flexSource, plan, loading: false, error: '', close: () => {}, retry: () => {} } }))
+  assert.match(flexInspector, /Scheduled journey/)
+  assert.match(flexInspector, /Planned Flex/)
+  assert.match(flexInspector, /The journey below uses scheduled service/, 'A Flex-only comparison must distinguish the baseline journey from the scenario map')
   console.log('Arrive-by Reach: Leave at / Arrive by toggle, destination and deadline labels, first-walk limit, minutes-before metrics, and point journeys passed.')
   console.log('Reach cutoff presentation: 45/90-minute scopes, scenario counts, later transit reach, exact custom cutoff and missing/preliminary evidence passed.')
 } finally { await server.close(); await rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

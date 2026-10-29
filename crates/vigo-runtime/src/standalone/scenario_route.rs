@@ -34,6 +34,7 @@ impl City {
                 "id",
                 "name",
                 "services",
+                "flexZones",
                 "excludedTripIds",
                 "excludedRouteIds",
                 "cityRevision",
@@ -66,8 +67,14 @@ impl City {
         self.install_scenario(scenario)?;
         // A retained view keeps the buffer it was last searched with.
         self.apply_transfer_buffer(&base)?;
+        self.planned_flex = Some(self.parse_planned_zones(scenario, q)?).filter(|z| !z.is_empty());
         self.pinned_timetable = true;
-        let result = self.route(&base);
+        let result = if self.planned_flex.is_some() {
+            self.planned_zone_route(&base)
+        } else {
+            self.route(&base)
+        };
+        self.planned_flex = None;
         self.pinned_timetable = false;
         let mut result = result?;
         result["scenario"] = json!({"id":scenario["id"],"name":scenario["name"]});
@@ -76,6 +83,23 @@ impl City {
 
     /// Make the view of the active timetable under `scenario` active.
     pub(super) fn install_scenario(&mut self, scenario: &Value) -> Result<()> {
+        let mut fixed = scenario.clone();
+        if let Some(object) = fixed.as_object_mut() {
+            object.remove("flexZones");
+        }
+        let scenario = &fixed;
+        // Zone geometry and clocks do not change the resident timetable.
+        // Avoid deriving/caching a full duplicate view for a zones-only case.
+        if ["services", "excludedTripIds", "excludedRouteIds"]
+            .iter()
+            .all(|k| {
+                scenario
+                    .get(k)
+                    .is_none_or(|v| v.as_array().is_some_and(|a| a.is_empty()))
+            })
+        {
+            return Ok(());
+        }
         let t = self.timetable.as_ref().ok_or("Timetable is not active")?;
         let digest = format!("{:x}", Sha256::digest(serde_json::to_vec(scenario)?));
         // The view's planned stops, routes and trips belong to its own feed.

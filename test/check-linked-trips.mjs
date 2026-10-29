@@ -37,7 +37,10 @@ try {
   fs.writeFileSync(input.gtfsPath,await zip.generateAsync({type:'nodebuffer'}))
   const city=path.join(inputDir,'city')
   execFileSync(process.execPath,['public/vigo.mjs','build',`--gtfs=${input.gtfsPath}`,`--osm=${input.osmPath}`,`--output=${city}`],{cwd:root,stdio:'pipe'})
-  const child=spawn(standaloneBinary,['stream','--city',city],{env:{...process.env,VIGO_TIMETABLE_CACHE_BYTES:'0'}});children.push(child)
+  const child=spawn(standaloneBinary,['stream','--city',city],{env:{...process.env,VIGO_TIMETABLE_CACHE_BYTES:'0'}})
+  // Register before querying so an already exited process is also awaited.
+  const closed=new Promise(resolve=>child.once('close',resolve))
+  children.push({child,closed})
   let stderr='';child.stderr.on('data',c=>stderr+=c)
   const lines=createInterface({input:child.stdout})[Symbol.asyncIterator]()
   const run=async q=>{child.stdin.write(JSON.stringify(q)+'\n');const line=await lines.next();assert(!line.done,stderr);const r=JSON.parse(line.value);assert.notEqual(r.status,'error',JSON.stringify(r));return r}
@@ -170,5 +173,97 @@ try {
   assert.deepEqual(first.journey.legs.filter(l=>l.type==='transit').map(l=>l.trip.id),['T2'],'First boarding still uses the last pass')
   checks++
  }
+ // A shorter walk on the return side must not send a rider through the
+ // terminal and back when the outward pass catches the same onward train.
+ // The independent fixture has a 20-minute loop to save one walking minute.
+ for(const variant of ['ordinary','no-drop-off','forbidden-transfer','minimum-transfer']) {
+  const inputDir=path.join(dir,`alight-${variant}`);fs.mkdirSync(inputDir)
+  const input=await writeCliFixtureInputs(inputDir)
+  const zip=await JSZip.loadAsync(fs.readFileSync(input.gtfsPath))
+  zip.file('stops.txt','stop_id,stop_name,stop_lat,stop_lon\nA,Origin,38.900,-77.050\nX,Outward stop,38.905,-77.040\nY,Return stop,38.905,-77.0399\nZ,Turnaround,38.910,-77.030\nC,Train platform,38.905,-77.0398\nB,Destination,38.920,-77.020\n')
+  zip.file('trips.txt','route_id,service_id,trip_id,direction_id,block_id\nR1,WKD,T1,0,LOOP\nR1,WKD,T2,1,LOOP\nR2,WKD,T3,0,\n')
+  zip.file('stop_times.txt',`trip_id,arrival_time,departure_time,stop_id,stop_sequence,pickup_type,drop_off_type\nT1,08:00:00,08:00:00,A,1,0,0\nT1,08:10:00,08:10:00,X,2,0,${variant==='no-drop-off'?1:0}\nT1,08:20:00,08:20:00,Z,3,0,0\nT2,08:25:00,08:25:00,Z,1,0,0\nT2,08:30:00,08:30:00,Y,2,0,0\nT3,09:00:00,09:00:00,C,1,0,0\nT3,09:10:00,09:10:00,B,2,0,0\n`)
+  zip.file('transfers.txt','from_stop_id,to_stop_id,from_trip_id,to_trip_id,transfer_type,min_transfer_time\n,,T1,T2,4,\nY,C,,,2,60\n'
+   +'X,Y,,,2,60\nX,C,,,2,120\n'
+   +(variant==='forbidden-transfer'?'X,C,T1,T3,3,\n':variant==='minimum-transfer'?'X,C,T1,T3,2,3600\n':''))
+  fs.writeFileSync(input.gtfsPath,await zip.generateAsync({type:'nodebuffer'}))
+  const city=path.join(inputDir,'city')
+  execFileSync(process.execPath,['public/vigo.mjs','build',`--gtfs=${input.gtfsPath}`,`--osm=${input.osmPath}`,`--output=${city}`],{cwd:root,stdio:'pipe'})
+  const base={kind:'route',origin:{stopId:'A'},destination:{stopId:'B'},serviceDate:'2026-07-15',timeMinutes:480,maxWalkKm:.2,maxTransfers:1,minimumTransferBufferMinutes:1,requireTransitRide:true,allowStreetTransfers:true}
+  for(const reverse of [false,true]) for(const extra of [{},{alternatives:5},{windowMinutes:1,windowStepMinutes:1,windowChoices:'supported'},{kind:'matrix',includeJourneys:true},{kind:'matrix',includeJourneys:true,journeyFormat:'compact'}]) {
+   if(reverse && extra.alternatives) continue
+   const q={...base,...extra,...(reverse?{timePreference:'arrive_by',timeMinutes:550}:{})}
+   if(reverse) delete q.windowChoices
+   if(q.kind==='matrix') {q.origins=[q.origin];q.destinations=[q.destination];delete q.origin;delete q.destination}
+   const r=JSON.parse(execFileSync(standaloneBinary,['stream','--city',city],{input:JSON.stringify(q)+'\n',encoding:'utf8'}).trim())
+   assert.equal(r.status,'ok',JSON.stringify(r))
+   const j=q.kind==='matrix'?r.journeys[0][0]:r.journey
+   const rides=j.legs.filter(l=>l.type==='transit')
+   const simplified=variant==='ordinary'
+   assert.deepEqual(rides.map(l=>l.trip.id),simplified?['T1','T3']:['T1','T2','T3'],`${variant}, ${JSON.stringify(extra)}, reverse=${reverse}`)
+   assert.equal(j.arrivalTime,'09:10:00')
+   assert.equal(j.boardings,2)
+   if(simplified) { assert.equal(rides[0].to.stop.id,'X');assert.equal(rides[0].arrivalTime,'08:10:00') }
+   checks++
+  }
+ }
+ // Tighten a three-ride chain backward from its fixed final train. Later
+ // buses more than 30 minutes away must be considered, but never miss a buffer.
+ {
+  const inputDir=path.join(dir,'later-connections');fs.mkdirSync(inputDir)
+  const input=await writeCliFixtureInputs(inputDir)
+  const zip=await JSZip.loadAsync(fs.readFileSync(input.gtfsPath))
+  zip.file('stops.txt','stop_id,stop_name,stop_lat,stop_lon\nA,Origin,38.900,-77.050\nX,First connection,38.905,-77.040\nY,Train connection,38.910,-77.030\nB,Destination,38.920,-77.020\n')
+  zip.file('routes.txt',(await zip.file('routes.txt').async('string'))+'R3,fixture,R3,Train,2\n')
+  const trips=[['T1','R1','A','08:00:00','X','08:10:00'],['Late1','R1','A','08:50:00','X','09:00:00'],['Miss1','R1','A','09:15:00','X','09:25:00'],
+   ['T2','R2','X','08:20:00','Y','08:30:00'],['Late2','R2','X','09:05:00','Y','09:15:00'],['Miss2','R2','X','09:35:00','Y','09:45:00'],['T3','R3','Y','09:30:00','B','09:40:00']]
+  zip.file('trips.txt','route_id,service_id,trip_id,direction_id\n'+trips.map(([id,route])=>`${route},WKD,${id},0\n`).join(''))
+  zip.file('stop_times.txt','trip_id,arrival_time,departure_time,stop_id,stop_sequence\n'+trips.map(([id,,from,dep,to,arr])=>`${id},${dep},${dep},${from},1\n${id},${arr},${arr},${to},2\n`).join(''))
+  fs.writeFileSync(input.gtfsPath,await zip.generateAsync({type:'nodebuffer'}))
+  const city=path.join(inputDir,'city')
+  execFileSync(process.execPath,['public/vigo.mjs','build',`--gtfs=${input.gtfsPath}`,`--osm=${input.osmPath}`,`--output=${city}`],{cwd:root,stdio:'pipe'})
+  const base={kind:'route',origin:{stopId:'A'},destination:{stopId:'B'},serviceDate:'2026-07-15',timeMinutes:480,maxWalkKm:.001,maxTransfers:2,requireTransitRide:true,allowStreetTransfers:false}
+  for(const buffer of [1,5,6]) for(const reverse of [false,true]) for(const extra of [{},{windowMinutes:1},{kind:'matrix',includeJourneys:true},{kind:'matrix',includeJourneys:true,journeyFormat:'compact'}]) {
+   const q={...base,...extra,minimumTransferBufferMinutes:buffer,...(reverse?{timePreference:'arrive_by',timeMinutes:580}:{})}
+   if(q.kind==='matrix') {q.origins=[q.origin];q.destinations=[q.destination];delete q.origin;delete q.destination}
+   const r=JSON.parse(execFileSync(standaloneBinary,['stream','--city',city],{input:JSON.stringify(q)+'\n',encoding:'utf8'}).trim())
+   assert.equal(r.status,'ok',JSON.stringify(r))
+   const j=q.kind==='matrix'?r.journeys[0][0]:r.journey
+   const rides=j.legs.filter(l=>l.type==='transit')
+   assert.deepEqual(rides.map(l=>l.trip.id),[buffer<=5?'Late1':'T1','Late2','T3'],`Latest feasible connections: buffer=${buffer}, reverse=${reverse}, ${JSON.stringify(extra)}`)
+   assert.equal(j.arrivalTime,'09:40:00');assert.equal(j.boardings,3);assert.equal(j.walkingSeconds,0)
+   checks++
+  }
+  const canceled={...base,minimumTransferBufferMinutes:1,routingDataMode:'realtime',realtimeSnapshot:{feedTimestamp:Math.floor(Date.now()/1000),tripUpdates:[{tripId:'Late1',scheduleRelationship:'CANCELED'}]}}
+  const realtime=JSON.parse(execFileSync(standaloneBinary,['stream','--city',city],{input:JSON.stringify(canceled)+'\n',encoding:'utf8'}).trim())
+  assert.equal(realtime.status,'ok',JSON.stringify(realtime))
+  assert.deepEqual(realtime.journey.legs.filter(l=>l.type==='transit').map(l=>l.trip.id),['T1','Late2','T3'],'Canceled later trips cannot replace the certified journey')
+  checks++
+  // Changing either end of a ride must not bypass a trip-scoped permission.
+  for(const [name,rule] of [
+   ['incoming','X,X,Late1,Late2,3,'],
+   ['outgoing','Y,Y,Late2,T3,3,'],
+   ['minimum','Y,Y,Late2,T3,2,1200'],
+  ]) {
+   zip.file('transfers.txt','from_stop_id,to_stop_id,from_trip_id,to_trip_id,transfer_type,min_transfer_time\n'+rule+'\n')
+   fs.writeFileSync(input.gtfsPath,await zip.generateAsync({type:'nodebuffer'}))
+   const restricted=path.join(inputDir,name)
+   execFileSync(process.execPath,['public/vigo.mjs','build',`--gtfs=${input.gtfsPath}`,`--osm=${input.osmPath}`,`--output=${restricted}`],{cwd:root,stdio:'pipe'})
+   const r=JSON.parse(execFileSync(standaloneBinary,['stream','--city',restricted],{input:JSON.stringify({...base,minimumTransferBufferMinutes:1})+'\n',encoding:'utf8'}).trim())
+   assert.equal(r.status,'ok',JSON.stringify(r))
+   const ids=r.journey.legs.filter(l=>l.type==='transit').map(l=>l.trip.id)
+   if(name==='incoming') assert(!(ids.includes('Late1') && ids.includes('Late2')),'Later boarding cannot bypass an incoming scoped rule')
+   else assert(!ids.includes('Late2'),'Later alighting cannot bypass an onward scoped rule')
+   assert.equal(r.journey.arrivalTime,'09:40:00');checks++
+  }
+ }
  console.log(JSON.stringify({status:'passed',checks}))
-} finally {for(const child of children)child.kill();fs.rmSync(dir,{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 })}
+} finally {
+ // Windows keeps prepared files mapped until the reader processes close.
+ // Synchronous removal retries cannot replace waiting for that lifecycle.
+ await Promise.all(children.map(async({child,closed})=>{
+  if(child.exitCode===null && child.signalCode===null)child.kill()
+  await closed
+ }))
+ fs.rmSync(dir,{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
+}

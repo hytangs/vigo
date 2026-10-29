@@ -36,9 +36,10 @@ try {
   assert(!international.includes('\ufffd'), 'Do not split a Unicode character in a filename.')
   const itinerary = exportJourney(plan, 'md').text
   assert.match(itinerary, /24:10:30–24:30:00/)
-  assert.match(itinerary, /Total from requested departure: 30 min · journey: 19.5 min · initial wait: 10.5 min/)
+  assert.match(itinerary, /Journey duration: 19.5 min/ )
+  assert.match(itinerary, /Before leaving: 10.5 min after requested departure · total from requested departure: 30 min/)
   assert.match(itinerary, /America\/New_York/)
-  assert.doesNotMatch(exportJourney({ ...plan, timePreference: 'arrive' }, 'md').text, /Total from requested departure/, 'Arrive-by targets are not departure clocks.')
+  assert.doesNotMatch(exportJourney({ ...plan, timePreference: 'arrive' }, 'md').text, /total from requested departure/, 'Arrive-by targets are not departure clocks.')
   const geometry = JSON.parse(exportJourney(plan, 'geojson').text)
   assert.deepEqual(geometry.features[0].geometry.coordinates, plan.legs[0].coordinates)
   assert.equal(geometry.features[0].properties.startMinutes, 1450.5, 'Exports must retain overnight service clocks.')

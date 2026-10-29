@@ -31,7 +31,13 @@ wheelchair or surface tags. It must never substitute an ordinary walking route.
 When supplied, the optional `wheelchair_length` extension provides a wheelchair
 path distance; VIGO estimates its travel time at 4.8 km/h. A published wheelchair
 time takes precedence. Neither field overrides stairs, excessive slopes or narrow
-passages. Elevators still need a time, and unqualified gates remain excluded.
+passages. Elevators still need a time. Fare gates between accessible nodes use
+their published time, or an explicit five-second estimate when no time is given.
+Gates with unknown endpoint accessibility remain excluded. A zero wheelchair
+length on a walkway can use its positive published walking length only when
+both endpoints are accessible and declare the same level. This is an estimated
+walking cost, never a zero-time shortcut. An accessible entrance flag does not
+override stairs on the path to a platform; another entrance may be required.
 For example, [MBTA documents these optional fields](https://github.com/mbta/gtfs-documentation/blob/master/reference/gtfs.md#pathwaystxt);
 they are not required for feeds using standard pathway dimensions and times.
 

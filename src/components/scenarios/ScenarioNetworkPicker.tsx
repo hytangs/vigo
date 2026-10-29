@@ -34,7 +34,7 @@ export function ScenarioNetworkPicker({ label, ariaLabel, value, baselineLabel, 
       </select>
     </label>
     <div className="scenario-picker-meta">
-      <small>{detail}{zones ? ` · ${plural(zones, 'Flex zone')} not routed yet` : ''}</small>
+      <small>{detail}{zones ? ` · ${plural(zones, 'Flex zone')} included` : ''}</small>
       {scenario ? <button type="button" className="kit-text-button" onClick={() => openScenarioCase(scenario.id)}><PenTool size={12} aria-hidden="true" />Edit</button> : null}
     </div>
   </div>

@@ -70,6 +70,14 @@ impl SurfaceQueue {
             let index = self.occupied.trailing_zeros() as usize;
             self.occupied &= !(1_u64 << index);
             let mut entries = std::mem::take(&mut self.buckets[index]);
+            // Most low radix buckets hold one exact timestamp. Return its
+            // sole entry directly instead of redistributing through the heap.
+            if entries.len() == 1 {
+                let entry = entries.pop().unwrap();
+                self.last = Self::key(&entry);
+                self.buckets[index] = entries;
+                return Some(entry);
+            }
             self.last = entries.iter().map(Self::key).min().unwrap();
             for entry in entries.drain(..) {
                 self.distribute(entry, Self::key(&entry));

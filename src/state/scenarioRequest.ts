@@ -1,4 +1,4 @@
-import { smoothRailPath } from '../app/scenarioGeometry'
+import { flexZoneRing, flexZoneSelfIntersects, smoothRailPath } from '../app/scenarioGeometry'
 import type { RouteMetric } from '../domain'
 import {
   routeHasPublishedShape,
@@ -120,12 +120,15 @@ export function scenarioRequestFor(scenario: ScenarioDraft | undefined) {
       stops,
     }
   }
-  let flexZoneCount = 0
+  const flexZones: Array<{ id: string; name: string; geometry: { type: string; coordinates: number[][][] }; startMinutes: number; endMinutes: number; averageSpeedKph: number; waitMinutes: number }> = []
   for (const intervention of scenario?.interventions ?? []) {
-    // Planned Flex zones are drawn and saved; the engine does not yet combine
-    // query-time Flex service with a scenario overlay, so runs leave them out.
     if (intervention.kind === 'flex-zone') {
-      flexZoneCount += 1
+      const vertices = intervention.stops.map(stop => stop.coordinate)
+      if (vertices.length < 3 || flexZoneSelfIntersects(vertices)) return { error: `${intervention.name} needs a valid outline with at least three corners.` }
+      flexZones.push({ id: intervention.id, name: intervention.name,
+        geometry: { type: 'Polygon', coordinates: [flexZoneRing(vertices)] },
+        startMinutes: intervention.startMinutes, endMinutes: intervention.endMinutes,
+        averageSpeedKph: intervention.averageSpeedKph, waitMinutes: intervention.flexWaitMinutes ?? 15 })
       continue
     }
     const scenarioRoute = findScenarioRoute(currentPreview.routes, intervention.routeId)
@@ -209,11 +212,12 @@ export function scenarioRequestFor(scenario: ScenarioDraft | undefined) {
     ))
   }
   return {
-    flexZoneCount,
+    flexZoneCount: flexZones.length,
     scenario: {
       id: scenario?.id ?? 'baseline-only',
       name: scenario?.name ?? 'Baseline',
       services,
+      flexZones,
       excludedRouteIds: [...new Set(excludedRouteIds)],
       excludedPatternIds,
     },

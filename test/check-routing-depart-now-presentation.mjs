@@ -75,7 +75,7 @@ try {
   }
   const unchanged = structuredClone(detailPlan)
   const details = renderToStaticMarkup(createElement(RoutingDetailPanel, { plan: detailPlan, onClose() {} }))
-  assert.match(details, /<h2>50<small>min total<\/small><\/h2>/)
+  assert.match(details, /<h2>30<small>min total<\/small><\/h2>/)
   assert.match(details, /Leave 20m after your requested time/)
   assert.match(details, /5m waiting en route/)
   assert.match(details, /5m wait at Station/)
@@ -98,14 +98,32 @@ try {
     transfers: 4, walkMinutes: 12, recommended: false, choiceLabel: 'Shortest journey',
     legs: [{ ...detailPlan.legs[1], routeShortName: 'CHAIN' }] }
   const ranked = render({ routingPlan: simple, routingChoices: [chain, simple], routingTimePreference: 'depart' })
-  assert(ranked.indexOf('SIMPLE') < ranked.indexOf('CHAIN'),
-    'Equal arrivals retain the fewer-transfer recommendation even when a later departure has a shorter journey.')
-  assert.equal((ranked.match(/>50<small>min<\/small><\/b>/g) ?? []).length, 2,
-    'Cards compare total time from the same requested departure, including the wait before leaving.')
-  assert.match(ranked, /including 5m before leaving; 45m travelling/)
+  assert(ranked.indexOf('CHAIN') < ranked.indexOf('SIMPLE'),
+    'Equal arrivals prefer the shorter journey before transfers and walking.')
+  assert.equal((ranked.match(/>50<small>min<\/small><\/b>/g) ?? []).length, 1)
+  assert.equal((ranked.match(/>45<small>min<\/small><\/b>/g) ?? []).length, 1,
+    'Each card duration matches its own leave and arrival clocks.')
+  assert.match(ranked, /Leave 5m after your requested time/)
   const sameTransfers = render({ routingPlan: simple, routingChoices: [{ ...chain, transfers: 1, walkMinutes: 30 }, simple] })
-  assert(sameTransfers.indexOf('SIMPLE') < sameTransfers.indexOf('CHAIN'),
-    'Walking breaks an equal-arrival, equal-transfer tie before journey duration.')
+  assert(sameTransfers.indexOf('CHAIN') < sameTransfers.indexOf('SIMPLE'),
+    'Shorter journey breaks an arrival tie even with more walking.')
+  const screenshotChoices = [
+    ['EARLIEST', 484, 522, 26, 0],
+    ['BUS69', 481, 526, 16, 1],
+    ['BUS85', 484, 526, 21, 1],
+    ['BUS91', 494, 535, 15, 1],
+    ['BUS83', 496, 535, 16, 1],
+  ].map(([id, departMinutes, arriveMinutes, walkMinutes, transfers]) => ({
+    ...simple, id, departMinutes, arriveMinutes, walkMinutes, transfers,
+    durationMinutes: arriveMinutes - departMinutes,
+    legs: [{ ...simple.legs[0], routeShortName: id, geometrySource: undefined }],
+  }))
+  const screenshotRanking = render({ routingPlan: screenshotChoices[0], routingChoices: screenshotChoices })
+  const expected = ['EARLIEST', 'BUS85', 'BUS69', 'BUS83', 'BUS91']
+  for (let i = 1; i < expected.length; i++) {
+    assert(screenshotRanking.indexOf(expected[i - 1]) < screenshotRanking.indexOf(expected[i]),
+      'Earlier arrival stays first; 42 beats 45 at 08:46, and 39 beats 41 at 08:55.')
+  }
   const arriveCards = render({ routingPlan: { ...simple, timePreference: 'arrive' } })
   assert.match(arriveCards, /title="Time from leaving to arriving"/)
   assert.doesNotMatch(arriveCards, /from the requested departure/)
@@ -120,5 +138,23 @@ try {
   assert.doesNotMatch(renderConnection({ ...connection, legs: [connection.legs[0], { ...connection.legs[1], startMinutes: 491 }] }), /No time between vehicles/)
   assert.doesNotMatch(renderConnection({ ...connection, legs: [connection.legs[0], { ...connection.legs[1], tripId: 'first-trip' }] }), /No time between vehicles/,
     'Remaining on the same trip is not presented as a vehicle change.')
+  const central = { ...detailPlan, departMinutes: 484, arriveMinutes: 522, durationMinutes: 38,
+    walkMinutes: 28, rideMinutes: 6, waitMinutes: 4, transfers: 1,
+    diagnostics: { departurePresentation: { requestedDepartMinutes: 480 } },
+    legs: [
+      { ...detailPlan.legs[0], startMinutes: 484, endMinutes: 488, durationMinutes: 4, toName: 'Kendall/MIT' },
+      { ...detailPlan.legs[1], tripId: 'first', startMinutes: 488, endMinutes: 490, durationMinutes: 2, fromName: 'Kendall/MIT', toName: 'Central' },
+      { ...detailPlan.legs[1], tripId: 'second', startMinutes: 494, endMinutes: 498, durationMinutes: 4, fromName: 'Central', toName: 'Harvard' },
+      { ...detailPlan.legs[0], startMinutes: 498, endMinutes: 522, durationMinutes: 24, fromName: 'Harvard', toName: 'Destination' },
+    ] }
+  const centralDetails = renderConnection(central)
+  assert.match(centralDetails, /<h2>38<small>min total<\/small><\/h2>/)
+  assert.match(centralDetails, /Leave 4m after your requested time/)
+  assert.match(centralDetails, /aria-label="Arrive 08:10">08:10<\/time>/)
+  assert.match(centralDetails, /4m wait at Central · depart 08:14/)
+  const centralCard = render({ routingPlan: { ...central, id: 'central' }, routingTimePreference: 'depart' })
+  assert.match(centralCard, />38<small>min<\/small>/)
+  assert.match(centralCard, /title="Waiting en route"><b>4m<\/b>/)
+  assert.doesNotMatch(centralCard, />8m<\/b><small>wait/)
   console.log('Depart now presentation passed: fixed realtime clock, retained research date/time and arrive-by, current-date failure, and unchanged street controls.')
 } finally { await server.close(); await rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

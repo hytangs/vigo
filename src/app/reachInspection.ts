@@ -40,7 +40,7 @@ export function reachInspectionSources(result: ReachResult | null): ReachInspect
 
 export function reachHasServiceChanges(result: ReachResult) {
   const scenario = result.request.scenario
-  return Boolean(scenario.serviceCount || scenario.excludedRouteCount || scenario.excludedTripCount || scenario.excludedPatternCount)
+  return Boolean(scenario.serviceCount || scenario.flexZoneCount || scenario.excludedRouteCount || scenario.excludedTripCount || scenario.excludedPatternCount)
 }
 
 /**

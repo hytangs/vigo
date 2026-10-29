@@ -502,6 +502,13 @@ pub struct Scenario {
     )]
     #[schemars(length(min = 0, max = 128))]
     pub services: Option<Vec<ScenarioService>>,
+    /// Query-local on-demand zones with an explicit planning time model.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub flex_zones: Option<Vec<PlannedFlexZone>>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -521,6 +528,18 @@ pub struct Scenario {
         deserialize_with = "present"
     )]
     pub overlay: Option<Value>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PlannedFlexZone {
+    pub id: String,
+    pub name: String,
+    pub geometry: Value,
+    pub start_minutes: f64,
+    pub end_minutes: f64,
+    pub average_speed_kph: f64,
+    pub wait_minutes: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

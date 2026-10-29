@@ -121,6 +121,9 @@ fn selected_indices(plans: &[Value], limit: usize) -> Vec<usize> {
     candidates.sort_by(|&a, &b| {
         arrival(&plans[a])
             .total_cmp(&arrival(&plans[b]))
+            // At the same arrival, leaving later means a shorter journey.
+            // Use the displayed leave clock, including deferred access walking.
+            .then(leave(&plans[b]).total_cmp(&leave(&plans[a])))
             .then(rides(&plans[a]).len().cmp(&rides(&plans[b]).len()))
             .then(number(&plans[a], "walkMinutes").total_cmp(&number(&plans[b], "walkMinutes")))
             .then(a.cmp(&b))

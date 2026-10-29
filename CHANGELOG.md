@@ -2,6 +2,14 @@
 
 ## 1.0.0-rc.2
 
+- Connect planned scenario Flex zones to Route and Reach, including arrive-by, service hours, transit interchanges and walking to a pickup instead of taking an unnecessary short bus ride.
+- Share destination bounds in full depart-at searches and prune unreachable prefixes in full arrive-by searches. Reuse equivalent reverse-window samples while preserving service-date boundaries.
+- Reuse Reach street surfaces and baseline/scenario work in both directions, with request-specific limits and retained result parity checks.
+- Rank Studio's earliest-arrival choices by arrival time, then journey duration. Display time before leaving separately from travel time.
+- Take a later connecting service when it catches the same onward departure; remove return-loop detours before onward connections.
+- Connect wheelchair station paths through accessible fare gates and dimensioned same-level walkways. Retain stairs, slope, width and explicit-access exclusions, and report the cost assumptions in results.
+- Exclude closed elevator footprints from horizontal street snapping; preserve open inclined-elevator ways.
+- Refresh generated Flex request schemas, desktop journey accessibility checks and corpus expectations. Run Linux desktop checks with a virtual display and await fixture shutdown before Windows cleanup.
 - Apply the wheelchair City's expanded-walking policy even when a request inherits its profile without an explicit wheelchair flag.
 - Keep keyboard focus in Studio search while moving through results, and announce an empty search outside the listbox.
 - Board looping vehicles on their last pass and drop alternatives that stay aboard through a turnaround only to return to their own corridor. Forward in-seat continuations are unchanged.

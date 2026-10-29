@@ -43,6 +43,7 @@ pub(crate) struct SurfaceReuseCache {
 
 struct Baseline {
     limits: [f64; 3],
+    reverse: bool,
     seeds: Box<[Seed]>,
     reference: Reference,
     raster: Option<Raster>,
@@ -257,7 +258,10 @@ impl SurfaceReuseCache {
         profiles: &mut Profiles,
     ) -> Option<(Vec<bool>, u32)> {
         let baseline = self.baseline.as_ref()?;
-        if input.independent_terminal_walk || baseline.limits != limits(input) {
+        if input.independent_terminal_walk
+            || baseline.limits != limits(input)
+            || baseline.reverse != (input.reverse_direction == Some(true))
+        {
             return None;
         }
         let mut best = HashMap::<SeedKey, usize>::new();
@@ -340,6 +344,7 @@ impl SurfaceReuseCache {
             plain_segments.extend(segments(profiles));
             self.baseline = Some(Baseline {
                 limits: limits(input),
+                reverse: input.reverse_direction == Some(true),
                 seeds: (0..input.seed_durations_minutes.len())
                     .map(|i| seed(input, endpoints, i))
                     .collect(),
@@ -410,6 +415,7 @@ impl SurfaceReuseCache {
         };
         self.baseline = Some(Baseline {
             limits: limits(input),
+            reverse: input.reverse_direction == Some(true),
             seeds: (0..input.seed_durations_minutes.len())
                 .map(|i| seed(input, endpoints, i))
                 .collect(),

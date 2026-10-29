@@ -99,6 +99,12 @@ try {
   const clock = plan => [plan.choiceLabel, plan.travelMode, Number(plan.departMinutes.toFixed(6)), Number(plan.arriveMinutes.toFixed(6)),
     plan.legs.map(leg => [leg.type, leg.tripId ?? null, Number(leg.startMinutes.toFixed(6)), Number(leg.endMinutes.toFixed(6))])]
   assert.deepEqual(early.choices.map(clock), options.map(clock))
+  const flexZones=[{ id:'planned-zone',name:'Planned shuttle',geometry:{type:'Polygon',coordinates:[[[-77.06,38.89],[-77.02,38.89],[-77.02,38.92],[-77.06,38.92],[-77.06,38.89]]]},startMinutes:420,endMinutes:600,averageSpeedKph:60,waitMinutes:1 }]
+  const flexScenario={id:'with-flex',name:'With Flex',services:[],flexZones}
+  const flexRoute=await post('national-route',{...route,scenario:flexScenario,timePreference:'depart',departMinutes:480,departureWindowMinutes:0})
+  assert(flexRoute.choices.some(p=>p.legs.some(l=>l.flexEstimate?.assumption==='planned_zone_distance_and_wait')),'Studio must receive a planned Flex ride')
+  const flexReach=await post('reach',{feedId:'feed',origin:route.origin,serviceDate:route.serviceDate,serviceDay:'weekday',departMinutes:480,maxWalkKm:0.2,walkSpeedKph:4.8,radiusKm:3,rasterSize:48,cutoffsMinutes:[10],includePreliminary:false,includeStreetEdges:false,scenario:flexScenario})
+  assert.notEqual(flexReach.result.surface.raster.scenario,flexReach.result.surface.raster.baseline,'Planned zones must change the Studio Reach surface')
   console.log('Earlier arrivals: native options by the deadline, latest departure first, preceding-day clock and daylight-saving service days passed.')
 } finally {
   await api?.stop(); disposeAllNationalGtfsStores(); disposeNationalOsmStore(street)
