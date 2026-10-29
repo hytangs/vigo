@@ -297,7 +297,7 @@ fn move_start(v: &mut Value, delta: f64) {
     }
 }
 /// The same journey left at `start`.
-fn retime(plan: &Value, start: f64, latest_catch: Option<f64>) -> Value {
+pub(super) fn retime(plan: &Value, start: f64, latest_catch: Option<f64>) -> Value {
     let mut v = plan.clone();
     // Shift from the exact clock: a rounded source would offset every moved
     // leg by the rounding error.

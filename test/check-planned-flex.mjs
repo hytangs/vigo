@@ -13,9 +13,10 @@ const folder=fs.mkdtempSync(path.join(os.tmpdir(),'vigo-planned-flex-'))
 try {
  const {gtfsPath,osmPath}=await writeCliFixtureInputs(folder)
  const zip=await JSZip.loadAsync(fs.readFileSync(gtfsPath))
- zip.file('stops.txt','stop_id,stop_name,stop_lat,stop_lon\nA,Alpha,38.900,-77.050\nB,Bravo,38.910,-77.030\n')
- zip.file('trips.txt','route_id,service_id,trip_id,direction_id\nR1,WKD,T,0\n')
- zip.file('stop_times.txt','trip_id,arrival_time,departure_time,stop_id,stop_sequence\nT,08:30:00,08:30:00,A,1\nT,08:40:00,08:40:00,B,2\n')
+ zip.file('stops.txt','stop_id,stop_name,stop_lat,stop_lon\nA,Alpha,38.900,-77.050\nB,Bravo,38.910,-77.030\nC,Flex pickup,38.910,-77.028\n')
+ zip.file('trips.txt','route_id,service_id,trip_id,direction_id\nR1,WKD,T,0\nR1,WKD,SHORT,0\n')
+ zip.file('stop_times.txt','trip_id,arrival_time,departure_time,stop_id,stop_sequence\nT,08:30:00,08:30:00,A,1\nT,08:40:00,08:40:00,B,2\nSHORT,08:41:00,08:41:00,B,1\nSHORT,08:42:00,08:42:00,C,2\n')
+ zip.file('transfers.txt','from_stop_id,to_stop_id,transfer_type,min_transfer_time\nB,C,2,120\n')
  fs.writeFileSync(gtfsPath,await zip.generateAsync({type:'nodebuffer'}))
  const city=path.join(folder,'city')
  execFileSync(process.execPath,['public/vigo.mjs','build','--gtfs',gtfsPath,'--osm',osmPath,'--output',city],{cwd:root,stdio:'pipe'})
@@ -37,6 +38,43 @@ try {
  assert.equal(query('route',{...base,origin,destination,timeMinutes:650}).status,'not_found')
  const direct=query('route',{...base,origin,destination:{coordinate:[-77.046,38.902]},maxTransfers:0})
  assert.deepEqual(rides(direct).map(l=>l.tripId),['planned-flex:West'])
+ // A short scheduled ride must not be required just to enter a zone when a
+ // valid transfer walk reaches its pickup stop. The boarding cap proves the
+ // walk is part of routing, not a hidden presentation-only deletion.
+ const pickup={...base,origin:{stopId:'A'},destination:{coordinate:[-77.028,38.911]},
+   scenario:{services:[],flexZones:[zone('Pickup',-77.0285,-77.0275)]},maxTransfers:1}
+ for(const reverse of [false,true]) {
+   const result=query('route',{...pickup,timeMinutes:reverse?540:480,timePreference:reverse?'arrive_by':'depart_at'})
+   assert.equal(result.status,'ok',JSON.stringify(result))
+   assert.deepEqual(rides(result).map(l=>l.tripId),['T','planned-flex:Pickup'])
+   assert(result.trace.legs.some(l=>l.kind==='walk'&&l.fromStopId==='B'&&l.toStopId==='C'))
+   assert.equal(rides(result).at(-1).from.name,'Flex pickup')
+ }
+ assert.deepEqual(query('route',{...pickup,horizonMinutes:60}).trace.legs,query('route',pickup).trace.legs,
+   'Static zone clocks match the exact many-stop scan when opening hours cover the query horizon')
+ const sampled=query('route',{...pickup,timeMinutes:495,windowMinutes:20,windowChoices:'supported'})
+ assert(sampled.trace.plannedFlex.reusedSamples>0,'Reuse certified fixed-first Flex journeys before the same first vehicle')
+ const exactChoices=[]
+ for(let time=495;time<=515;time++) {
+   const result=query('route',{...pickup,timeMinutes:time})
+   if(result.status==='ok')exactChoices.push(result.trace)
+ }
+ assert.equal(sampled.trace.arrivalMinutes,Math.min(...exactChoices.map(p=>p.arrivalMinutes)),
+   'Reusing catchable departures preserves the exhaustive minute-sample earliest arrival')
+ const reverseWindow=query('route',{...base,origin,destination:{stopId:'B'},timeMinutes:540,timePreference:'arrive_by',windowMinutes:20})
+ assert(reverseWindow.trace.plannedFlex.reusedSamples>0,'Reuse latest-departure witnesses that still meet earlier deadlines')
+ const reverseExact=query('route',{...base,origin,destination:{stopId:'B'},timeMinutes:540,timePreference:'arrive_by'})
+ assert.equal(reverseWindow.trace.departureMinutes,reverseExact.trace.departureMinutes)
+ const pickupBounds=[-77.031,38.909,-77.027,38.913],pickupSize=32,px=23,py=15
+ const pickupTarget={coordinate:[pickupBounds[0]+(px+.5)/pickupSize*(pickupBounds[2]-pickupBounds[0]),
+   pickupBounds[3]-(py+.5)/pickupSize*(pickupBounds[3]-pickupBounds[1])]}
+ const pickupReach=query('reach',{...pickup,destination:undefined,allowLongWalk:undefined,requireTransitRide:undefined,
+   bounds:pickupBounds,rasterSize:pickupSize,cutoffsMinutes:[60],reachFormat:'surface'})
+ const pickupRoute=query('route',{...pickup,destination:pickupTarget})
+ assert.equal(pickupRoute.status,'ok')
+ assert(Number.isFinite(pickupReach.trace.surface.values[py*pickupSize+px]),'Reach includes the transfer walk into Flex with two boardings')
+ assert(Math.abs(pickupReach.trace.surface.values[py*pickupSize+px]-(pickupRoute.trace.arrivalMinutes-480))<0.02,
+   'Reach and Route agree after walking into the planned zone')
  // A replaced line and an added stop use the same view as the Flex hops.
  const planned={...base,scenario:{flexZones,excludedRouteIds:['R1'],services:[{id:'line',name:'Planned connector',stops:[{stopId:'A'},{coordinate:[-77.031,38.9095],id:'new-stop',label:'New stop'}],startMinutes:510,endMinutes:520,headwayMinutes:10,averageSpeedKph:30,timeModel:'estimate-distance'}]}}
  assert.equal(query('route',{...planned,origin,destination}).status,'ok')

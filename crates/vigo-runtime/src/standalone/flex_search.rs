@@ -1079,8 +1079,15 @@ impl City {
             "configured_driving_estimate"
         };
         let service_date = hops.days[hop.day].0.to_string();
+        let name = |point: &Point| {
+            point
+                .stop
+                .as_deref()
+                .and_then(|id| self.stop(id).ok())
+                .map(|s| s.name.as_str())
+        };
         legs.push(json!({"kind":"ride","routeId":trip.route_id,"route":route,"tripId":trip.trip_id,"serviceId":trip.service_id,"serviceDate":service_date,
-            "fromStopId":board.stop,"toStopId":alight.stop,"from":{"coordinate":board.coordinate},"to":{"coordinate":alight.coordinate},
+            "fromStopId":board.stop,"toStopId":alight.stop,"from":{"coordinate":board.coordinate,"name":name(&board)},"to":{"coordinate":alight.coordinate,"name":name(&alight)},
             "departureMinutes":departure/60.,"arrivalMinutes":arrival/60.,"durationMinutes":(arrival-departure)/60.,"distanceMeters":distance,"coordinates":coordinates,"geometrySource":source,
             "flexEstimate":{"durationFactor":hop.factor,"durationOffsetSeconds":hop.offset,"driverCoordination":coordination,"assumption":assumption,
             "bookingStatus":if confirmed {"caller_confirmed"} else if requirements.is_empty(){"not_required"} else {"required"},"bookingRequirements":requirements}}));
@@ -1237,11 +1244,13 @@ impl City {
             return Ok(Integrated::None);
         }
         let combos: Vec<(bool, bool, Option<u32>)> = match opt.max_boardings {
-            None => vec![(has_access, has_egress, None)],
-            Some(cap) => [(true, false, 1), (false, true, 1), (true, true, 2)]
+            None if self.planned_flex.is_none() => vec![(has_access, has_egress, None)],
+            cap => [(true, false, 1), (false, true, 1), (true, true, 2)]
                 .into_iter()
-                .filter(|&(a, e, used)| (!a || has_access) && (!e || has_egress) && cap > used)
-                .map(|(a, e, used)| (a, e, Some(cap - used)))
+                .filter(|&(a, e, used)| {
+                    (!a || has_access) && (!e || has_egress) && cap.is_none_or(|cap| cap > used)
+                })
+                .map(|(a, e, used)| (a, e, cap.map(|cap| cap - used)))
                 .collect(),
         };
         let mut best: Option<Value> = None;
@@ -1298,13 +1307,50 @@ impl City {
         // scan repeated.
         // Optimistic values first: a probe with them rejects most requests
         // before any exact one-to-many scan.
-        let (mut exact, mut probe) = (false, !hops.promising);
+        // A planned-zone interchange is a transit boarding, so it can be
+        // reached by a valid transfer walk. Keep that side exclusively Flex:
+        // enabling terminal transfers on ordinary coordinate egress would
+        // incorrectly extend the requested walking budget.
+        let hubs = Candidates {
+            stops: vec![],
+            seconds: vec![],
+            terminal_transfers: true,
+            evidence: None,
+        };
+        let planned = self.planned_flex.is_some();
+        // Planned zones have fully priced, time-independent ride durations.
+        // When their hours cover the whole query horizon, static hub costs
+        // are exact; a second many-stop scan cannot tighten them.
+        let static_clocks = planned
+            && hops
+                .list
+                .iter()
+                .filter(|h| {
+                    (use_access && h.sides == (Side::Free, Side::Hub))
+                        || (use_egress && h.sides == (Side::Hub, Side::Free))
+                })
+                .all(|h| h.lo <= opt.start && h.hi >= opt.end);
+        let (mut exact, mut probe) = (static_clocks, !hops.promising);
         for _ in 0..8 {
             if access.seconds.is_empty() && egress.seconds.is_empty() {
                 return Ok(Integrated::None);
             }
-            let origins = merge(&walk_a, &access.seconds);
-            let destinations = merge(&walk_b, &egress.seconds);
+            let origins = merge(
+                if planned && use_access {
+                    &hubs
+                } else {
+                    &walk_a
+                },
+                &access.seconds,
+            );
+            let destinations = merge(
+                if planned && use_egress {
+                    &hubs
+                } else {
+                    &walk_b
+                },
+                &egress.seconds,
+            );
             let mut input = super::City::matrix_input(
                 std::slice::from_ref(&origins.0),
                 std::slice::from_ref(&destinations.0),
@@ -1809,7 +1855,7 @@ impl City {
             departure: opt.start,
             horizon,
             allow_pre_ride_transfers: origins.terminal_transfers,
-            allow_post_ride_transfers: Some(vec![false; stops.len()]),
+            allow_post_ride_transfers: Some(vec![self.planned_flex.is_some(); stops.len()]),
             maximum_boardings: cap,
         };
         let kernel = &mut self.timetable.as_mut().unwrap().kernel;
@@ -1844,12 +1890,13 @@ impl City {
         earliest: f64,
     ) -> Result<HashMap<u32, f64>> {
         let stops: Vec<u32> = seeds.seconds.keys().copied().collect();
+        let planned = self.planned_flex.is_some();
         let kernel = &mut self.timetable.as_mut().unwrap().kernel;
         let r = kernel.route_arrive_by_many_csa(TimetableArriveByManyQueryInput {
             origin_offsets: (0..=stops.len() as u32).collect(),
             origin_stops: stops.clone(),
             origin_walk_seconds: vec![0.; stops.len()],
-            allow_pre_ride_transfers: vec![false; stops.len()],
+            allow_pre_ride_transfers: vec![planned; stops.len()],
             destination_stops: destinations.stops.clone(),
             destination_walk_seconds: destinations.seconds.clone(),
             earliest,

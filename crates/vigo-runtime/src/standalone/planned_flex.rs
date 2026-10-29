@@ -2,7 +2,7 @@
 //! search as imported Flex. They never alter a prepared City. Their explicit
 //! planning model is typical wait plus direct distance / configured speed.
 use super::flex_index::{Call, FlexIndex, Place, Trip};
-use super::flex_search::{End, Hop, Hops, Side, Stopping, Want};
+use super::flex_search::{End, Hop, Hops, Integrated, Side, Stopping, Want};
 use super::query::{Candidates, Options, Point, haversine};
 use super::{City, Result, fail, number};
 use serde_json::{Value, json};
@@ -44,6 +44,7 @@ pub(super) struct Surface {
     time: f64,
     reverse: bool,
     buffer: f64,
+    direct: Vec<bool>,
 }
 impl Surface {
     pub fn minutes(&self, p: [f64; 2]) -> f64 {
@@ -59,7 +60,7 @@ impl Surface {
                     (t - self.time) / 60.
                 }
             };
-            if zone.contains(self.place) {
+            if self.direct[index] {
                 if let Some(t) = zone.clock(self.place, p, self.time, self.reverse) {
                     best = best.min(elapsed(t));
                 }
@@ -70,6 +71,12 @@ impl Surface {
                 } else {
                     self.buffer
                 };
+                // Sources are ordered by their best possible elapsed time.
+                // Travel distance is nonnegative, so later sources cannot
+                // improve an already better arrival (or reverse departure).
+                if elapsed(ready) + zone.wait / 60. >= best {
+                    break;
+                }
                 if let Some(t) = zone.clock(hub, p, ready, self.reverse) {
                     best = best.min(elapsed(t));
                 }
@@ -120,7 +127,7 @@ impl City {
         let mut flex = Candidates {
             stops: vec![],
             seconds: vec![],
-            terminal_transfers: false,
+            terminal_transfers: true,
             evidence: None,
         };
         let mut direct = vec![f64::INFINITY; points.len()];
@@ -151,50 +158,46 @@ impl City {
                 evidence: None,
             })
             .collect();
-        let mut scan = |ends: &Candidates, reserved: u32| -> Result<Vec<f64>> {
-            if ends.stops.is_empty() || opt.max_boardings.is_some_and(|n| n <= reserved) {
-                return Ok(vec![f64::INFINITY; points.len()]);
-            }
-            let (a, b) = if opt.arrive {
-                (&all[..], std::slice::from_ref(ends))
-            } else {
-                (std::slice::from_ref(ends), &all[..])
+        let mut scan =
+            |ends: &Candidates, reserved: u32, hub_transfers: bool| -> Result<Vec<f64>> {
+                if ends.stops.is_empty() || opt.max_boardings.is_some_and(|n| n <= reserved) {
+                    return Ok(vec![f64::INFINITY; points.len()]);
+                }
+                let (a, b) = if opt.arrive {
+                    (&all[..], std::slice::from_ref(ends))
+                } else {
+                    (std::slice::from_ref(ends), &all[..])
+                };
+                let mut input = Self::matrix_input(a, b, &options, false);
+                if opt.arrive {
+                    input.allow_pre_ride_transfers.fill(hub_transfers);
+                } else if let Some(flags) = input.allow_post_ride_transfers.as_mut() {
+                    flags.fill(hub_transfers);
+                }
+                input.maximum_boardings = opt.max_boardings.map(|n| n - reserved);
+                let r = self
+                    .timetable
+                    .as_mut()
+                    .unwrap()
+                    .kernel
+                    .route_matrix_csa(input)?;
+                Ok(r.times
+                    .iter()
+                    .map(|&t| {
+                        if opt.arrive {
+                            (opt.time - t) / 60.
+                        } else {
+                            (t - opt.time) / 60.
+                        }
+                    })
+                    .collect())
             };
-            let mut input = Self::matrix_input(a, b, &options, false);
-            input.maximum_boardings = opt.max_boardings.map(|n| n - reserved);
-            let r = self
-                .timetable
-                .as_mut()
-                .unwrap()
-                .kernel
-                .route_matrix_csa(input)?;
-            Ok(r.times
-                .iter()
-                .map(|&t| {
-                    if opt.arrive {
-                        (opt.time - t) / 60.
-                    } else {
-                        (t - opt.time) / 60.
-                    }
-                })
-                .collect())
-        };
-        let ordinary = scan(&walk, 0)?;
-        let access = scan(&flex, 1)?;
-        // Without a boarding cap, reserving a Flex boarding does not change
-        // either timetable query. Reuse those results for zone egress.
-        let exit = if opt.max_boardings.is_some() {
-            Some(scan(&walk, 1)?)
-        } else {
-            None
-        };
-        let both = if opt.max_boardings.is_some() {
-            Some(scan(&flex, 2)?)
-        } else {
-            None
-        };
-        let exit = exit.as_deref().unwrap_or(&ordinary);
-        let both = both.as_deref().unwrap_or(&access);
+        let ordinary = scan(&walk, 0, false)?;
+        let access = scan(&flex, 1, false)?;
+        // A walk into a Flex pickup is an interchange, while an ordinary
+        // egress keeps its own walking budget. Keep the two frontiers separate.
+        let exit = scan(&walk, 1, true)?;
+        let both = scan(&flex, 2, true)?;
         let mut seeds = vec![];
         let mut sources = vec![];
         for (i, p) in points.into_iter().enumerate() {
@@ -218,16 +221,28 @@ impl City {
         let sources = zones
             .iter()
             .map(|zone| {
-                sources
+                let mut points: Vec<_> = sources
                     .iter()
                     .copied()
                     .filter(|(point, _)| zone.contains(*point))
-                    .collect()
+                    .collect();
+                points.sort_by(|a, b| {
+                    if opt.arrive {
+                        b.1.total_cmp(&a.1)
+                    } else {
+                        a.1.total_cmp(&b.1)
+                    }
+                });
+                points
             })
             .collect();
         Ok((
             seeds,
             Surface {
+                direct: zones
+                    .iter()
+                    .map(|zone| zone.contains(place.coordinate))
+                    .collect(),
                 zones,
                 sources,
                 place: place.coordinate,
@@ -455,7 +470,26 @@ impl City {
         }
         query["flex"] = json!({});
         query.as_object_mut().unwrap().remove("time");
-        for sample in 0..=window.floor() as usize {
+        let origin = self.point(&q["origin"])?;
+        let destination = self.point(&q["destination"])?;
+        let interchange = opt.max_boardings != Some(1);
+        // Zone geometry, stop membership and hop durations do not change
+        // across the window. Ordinary choices were already searched above.
+        let mut hops = self.planned_hops(
+            q,
+            &opt,
+            &origin,
+            &destination,
+            Want {
+                direct: true,
+                access: interchange,
+                egress: interchange,
+            },
+        )?;
+        let mut sample = 0;
+        let mut searches = 0;
+        let mut reused = 0;
+        while sample <= window.floor() as usize {
             query["timeMinutes"] = json!(
                 opt.time / 60.
                     + if opt.arrive {
@@ -464,17 +498,147 @@ impl City {
                         sample as f64
                     }
             );
-            let result = self.route_with_flex(&query)?;
-            if result["status"] == "ready" {
-                choices.push(result.clone());
+            let at = Options::parse(&query)?;
+            let mut conditional =
+                self.flex_direct(&query, &at, &mut hops, [&origin, &destination], 9)?;
+            if interchange {
+                match self.flex_integrated(&query, &at, &mut hops, [&origin, &destination], None)? {
+                    Integrated::Journey(plan) => conditional.push(plan),
+                    Integrated::RuleBound => conditional.extend(self.flex_transfers(&query)?),
+                    Integrated::None => {}
+                }
             }
-            choices.extend(result["choices"].as_array().into_iter().flatten().cloned());
+            searches += 1;
+            // FIFO: a certified winner that still catches the same first
+            // scheduled vehicle remains optimal at a later origin clock.
+            // Direct/initial Flex rides keep exact forward samples.
+            let catch = (!opt.arrive && !conditional.is_empty())
+                .then(|| {
+                    conditional
+                        .iter()
+                        .map(|p| fixed_first_catch(p, at.end / 60.))
+                        .collect::<Option<Vec<_>>>()
+                        .map(|v| v.into_iter().fold(f64::INFINITY, f64::min))
+                })
+                .flatten();
+            choices.extend(conditional.iter().cloned());
+            sample += 1;
+            while sample <= window.floor() as usize
+                && catch.is_some_and(|c| opt.time / 60. + sample as f64 <= c)
+            {
+                for plan in &conditional {
+                    choices.push(super::window::retime(
+                        plan,
+                        opt.time / 60. + sample as f64,
+                        catch,
+                    ));
+                }
+                reused += 1;
+                sample += 1;
+            }
+            // In reverse, an unchanged latest-departure witness remains
+            // optimal while its actual arrival meets the earlier deadline.
+            let arrived = conditional
+                .iter()
+                .filter_map(|p| p["arrivalMinutes"].as_f64())
+                .fold(f64::NEG_INFINITY, f64::max);
+            while opt.arrive
+                && !conditional.is_empty()
+                && sample <= window.floor() as usize
+                && opt.time / 60. - sample as f64 >= arrived
+            {
+                choices.extend(conditional.iter().cloned());
+                reused += 1;
+                sample += 1;
+            }
         }
         let choices = super::alternatives::select(choices, opt.arrive, 5);
         let mut result = choices.first().cloned().unwrap_or(ordinary);
         result["choices"] = json!(choices);
-        result["plannedFlex"] =
-            json!({"model":"direct_distance_plus_wait","confirmsAvailability":false});
+        result["plannedFlex"] = json!({"model":"direct_distance_plus_wait","confirmsAvailability":false,"searches":searches,"reusedSamples":reused});
         Ok(result)
+    }
+}
+
+fn fixed_first_catch(plan: &Value, horizon: f64) -> Option<f64> {
+    let legs = plan["legs"].as_array()?;
+    let first = legs.iter().position(|leg| leg["kind"] == "ride")?;
+    let ride = &legs[first];
+    if ride["flexEstimate"].is_object()
+        || legs.iter().any(|leg| leg["headwayEstimate"].is_object())
+        || plan["arrivalMinutes"].as_f64()? > horizon
+    {
+        return None;
+    }
+    let walk: Option<f64> = legs[..first]
+        .iter()
+        .map(|leg| leg["durationMinutes"].as_f64())
+        .sum();
+    Some(ride["departureMinutes"].as_f64()? - walk?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ordered_zone_sources_match_exhaustive_clocks() {
+        let zone = Zone {
+            id: "zone".into(),
+            name: "Zone".into(),
+            geometry: json!({"type":"Polygon","coordinates":[[[0.,0.],[1.,0.],[1.,1.],[0.,1.],[0.,0.]]]}),
+            start: 1800.,
+            end: 7200.,
+            speed: 30.,
+            wait: 180.,
+        };
+        for reverse in [false, true] {
+            let time = if reverse { 7000. } else { 1200. };
+            let mut sources: Vec<_> = (0..40)
+                .map(|i| {
+                    (
+                        [0.1 + (i % 7) as f64 * 0.1, 0.1 + (i % 5) as f64 * 0.1],
+                        time + if reverse {
+                            -(i as f64) * 60.
+                        } else {
+                            i as f64 * 60.
+                        },
+                    )
+                })
+                .collect();
+            sources.sort_by(|a, b| {
+                if reverse {
+                    b.1.total_cmp(&a.1)
+                } else {
+                    a.1.total_cmp(&b.1)
+                }
+            });
+            let surface = Surface {
+                zones: vec![zone.clone()],
+                sources: vec![sources.clone()],
+                place: [-1., -1.],
+                time,
+                reverse,
+                buffer: 60.,
+                direct: vec![false],
+            };
+            for x in 0..20 {
+                let p = [0.025 + x as f64 * 0.05, 0.4];
+                let expected = sources
+                    .iter()
+                    .filter_map(|(hub, t)| {
+                        zone.clock(*hub, p, t + if reverse { -60. } else { 60. }, reverse)
+                    })
+                    .map(|t| {
+                        if reverse {
+                            (time - t) / 60.
+                        } else {
+                            (t - time) / 60.
+                        }
+                    })
+                    .fold(f64::INFINITY, f64::min);
+                assert_eq!(surface.minutes(p), expected);
+            }
+        }
     }
 }

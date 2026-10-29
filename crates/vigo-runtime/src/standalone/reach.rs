@@ -743,7 +743,9 @@ impl City {
                 polygons,
             ));
         }
+        let mut zone_values = None;
         if let Some(zone) = &zone_surface {
+            let mut values = Vec::with_capacity(size * size);
             for y in 0..size {
                 for x in 0..size {
                     let p = [
@@ -751,6 +753,7 @@ impl City {
                         bounds[3] - (y as f64 + 0.5) / size as f64 * (bounds[3] - bounds[1]),
                     ];
                     let minutes = zone.minutes(p);
+                    values.push(minutes);
                     if minutes.is_finite() && minutes <= maximum {
                         seeds.extend(p);
                         durations.push(minutes);
@@ -758,6 +761,7 @@ impl City {
                     }
                 }
             }
+            zone_values = Some(values);
         }
         // A comparison keeps its reference surface ("baseline") for the
         // scenario that follows it in this process ("scenario"); the street
@@ -801,7 +805,11 @@ impl City {
                             b[0] + (x as f64 + 0.5) / size as f64 * (b[2] - b[0]),
                             b[3] - (y as f64 + 0.5) / size as f64 * (b[3] - b[1]),
                         ];
-                        let t = zone.minutes(p);
+                        let t = if b == bounds.as_slice() {
+                            zone_values.as_ref().unwrap()[y * size + x]
+                        } else {
+                            zone.minutes(p)
+                        };
                         if t <= maximum {
                             values[y * size + x] = values[y * size + x].min(t);
                         }
