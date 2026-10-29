@@ -313,6 +313,7 @@ fn retime(plan: &Value, start: f64, latest_catch: Option<f64>) -> Value {
 fn compare_fastest(l: &Value, r: &Value, center: f64) -> Ordering {
     elapsed(l, center)
         .total_cmp(&elapsed(r, center))
+        .then(choice_journey_minutes(l).total_cmp(&choice_journey_minutes(r)))
         .then(boardings(l).cmp(&boardings(r)))
         .then(walking(l).total_cmp(&walking(r)))
         .then(journey_minutes(l).total_cmp(&journey_minutes(r)))
@@ -649,6 +650,19 @@ fn choice_depart(v: &Value) -> f64 {
     }
 }
 
+/// Journey time after deferring access walking, matching the Studio cards.
+fn choice_journey_minutes(v: &Value) -> f64 {
+    arrive(v) - choice_depart(v)
+}
+
+fn compare_arrival(l: &Value, r: &Value) -> Ordering {
+    arrive(l)
+        .total_cmp(&arrive(r))
+        .then(choice_journey_minutes(l).total_cmp(&choice_journey_minutes(r)))
+        .then(boardings(l).cmp(&boardings(r)))
+        .then(walking(l).total_cmp(&walking(r)))
+}
+
 fn useful_against_walk(plan: &Value, walk_minutes: f64) -> bool {
     rides(plan).next().is_none()
         || walking(plan) + 1e-6 < walk_minutes
@@ -701,13 +715,7 @@ fn merge_services(plans: &[Value], limit: usize) -> Vec<usize> {
                     .is_lt()
         })
     });
-    candidates.sort_by(|&a, &b| {
-        arrive(&plans[a])
-            .total_cmp(&arrive(&plans[b]))
-            .then(boardings(&plans[a]).cmp(&boardings(&plans[b])))
-            .then(walking(&plans[a]).total_cmp(&walking(&plans[b])))
-            .then(a.cmp(&b))
-    });
+    candidates.sort_by(|&a, &b| compare_arrival(&plans[a], &plans[b]).then(a.cmp(&b)));
     let mut witnesses = HashSet::new();
     candidates.retain(|&i| witnesses.insert(witness(&plans[i])));
     let mut families = HashSet::new();
@@ -1204,11 +1212,7 @@ impl City {
             .into_iter()
             .map(|i| combined[i].clone())
             .collect();
-        choices.sort_by(|l, r| {
-            arrive(l)
-                .total_cmp(&arrive(r))
-                .then(minutes(l, "durationMinutes").total_cmp(&minutes(r, "durationMinutes")))
-        });
+        choices.sort_by(compare_arrival);
         let selected = choices
             .iter()
             .position(|plan| !plan["expandedWalkingLimitKm"].is_number())
@@ -1797,6 +1801,61 @@ mod tests {
         );
         assert_eq!(chosen.len(), 1);
         assert_eq!(chosen[0].value["departureMinutes"], 480.);
+    }
+
+    #[test]
+    fn choices_rank_arrival_then_displayed_journey_before_walking() {
+        let option = |route: &str, start: f64, end: f64, walking: f64| {
+            plan(
+                start,
+                vec![
+                    walk(start, start + walking),
+                    ride(route, route, "A", "B", start + walking, end),
+                ],
+            )
+        };
+        let plans = vec![
+            option("Red", 484., 522., 26.),
+            option("69", 481., 526., 16.),
+            option("85", 484., 526., 21.),
+            option("91", 494., 535., 15.),
+            option("83", 496., 535., 16.),
+        ];
+        assert_eq!(merge_services(&plans, 10), vec![0, 2, 1, 4, 3]);
+        let mut order: Vec<usize> = (0..plans.len()).collect();
+        order.sort_by(|&a, &b| compare_fastest(&plans[a], &plans[b], 480.));
+        assert_eq!(order, vec![0, 2, 1, 4, 3]);
+        let supported = select_supported(
+            plans[1..3]
+                .iter()
+                .cloned()
+                .map(|value| Plan {
+                    value,
+                    source: None,
+                })
+                .collect(),
+            480.,
+            5,
+        );
+        assert_eq!(family(&supported[0].value), "85");
+        assert_eq!(supported[0].value["recommended"], true);
+
+        // Both queries start at 08:00, but access can wait until 08:04
+        // for the second journey, so its displayed duration is shorter.
+        let early = plan(
+            480.,
+            vec![walk(480., 485.), ride("a", "A", "A", "B", 485., 526.)],
+        );
+        let deferred = plan(
+            480.,
+            vec![walk(480., 488.), ride("b", "B", "A", "B", 492., 526.)],
+        );
+        assert_eq!(choice_journey_minutes(&deferred), 42.);
+        assert_eq!(
+            merge_services(&[early.clone(), deferred.clone()], 10),
+            vec![1, 0]
+        );
+        assert!(compare_fastest(&deferred, &early, 480.).is_lt());
     }
 
     #[test]

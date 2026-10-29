@@ -98,15 +98,32 @@ try {
     transfers: 4, walkMinutes: 12, recommended: false, choiceLabel: 'Shortest journey',
     legs: [{ ...detailPlan.legs[1], routeShortName: 'CHAIN' }] }
   const ranked = render({ routingPlan: simple, routingChoices: [chain, simple], routingTimePreference: 'depart' })
-  assert(ranked.indexOf('SIMPLE') < ranked.indexOf('CHAIN'),
-    'Equal arrivals retain the fewer-transfer recommendation even when a later departure has a shorter journey.')
+  assert(ranked.indexOf('CHAIN') < ranked.indexOf('SIMPLE'),
+    'Equal arrivals prefer the shorter journey before transfers and walking.')
   assert.equal((ranked.match(/>50<small>min<\/small><\/b>/g) ?? []).length, 1)
   assert.equal((ranked.match(/>45<small>min<\/small><\/b>/g) ?? []).length, 1,
-    'Each card duration matches its own leave and arrival clocks while ranking stays unchanged.')
+    'Each card duration matches its own leave and arrival clocks.')
   assert.match(ranked, /Leave 5m after your requested time/)
   const sameTransfers = render({ routingPlan: simple, routingChoices: [{ ...chain, transfers: 1, walkMinutes: 30 }, simple] })
-  assert(sameTransfers.indexOf('SIMPLE') < sameTransfers.indexOf('CHAIN'),
-    'Walking breaks an equal-arrival, equal-transfer tie before journey duration.')
+  assert(sameTransfers.indexOf('CHAIN') < sameTransfers.indexOf('SIMPLE'),
+    'Shorter journey breaks an arrival tie even with more walking.')
+  const screenshotChoices = [
+    ['EARLIEST', 484, 522, 26, 0],
+    ['BUS69', 481, 526, 16, 1],
+    ['BUS85', 484, 526, 21, 1],
+    ['BUS91', 494, 535, 15, 1],
+    ['BUS83', 496, 535, 16, 1],
+  ].map(([id, departMinutes, arriveMinutes, walkMinutes, transfers]) => ({
+    ...simple, id, departMinutes, arriveMinutes, walkMinutes, transfers,
+    durationMinutes: arriveMinutes - departMinutes,
+    legs: [{ ...simple.legs[0], routeShortName: id, geometrySource: undefined }],
+  }))
+  const screenshotRanking = render({ routingPlan: screenshotChoices[0], routingChoices: screenshotChoices })
+  const expected = ['EARLIEST', 'BUS85', 'BUS69', 'BUS83', 'BUS91']
+  for (let i = 1; i < expected.length; i++) {
+    assert(screenshotRanking.indexOf(expected[i - 1]) < screenshotRanking.indexOf(expected[i]),
+      'Earlier arrival stays first; 42 beats 45 at 08:46, and 39 beats 41 at 08:55.')
+  }
   const arriveCards = render({ routingPlan: { ...simple, timePreference: 'arrive' } })
   assert.match(arriveCards, /title="Time from leaving to arriving"/)
   assert.doesNotMatch(arriveCards, /from the requested departure/)

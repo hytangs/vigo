@@ -152,9 +152,9 @@ export function nationalRoutingReturnedRideCycle(plan, { stationGroupForStopId }
 
 function compareFastestChoice(left, right, centerMinutes) {
   return choiceTotalElapsedMinutes(left, centerMinutes) - choiceTotalElapsedMinutes(right, centerMinutes)
+    || choiceJourneyMinutes(left) - choiceJourneyMinutes(right)
     || nationalRideBoardingSummary(left).boardingCount - nationalRideBoardingSummary(right).boardingCount
     || choiceMetric(left, 'walkMinutes') - choiceMetric(right, 'walkMinutes')
-    || choiceJourneyMinutes(left) - choiceJourneyMinutes(right)
     || Math.abs(choiceMetric(left, 'departMinutes') - centerMinutes) - Math.abs(choiceMetric(right, 'departMinutes') - centerMinutes)
     || choiceMetric(right, 'departMinutes') - choiceMetric(left, 'departMinutes')
     || compareChoiceIdentity(left, right)

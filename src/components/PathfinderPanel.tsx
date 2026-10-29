@@ -117,6 +117,8 @@ export function PathfinderRouteList({
         ? right.departMinutes - left.departMinutes
         : (left.arriveMinutes ?? left.departMinutes + left.durationMinutes)
           - (right.arriveMinutes ?? right.departMinutes + right.durationMinutes))
+      || (left.timePreference === 'arrive' ? 0
+        : routingPlanJourneyMinutes(left) - routingPlanJourneyMinutes(right))
       || boardings(left) - boardings(right)
       || left.walkMinutes - right.walkMinutes
       || left.durationMinutes - right.durationMinutes
