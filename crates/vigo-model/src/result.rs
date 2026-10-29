@@ -236,6 +236,12 @@ pub struct Accessibility {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub street_evidence: Option<String>,
     pub station_paths: String,
+    /// Gate-cost policy; absent in older compatible Cities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fare_gates: Option<String>,
+    /// Same-level walkway policy; absent in older compatible Cities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub same_level_walkways: Option<String>,
     pub maximum_slope: Number,
     pub minimum_width_meters: Number,
     pub limitations: Vec<String>,
@@ -366,6 +372,9 @@ pub struct AlternativeSearch {
     pub step_minutes: Option<Number>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub searches: Option<u32>,
+    /// Window samples answered by a previously certified search.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reused_samples: Option<u32>,
 }
 
 /// A dataset or model limitation of the City.

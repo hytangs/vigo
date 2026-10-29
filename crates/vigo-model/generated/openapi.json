@@ -90,6 +90,10 @@
       "Accessibility": {
         "description": "The wheelchair profile a Result was computed under.",
         "properties": {
+          "fareGates": {
+            "description": "Gate-cost policy; absent in older compatible Cities.",
+            "type": "string"
+          },
           "limitations": {
             "items": {
               "type": "string"
@@ -104,6 +108,10 @@
           },
           "profile": {
             "description": "`wheelchair-strict-v1`.",
+            "type": "string"
+          },
+          "sameLevelWalkways": {
+            "description": "Same-level walkway policy; absent in older compatible Cities.",
             "type": "string"
           },
           "stationPaths": {
@@ -330,6 +338,12 @@
           },
           "reason": {
             "type": "string"
+          },
+          "reusedSamples": {
+            "description": "Window samples answered by a previously certified search.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
           },
           "searches": {
             "format": "uint32",

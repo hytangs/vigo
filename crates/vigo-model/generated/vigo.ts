@@ -35,11 +35,15 @@ export interface AccessReport {
  * The wheelchair profile a Result was computed under.
  */
 export interface Accessibility {
+  /** Gate-cost policy; absent in older compatible Cities. */
+  fareGates?: string;
   limitations: string[];
   maximumSlope: number;
   minimumWidthMeters: number;
   /** `wheelchair-strict-v1`. */
   profile: string;
+  /** Same-level walkway policy; absent in older compatible Cities. */
+  sameLevelWalkways?: string;
   stationPaths: string;
   /** The prepared street policy; absent in older compatible Cities. */
   streetEvidence?: string;
@@ -115,6 +119,8 @@ export interface AlternativeSearch {
   minutes?: number;
   ranking?: string;
   reason?: string;
+  /** Window samples answered by a previously certified search. */
+  reusedSamples?: number;
   searches?: number;
   /** `complete` or `unavailable`. */
   status?: string;

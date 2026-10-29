@@ -17,11 +17,15 @@ AccessComponentType = Literal["street", "station"]
 Accessibility = TypedDict(
     "Accessibility",
     {
+        # Gate-cost policy; absent in older compatible Cities.
+        "fareGates": NotRequired[str],
         "limitations": list[str],
         "maximumSlope": float,
         "minimumWidthMeters": float,
         # `wheelchair-strict-v1`.
         "profile": str,
+        # Same-level walkway policy; absent in older compatible Cities.
+        "sameLevelWalkways": NotRequired[str],
         "stationPaths": str,
         # The prepared street policy; absent in older compatible Cities.
         "streetEvidence": NotRequired[str],
@@ -114,6 +118,8 @@ AlternativeSearch = TypedDict(
         "minutes": NotRequired[float],
         "ranking": NotRequired[str],
         "reason": NotRequired[str],
+        # Window samples answered by a previously certified search.
+        "reusedSamples": NotRequired[int],
         "searches": NotRequired[int],
         # `complete` or `unavailable`.
         "status": NotRequired[str],
