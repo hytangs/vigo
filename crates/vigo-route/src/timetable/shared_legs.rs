@@ -135,6 +135,46 @@ mod tests {
     }
 
     #[test]
+    fn equal_time_segments_and_repeated_stops_remain_distinct() {
+        let kernel = TimetableKernel::new(TimetableKernelInput {
+            stop_count: 3,
+            run_count: 2,
+            departure_seconds: vec![10, 20, 20, 25, 25].into(),
+            arrival_seconds: vec![15, 20, 25, 25, 30].into(),
+            from_stop: vec![0, 2, 0, 1, 0].into(),
+            to_stop: vec![1, 0, 1, 0, 1].into(),
+            sequence: vec![1, 1, 2, 3, 4].into(),
+            segment_trip: vec![0, 1, 1, 1, 1].into(),
+            segment_run: vec![0, 1, 1, 1, 1].into(),
+            continuity_break: vec![1, 1, 0, 0, 0].into(),
+            can_board: vec![1; 5].into(),
+            can_alight: vec![1; 5].into(),
+            trip_start: vec![0, 1, 5].into(),
+            departure_offset: vec![0, 3, 4, 5].into(),
+            departure_order: vec![0, 2, 4, 3, 1].into(),
+            transfer_offset: vec![0; 4].into(),
+            transfer_to: vec![].into(),
+            transfer_duration: vec![].into(),
+            forbidden_same_stop: vec![0; 3].into(),
+            same_stop_transfer_minimum: None,
+            minimum_transfer_buffer_seconds: None,
+        })
+        .unwrap();
+        let mut q = query();
+        q.latest_departure = 25.;
+        q.latest_arrival = 30.;
+        let choices = kernel.shared_ride_options(q.clone()).unwrap();
+        assert_eq!(choices.options.len(), 2);
+        assert_eq!(choices.options[0].board_sequence, 2.);
+        assert_eq!(choices.options[1].board_sequence, 4.);
+        let latest = kernel.latest_shared_ride(q, |_| true).unwrap().unwrap();
+        assert_eq!(
+            (latest.trip, latest.board_sequence, latest.departure),
+            (1, 4., 25.)
+        );
+    }
+
+    #[test]
     fn scoped_transfers_do_not_erase_scheduled_departures() {
         let mut kernel = kernel(4);
         kernel
@@ -400,9 +440,24 @@ impl TimetableKernel {
             };
             let event = &events[index];
             let run = event.run as usize;
-            for start in self.run_start[run] as usize..self.run_end[run] as usize {
+            let run_end = self.run_end[run] as usize;
+            // Construction certifies chronological runs. Locate every segment
+            // at this event's time, including equal-time calls and revisits,
+            // instead of rescanning the whole through run for each event.
+            let (mut begin, mut end) = (self.run_start[run] as usize, run_end);
+            while begin < end {
+                let middle = begin + (end - begin) / 2;
+                if dep[middle] < event.departure {
+                    begin = middle + 1;
+                } else {
+                    end = middle;
+                }
+            }
+            for start in begin..run_end {
+                if dep[start] != event.departure {
+                    break;
+                }
                 if from[start] != stop as u32
-                    || dep[start] != event.departure
                     || board[start] == 0
                     || self.is_headway_trip(trips[start])
                 {
