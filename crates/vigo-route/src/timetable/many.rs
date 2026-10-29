@@ -18,6 +18,16 @@ impl TimetableKernel {
         &mut self,
         input: &TimetableArriveByManyQueryInput,
     ) -> Result<TimetableArriveByManyQueryResult> {
+        self.route_arrive_by_many_csa_scan::<true>(input)
+    }
+
+    // With endpoint bounds disabled, read out the latest first boarding at
+    // every stop. Journey suffix bounds add their permitted walking separately;
+    // no per-endpoint maps or cutoff tracking are needed for this all-stop pass.
+    pub(super) fn route_arrive_by_many_csa_scan<const ENDPOINTS: bool>(
+        &mut self,
+        input: &TimetableArriveByManyQueryInput,
+    ) -> Result<TimetableArriveByManyQueryResult> {
         let started = Instant::now();
         let origin_count = input.origin_offsets.len().saturating_sub(1);
         if origin_count == 0
@@ -65,7 +75,7 @@ impl TimetableKernel {
             )?;
             let mut result = if safe {
                 let service = self.service.take();
-                let result = self.route_arrive_by_many_csa_impl(input);
+                let result = self.route_arrive_by_many_csa_scan::<ENDPOINTS>(input);
                 self.service = service;
                 self.record_ordinary_search();
                 result?
@@ -91,7 +101,12 @@ impl TimetableKernel {
         // Both directions share the same endpoint-bound accumulator. Reverse
         // times are negated so improving a departure is also minimization.
         // Keep the allocation-free single-origin path used by point queries.
-        let mut terminals = (origin_count > 1).then(|| Terminals::new(origin_count));
+        let mut terminals = (ENDPOINTS && origin_count > 1).then(|| Terminals::new(origin_count));
+        let mut stop_departures = if ENDPOINTS {
+            Vec::new()
+        } else {
+            vec![f64::NEG_INFINITY; self.stop_count]
+        };
         let mut minimum_origin_offset = f64::INFINITY;
         let mut stats = SearchStats::default();
         for origin in 0..origin_count {
@@ -163,10 +178,12 @@ impl TimetableKernel {
         let time_end = scan_time_upper_bound(&self.scan_times, latest_destination_deadline);
         for time_index in (first_time..time_end).rev() {
             let departure = f64::from(self.scan_times[time_index]);
-            if terminals.as_ref().map_or_else(
-                || departure - minimum_origin_offset <= latest_origin_departure,
-                |targets| -departure > targets.cutoff,
-            ) {
+            if ENDPOINTS
+                && terminals.as_ref().map_or_else(
+                    || departure - minimum_origin_offset <= latest_origin_departure,
+                    |targets| -departure > targets.cutoff,
+                )
+            {
                 break;
             }
             let start = self.scan_time_offsets[time_index] as usize;
@@ -217,15 +234,20 @@ impl TimetableKernel {
                                 <= workspace.destination_egress[input_offset + arrival.to as usize];
                         if flags & SCAN_CAN_BOARD != 0 && (run_was_feasible || direct_exit_feasible)
                         {
-                            let access =
-                                workspace.labels[base_stop * STATE_STRIDE + (STATE_STRIDE - 2)];
-                            if access.generation == epoch {
-                                if let Some(targets) = &mut terminals {
-                                    targets.reach(base_stop, -departure);
-                                } else {
-                                    latest_origin_departure =
-                                        latest_origin_departure.max(departure - access.arrival);
+                            if ENDPOINTS {
+                                let access =
+                                    workspace.labels[base_stop * STATE_STRIDE + (STATE_STRIDE - 2)];
+                                if access.generation == epoch {
+                                    if let Some(targets) = &mut terminals {
+                                        targets.reach(base_stop, -departure);
+                                    } else {
+                                        latest_origin_departure =
+                                            latest_origin_departure.max(departure - access.arrival);
+                                    }
                                 }
+                            } else {
+                                stop_departures[base_stop] =
+                                    stop_departures[base_stop].max(departure);
                             }
                             if transfer_allowed(forbidden_same_stop[base_stop] != 0, None, false) {
                                 relax_reverse_post_ride_deadline(
@@ -282,9 +304,13 @@ impl TimetableKernel {
                 }
             }
         }
-        let mut latest_departures = match terminals {
-            Some(targets) => targets.bounds.into_iter().map(|time| -time).collect(),
-            None => vec![latest_origin_departure],
+        let mut latest_departures = if ENDPOINTS {
+            match terminals {
+                Some(targets) => targets.bounds.into_iter().map(|time| -time).collect(),
+                None => vec![latest_origin_departure],
+            }
+        } else {
+            stop_departures
         };
         for latest in &mut latest_departures {
             if *latest < input.earliest {
@@ -1006,6 +1032,46 @@ mod tests {
                             input.allow_pre_ride_transfers = vec![false];
                             let scalar = reverse.route_arrive_by_many_csa_impl(&input).unwrap();
                             assert_eq!(scalar.latest_departures[0], expected[0]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn reverse_all_stop_bounds_match_endpoint_readout() {
+        let edges = [
+            (0, 1, 1_700, 1_700),
+            (1, 2, 1_700, 1_700),
+            (0, 2, 1_600, 1_800),
+            (4, 1, 800, 900),
+            (1, 2, 950, 1_000),
+        ];
+        for buffer in [0, 17] {
+            let mut kernel = kernel(&edges, false, buffer);
+            for cap in [None, Some(1), Some(2), Some(4)] {
+                for deadline in [900., 1_700., 1_900.] {
+                    for post in [false, true] {
+                        for excluded in [vec![], vec![0, 2]] {
+                            let mut input = request();
+                            input.maximum_boardings = cap;
+                            input.deadline = deadline;
+                            input.allow_post_ride_transfers = Some(post);
+                            input.excluded_trips = excluded;
+                            input.origin_offsets = (0..=7).collect();
+                            input.origin_stops = (0..7).collect();
+                            input.origin_walk_seconds = vec![0.; 7];
+                            input.allow_pre_ride_transfers = vec![false; 7];
+                            let expected = kernel.route_arrive_by_many_csa_impl(&input).unwrap();
+                            input.origin_offsets = vec![0, 0];
+                            input.origin_stops.clear();
+                            input.origin_walk_seconds.clear();
+                            input.allow_pre_ride_transfers = vec![false];
+                            let actual = kernel
+                                .route_arrive_by_many_csa_scan::<false>(&input)
+                                .unwrap();
+                            assert_eq!(actual.latest_departures, expected.latest_departures);
                         }
                     }
                 }

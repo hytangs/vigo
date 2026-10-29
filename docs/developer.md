@@ -527,10 +527,24 @@ A conservative floating-point tolerance retains boundary-equal candidates.
 The prefix pass reuses the many-target scan with endpoint-cutoff bookkeeping
 disabled: it needs all stops through the horizon. Its work is included in Matrix
 search counters. Prefix scratch is recomputed per destination and reused across
-requests; it does not cache answers. `reverse_prefix_bounds_preserve_complete_journeys`
+requests; it does not cache answers.
+
+Full depart-at journeys use the corresponding reverse suffix bound. Each
+destination is seeded at the latest of its exact earliest arrivals across the
+requested origins, allowing one conservative pass to serve all rows. It retains
+direct egress and the destination's permitted final transfer, ignores boarding
+caps, and includes walking into a first ride. The existing reverse scan reads out
+first-boarding deadlines for every stop without endpoint maps. A forward label
+after that stop's deadline cannot complete an optimal journey; runs departing
+after the same bound need not enter the boarding round. The bound is recomputed
+for every request, including when endpoints or direction change. Its scan and
+transfer work is included in the query counters.
+
+`opposite_bounds_preserve_complete_journeys`
 compares complete witnesses with pruning disabled across fractional access costs,
 empty/duplicate endpoints, directed terminal transfers, boarding caps, transfer
-buffers, zero-time connections, and changes of direction on a reused kernel.
+buffers, zero-time connections, unreachable prefixes and suffixes, and changes of
+direction on a reused kernel.
 
 ### Reproduce a kernel comparison
 

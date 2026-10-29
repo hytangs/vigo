@@ -331,9 +331,9 @@ struct Labels {
     fronts: Vec<Vec<FrontierLabel>>,
     touched_fronts: Vec<usize>,
     reverse: bool,
-    // Optional optimistic origin-to-stop times for reverse journey selection.
-    // This is recomputed for each destination, never an answer cache.
-    prefix_arrivals: Vec<f64>,
+    // Optimistic origin-to-stop arrivals in reverse, stop-to-destination
+    // departures in forward search. Recomputed within each query, never cached.
+    opposite_times: Vec<f64>,
 }
 
 impl Labels {
@@ -347,9 +347,12 @@ impl Labels {
     fn offer(&mut self, candidate: Label) -> Result<()> {
         // Floating-point endpoint offsets can be reassociated by the prefix
         // query. A conservative tolerance keeps boundary-equal witnesses.
-        if self.reverse
-            && !self.prefix_arrivals.is_empty()
-            && -candidate.time + 1e-7 < self.prefix_arrivals[candidate.stop]
+        if !self.opposite_times.is_empty()
+            && if self.reverse {
+                -candidate.time + 1e-7 < self.opposite_times[candidate.stop]
+            } else {
+                candidate.time - 1e-7 > self.opposite_times[candidate.stop]
+            }
         {
             return Ok(());
         }
@@ -453,7 +456,7 @@ pub(super) struct JourneyWorkspace {
 impl JourneyWorkspace {
     pub(super) fn rebind(&mut self, stops: usize, runs: usize) {
         self.labels.clear();
-        self.labels.prefix_arrivals.clear();
+        self.labels.opposite_times.clear();
         for stop in self.boarding_stops.drain(..) {
             self.boarding_labels[stop].clear();
         }
@@ -475,7 +478,7 @@ impl JourneyWorkspace {
                 fronts: vec![Vec::new(); stops * 4],
                 touched_fronts: Vec::new(),
                 reverse: false,
-                prefix_arrivals: Vec::new(),
+                opposite_times: Vec::new(),
             },
             boarding_labels: vec![Vec::new(); stops],
             boarding_stops: Vec::new(),
@@ -486,7 +489,7 @@ impl JourneyWorkspace {
     }
 
     pub(super) fn byte_length(&self) -> usize {
-        self.labels.prefix_arrivals.capacity() * std::mem::size_of::<f64>()
+        self.labels.opposite_times.capacity() * std::mem::size_of::<f64>()
             + self.labels.arena.capacity() * std::mem::size_of::<Label>()
             + (self.labels.fronts.capacity() + self.boarding_labels.capacity())
                 * std::mem::size_of::<Vec<usize>>()
@@ -613,7 +616,95 @@ impl TimetableKernel {
         Ok(seeds)
     }
 
-    fn matrix_journeys_with_workspace<const PREFIX_BOUNDS: bool>(
+    // Mirror the prefix bound for depart-at. Each destination uses its latest
+    // exact earliest arrival across the requested origins: one optimistic
+    // reverse pass can serve every row. Allow any boarding count and an initial
+    // walk into a ride, so every feasible suffix is included. The caller's final
+    // transfer is expanded once before the scan; retain zero-ride egress seeds.
+    fn forward_journey_suffixes(
+        &mut self,
+        input: &TimetableMatrixQueryInput,
+        output: &mut TimetableMatrixQueryResult,
+        deadline: f64,
+        mut seeds: Vec<f64>,
+    ) -> Result<Vec<f64>> {
+        seeds.resize(self.stop_count, f64::NEG_INFINITY);
+        seeds.fill(f64::NEG_INFINITY);
+        let destinations = input.destination_offsets.len() - 1;
+        for destination in 0..destinations {
+            let arrival = (0..input.origin_offsets.len() - 1)
+                .map(|origin| output.times[origin * destinations + destination])
+                .filter(|time| time.is_finite())
+                .fold(f64::NEG_INFINITY, f64::max);
+            if !arrival.is_finite() {
+                continue;
+            }
+            for i in input.destination_offsets[destination] as usize
+                ..input.destination_offsets[destination + 1] as usize
+            {
+                let stop = input.destination_stops[i] as usize;
+                let departure = arrival - input.destination_walk_seconds[i];
+                seeds[stop] = seeds[stop].max(departure);
+                if input
+                    .allow_post_ride_transfers
+                    .as_ref()
+                    .is_none_or(|v| v[destination])
+                {
+                    let edges = &self.reverse_transfer_edges[self.reverse_transfer_offset[stop]
+                        as usize
+                        ..self.reverse_transfer_offset[stop + 1] as usize];
+                    output.explicit_transfer_checks += edges.len() as f64;
+                    for edge in edges {
+                        seeds[edge.stop()] =
+                            seeds[edge.stop()].max(departure - f64::from(edge.duration()));
+                    }
+                }
+            }
+        }
+        let mut query = TimetableArriveByManyQueryInput {
+            origin_offsets: vec![0, 0],
+            origin_stops: Vec::new(),
+            origin_walk_seconds: Vec::new(),
+            allow_pre_ride_transfers: vec![false],
+            destination_stops: Vec::new(),
+            destination_walk_seconds: Vec::new(),
+            earliest: input.departure,
+            deadline,
+            excluded_trips: Vec::new(),
+            allow_post_ride_transfers: Some(false),
+            maximum_boardings: None,
+        };
+        for (stop, &time) in seeds.iter().enumerate() {
+            if time.is_finite() {
+                query.destination_stops.push(stop as u32);
+                query
+                    .destination_walk_seconds
+                    .push((deadline - time).max(0.));
+            }
+        }
+        let result = self.route_arrive_by_many_csa_scan::<false>(&query)?;
+        output.reverse_searches += 1;
+        output.scanned_departures += f64::from(result.scanned_departures);
+        output.relaxed_stops += f64::from(result.relaxed_stops);
+        output.expanded_trip_runs += f64::from(result.expanded_trip_runs);
+        output.dominated_trip_boardings += f64::from(result.dominated_trip_boardings);
+        output.explicit_transfer_checks += f64::from(result.explicit_transfer_checks);
+        for (stop, time) in result.latest_departures.into_iter().enumerate() {
+            if !time.is_finite() {
+                continue;
+            }
+            seeds[stop] = seeds[stop].max(time);
+            let edges = &self.reverse_transfer_edges[self.reverse_transfer_offset[stop] as usize
+                ..self.reverse_transfer_offset[stop + 1] as usize];
+            output.explicit_transfer_checks += edges.len() as f64;
+            for edge in edges {
+                seeds[edge.stop()] = seeds[edge.stop()].max(time - f64::from(edge.duration()));
+            }
+        }
+        Ok(seeds)
+    }
+
+    fn matrix_journeys_with_workspace<const OPPOSITE_BOUNDS: bool>(
         &mut self,
         input: &TimetableMatrixQueryInput,
         mut output: TimetableMatrixQueryResult,
@@ -658,6 +749,7 @@ impl TimetableKernel {
             runs,
         } = workspace;
         labels.reverse = reverse;
+        labels.opposite_times.clear();
         let coordinate_endpoints = input.allow_pre_ride_transfers.iter().all(|allow| !allow)
             && input
                 .allow_post_ride_transfers
@@ -690,12 +782,21 @@ impl TimetableKernel {
             let end_time = if reverse { -minimum_time } else { maximum_time };
 
             labels.clear();
-            if PREFIX_BOUNDS && reverse {
-                let seeds = std::mem::take(&mut labels.prefix_arrivals);
-                labels.prefix_arrivals =
-                    self.reverse_journey_prefixes(input, &mut output, source, minimum_time, seeds)?;
-            } else {
-                labels.prefix_arrivals.clear();
+            if OPPOSITE_BOUNDS && (reverse || labels.opposite_times.is_empty()) {
+                let seeds = std::mem::take(&mut labels.opposite_times);
+                labels.opposite_times = if reverse {
+                    self.reverse_journey_prefixes(input, &mut output, source, minimum_time, seeds)?
+                } else {
+                    let deadline = output
+                        .times
+                        .iter()
+                        .copied()
+                        .filter(|time| time.is_finite())
+                        .fold(f64::NEG_INFINITY, f64::max);
+                    self.forward_journey_suffixes(input, &mut output, deadline, seeds)?
+                };
+            } else if !OPPOSITE_BOUNDS {
+                labels.opposite_times.clear();
             }
             let source_departure_seconds = self.departure_seconds.view();
             let source_arrival_seconds = self.arrival_seconds.view();
@@ -801,6 +902,11 @@ impl TimetableKernel {
                             mark(event.run());
                         }
                     } else {
+                        let latest = if labels.opposite_times.is_empty() {
+                            end_time
+                        } else {
+                            end_time.min(labels.opposite_times[stop] + 1e-7)
+                        };
                         let start = departure_event_lower_bound(
                             &self.departure_events,
                             self.departure_offset[stop] as usize,
@@ -810,7 +916,7 @@ impl TimetableKernel {
                         for event in
                             &self.departure_events[start..self.departure_offset[stop + 1] as usize]
                         {
-                            if f64::from(event.departure) > end_time {
+                            if f64::from(event.departure) > latest {
                                 break;
                             }
                             mark(event.run as usize);
@@ -1315,7 +1421,7 @@ mod workspace_tests {
         assert!(kernel.ride_stop_sequence(0, 1.0, 1.25).is_err());
     }
     #[test]
-    fn reverse_prefix_bounds_preserve_complete_journeys() {
+    fn opposite_bounds_preserve_complete_journeys() {
         let mut edges = vec![
             (0, 1, 100, 110),
             (1, 2, 115, 125),
@@ -1329,13 +1435,17 @@ mod workspace_tests {
         // These suffixes fit the destination's clock, but none of the requested
         // origins can reach stop 3. They must not consume journey frontiers.
         edges.extend((0..80).map(|i| (3, 2, 106 + i % 25, 132 + i % 8)));
+        // These prefixes leave requested origins but cannot reach a requested
+        // destination. The forward suffix bound should remove them too.
+        edges.extend((0..32).map(|i| (0, 6 + i, 85 + i % 5, 95 + i % 5)));
+        let stops = 38;
         let count = edges.len() as u32;
         for buffer in [0, 7] {
             for forbidden in [0, 1] {
                 let mut order: Vec<_> = (0..count).collect();
                 order.sort_by_key(|&i| (edges[i as usize].0, edges[i as usize].2));
                 let mut kernel = TimetableKernel::new(TimetableKernelInput {
-                    stop_count: 6,
+                    stop_count: stops,
                     run_count: count,
                     departure_seconds: edges.iter().map(|e| e.2).collect::<Vec<_>>().into(),
                     arrival_seconds: edges.iter().map(|e| e.3).collect::<Vec<_>>().into(),
@@ -1348,15 +1458,21 @@ mod workspace_tests {
                     can_board: vec![1; count as usize].into(),
                     can_alight: vec![1; count as usize].into(),
                     trip_start: (0..=count).collect::<Vec<_>>().into(),
-                    departure_offset: (0..=6)
+                    departure_offset: (0..=stops)
                         .map(|s| edges.iter().filter(|e| e.0 < s).count() as u32)
                         .collect::<Vec<_>>()
                         .into(),
                     departure_order: order.into(),
-                    transfer_offset: vec![0, 0, 1, 1, 1, 2, 2].into(),
+                    transfer_offset: (0..=stops)
+                        .map(|s| u32::from(s > 1) + u32::from(s > 4))
+                        .collect::<Vec<_>>()
+                        .into(),
                     transfer_to: vec![5, 0].into(),
                     transfer_duration: vec![3, 1].into(),
-                    forbidden_same_stop: vec![0, forbidden, 0, 0, 0, 0].into(),
+                    forbidden_same_stop: (0..stops)
+                        .map(|s| if s == 1 { forbidden } else { 0 })
+                        .collect::<Vec<_>>()
+                        .into(),
                     same_stop_transfer_minimum: None,
                     minimum_transfer_buffer_seconds: Some(buffer),
                 })
@@ -1408,7 +1524,7 @@ mod workspace_tests {
                                 serde_json::to_vec(&actual.journeys).unwrap(),
                                 serde_json::to_vec(&expected.journeys).unwrap()
                             );
-                            if reverse && cap.is_none() && buffer == 0 && forbidden == 0 {
+                            if cap.is_none() && buffer == 0 && forbidden == 0 {
                                 assert!(actual.relaxed_stops < expected.relaxed_stops);
                             }
                         }
