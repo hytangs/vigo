@@ -2,7 +2,7 @@ import { importFlexCatalog, copyFlexCatalogs } from './gtfs/flex.mjs'
 import { stationHierarchyMembers } from './gtfs/station-hierarchy.mjs'
 import { compileNativeGtfsConnections } from './native-routing-kernel.mjs'
 import { MatrixJourneyCache } from './gtfs/matrix-materialization.mjs'
-import { wheelchairProfile, wheelchairDescriptionFor, wheelchairBoardingValues, wheelchairPathwaySeconds } from './wheelchair-policy.mjs'
+import { wheelchairProfile, wheelchairDescriptionFor, wheelchairBoardingValues, wheelchairPathwayCost } from './wheelchair-policy.mjs'
 import { selectedSourceScopes, serviceInSources, scopedServiceResolution } from './gtfs/source-selection.mjs'
 import { estimatedPathwaySeconds } from './gtfs/pathway-cost.mjs'
 import { recoverNativeArriveByBoundary } from './gtfs/arrive-by-reconstruction.mjs'
@@ -1168,7 +1168,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
         if (wheelchairBoarding && numeric(wheelchairBoarding, 0) !== 0) {
           featureInventory.stopWheelchairBoardingRuleCount += 1
         }
-        if (wheelchair) wheelchairStops.set(row.stop_id, { parent: row.parent_station,
+        if (wheelchair) wheelchairStops.set(row.stop_id, { parent: row.parent_station, level: String(row.level_id ?? '').trim(),
           boarding: requiredGtfsEnum(row.wheelchair_boarding, [0, 1, 2], 'wheelchair_boarding', row.stop_id, 0) })
         if (locationType === 2) featureInventory.stationEntranceCount += 1
         if (String(row.level_id ?? '').trim()) featureInventory.stationLevelRuleCount += 1
@@ -1411,16 +1411,23 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
           }
           const publishedSeconds = optionalCost(row.traversal_time, 'traversal_time')
           const estimatedSeconds = publishedSeconds == null ? estimatedPathwaySeconds(row) : null
-          const seconds = wheelchair ? wheelchairPathwaySeconds(row) : publishedSeconds ?? estimatedSeconds
+          const wheelchairCost = wheelchair ? wheelchairPathwayCost(row, {
+            accessibleEndpoints: boardingAccessibility.get(row.from_stop_id) === 1
+              && boardingAccessibility.get(row.to_stop_id) === 1,
+            sameLevel: Boolean(wheelchairStops.get(row.from_stop_id)?.level)
+              && wheelchairStops.get(row.from_stop_id).level === wheelchairStops.get(row.to_stop_id)?.level,
+          }) : null
+          const seconds = wheelchair ? wheelchairCost?.seconds ?? null : publishedSeconds ?? estimatedSeconds
           if (wheelchair && seconds == null) featureInventory.wheelchairExcludedPathwayCount = (featureInventory.wheelchairExcludedPathwayCount ?? 0) + 1
-          const provenance = wheelchair || estimatedSeconds == null ? 'gtfs_pathway' : 'gtfs_pathway_estimated'
+          const provenance = wheelchair ? wheelchairCost?.provenance ?? 'gtfs_pathway'
+            : estimatedSeconds == null ? 'gtfs_pathway' : 'gtfs_pathway_estimated'
           const from = pathwayStop.get(row.from_stop_id)
           const to = pathwayStop.get(row.to_stop_id)
           const chord = from && to && [from.lon, from.lat, to.lon, to.lat].every(Number.isFinite)
             ? haversineKm([from.lon, from.lat], [to.lon, to.lat]) * 1000 : null
           // Co-located station levels do not establish a zero-time connection.
           const distanceM = wheelchair && seconds == null ? null
-            : (wheelchair ? optionalCost(row.wheelchair_length, 'wheelchair_length') : null)
+            : (wheelchair ? optionalCost(row.wheelchair_length, 'wheelchair_length') || null : null)
               ?? optionalCost(row.length, 'length') ?? (chord > 0 ? chord : null)
           if (seconds == null && distanceM == null) {
             featureInventory.unpricedPathwayCount = (featureInventory.unpricedPathwayCount ?? 0) + 1
@@ -1432,10 +1439,10 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
               const minimum = wheelchairMinimum.get(fromId, toId)?.min_transfer_time ?? 0
               const duration = seconds == null ? null : Math.max(seconds, minimum ?? 0)
               // Parallel stairs must not erase an elevator, regardless of row order.
-              if (existing?.provenance === 'gtfs_pathway' && existing.min_transfer_time != null
+              if (['gtfs_pathway', 'gtfs_pathway_estimated'].includes(existing?.provenance) && existing.min_transfer_time != null
                 && (duration == null || existing.min_transfer_time <= duration)) return
               replacePathway.run(fromId, toId, duration)
-              replacePathwayProvenance.run(fromId, toId, 'gtfs_pathway', distanceM)
+              replacePathwayProvenance.run(fromId, toId, provenance, distanceM)
             } else {
               const existing = existingPathway.get(fromId, toId)
               const candidate = { min_transfer_time: seconds, provenance, path_distance_m: distanceM }

@@ -140,7 +140,7 @@ function hasCompletelySeparateSidewalkGeometry(tags) {
     || (left === 'separate' && right === 'separate')
 }
 
-export function nationalOsmWayWalkable(tags) {
+export function nationalOsmWayWalkable(tags, refs = []) {
   const highway = normalizedTag(tags.highway)
   const access = normalizedTag(tags.access)
   const foot = normalizedTag(tags.foot)
@@ -150,6 +150,13 @@ export function nationalOsmWayWalkable(tags) {
   // their junctions with mapped walking ways have been verified.
   if (normalizedTag(tags.area) === 'yes'
     && ['highway', 'railway', 'public_transport'].some(key => normalizedTag(tags[key]) === 'platform')) return false
+  // Elevator footprints describe a cabin, not a horizontal walking loop. Some
+  // feeds omit area=yes on closed elevator ways. Importing that outline traps
+  // nearby GTFS elevator entrances on an isolated component.
+  // Open inclined elevators keep their existing treatment; station vertical
+  // movement is supplied separately by GTFS pathways.
+  if (highway === 'elevator' && (normalizedTag(tags.area) === 'yes'
+    || (refs.length > 2 && refs[0] === refs.at(-1)))) return false
   if (hasUnresolvedPedestrianHours(tags)) return false
   if (!highway || restrictedPedestrianAccessValues.has(foot)) return false
   // OSM mode-specific access overrides the general access tag. In particular,
@@ -351,7 +358,7 @@ export async function buildNationalOsmStore({
 }) {
   if (wheelchair && includeDriving && !flexDriving) throw new Error('Wheelchair Cities require walk street preparation')
   const streets = wheelchairStreetPolicy(wheelchairStreets)
-  const wayAllowed = tags => nationalOsmWayWalkable(tags) && (!wheelchair || wheelchairWayAllowed(tags, streets))
+  const wayAllowed = (tags, refs) => nationalOsmWayWalkable(tags, refs) && (!wheelchair || wheelchairWayAllowed(tags, streets))
   const platformAllowed = tags => nationalOsmPlatformAreaWalkable(tags) && (!wheelchair || wheelchairWayAllowed(tags, streets))
   const nodeAllowed = tags => nationalOsmNodeWalkable(tags) && (!wheelchair || wheelchairNodeAllowed(tags, streets))
   const started = performance.now()
@@ -446,7 +453,7 @@ export async function buildNationalOsmStore({
         forEachPrimitiveEntity(block, groupBytes, {
           way: (way) => {
             const tags = wayTags(way, block.strings)
-            if (!wayAllowed(tags) && !platformAllowed(tags) && !(includeDriving && drivable(tags)) && !basemapWriter.needsWay(way, tags)
+            if (!wayAllowed(tags, way.refs) && !platformAllowed(tags) && !(includeDriving && drivable(tags)) && !basemapWriter.needsWay(way, tags)
               && !placeWayNeedsNodes(way, tags)) return
             for (const nodeId of way.refs) requireNode(nodeId)
           },
@@ -493,7 +500,7 @@ export async function buildNationalOsmStore({
               const directions = nationalOsmWalkDirections(tags)
               if (directions.forward || directions.backward) insertPlatform.run(way.id, JSON.stringify(way.refs), Number(directions.forward), Number(directions.backward))
             }
-            const isWalkable = wayAllowed(tags)
+            const isWalkable = wayAllowed(tags, way.refs)
             const isDrivable = includeDriving && drivable(tags)
             if (!isWalkable && !isDrivable) return
             const walkDirections = isWalkable

@@ -18,6 +18,11 @@ For nodes, impassable barriers and denied access exclude incident pedestrian seg
 
 ## What a returned route establishes
 
+Closed elevator ways describe cabin footprints, so they are not imported as
+horizontal walking loops. Open inclined-elevator ways retain their existing
+walking treatment. Station vertical travel still requires declared pathways;
+removing a cabin outline does not invent a street-to-platform connection.
+
 `streetPathVerified` concerns the prepared street graph; it is not independent proof of an entire door-to-platform walk. Free-coordinate snapping is returned separately as `endpointConnector`, with `streetPathVerified: false`. The walk's line still starts or ends at the requested coordinate, so a journey is drawn without gaps; its first or last segment is that connector. An assumed station interior has `stationAccessStatus: "unverified"`; a published transfer minimum does not change that status. Selected station costs and stop chains are exposed in `accessCost` when available.
 
 An independent physical audit needs a continuous, directed source path, legal node/way access, and evidence for the links between the requested location, street, stop, entrance, and platform. A line near an OSM street is insufficient. Source gaps require better mapped entrances, agency pathways, or validated access links. Even complete source evidence does not establish current closures or observed travel times.

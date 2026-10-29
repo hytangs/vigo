@@ -60,10 +60,10 @@ impl Surface {
                     (t - self.time) / 60.
                 }
             };
-            if self.direct[index] {
-                if let Some(t) = zone.clock(self.place, p, self.time, self.reverse) {
-                    best = best.min(elapsed(t));
-                }
+            if self.direct[index]
+                && let Some(t) = zone.clock(self.place, p, self.time, self.reverse)
+            {
+                best = best.min(elapsed(t));
             }
             for &(hub, t) in &self.sources[index] {
                 let ready = t + if self.reverse {
@@ -134,14 +134,15 @@ impl City {
         for (i, p) in points.iter().enumerate() {
             let mut best = f64::INFINITY;
             for z in &zones {
-                if z.contains(place.coordinate) && z.contains(p.coordinate) {
-                    if let Some(t) = z.clock(place.coordinate, p.coordinate, opt.time, opt.arrive) {
-                        best = best.min(if opt.arrive {
-                            opt.time - t + buffer
-                        } else {
-                            t - opt.time + buffer
-                        });
-                    }
+                if z.contains(place.coordinate)
+                    && z.contains(p.coordinate)
+                    && let Some(t) = z.clock(place.coordinate, p.coordinate, opt.time, opt.arrive)
+                {
+                    best = best.min(if opt.arrive {
+                        opt.time - t + buffer
+                    } else {
+                        t - opt.time + buffer
+                    });
                 }
             }
             if best.is_finite() {
@@ -414,23 +415,23 @@ impl City {
             if want.direct && inside_o && inside_d {
                 add(end(origin), end(destination), (Side::Free, Side::Free));
             }
-            if (want.access && inside_o) || (want.egress && inside_d) {
-                if let Some(t) = &self.timetable {
-                    for id in t.stop_ids.iter() {
-                        let s = self.stop(id)?;
-                        let p = Point {
-                            coordinate: [s.lon, s.lat],
-                            stop: Some(id.clone()),
-                        };
-                        if !z.contains(p.coordinate) {
-                            continue;
-                        }
-                        if want.access && inside_o {
-                            add(end(origin), end(&p), (Side::Free, Side::Hub));
-                        }
-                        if want.egress && inside_d {
-                            add(end(&p), end(destination), (Side::Hub, Side::Free));
-                        }
+            if ((want.access && inside_o) || (want.egress && inside_d))
+                && let Some(t) = &self.timetable
+            {
+                for id in t.stop_ids.iter() {
+                    let s = self.stop(id)?;
+                    let p = Point {
+                        coordinate: [s.lon, s.lat],
+                        stop: Some(id.clone()),
+                    };
+                    if !z.contains(p.coordinate) {
+                        continue;
+                    }
+                    if want.access && inside_o {
+                        add(end(origin), end(&p), (Side::Free, Side::Hub));
+                    }
+                    if want.egress && inside_d {
+                        add(end(&p), end(destination), (Side::Hub, Side::Free));
                     }
                 }
             }

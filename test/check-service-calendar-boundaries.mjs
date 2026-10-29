@@ -141,7 +141,24 @@ try {
     const result=await query(longReverse)
     assert.equal(result.status,'ok',JSON.stringify(result))
     assert.equal(result.journey.clockDate,'2026-07-08')
-    assert.equal(result.alternativeSearch.searches,5,'All shifted arrival deadlines must be searched')
+    assert.equal(result.alternativeSearch.searches + result.alternativeSearch.reusedSamples,5,
+      'Every shifted deadline must be covered by a search or a still-feasible witness')
+    const witness = journey => {
+      const clock = value => {
+        const [h,m,s] = value.split(':').map(Number)
+        return Date.parse(`${journey.clockDate}T00:00:00Z`) + (h*3600+m*60+s)*1000
+      }
+      return {departure:clock(journey.departureTime),arrival:clock(journey.arrivalTime),
+        rides:journey.legs.filter(leg=>leg.type==='transit').map(leg=>leg.trip.id)}
+    }
+    for (let offset=0;offset<=240;offset+=60) {
+      const deadline = new Date(Date.parse('2026-07-11T00:10:00Z')-offset*60000)
+      const independently = await query({...longReverse,windowMinutes:0,
+        serviceDate:deadline.toISOString().slice(0,10),time:deadline.toISOString().slice(11,16)})
+      assert.equal(independently.status,'ok')
+      assert.deepEqual(witness(independently.journey),witness(result.journey),
+        'Reuse across midnight must match independent searches at every covered deadline')
+    }
     const invalid=await query({...longReverse,serviceDay:'weekday'})
     assert.equal(invalid.status,'error')
     assert.match(invalid.error.message,/serviceDay disagrees/)
