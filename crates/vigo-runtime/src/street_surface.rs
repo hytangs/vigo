@@ -380,11 +380,6 @@ fn compute_graph<const ENDPOINTS: bool>(
         ));
     }
     let reverse = input.reverse_direction == Some(true);
-    if reverse && input.surface_reuse.is_some() {
-        return Err(Error::from_reason(
-            "Street surface reuse requires a forward surface.",
-        ));
-    }
     let mut graph = if reverse {
         StreetGraph::<ENDPOINTS>::reversed(snapshot)?
     } else {

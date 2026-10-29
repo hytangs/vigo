@@ -99,7 +99,6 @@ try {
   rejects(city, 'reach', { ...query, origin: { stopId: 'A' } }, /takes a destination/)
   rejects(city, 'reach', { ...query, timePreference: 'depart_at' }, /arrive_by/)
   rejects(city, 'reach', { ...query, scenario: { overlay: { overlayStopCount: 0, stops: [] } } }, /overlay applies to depart-at/)
-  rejects(city, 'reach', { ...query, surfaceReuse: 'baseline' }, /forward surface/)
 
   // A one-way footway from A's end to B's: walking toward B uses it, from B cannot.
   const oneway = await build('oneway', { terminalWayTags: { 10: { 'oneway:foot': 'yes' } } })
@@ -135,6 +134,33 @@ try {
   assert.deepEqual(streamed.map(result => result.query.timePreference), ['depart_at', 'arrive_by', 'depart_at'])
   assert.deepEqual(streamed[1].surface.values, run(city, 'reach', arrive).surface.values)
   assert.equal(streamed[2].timing.openMs, 0, 'One resident runtime answers both directions')
+  // Reverse propagation has the same monotone elapsed-time proof as forward
+  // propagation. Compare its full surface and directed edge evidence, including
+  // new service, cuts and changes of direction that must discard the reference.
+  const resident = (target, requests) => {
+    const p = spawnSync(binary, ['stream', '--city', target], {env, encoding:'utf8', maxBuffer:64*1024*1024,
+      input:requests.map(request => JSON.stringify({kind:'reach', ...request, diagnostics:'trace'})).join('\n')+'\n'})
+    assert.equal(p.status,0,p.stderr)
+    return p.stdout.trim().split('\n').map(line=>JSON.parse(line).trace)
+  }
+  for (const target of [city, oneway]) {
+    const base={...query, surfaceReuse:'baseline'}
+    for (const change of [{}, {scenario:express}, {scenario:{excludedTripIds:['T2']}}]) {
+      const [baseline, reused, fresh]=resident(target,[base, {...query,...change,surfaceReuse:'scenario'}, {...query,...change}])
+      assert.deepEqual(reused.surface,fresh.surface,'Reverse cached grids and directed edge evidence match a fresh search')
+      assert.deepEqual(reused.stops,fresh.stops)
+      if (!change.scenario) {
+        assert(reused.diagnostics.surface.reusedLabels>0)
+        assert.equal(reused.diagnostics.surface.settledLabels,0)
+        assert.deepEqual(reused.surface,baseline.surface)
+      }
+    }
+    const forward={...walk,origin:place,includeStreetEdges:true,diagnostics:'trace'}
+    const reverse={...walk,timePreference:'arrive_by',destination:place,includeStreetEdges:true,diagnostics:'trace'}
+    const [, switched, fresh]=resident(target,[{...forward,surfaceReuse:'baseline'},{...reverse,surfaceReuse:'scenario'},reverse])
+    assert.equal(switched.diagnostics.surface.reusedLabels,0,'A reference from the opposite street direction must be rejected')
+    assert.deepEqual(switched.surface,fresh.surface)
+  }
   // A planned stop that names a GTFS stop joins it rather than standing beside it.
   const joined = JSON.parse(cli(['reach', `--city=${city}`, '--request=-'], JSON.stringify({ ...depart,
     origin: { coordinate: [-77.0505, 38.9003] }, maxWalkKm: 0.5, scenario: { services: [{ operation: 'add', scheduleMode: 'frequency',

@@ -1108,10 +1108,20 @@ export async function computeReachResult(
     phaseTimes[name] = round(now - phaseStarted)
     phaseStarted = now
   }
+  // A remix runs the scenario on a different set of the City's timetables.
+  const remixed = value?.remixed === true
+  const scenarioTransitQueryChanged = (
+    remixed
+    || request.scenario.services.length > 0
+    || request.scenario.flexZones.length > 0
+    || request.scenario.excludedRouteIds.length > 0
+    || request.scenario.excludedTripIds.length > 0
+  )
   const reachResult = await runReach({
     mode: request.mode,
     surfaceSampling: request.surfaceSampling,
     stage: 'baseline-range',
+    retainSurface: scenarioTransitQueryChanged,
     feedId: request.feedId,
     ...reachEndpoint(request),
     departMinutes: request.departMinutes,
@@ -1138,15 +1148,6 @@ export async function computeReachResult(
   stopSelection = { diagnostics: reachResult.diagnostics?.stopSelection }
   phase('baselineRangeMs')
   let scenarioReachRange = null
-  // A remix runs the scenario on a different set of the City's timetables.
-  const remixed = value?.remixed === true
-  const scenarioTransitQueryChanged = (
-    remixed
-    || request.scenario.services.length > 0
-    || request.scenario.flexZones.length > 0
-    || request.scenario.excludedRouteIds.length > 0
-    || request.scenario.excludedTripIds.length > 0
-  )
   if (scenarioTransitQueryChanged) {
     scenarioReachRange = await runReach({
       stage: 'scenario-range',

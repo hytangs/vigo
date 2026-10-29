@@ -1,5 +1,7 @@
 //! Lossless, bounded reference blocks. XOR-varints preserve every floating-point
 //! bit, including signed zero; column blocks compress repeated field patterns.
+//! Varint blocks stay uncompressed while they fit the retained budget. Deflate
+//! is a fallback for larger references, not work paid by every comparison.
 //! Construction uses a bounded batch; restoration decodes one block at a time.
 use flate2::{Compression, read::DeflateDecoder, write::DeflateEncoder};
 use std::io::{Read, Write};
@@ -45,15 +47,35 @@ fn compress<const N: usize>(
         .collect()
 }
 
+struct Stored {
+    compressed: bool,
+    bytes: Box<[u8]>,
+}
+fn raw<const N: usize>(block: &Block<N>) -> Stored {
+    let mut bytes =
+        Vec::with_capacity((N + 1) * 4 + block.columns.iter().map(Vec::len).sum::<usize>());
+    bytes.extend_from_slice(&(block.count as u32).to_le_bytes());
+    for column in &block.columns {
+        bytes.extend_from_slice(&(column.len() as u32).to_le_bytes());
+    }
+    for column in &block.columns {
+        bytes.extend_from_slice(column);
+    }
+    Stored {
+        compressed: false,
+        bytes: bytes.into_boxed_slice(),
+    }
+}
+
 pub(super) struct Packed<const N: usize> {
-    blocks: Vec<Box<[u8]>>,
+    blocks: Vec<Stored>,
     count: usize,
 }
 
 impl<const N: usize> Packed<N> {
     pub(super) fn bytes(&self) -> usize {
-        self.blocks.capacity() * std::mem::size_of::<Box<[u8]>>()
-            + self.blocks.iter().map(|b| b.len()).sum::<usize>()
+        self.blocks.capacity() * std::mem::size_of::<Stored>()
+            + self.blocks.iter().map(|b| b.bytes.len()).sum::<usize>()
     }
 
     // Budget excludes the inline Packed structure, which its owner accounts for.
@@ -63,9 +85,10 @@ impl<const N: usize> Packed<N> {
             count: 0,
         };
         let mut batch: Vec<Block<N>> = Vec::new();
-        // At most eight raw blocks and two codec workspaces, never a full raw
-        // reference. Codec workspaces are dropped when this call returns.
+        // At most eight builder blocks and two codec workspaces accompany
+        // the budgeted encoded reference. Workspaces are dropped on return.
         let mut encoders = (None, None);
+        let mut compressed = false;
         loop {
             let mut used = 0;
             let mut exhausted = false;
@@ -108,8 +131,12 @@ impl<const N: usize> Packed<N> {
                 break;
             }
             let blocks = &batch[..used];
-            let encoded =
-                if let Some(pool) = crate::ENDPOINT_ACCESS_POOL.as_ref().filter(|_| used >= 4) {
+            if !compressed {
+                result.blocks.extend(blocks.iter().map(raw));
+            } else {
+                let encoded = if let Some(pool) =
+                    crate::ENDPOINT_ACCESS_POOL.as_ref().filter(|_| used >= 4)
+                {
                     let (left, right) = blocks.split_at(used.div_ceil(2));
                     let (a, b) = pool.install(|| {
                         rayon::join(
@@ -123,13 +150,28 @@ impl<const N: usize> Packed<N> {
                 } else {
                     compress(blocks, &mut encoders.0)?
                 };
-            // Keep source order, regardless of worker completion order. Both
-            // the box capacity and payload count against the retained budget.
-            for block in encoded {
-                result.blocks.push(block);
-                if result.bytes() > budget {
-                    return None;
+                result
+                    .blocks
+                    .extend(encoded.into_iter().map(|bytes| Stored {
+                        compressed: true,
+                        bytes,
+                    }));
+            }
+            if !compressed && result.bytes() > budget {
+                // The bounded raw reference did not fit. Compress its existing
+                // blocks once and keep subsequent batches compressed as well.
+                compressed = true;
+                let encoder = encoders
+                    .0
+                    .get_or_insert_with(|| DeflateEncoder::new(Vec::new(), Compression::fast()));
+                for block in &mut result.blocks {
+                    encoder.write_all(&block.bytes).ok()?;
+                    block.bytes = encoder.reset(Vec::new()).ok()?.into_boxed_slice();
+                    block.compressed = true;
                 }
+            }
+            if result.bytes() > budget {
+                return None;
             }
             if exhausted {
                 break;
@@ -142,10 +184,15 @@ impl<const N: usize> Packed<N> {
         let mut raw = Vec::with_capacity(ROWS * N * 10 + (N + 1) * 4);
         for block in &self.blocks {
             raw.clear();
-            // Blocks are created internally and never persisted or supplied by callers.
-            DeflateDecoder::new(&block[..])
-                .read_to_end(&mut raw)
-                .expect("internal surface reference block");
+            // Blocks are internal and never persisted or supplied by callers.
+            let raw = if block.compressed {
+                DeflateDecoder::new(&block.bytes[..])
+                    .read_to_end(&mut raw)
+                    .expect("internal surface reference block");
+                &raw[..]
+            } else {
+                &block.bytes[..]
+            };
             let word =
                 |offset| u32::from_le_bytes(raw[offset..offset + 4].try_into().unwrap()) as usize;
             let count = word(0);
@@ -199,7 +246,14 @@ mod tests {
         packed.for_each(|row| decoded.push(row));
         assert_eq!(rows, decoded);
         assert!(Packed::encode(rows.iter().copied(), packed.bytes()).is_some());
-        assert!(Packed::encode(rows.iter().copied(), packed.bytes() - 1).is_none());
+        assert!(packed.blocks.iter().all(|b| !b.compressed));
+        let smaller = Packed::encode(rows.iter().copied(), packed.bytes() - 1);
+        if let Some(smaller) = smaller {
+            assert!(smaller.bytes() < packed.bytes());
+            let mut decoded = Vec::new();
+            smaller.for_each(|row| decoded.push(row));
+            assert_eq!(rows, decoded);
+        }
         assert!(Packed::encode(rows.iter().copied(), 0).is_none());
         let empty = Packed::<4>::encode(std::iter::empty(), 0).unwrap();
         empty.for_each(|_| panic!("empty reference"));
@@ -208,7 +262,7 @@ mod tests {
     #[test]
     fn streams_a_reference_larger_than_the_retained_budget() {
         let count = 600_000;
-        let budget = 32 * 1024 * 1024;
+        let budget = 2 * 1024 * 1024;
         assert!(count * std::mem::size_of::<[u64; 8]>() > budget);
         let row = |i: usize| {
             [
@@ -224,6 +278,7 @@ mod tests {
         };
         let packed = Packed::encode((0..count).map(row), budget).unwrap();
         assert!(packed.bytes() < budget);
+        assert!(packed.blocks.iter().all(|b| b.compressed));
         let mut index = 0;
         packed.for_each(|actual| {
             assert_eq!(actual, row(index));

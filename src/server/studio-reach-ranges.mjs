@@ -64,9 +64,9 @@ export function nativeReachRangeRequest(range, { sourceScopes } = {}) {
     bounds: surface.bounds,
     includeStreetEdges: surface.includeEdges === true,
     includeNodes: false,
-    // The scenario surface grows from the reference surface just computed.
-    // Arrive-by surfaces search afresh: reuse grows depart-at surfaces only.
-    ...(arriveBy ? {} : range.stage === 'baseline-range' ? { surfaceReuse: 'baseline' }
+    // Elapsed walking costs grow in either direction. The native cache checks
+    // direction, limits and every seed before reusing the reference surface.
+    ...(range.stage === 'baseline-range' && range.retainSurface !== false ? { surfaceReuse: 'baseline' }
       : range.stage === 'scenario-range' ? { surfaceReuse: 'scenario' } : {}),
     ...((range.mode ?? 'transit') === 'transit' ? {
       routingDataMode: 'scheduled',
