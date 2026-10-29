@@ -87,6 +87,24 @@ fn minimum_by_stop(stops: &[u32], seconds: &[f64]) -> HashMap<u32, f64> {
     out
 }
 
+/// A turnaround is possible only when a ridden segment crosses a source-trip
+/// boundary. Ordinary rides need no corridor walk expansion or access maps.
+fn crosses_continuation(links: &Links, journey: &TimetableMatrixJourney) -> bool {
+    journey.legs.iter().any(|leg| {
+        let (Some(trip), Some(board), Some(alight)) =
+            (leg.trip, leg.board_sequence, leg.alight_sequence)
+        else {
+            return false;
+        };
+        links.get(&trip).is_some_and(|parts| {
+            parts.iter().any(|part| {
+                let boundary = f64::from(part.first);
+                boundary > board && boundary <= alight
+            })
+        })
+    })
+}
+
 /// Board a linked ride where the vehicle passes again after a continuation
 /// boundary: at the boarding stop itself, or, for the first ride, at a stop
 /// the origin reaches by walking in time. Arrival and boardings are
@@ -98,7 +116,7 @@ pub(super) fn board_last_pass(
     input: &TimetableMatrixQueryInput,
     journey: &mut TimetableMatrixJourney,
 ) -> Result<()> {
-    if links.is_empty() {
+    if !crosses_continuation(links, journey) {
         return Ok(());
     }
     let access = minimum_by_stop(&input.origin_stops, &input.origin_walk_seconds);
@@ -357,7 +375,7 @@ pub(super) fn detours(
     input: &TimetableMatrixQueryInput,
     journey: &TimetableMatrixJourney,
 ) -> bool {
-    if links.is_empty() {
+    if !crosses_continuation(links, journey) {
         return false;
     }
     let access = minimum_by_stop(&input.origin_stops, &input.origin_walk_seconds);
