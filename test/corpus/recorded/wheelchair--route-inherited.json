@@ -23,10 +23,12 @@
   },
   "result": {
     "accessibility": {
-      "limitations": ["Unknown vehicle and boarding accessibility is excluded; coverage may be sparse.","Inferred streets can lack wheelchair or surface tags. An explicit wheelchair=yes overrides surface and trail filters; mapped dimensions and some barriers are still checked.","Coordinate attachments are geometric; door-to-street access is not verified.","Elevator outages, temporary obstructions and individual chair dimensions are not modeled."],
+      "fareGates": "accessible-endpoints-with-published-time-or-five-second-estimate",
+      "limitations": ["Unknown vehicle and boarding accessibility is excluded; coverage may be sparse.","Fare gates between accessible nodes use published crossing time or a five-second estimate.","Same-level walkways with accessible endpoints and a zero wheelchair length use their positive published walk length.","Inferred streets can lack wheelchair or surface tags. An explicit wheelchair=yes overrides surface and trail filters; mapped dimensions and some barriers are still checked.","Coordinate attachments are geometric; door-to-street access is not verified.","Elevator outages, temporary obstructions and individual chair dimensions are not modeled."],
       "maximumSlope": 0.083,
       "minimumWidthMeters": 0.9,
       "profile": "wheelchair-strict-v1",
+      "sameLevelWalkways": "zero-wheelchair-length-with-published-walk-length-and-accessible-endpoints",
       "stationPaths": "published-wheelchair-time-or-dimensioned-step-free",
       "streetEvidence": "inferred-step-free-v1",
       "unknownData": "exclude"
