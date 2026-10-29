@@ -24,6 +24,8 @@ Route includes available GeoJSON `geometry` on each leg by default, preserving t
 
 Additional journeys appear in `alternatives`, which excludes the primary journey and duplicates and is omitted when none remain. `alternativeSearch` describes how they were found. Requested [alternative journeys](../guides/rust-standalone.md#alternative-journeys) (`alternatives`, `alternativeRanking`) are available in both runtimes and report `coverage: "requested_time"`. Standalone [journey windows](../guides/rust-standalone.md#journey-windows) sample later departures or earlier arrival deadlines and report their sampling direction.
 
+Continuous street and station walking uses one leg, with costs retained in `components`. If any piece lacks geometry, the combined leg omits its line rather than drawing across the missing path. Waits and requested waypoints remain separate boundaries. Shared-service `legIndex` values refer to the resulting public leg list.
+
 With `sharedLegs: true`, `journey.sharedLegAlternatives` bundles [shared-leg services](../guides/rust-standalone.md#shared-leg-services). Each option retains a full timed journey and identifies the replaced leg by `legIndex`. Coverage is bounded to one-leg substitutions; options cannot be combined. `frequencies` reports counts and observed headways from active, path-verified segment departures in an explicit window; these counts are independent of onward-transfer feasibility.
 
 Transit legs carry a `fare` when the City publishes GTFS Fares v1 or v2 data for the ride. Both runtimes price legs with the same engine.

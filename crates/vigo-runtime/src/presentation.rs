@@ -300,7 +300,6 @@ fn mergeable(a: &Value, b: &Value) -> bool {
     a["type"] == "walk"
         && b["type"] == "walk"
         && a["arrivalTime"] == b["departureTime"]
-        && a["geometry"].is_null() == b["geometry"].is_null()
         && (a["endpointConnector"].is_null() || b["endpointConnector"].is_null())
 }
 fn merge_walk(mut a: Value, mut b: Value) -> Value {
@@ -411,10 +410,17 @@ fn merge_walk(mut a: Value, mut b: Value) -> Value {
             .and_then(Value::as_array_mut)
             .map(std::mem::take)
     };
-    if let (Some(mut x), Some(y)) = (coordinates(&mut a), coordinates(&mut b)) {
-        let skip = usize::from(x.last() == y.first());
-        x.extend(y.into_iter().skip(skip));
-        a["geometry"]["coordinates"] = Value::Array(x);
+    match (coordinates(&mut a), coordinates(&mut b)) {
+        (Some(mut x), Some(y)) => {
+            let skip = usize::from(x.last() == y.first());
+            x.extend(y.into_iter().skip(skip));
+            a["geometry"]["coordinates"] = Value::Array(x);
+        }
+        _ => {
+            // Missing station geometry does not interrupt a continuous walk.
+            // Omit the combined line rather than bridge or publish a partial path.
+            a.as_object_mut().unwrap().remove("geometry");
+        }
     }
     a
 }
@@ -505,6 +511,27 @@ fn journey(v: &mut Value, geometry: bool) -> Value {
     }
     out
 }
+fn projected_ride_index(raw: &Value, projected: &Value, index: &Value) -> Option<usize> {
+    let index = usize::try_from(index.as_u64()?).ok()?;
+    let legs = raw["legs"].as_array()?;
+    let is_ride = |l: &Value| {
+        matches!(
+            pick(l, &["kind", "type"]).as_str(),
+            Some("ride" | "transit")
+        )
+    };
+    if !is_ride(legs.get(index)?) {
+        return None;
+    }
+    let ordinal = legs[..index].iter().filter(|l| is_ride(l)).count();
+    projected["legs"]
+        .as_array()?
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| l["type"] == "transit")
+        .nth(ordinal)
+        .map(|(index, _)| index)
+}
 fn route_journey(v: &mut Value, q: &Value, geometry: bool) -> Value {
     let mut shared = v["sharedLegAlternatives"].take();
     let mut result = journey(v, geometry);
@@ -515,10 +542,22 @@ fn route_journey(v: &mut Value, q: &Value, geometry: bool) -> Value {
     if result.is_object() && shared.is_object() {
         if let Some(options) = shared["options"].as_array_mut() {
             for option in options {
+                let raw_index = option["legIndex"].clone();
                 let plan = &mut option["plan"];
                 let alternative = route_journey(plan, q, geometry);
+                let index = projected_ride_index(plan, &alternative, &raw_index);
                 option.as_object_mut().unwrap().remove("plan");
                 option["journey"] = alternative;
+                if let Some(index) = index {
+                    option["legIndex"] = json!(index);
+                }
+            }
+        }
+        if let Some(frequencies) = shared["frequencies"].as_array_mut() {
+            for frequency in frequencies {
+                if let Some(index) = projected_ride_index(v, &result, &frequency["legIndex"]) {
+                    frequency["legIndex"] = json!(index);
+                }
             }
         }
         result["sharedLegAlternatives"] = shared;
@@ -1217,7 +1256,7 @@ mod tests {
     }
 
     #[test]
-    fn walks_stay_separate_across_waits_rides_and_missing_geometry() {
+    fn walks_stay_separate_across_waits_and_rides() {
         let gap = vec![
             walk("A", "B", "09:00:00", "09:01:00", "osm", None),
             walk("B", "C", "09:03:00", "09:04:00", "osm", None),
@@ -1227,7 +1266,7 @@ mod tests {
             2,
             "a wait between walks stays visible"
         );
-        let mixed = vec![
+        let mixed = merge_walks(vec![
             walk(
                 "A",
                 "B",
@@ -1237,12 +1276,15 @@ mod tests {
                 Some(json!([[0, 0], [1, 0]])),
             ),
             walk("B", "C", "09:01:00", "09:02:00", "gtfs_pathway", None),
-        ];
-        assert_eq!(
-            merge_walks(mixed).len(),
-            2,
-            "no line is bridged across a missing vertex"
+        ]);
+        assert_eq!(mixed.len(), 1, "missing geometry is not a break in walking");
+        assert!(
+            mixed[0].get("geometry").is_none(),
+            "no partial path is published"
         );
+        assert_eq!(mixed[0]["durationSeconds"], 120);
+        assert_eq!(mixed[0]["distanceMeters"], 100);
+        assert_eq!(mixed[0]["components"].as_array().unwrap().len(), 2);
         let unmapped = merge_walks(vec![
             walk("A", "B", "09:00:00", "09:01:00", "gtfs_pathway", None),
             walk("B", "C", "09:01:00", "09:02:00", "gtfs_pathway", None),
@@ -1259,6 +1301,33 @@ mod tests {
             walk("C", "D", "09:05:00", "09:06:00", "osm", None),
         ]);
         assert_eq!(around.len(), 3);
+    }
+
+    #[test]
+    fn merged_access_walks_keep_shared_services_on_the_transit_leg() {
+        let mut raw = json!({"departure":0,"arrival":300,"legs":[
+            {"kind":"walk","departure":0,"arrival":60,"geometrySource":"osm",
+                "geometry":{"type":"LineString","coordinates":[[0,0],[1,0]]}},
+            {"kind":"walk","departure":60,"arrival":120,"geometrySource":"gtfs_pathway"},
+            {"kind":"ride","departure":120,"arrival":300,"routeId":"F"}
+        ]});
+        let mut alternative = raw.clone();
+        alternative["legs"][2]["routeId"] = json!("E");
+        raw["sharedLegAlternatives"] = json!({
+            "options":[{"legIndex":2,"plan":alternative}],
+            "frequencies":[{"legIndex":2,"departureCount":2}]
+        });
+        let result = route_journey(&mut raw, &json!({}), true);
+        assert_eq!(result["legs"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            result["sharedLegAlternatives"]["frequencies"][0]["legIndex"],
+            1
+        );
+        let option = &result["sharedLegAlternatives"]["options"][0];
+        assert_eq!(option["legIndex"], 1);
+        assert_eq!(option["journey"]["legs"][1]["route"]["id"]["id"], "E");
+        assert_eq!(option["journey"]["durationSeconds"], 300);
+        assert!(option["journey"]["legs"][0].get("geometry").is_none());
     }
 
     #[test]

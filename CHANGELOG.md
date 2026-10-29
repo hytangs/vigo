@@ -2,6 +2,7 @@
 
 ## 1.0.0-rc.2
 
+- Keep a continuous street-to-station walk in one leg even when station geometry is missing; omit incomplete lines and preserve shared-service leg references after merging.
 - Connect planned scenario Flex zones to Route and Reach, including arrive-by, service hours, transit interchanges and walking to a pickup instead of taking an unnecessary short bus ride.
 - Share destination bounds in full depart-at searches and prune unreachable prefixes in full arrive-by searches. Reuse equivalent reverse-window samples while preserving service-date boundaries.
 - Reuse Reach street surfaces and baseline/scenario work in both directions, with request-specific limits and retained result parity checks.
