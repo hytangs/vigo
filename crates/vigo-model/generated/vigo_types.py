@@ -407,6 +407,19 @@ OutputCapabilities = TypedDict(
     },
 )
 
+PlannedFlexZone = TypedDict(
+    "PlannedFlexZone",
+    {
+        "averageSpeedKph": float,
+        "endMinutes": float,
+        "geometry": Any,
+        "id": str,
+        "name": str,
+        "startMinutes": float,
+        "waitMinutes": float,
+    },
+)
+
 QueryStatus = Literal["ok"] | Literal["not_found"]
 
 ReachCapabilities = TypedDict(
@@ -1501,6 +1514,8 @@ Scenario = TypedDict(
         "cityRevision": NotRequired[str],
         "excludedRouteIds": NotRequired[list[str]],
         "excludedTripIds": NotRequired[list[str]],
+        # Query-local on-demand zones with an explicit planning time model.
+        "flexZones": NotRequired[list[PlannedFlexZone]],
         "id": NotRequired[str],
         "name": NotRequired[str],
         # A compiled native overlay; see the native field reference.

@@ -744,6 +744,16 @@ export interface Place {
   stopId?: string;
 }
 
+export interface PlannedFlexZone {
+  averageSpeedKph: number;
+  endMinutes: number;
+  geometry: unknown;
+  id: string;
+  name: string;
+  startMinutes: number;
+  waitMinutes: number;
+}
+
 /**
  * A place: a bare `[longitude, latitude]`, or an object naming a stop and/or
  * coordinate. A selected stop overrides the coordinate unless `source` is
@@ -1182,6 +1192,8 @@ export interface Scenario {
   cityRevision?: string;
   excludedRouteIds?: string[];
   excludedTripIds?: string[];
+  /** Query-local on-demand zones with an explicit planning time model. */
+  flexZones?: PlannedFlexZone[];
   id?: string;
   name?: string;
   /** A compiled native overlay; see the native field reference. */

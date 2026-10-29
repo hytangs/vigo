@@ -2343,6 +2343,44 @@
         },
         "type": "object"
       },
+      "PlannedFlexZone": {
+        "additionalProperties": false,
+        "properties": {
+          "averageSpeedKph": {
+            "format": "double",
+            "type": "number"
+          },
+          "endMinutes": {
+            "format": "double",
+            "type": "number"
+          },
+          "geometry": true,
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "startMinutes": {
+            "format": "double",
+            "type": "number"
+          },
+          "waitMinutes": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "geometry",
+          "startMinutes",
+          "endMinutes",
+          "averageSpeedKph",
+          "waitMinutes"
+        ],
+        "type": "object"
+      },
       "Point": {
         "anyOf": [
           {
@@ -3729,6 +3767,13 @@
           "excludedTripIds": {
             "items": {
               "type": "string"
+            },
+            "type": "array"
+          },
+          "flexZones": {
+            "description": "Query-local on-demand zones with an explicit planning time model.",
+            "items": {
+              "$ref": "#/components/schemas/PlannedFlexZone"
             },
             "type": "array"
           },
