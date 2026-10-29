@@ -121,37 +121,6 @@
           "type": "transit"
         },
         {
-          "arrivalTime": "08:00:00",
-          "departureTime": "08:00:00",
-          "distanceMeters": 0,
-          "durationSeconds": 0,
-          "from": {
-            "coordinate": [-77.05,38.9],
-            "name": "Bus",
-            "stop": {
-              "feed": null,
-              "id": "C"
-            }
-          },
-          "geometry": {
-            "coordinates": [[-77.05,38.9],[-77.05,38.9]],
-            "type": "LineString"
-          },
-          "quality": {
-            "geometrySource": "unverified_transfer",
-            "streetGeometry": "unverified"
-          },
-          "to": {
-            "coordinate": [-77.05,38.9],
-            "name": "Entrance",
-            "stop": {
-              "feed": null,
-              "id": "A"
-            }
-          },
-          "type": "walk"
-        },
-        {
           "arrivalTime": "08:00:25",
           "components": [
             {
@@ -171,14 +140,14 @@
           "durationSeconds": 25,
           "from": {
             "coordinate": [-77.05,38.9],
-            "name": "Entrance",
+            "name": "Bus",
             "stop": {
               "feed": null,
-              "id": "A"
+              "id": "C"
             }
           },
           "quality": {
-            "geometrySource": "gtfs_pathway",
+            "geometrySource": "unverified_transfer",
             "stationPath": "inferred",
             "stationTime": "estimated",
             "streetGeometry": "unverified"
