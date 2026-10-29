@@ -37,7 +37,10 @@ try {
   fs.writeFileSync(input.gtfsPath,await zip.generateAsync({type:'nodebuffer'}))
   const city=path.join(inputDir,'city')
   execFileSync(process.execPath,['public/vigo.mjs','build',`--gtfs=${input.gtfsPath}`,`--osm=${input.osmPath}`,`--output=${city}`],{cwd:root,stdio:'pipe'})
-  const child=spawn(standaloneBinary,['stream','--city',city],{env:{...process.env,VIGO_TIMETABLE_CACHE_BYTES:'0'}});children.push(child)
+  const child=spawn(standaloneBinary,['stream','--city',city],{env:{...process.env,VIGO_TIMETABLE_CACHE_BYTES:'0'}})
+  // Register before querying so an already exited process is also awaited.
+  const closed=new Promise(resolve=>child.once('close',resolve))
+  children.push({child,closed})
   let stderr='';child.stderr.on('data',c=>stderr+=c)
   const lines=createInterface({input:child.stdout})[Symbol.asyncIterator]()
   const run=async q=>{child.stdin.write(JSON.stringify(q)+'\n');const line=await lines.next();assert(!line.done,stderr);const r=JSON.parse(line.value);assert.notEqual(r.status,'error',JSON.stringify(r));return r}
@@ -171,4 +174,12 @@ try {
   checks++
  }
  console.log(JSON.stringify({status:'passed',checks}))
-} finally {for(const child of children)child.kill();fs.rmSync(dir,{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 })}
+} finally {
+ // Windows keeps prepared files mapped until the reader processes close.
+ // Synchronous removal retries cannot replace waiting for that lifecycle.
+ await Promise.all(children.map(async({child,closed})=>{
+  if(child.exitCode===null && child.signalCode===null)child.kill()
+  await closed
+ }))
+ fs.rmSync(dir,{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
+}

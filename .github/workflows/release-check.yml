@@ -71,7 +71,10 @@ jobs:
       - name: Reuse this job's compiled runtime
         shell: bash
         run: echo "VIGO_USE_BUILT_RUNTIME=1" >> "$GITHUB_ENV"
+      - run: xvfb-run -a npm run check:release
+        if: runner.os == 'Linux'
       - run: npm run check:release
+        if: runner.os != 'Linux'
       - run: npm run check:rust-workspace
         if: matrix.os == 'ubuntu-24.04'
       - run: cargo test --no-default-features --features standalone --manifest-path crates/vigo-runtime/Cargo.toml

@@ -70,7 +70,10 @@ jobs:
       - name: Reuse this job's compiled runtime
         run: echo "VIGO_USE_BUILT_RUNTIME=1" >> "$GITHUB_ENV"
         shell: bash
+      - run: xvfb-run -a npm run check:release
+        if: runner.os == 'Linux'
       - run: npm run check:release
+        if: runner.os != 'Linux'
       - name: Install pinned Electron runtime
         shell: bash
         run: |
