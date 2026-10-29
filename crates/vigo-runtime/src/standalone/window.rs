@@ -864,7 +864,7 @@ impl City {
             .take()
             .and_then(|mut rows| rows.pop().flatten());
         if let Some(j) = journey.as_mut() {
-            super::corridor::simplify(&t.kernel, &t.links, &input, j)?;
+            super::corridor::simplify(t, &input, j)?;
         }
         Ok(journey)
     }
@@ -892,7 +892,7 @@ impl City {
         else {
             return Ok(None);
         };
-        super::corridor::simplify(&t.kernel, &t.links, &input, &mut best)?;
+        super::corridor::simplify(t, &input, &mut best)?;
         let detours = super::corridor::detours(&t.kernel, &t.links, &input, &best);
         super::corridor::settle(t, &input, &mut frontier)?;
         Ok(Some((best, detours, frontier)))

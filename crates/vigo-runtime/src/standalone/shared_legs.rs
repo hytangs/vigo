@@ -26,6 +26,103 @@ fn physical_call(links: &super::linked_trips::Links, trip: u32, sequence: f64) -
         .unwrap_or((trip, sequence))
 }
 
+/// Keep the chosen final ride and work backward through its connections.
+/// A later service on the same route and stopping pattern can move waiting
+/// back toward the origin without changing arrival, walking or boardings.
+pub(super) fn depart_later(
+    timetable: &super::city::Timetable,
+    journey: &mut TimetableMatrixJourney,
+) -> Result<()> {
+    if journey.boardings < 2 {
+        return Ok(());
+    }
+    let kernel = &timetable.kernel;
+    let rides: Vec<_> = journey
+        .legs
+        .iter()
+        .enumerate()
+        .filter_map(|(i, leg)| leg.trip.map(|_| i))
+        .collect();
+    for pair in rides.windows(2).rev() {
+        let (index, next) = (pair[0], pair[1]);
+        let leg = &journey.legs[index];
+        let (Some(trip), Some(board), Some(alight), Some(from)) = (
+            leg.trip,
+            leg.board_sequence,
+            leg.alight_sequence,
+            leg.from_stop,
+        ) else {
+            continue;
+        };
+        let onward = &journey.legs[next];
+        let Some(target) = onward.from_stop else {
+            continue;
+        };
+        if kernel.is_headway_trip(trip)
+            || kernel.is_headway_trip(onward.trip.unwrap())
+            || kernel.boarding_needs_transfer_context(target)
+            || (index != rides[0] && kernel.boarding_needs_transfer_context(from))
+        {
+            continue;
+        }
+        let (vehicle, _) = physical_call(&timetable.links, trip, board);
+        if physical_call(&timetable.links, trip, alight).0 != vehicle {
+            continue;
+        }
+        let walks = &journey.legs[index + 1..next];
+        if walks.iter().any(|l| l.kind != "walk") {
+            continue;
+        }
+        let walk: f64 = walks.iter().map(|l| l.arrival - l.departure).sum();
+        let latest = onward.departure - walk - f64::from(kernel.minimum_transfer_buffer_seconds());
+        if latest <= leg.departure {
+            continue;
+        }
+        let candidate = kernel.latest_shared_ride(
+            SharedRideQuery {
+                trip,
+                board_sequence: board,
+                alight_sequence: alight,
+                earliest_departure: leg.departure,
+                latest_departure: latest,
+                latest_arrival: latest,
+                onward_departure: Some(onward.departure),
+                onward_stop: Some(target),
+                onward_walk_seconds: walk,
+            },
+            |candidate| {
+                let (other, _) =
+                    physical_call(&timetable.links, candidate.trip, candidate.board_sequence);
+                physical_call(&timetable.links, candidate.trip, candidate.alight_sequence).0
+                    == other
+                    && timetable.route_ids[other as usize] == timetable.route_ids[vehicle as usize]
+            },
+        )?;
+        let Some(candidate) = candidate else {
+            continue;
+        };
+        journey.ride_seconds +=
+            (candidate.arrival - candidate.departure) - (leg.arrival - leg.departure);
+        let leg = &mut journey.legs[index];
+        leg.trip = Some(candidate.trip);
+        leg.board_sequence = Some(candidate.board_sequence);
+        leg.alight_sequence = Some(candidate.alight_sequence);
+        leg.departure = candidate.departure;
+        leg.arrival = candidate.arrival;
+        let mut at = candidate.arrival;
+        for walk in &mut journey.legs[index + 1..next] {
+            let duration = walk.arrival - walk.departure;
+            walk.departure = at;
+            at += duration;
+            walk.arrival = at;
+        }
+    }
+    journey.waiting_seconds =
+        (journey.arrival - journey.departure - journey.walking_seconds - journey.ride_seconds)
+            .max(0.);
+    Ok(())
+}
+
 fn coordinates(leg: &Value) -> Vec<f64> {
     leg["coordinates"]
         .as_array()

@@ -1076,16 +1076,14 @@ impl City {
                 return Ok(json!({"status":"flex_witness","mode":"transit"}));
             }
         }
-        if let (Some(j), Some(t)) = (journey.as_mut(), self.timetable.as_ref())
-            && !t.links.is_empty()
-        {
+        if let (Some(j), Some(t)) = (journey.as_mut(), self.timetable.as_ref()) {
             let input = Self::matrix_input(
                 std::slice::from_ref(&a),
                 std::slice::from_ref(&b),
                 &opt,
                 true,
             );
-            super::corridor::simplify(&t.kernel, &t.links, &input, j)?;
+            super::corridor::simplify(t, &input, j)?;
         }
         let primary_search_ms = primary_started.elapsed().as_secs_f64() * 1000.;
         let mut alternative_search_ms = 0.;
@@ -1464,6 +1462,7 @@ impl City {
                         if let Some(journey) = j.as_mut() {
                             let t = self.timetable.as_ref().unwrap();
                             super::corridor::alight_before_return(&t.kernel, &t.links, journey);
+                            super::shared_legs::depart_later(t, journey)?;
                         }
                         j.as_ref().map_or(Ok(Value::Null), |j| {
                             if compact {

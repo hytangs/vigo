@@ -98,6 +98,9 @@ pub(super) fn board_last_pass(
     input: &TimetableMatrixQueryInput,
     journey: &mut TimetableMatrixJourney,
 ) -> Result<()> {
+    if links.is_empty() {
+        return Ok(());
+    }
     let access = minimum_by_stop(&input.origin_stops, &input.origin_walk_seconds);
     let mut i = 0;
     while i < journey.legs.len() {
@@ -336,13 +339,13 @@ pub(super) fn alight_before_return(
 }
 
 pub(super) fn simplify(
-    kernel: &TimetableKernel,
-    links: &Links,
+    t: &Timetable,
     input: &TimetableMatrixQueryInput,
     journey: &mut TimetableMatrixJourney,
 ) -> Result<()> {
-    board_last_pass(kernel, links, input, journey)?;
-    alight_before_return(kernel, links, journey);
+    board_last_pass(&t.kernel, &t.links, input, journey)?;
+    alight_before_return(&t.kernel, &t.links, journey);
+    super::shared_legs::depart_later(t, journey)?;
     Ok(())
 }
 
@@ -431,7 +434,7 @@ pub(super) fn settle(
     journeys: &mut Vec<TimetableMatrixJourney>,
 ) -> Result<()> {
     for journey in journeys.iter_mut() {
-        simplify(&t.kernel, &t.links, input, journey)?;
+        simplify(t, input, journey)?;
     }
     journeys.retain(|journey| !detours(&t.kernel, &t.links, input, journey));
     Ok(())

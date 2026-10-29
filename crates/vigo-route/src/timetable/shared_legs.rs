@@ -82,6 +82,59 @@ mod tests {
     }
 
     #[test]
+    fn latest_connection_is_not_limited_by_display_windows_or_option_caps() {
+        let kernel = kernel(4000);
+        let mut q = query();
+        q.latest_departure = 5000.;
+        q.latest_arrival = 4500.;
+        let best = kernel
+            .latest_shared_ride(q.clone(), |c| c.trip % 2 == 0)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (best.trip, best.departure, best.arrival),
+            (3998, 4008., 4018.)
+        );
+        // The same timetable and deadline are reusable with another predicate.
+        assert_eq!(
+            kernel
+                .latest_shared_ride(q, |_| true)
+                .unwrap()
+                .unwrap()
+                .trip,
+            3999
+        );
+    }
+
+    #[test]
+    fn latest_connection_preserves_walk_and_transfer_buffer_at_the_boundary() {
+        let kernel = kernel(4);
+        let mut q = query();
+        q.onward_stop = Some(1);
+        q.onward_departure = Some(28.);
+        // Same-stop minimum (3) plus requested buffer (2): arrival 23 is legal.
+        assert_eq!(
+            kernel
+                .latest_shared_ride(q.clone(), |_| true)
+                .unwrap()
+                .unwrap()
+                .trip,
+            3
+        );
+        q.onward_departure = Some(27.);
+        assert_eq!(
+            kernel
+                .latest_shared_ride(q.clone(), |_| true)
+                .unwrap()
+                .unwrap()
+                .trip,
+            2
+        );
+        q.onward_walk_seconds = 10.;
+        assert!(kernel.latest_shared_ride(q, |_| true).unwrap().is_none());
+    }
+
+    #[test]
     fn scoped_transfers_do_not_erase_scheduled_departures() {
         let mut kernel = kernel(4);
         kernel
@@ -196,6 +249,86 @@ pub struct SharedRideResult {
 
 impl TimetableKernel {
     pub fn shared_ride_options(&self, q: SharedRideQuery) -> Result<SharedRideResult> {
+        if q.latest_departure - q.earliest_departure > 1800. {
+            return Err(Error::from_reason("Invalid shared-leg query"));
+        }
+        let mut result = SharedRideResult {
+            options: vec![],
+            truncated: false,
+            departures: vec![],
+            departures_truncated: false,
+        };
+        self.visit_shared_rides(&q, false, |candidate, latest| {
+            // Half-open frequency windows never count a boundary twice.
+            if candidate.departure < q.latest_departure {
+                if result.departures.len() == 512 {
+                    result.departures_truncated = true;
+                    result.truncated = true;
+                    return false;
+                }
+                result.departures.push(candidate.clone());
+            }
+            // Segment evidence alone cannot certify scoped interchange rules.
+            if candidate.arrival <= latest
+                && !self.service_enabled()
+                && !(candidate.trip == q.trip && candidate.board_sequence == q.board_sequence)
+            {
+                if result.options.len() == 256 {
+                    result.truncated = true;
+                } else {
+                    result.options.push(candidate);
+                }
+            }
+            true
+        })?;
+        result.options.sort_by(|a, b| {
+            a.arrival
+                .total_cmp(&b.arrival)
+                .then(a.departure.total_cmp(&b.departure))
+                .then(a.trip.cmp(&b.trip))
+                .then(a.board_sequence.total_cmp(&b.board_sequence))
+        });
+        Ok(result)
+    }
+
+    /// Latest later service with the same boarding/alighting permissions and
+    /// complete stop pattern, within the already chosen onward connection.
+    /// Search backward through the active index, without the display window or
+    /// option-count caps. The caller certifies incoming transfer context and
+    /// uses `allowed` for physical-trip/route identity constraints.
+    pub fn latest_shared_ride(
+        &self,
+        q: SharedRideQuery,
+        mut allowed: impl FnMut(&SharedRideOption) -> bool,
+    ) -> Result<Option<SharedRideOption>> {
+        let mut best: Option<SharedRideOption> = None;
+        self.visit_shared_rides(&q, true, |candidate, latest| {
+            if best
+                .as_ref()
+                .is_some_and(|b| candidate.departure < b.departure)
+            {
+                return false;
+            }
+            if candidate.departure > q.earliest_departure
+                && candidate.arrival <= latest
+                && allowed(&candidate)
+                && best.as_ref().is_none_or(|b| candidate.arrival < b.arrival)
+            {
+                best = Some(candidate);
+            }
+            true
+        })?;
+        Ok(best)
+    }
+
+    /// Common indexed stop-pattern proof for display options and scheduling
+    /// the existing journey later. A false visitor result stops the scan.
+    fn visit_shared_rides(
+        &self,
+        q: &SharedRideQuery,
+        reverse: bool,
+        mut visit: impl FnMut(SharedRideOption, f64) -> bool,
+    ) -> Result<()> {
         if q.trip as usize + 1 >= self.trip_start.len()
             || [
                 q.board_sequence,
@@ -208,7 +341,6 @@ impl TimetableKernel {
             .iter()
             .any(|n| !n.is_finite() || *n < 0.)
             || q.latest_departure < q.earliest_departure
-            || q.latest_departure - q.earliest_departure > 1800.
             || q.onward_departure.is_some_and(|n| !n.is_finite() || n < 0.)
             || q.onward_stop.is_some_and(|s| s as usize >= self.stop_count)
             || q.onward_departure.is_some() != q.onward_stop.is_some()
@@ -232,17 +364,11 @@ impl TimetableKernel {
         let last = span
             .clone()
             .find(|&i| f64::from(sequence[i]) == q.alight_sequence);
-        let mut result = SharedRideResult {
-            options: vec![],
-            truncated: false,
-            departures: vec![],
-            departures_truncated: false,
-        };
         let (Some(first), Some(last)) = (first, last) else {
-            return Ok(result);
+            return Ok(());
         };
         if first > last || (first + 1..=last).any(|i| breaks[i] != 0 || from[i] != to[i - 1]) {
-            return Ok(result); // Do not equate untimed gaps with verified stopping patterns.
+            return Ok(()); // Do not equate untimed gaps with verified stopping patterns.
         }
         let stop = from[first] as usize;
         let latest = if let (Some(departure), Some(stop)) = (q.onward_departure, q.onward_stop) {
@@ -264,11 +390,15 @@ impl TimetableKernel {
             [self.departure_offset[stop] as usize..self.departure_offset[stop + 1] as usize];
         let begin =
             events.partition_point(|event| f64::from(event.departure) < q.earliest_departure);
+        let end = events.partition_point(|event| f64::from(event.departure) <= q.latest_departure);
         let mut seen = std::collections::HashSet::new();
-        'events: for event in &events[begin..] {
-            if f64::from(event.departure) > q.latest_departure {
-                break;
-            }
+        for offset in 0..end.saturating_sub(begin) {
+            let index = if reverse {
+                end - 1 - offset
+            } else {
+                begin + offset
+            };
+            let event = &events[index];
             let run = event.run as usize;
             for start in self.run_start[run] as usize..self.run_end[run] as usize {
                 if from[start] != stop as u32
@@ -298,39 +428,12 @@ impl TimetableKernel {
                     departure: dep[start] as f64,
                     arrival: arr[end] as f64,
                 };
-                // A half-open interval avoids double counting adjacent windows.
-                if candidate.departure < q.latest_departure {
-                    if result.departures.len() == 512 {
-                        result.departures_truncated = true;
-                        result.truncated = true;
-                        break 'events;
-                    }
-                    result.departures.push(candidate.clone());
-                }
-                if candidate.arrival <= latest
-                    // Segment frequency is independent of interchange rules.
-                    // A replacement journey, however, needs its incoming and
-                    // onward scoped permissions checked as well. Do not claim
-                    // such a replacement from this segment-only query.
-                    && !self.service_enabled()
-                    && !(trips[start] == q.trip && sequence[start] as f64 == q.board_sequence)
-                {
-                    if result.options.len() == 256 {
-                        result.truncated = true;
-                    } else {
-                        result.options.push(candidate);
-                    }
+                if !visit(candidate, latest) {
+                    return Ok(());
                 }
             }
         }
-        result.options.sort_by(|a, b| {
-            a.arrival
-                .total_cmp(&b.arrival)
-                .then(a.departure.total_cmp(&b.departure))
-                .then(a.trip.cmp(&b.trip))
-                .then(a.board_sequence.total_cmp(&b.board_sequence))
-        });
-        Ok(result)
+        Ok(())
     }
 }
 

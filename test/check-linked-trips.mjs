@@ -207,6 +207,56 @@ try {
    checks++
   }
  }
+ // Tighten a three-ride chain backward from its fixed final train. Later
+ // buses more than 30 minutes away must be considered, but never miss a buffer.
+ {
+  const inputDir=path.join(dir,'later-connections');fs.mkdirSync(inputDir)
+  const input=await writeCliFixtureInputs(inputDir)
+  const zip=await JSZip.loadAsync(fs.readFileSync(input.gtfsPath))
+  zip.file('stops.txt','stop_id,stop_name,stop_lat,stop_lon\nA,Origin,38.900,-77.050\nX,First connection,38.905,-77.040\nY,Train connection,38.910,-77.030\nB,Destination,38.920,-77.020\n')
+  zip.file('routes.txt',(await zip.file('routes.txt').async('string'))+'R3,fixture,R3,Train,2\n')
+  const trips=[['T1','R1','A','08:00:00','X','08:10:00'],['Late1','R1','A','08:50:00','X','09:00:00'],['Miss1','R1','A','09:15:00','X','09:25:00'],
+   ['T2','R2','X','08:20:00','Y','08:30:00'],['Late2','R2','X','09:05:00','Y','09:15:00'],['Miss2','R2','X','09:35:00','Y','09:45:00'],['T3','R3','Y','09:30:00','B','09:40:00']]
+  zip.file('trips.txt','route_id,service_id,trip_id,direction_id\n'+trips.map(([id,route])=>`${route},WKD,${id},0\n`).join(''))
+  zip.file('stop_times.txt','trip_id,arrival_time,departure_time,stop_id,stop_sequence\n'+trips.map(([id,,from,dep,to,arr])=>`${id},${dep},${dep},${from},1\n${id},${arr},${arr},${to},2\n`).join(''))
+  fs.writeFileSync(input.gtfsPath,await zip.generateAsync({type:'nodebuffer'}))
+  const city=path.join(inputDir,'city')
+  execFileSync(process.execPath,['public/vigo.mjs','build',`--gtfs=${input.gtfsPath}`,`--osm=${input.osmPath}`,`--output=${city}`],{cwd:root,stdio:'pipe'})
+  const base={kind:'route',origin:{stopId:'A'},destination:{stopId:'B'},serviceDate:'2026-07-15',timeMinutes:480,maxWalkKm:.001,maxTransfers:2,requireTransitRide:true,allowStreetTransfers:false}
+  for(const buffer of [1,5,6]) for(const reverse of [false,true]) for(const extra of [{},{windowMinutes:1},{kind:'matrix',includeJourneys:true},{kind:'matrix',includeJourneys:true,journeyFormat:'compact'}]) {
+   const q={...base,...extra,minimumTransferBufferMinutes:buffer,...(reverse?{timePreference:'arrive_by',timeMinutes:580}:{})}
+   if(q.kind==='matrix') {q.origins=[q.origin];q.destinations=[q.destination];delete q.origin;delete q.destination}
+   const r=JSON.parse(execFileSync(standaloneBinary,['stream','--city',city],{input:JSON.stringify(q)+'\n',encoding:'utf8'}).trim())
+   assert.equal(r.status,'ok',JSON.stringify(r))
+   const j=q.kind==='matrix'?r.journeys[0][0]:r.journey
+   const rides=j.legs.filter(l=>l.type==='transit')
+   assert.deepEqual(rides.map(l=>l.trip.id),[buffer<=5?'Late1':'T1','Late2','T3'],`Latest feasible connections: buffer=${buffer}, reverse=${reverse}, ${JSON.stringify(extra)}`)
+   assert.equal(j.arrivalTime,'09:40:00');assert.equal(j.boardings,3);assert.equal(j.walkingSeconds,0)
+   checks++
+  }
+  const canceled={...base,minimumTransferBufferMinutes:1,routingDataMode:'realtime',realtimeSnapshot:{feedTimestamp:Math.floor(Date.now()/1000),tripUpdates:[{tripId:'Late1',scheduleRelationship:'CANCELED'}]}}
+  const realtime=JSON.parse(execFileSync(standaloneBinary,['stream','--city',city],{input:JSON.stringify(canceled)+'\n',encoding:'utf8'}).trim())
+  assert.equal(realtime.status,'ok',JSON.stringify(realtime))
+  assert.deepEqual(realtime.journey.legs.filter(l=>l.type==='transit').map(l=>l.trip.id),['T1','Late2','T3'],'Canceled later trips cannot replace the certified journey')
+  checks++
+  // Changing either end of a ride must not bypass a trip-scoped permission.
+  for(const [name,rule] of [
+   ['incoming','X,X,Late1,Late2,3,'],
+   ['outgoing','Y,Y,Late2,T3,3,'],
+   ['minimum','Y,Y,Late2,T3,2,1200'],
+  ]) {
+   zip.file('transfers.txt','from_stop_id,to_stop_id,from_trip_id,to_trip_id,transfer_type,min_transfer_time\n'+rule+'\n')
+   fs.writeFileSync(input.gtfsPath,await zip.generateAsync({type:'nodebuffer'}))
+   const restricted=path.join(inputDir,name)
+   execFileSync(process.execPath,['public/vigo.mjs','build',`--gtfs=${input.gtfsPath}`,`--osm=${input.osmPath}`,`--output=${restricted}`],{cwd:root,stdio:'pipe'})
+   const r=JSON.parse(execFileSync(standaloneBinary,['stream','--city',restricted],{input:JSON.stringify({...base,minimumTransferBufferMinutes:1})+'\n',encoding:'utf8'}).trim())
+   assert.equal(r.status,'ok',JSON.stringify(r))
+   const ids=r.journey.legs.filter(l=>l.type==='transit').map(l=>l.trip.id)
+   if(name==='incoming') assert(!(ids.includes('Late1') && ids.includes('Late2')),'Later boarding cannot bypass an incoming scoped rule')
+   else assert(!ids.includes('Late2'),'Later alighting cannot bypass an onward scoped rule')
+   assert.equal(r.journey.arrivalTime,'09:40:00');checks++
+  }
+ }
  console.log(JSON.stringify({status:'passed',checks}))
 } finally {
  // Windows keeps prepared files mapped until the reader processes close.
