@@ -173,6 +173,40 @@ try {
   assert.deepEqual(first.journey.legs.filter(l=>l.type==='transit').map(l=>l.trip.id),['T2'],'First boarding still uses the last pass')
   checks++
  }
+ // A shorter walk on the return side must not send a rider through the
+ // terminal and back when the outward pass catches the same onward train.
+ // The independent fixture has a 20-minute loop to save one walking minute.
+ for(const variant of ['ordinary','no-drop-off','forbidden-transfer','minimum-transfer']) {
+  const inputDir=path.join(dir,`alight-${variant}`);fs.mkdirSync(inputDir)
+  const input=await writeCliFixtureInputs(inputDir)
+  const zip=await JSZip.loadAsync(fs.readFileSync(input.gtfsPath))
+  zip.file('stops.txt','stop_id,stop_name,stop_lat,stop_lon\nA,Origin,38.900,-77.050\nX,Outward stop,38.905,-77.040\nY,Return stop,38.905,-77.0399\nZ,Turnaround,38.910,-77.030\nC,Train platform,38.905,-77.0398\nB,Destination,38.920,-77.020\n')
+  zip.file('trips.txt','route_id,service_id,trip_id,direction_id,block_id\nR1,WKD,T1,0,LOOP\nR1,WKD,T2,1,LOOP\nR2,WKD,T3,0,\n')
+  zip.file('stop_times.txt',`trip_id,arrival_time,departure_time,stop_id,stop_sequence,pickup_type,drop_off_type\nT1,08:00:00,08:00:00,A,1,0,0\nT1,08:10:00,08:10:00,X,2,0,${variant==='no-drop-off'?1:0}\nT1,08:20:00,08:20:00,Z,3,0,0\nT2,08:25:00,08:25:00,Z,1,0,0\nT2,08:30:00,08:30:00,Y,2,0,0\nT3,09:00:00,09:00:00,C,1,0,0\nT3,09:10:00,09:10:00,B,2,0,0\n`)
+  zip.file('transfers.txt','from_stop_id,to_stop_id,from_trip_id,to_trip_id,transfer_type,min_transfer_time\n,,T1,T2,4,\nY,C,,,2,60\n'
+   +'X,Y,,,2,60\nX,C,,,2,120\n'
+   +(variant==='forbidden-transfer'?'X,C,T1,T3,3,\n':variant==='minimum-transfer'?'X,C,T1,T3,2,3600\n':''))
+  fs.writeFileSync(input.gtfsPath,await zip.generateAsync({type:'nodebuffer'}))
+  const city=path.join(inputDir,'city')
+  execFileSync(process.execPath,['public/vigo.mjs','build',`--gtfs=${input.gtfsPath}`,`--osm=${input.osmPath}`,`--output=${city}`],{cwd:root,stdio:'pipe'})
+  const base={kind:'route',origin:{stopId:'A'},destination:{stopId:'B'},serviceDate:'2026-07-15',timeMinutes:480,maxWalkKm:.2,maxTransfers:1,minimumTransferBufferMinutes:1,requireTransitRide:true,allowStreetTransfers:true}
+  for(const reverse of [false,true]) for(const extra of [{},{alternatives:5},{windowMinutes:1,windowStepMinutes:1,windowChoices:'supported'},{kind:'matrix',includeJourneys:true},{kind:'matrix',includeJourneys:true,journeyFormat:'compact'}]) {
+   if(reverse && extra.alternatives) continue
+   const q={...base,...extra,...(reverse?{timePreference:'arrive_by',timeMinutes:550}:{})}
+   if(reverse) delete q.windowChoices
+   if(q.kind==='matrix') {q.origins=[q.origin];q.destinations=[q.destination];delete q.origin;delete q.destination}
+   const r=JSON.parse(execFileSync(standaloneBinary,['stream','--city',city],{input:JSON.stringify(q)+'\n',encoding:'utf8'}).trim())
+   assert.equal(r.status,'ok',JSON.stringify(r))
+   const j=q.kind==='matrix'?r.journeys[0][0]:r.journey
+   const rides=j.legs.filter(l=>l.type==='transit')
+   const simplified=variant==='ordinary'
+   assert.deepEqual(rides.map(l=>l.trip.id),simplified?['T1','T3']:['T1','T2','T3'],`${variant}, ${JSON.stringify(extra)}, reverse=${reverse}`)
+   assert.equal(j.arrivalTime,'09:10:00')
+   assert.equal(j.boardings,2)
+   if(simplified) { assert.equal(rides[0].to.stop.id,'X');assert.equal(rides[0].arrivalTime,'08:10:00') }
+   checks++
+  }
+ }
  console.log(JSON.stringify({status:'passed',checks}))
 } finally {
  // Windows keeps prepared files mapped until the reader processes close.

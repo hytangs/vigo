@@ -1085,7 +1085,7 @@ impl City {
                 &opt,
                 true,
             );
-            super::corridor::board_last_pass(&t.kernel, &t.links, &input, j)?;
+            super::corridor::simplify(&t.kernel, &t.links, &input, j)?;
         }
         let primary_search_ms = primary_started.elapsed().as_secs_f64() * 1000.;
         let mut alternative_search_ms = 0.;
@@ -1460,7 +1460,11 @@ impl City {
             .map(|rows| {
                 rows.into_iter()
                     .enumerate()
-                    .map(|(i, j)| {
+                    .map(|(i, mut j)| {
+                        if let Some(journey) = j.as_mut() {
+                            let t = self.timetable.as_ref().unwrap();
+                            super::corridor::alight_before_return(&t.kernel, &t.links, journey);
+                        }
                         j.as_ref().map_or(Ok(Value::Null), |j| {
                             if compact {
                                 return self.compact_journey(j);

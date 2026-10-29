@@ -651,6 +651,7 @@ export type ReachResult = {
       id: string
       name: string
       serviceCount: number
+      flexZoneCount?: number
       excludedRouteCount?: number
       excludedTripCount?: number
       excludedPatternCount?: number

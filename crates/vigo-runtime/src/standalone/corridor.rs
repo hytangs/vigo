@@ -195,6 +195,157 @@ pub(super) fn board_last_pass(
     Ok(())
 }
 
+/// Leave a returning vehicle before its turnaround when a permitted walk
+/// reaches the same onward boarding sooner. Walking ties alone can otherwise
+/// select an entire out-and-back run to save a few seconds crossing the road.
+/// Keep the certified onward trip, final arrival and boarding count. Only a
+/// return to the earlier corridor qualifies, and any extra walking must cost
+/// less time than the ride removed. Conditional transfers retain their exact
+/// certified incoming trip and anchor instead of guessing their permissions.
+pub(super) fn alight_before_return(
+    kernel: &TimetableKernel,
+    links: &Links,
+    journey: &mut TimetableMatrixJourney,
+) {
+    if links.is_empty() {
+        return;
+    }
+    let mut i = 0;
+    while i < journey.legs.len() {
+        let leg = &journey.legs[i];
+        let (Some(trip), Some(board), Some(alight), Some(old_stop)) = (
+            leg.trip,
+            leg.board_sequence,
+            leg.alight_sequence,
+            leg.to_stop,
+        ) else {
+            i += 1;
+            continue;
+        };
+        let Some(parts) = links.get(&trip).filter(|_| !kernel.is_headway_trip(trip)) else {
+            i += 1;
+            continue;
+        };
+        let boundaries: Vec<_> = parts
+            .iter()
+            .filter(|p| f64::from(p.first) > board && f64::from(p.first) <= alight)
+            .map(|p| (f64::from(p.first) - board) as usize)
+            .collect();
+        let Some(&last_boundary) = boundaries.last() else {
+            i += 1;
+            continue;
+        };
+        let Some(next) = (i + 1..journey.legs.len()).find(|&n| journey.legs[n].trip.is_some())
+        else {
+            i += 1;
+            continue;
+        };
+        if kernel.is_headway_trip(journey.legs[next].trip.unwrap()) {
+            i += 1;
+            continue;
+        }
+        let Some(target) = journey.legs[next]
+            .from_stop
+            .filter(|&s| !kernel.boarding_needs_transfer_context(s))
+        else {
+            i += 1;
+            continue;
+        };
+        let walks = &journey.legs[i + 1..next];
+        if walks.iter().any(|l| l.kind != "walk") {
+            i += 1;
+            continue;
+        }
+        let old_walk: f64 = walks.iter().map(|l| l.arrival - l.departure).sum();
+        let ready = walks.last().map_or(leg.arrival, |l| l.arrival);
+        let deadline =
+            journey.legs[next].departure - f64::from(kernel.minimum_transfer_buffer_seconds());
+        let visits = kernel.ride_visits(trip, board, alight);
+        // Arrival at the turnaround, before its layover. Reaching the old
+        // alighting stop before this time proves the vehicle returns to a
+        // corridor already available to this rider.
+        let mut best: Option<(f64, f64, usize, u32)> = None;
+        for (v, visit) in visits.iter().enumerate().take(last_boundary).skip(1) {
+            if !visit.leave {
+                continue;
+            }
+            let mut return_walk = (visit.stop == old_stop).then_some(0.);
+            let mut onward_walk = (visit.stop == target).then_some(0.);
+            for (to, seconds) in kernel.transfer_walks(visit.stop) {
+                let seconds = f64::from(seconds);
+                if to == old_stop {
+                    return_walk = Some(return_walk.map_or(seconds, |w| w.min(seconds)));
+                }
+                if to == target {
+                    onward_walk = Some(onward_walk.map_or(seconds, |w| w.min(seconds)));
+                }
+            }
+            let (Some(back), Some(walk)) = (return_walk, onward_walk) else {
+                continue;
+            };
+            let at = visit.time + walk;
+            let returns = boundaries.iter().any(|&b| {
+                b > v
+                    && visits
+                        .get(b)
+                        .is_some_and(|turnaround| visit.time + back <= turnaround.time)
+            });
+            if !returns
+                || at > deadline
+                || at >= ready
+                || walk - old_walk >= leg.arrival - visit.time
+            {
+                continue;
+            }
+            let candidate = (walk, visit.time, v, visit.stop);
+            if best.is_none_or(|b| candidate < b) {
+                best = Some(candidate);
+            }
+        }
+        if let Some((walk, arrival, v, stop)) = best {
+            let leg = &mut journey.legs[i];
+            journey.ride_seconds -= leg.arrival - arrival;
+            journey.walking_seconds += walk - old_walk;
+            leg.to_stop = Some(stop);
+            // Linked-run segments are numbered consecutively; visit v is
+            // the arrival of segment board + v - 1.
+            leg.alight_sequence = Some(board + v as f64 - 1.);
+            leg.arrival = arrival;
+            journey.legs.splice(
+                i + 1..next,
+                [TimetableMatrixLeg {
+                    kind: "walk".into(),
+                    from_stop: Some(stop),
+                    to_stop: Some(target),
+                    trip: None,
+                    board_sequence: None,
+                    alight_sequence: None,
+                    departure: arrival,
+                    arrival: arrival + walk,
+                    in_seat_seconds: None,
+                }],
+            );
+            journey.waiting_seconds = (journey.arrival
+                - journey.departure
+                - journey.walking_seconds
+                - journey.ride_seconds)
+                .max(0.);
+        }
+        i += 1;
+    }
+}
+
+pub(super) fn simplify(
+    kernel: &TimetableKernel,
+    links: &Links,
+    input: &TimetableMatrixQueryInput,
+    journey: &mut TimetableMatrixJourney,
+) -> Result<()> {
+    board_last_pass(kernel, links, input, journey)?;
+    alight_before_return(kernel, links, journey);
+    Ok(())
+}
+
 /// Whether `journey` stays aboard through a turnaround and returns to its own
 /// corridor; see the module documentation.
 pub(super) fn detours(
@@ -280,7 +431,7 @@ pub(super) fn settle(
     journeys: &mut Vec<TimetableMatrixJourney>,
 ) -> Result<()> {
     for journey in journeys.iter_mut() {
-        board_last_pass(&t.kernel, &t.links, input, journey)?;
+        simplify(&t.kernel, &t.links, input, journey)?;
     }
     journeys.retain(|journey| !detours(&t.kernel, &t.links, input, journey));
     Ok(())
@@ -506,5 +657,89 @@ mod tests {
         board_last_pass(&kernel, &links, &input(0, 4), &mut journey).unwrap();
         assert_eq!(journey.legs[1].board_sequence, Some(0.));
         assert!(!detours(&kernel, &links, &input(0, 4), &journey));
+    }
+
+    fn connecting_journey() -> TimetableMatrixJourney {
+        let mut j = ride(0, 4, 0., 10.);
+        j.legs[2].to_stop = Some(5);
+        j.legs[2].arrival = 65.;
+        let mut onward = j.legs[1].clone();
+        onward.trip = Some(1);
+        onward.from_stop = Some(5);
+        onward.to_stop = Some(0);
+        onward.departure = 90.;
+        onward.arrival = 100.;
+        j.legs.push(onward);
+        j.arrival = 100.;
+        j.boardings = 2;
+        j.ride_seconds = 60.;
+        j.walking_seconds = 5.;
+        j.waiting_seconds = 35.;
+        j
+    }
+
+    #[test]
+    fn leave_before_returning_to_an_onward_connection() {
+        let (kernel, links) = block([0, 1, 2, 3, 4], &[(1, 4, 10), (1, 5, 8), (4, 5, 5)]);
+        let mut j = connecting_journey();
+        alight_before_return(&kernel, &links, &mut j);
+        assert_eq!(
+            (
+                j.legs[1].to_stop,
+                j.legs[1].alight_sequence,
+                j.legs[1].arrival
+            ),
+            (Some(1), Some(0.), 20.)
+        );
+        assert_eq!(
+            (
+                j.legs[2].from_stop,
+                j.legs[2].to_stop,
+                j.legs[2].departure,
+                j.legs[2].arrival
+            ),
+            (Some(1), Some(5), 20., 28.)
+        );
+        assert_eq!(
+            (
+                j.arrival,
+                j.boardings,
+                j.walking_seconds,
+                j.ride_seconds,
+                j.waiting_seconds
+            ),
+            (100., 2, 8., 20., 72.)
+        );
+        let once = serde_json::to_value(&j).unwrap();
+        alight_before_return(&kernel, &links, &mut j);
+        assert_eq!(serde_json::to_value(j).unwrap(), once);
+    }
+
+    #[test]
+    fn return_shortcut_requires_drop_off_and_a_permitted_onward_walk() {
+        for (walks, alight) in [
+            (vec![(1, 4, 10)], [1; 4]),                  // no onward transfer path
+            (vec![(1, 4, 10), (1, 5, 8)], [0, 1, 1, 1]), // cannot get off
+            (vec![(1, 5, 8)], [1; 4]),                   // onward progress, not a return
+            (vec![(1, 4, 10), (1, 5, 50)], [1; 4]),      // walking costs more than the loop
+        ] {
+            let (kernel, links) = block_with([0, 1, 2, 3, 4], &walks, alight);
+            let mut j = connecting_journey();
+            let original = serde_json::to_value(&j).unwrap();
+            alight_before_return(&kernel, &links, &mut j);
+            assert_eq!(serde_json::to_value(j).unwrap(), original);
+        }
+    }
+
+    #[test]
+    fn return_shortcut_respects_connection_buffer() {
+        let (mut kernel, links) = block([0, 1, 2, 3, 4], &[(1, 4, 10), (1, 5, 8)]);
+        kernel.set_minimum_transfer_buffer_seconds(63);
+        let mut j = connecting_journey();
+        alight_before_return(&kernel, &links, &mut j);
+        assert_eq!(j.legs[1].to_stop, Some(4));
+        kernel.set_minimum_transfer_buffer_seconds(62);
+        alight_before_return(&kernel, &links, &mut j);
+        assert_eq!(j.legs[1].to_stop, Some(1));
     }
 }

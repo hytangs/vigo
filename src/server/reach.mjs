@@ -597,6 +597,7 @@ function scenarioRequestRecord(request) {
       id: request.scenario.id,
       name: request.scenario.name,
       serviceCount: request.scenario.services.length,
+      flexZoneCount: request.scenario.flexZones.length,
       excludedRouteCount: request.scenario.excludedRouteIds.length,
       excludedTripCount: request.scenario.excludedTripIds.length,
       excludedPatternCount: request.scenario.excludedPatternIds.length,
