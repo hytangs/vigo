@@ -5,7 +5,7 @@ import App from '../../src/App'
 import { emptyCityProject } from '../../src/app/projectState'
 import { city } from '../../src/state/city'
 import { shell, setQuery } from '../../src/state/shell'
-import { route, routingNetwork, routeScenario, clearRouting, selectRoutingPlan, routingPlan, wheelchairSelectionKey, wheelchairAvailable } from '../../src/state/route'
+import { route, routingNetwork, routeScenario, clearRouting, selectRoutingPlan, routingPlan, wheelchairSelectionKey, wheelchairAvailable, setRoutingWheelchair } from '../../src/state/route'
 import { analyze, analysisPointFromMap, changeReachMaxWalkKm } from '../../src/state/analyze'
 import { scenarioLibrary } from '../../src/state/scenarios'
 import { openProject, openPathfinderView, openAnalyzeView, applyCitySelection } from '../../src/state/navigation'
@@ -21,6 +21,7 @@ const projects = [makeCity('one'), makeCity('two')]
 const config = { configured: true, setupRequired: false, storageRoot: '/fixture', appearance: 'light', accent: 'graphite', basemap: 'none', offline: { localServer: true, storageWritable: true } }
 const saved = new Map()
 const placeRequests = []
+const residencyRequests = []
 let liveMap, cameraFits = 0
 const originalAddLayer = MapLibreMap.prototype.addLayer
 MapLibreMap.prototype.addLayer = function(...args) { liveMap = this; return originalAddLayer.apply(this, args) }
@@ -49,7 +50,11 @@ window.fetch = async (input, options = {}) => {
       }
       return Response.json(saved.get(id) ?? entry)
     }
-    if (endpoint === 'routing-residency') return Response.json({ residency: {} })
+    if (endpoint === 'wheelchair-availability') return Response.json({ available: true })
+    if (endpoint === 'routing-residency') {
+      residencyRequests.push(JSON.parse(options.body))
+      return Response.json({ residency: {} })
+    }
     if (endpoint === 'national-ready') return Response.json({routing:{ready:true}})
     if (endpoint === 'national-route') {
       sharedRequest = JSON.parse(options.body)
@@ -75,6 +80,14 @@ window.checkStores = async () => {
   await until(() => scenarioLibrary().saveState === 'saved', 'Scenarios did not load')
   const canvas = document.querySelector('.maplibregl-canvas')
   await pause(700)
+  await until(() => residencyRequests.some(request => request.wheelchair && request.resident), 'Wheelchair City was not prepared before selection')
+  const wheelchairLeases = () => residencyRequests.filter(request => request.wheelchair && request.resident).length
+  const initialWheelchairLeases = wheelchairLeases()
+  for (const enabled of [true, false, true, false]) {
+    flushSync(() => setRoutingWheelchair(enabled))
+    await pause(25)
+  }
+  check(wheelchairLeases() === initialWheelchairLeases, 'Toggling wheelchair reopened its resident City')
   const counts = () => ({ ...window.__vigoRenderCounts })
   const before = counts()
   const start = performance.now()
@@ -171,8 +184,10 @@ window.checkStores = async () => {
   check(wheelchairSelectionKey() !== capabilityKey && !wheelchairAvailable(), 'Edited scenario retained old wheelchair capability')
 
 
+  const lastWheelchairLease = residencyRequests.filter(request => request.wheelchair && request.resident).at(-1)
   flushSync(openAnalyzeView)
   await until(() => document.querySelector('.reach-surface'), 'Analyze did not open')
+  await until(() => residencyRequests.some(request => request.leaseId === lastWheelchairLease.leaseId && !request.resident), 'Leaving Pathfinder retained the wheelchair lease')
   check(document.querySelector('.maplibregl-canvas') === canvas, 'Workspace change remounted the map')
   await pause(100)
   const analyzeBefore = counts()

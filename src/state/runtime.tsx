@@ -546,6 +546,30 @@ function RouteRuntime() {
     }
   }, [cityRoutingActive, feedId, project.id, serviceDate, routingServiceDay, activeRouteTool, settings.routingMode, settings.routingDataMode])
 
+  // Prepare the available wheelchair City while the person chooses a journey.
+  // Keep both profiles resident so toggling back and forth does not reopen them.
+  useEffect(() => {
+    if (!cityRoutingActive || activeRouteTool !== 'pathfinder' || !feedId || !wheelchairReady) return
+    const leaseId = `desktop-wheelchair-${crypto.randomUUID()}`
+    const endpoint = `/api/projects/${encodeURIComponent(project.id)}/routing-residency`
+    const request = (resident: boolean, keepalive = false) => fetch(endpoint, {
+      method: 'POST', keepalive,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...(scenario.request ? { feedIds: scenario.request.feedIds } : { feedId }),
+        wheelchair: true, resident, leaseId, mode: 'transit', routingDataMode: 'scheduled',
+        serviceDate, serviceDay: routingServiceDay,
+        allowStreetTransfers: settings.routingAllowStreetTransfers,
+        minimumTransferBufferMinutes: settings.routingMinimumTransferBufferMinutes,
+        timePreference: settings.routingTimePreference,
+      }),
+    }).catch(() => null)
+    const acquisition = request(true)
+    return () => { void acquisition.then(() => request(false, true)) }
+  }, [cityRoutingActive, activeRouteTool, feedId, project.id, wheelchairKey, wheelchairReady,
+    serviceDate, routingServiceDay, settings.routingAllowStreetTransfers,
+    settings.routingMinimumTransferBufferMinutes, settings.routingTimePreference])
+
   // Analyze opens on a midweek date inside the store's complete coverage.
   const coverage = settings.routingResidencyCoverage
   useEffect(() => {

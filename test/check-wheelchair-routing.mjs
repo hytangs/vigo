@@ -202,6 +202,16 @@ try {
     }
     const request = { ...base, wheelchair: true, mode: 'transit', feedId: '__project__', routingDataMode: 'scheduled',
       timePreference: 'depart', departMinutes: 475, arriveMinutes: 510, departureWindowMinutes: 0, serviceDay: 'weekday' }
+    const lease = await api.requestJson('/api/projects/fixture/routing-residency', {
+      method: 'POST', body: { ...request, resident: true, leaseId: 'wheelchair-switch' },
+    })
+    assert.equal(lease.status, 200, JSON.stringify(lease.body))
+    assert.equal(lease.body.residency.reachPreparation.ready, true)
+    const resident = (await api.requestJson('/api/health')).body.nativeRuntime.residentCities
+    assert(resident.some(city => city.root === path.join(studio, 'wheelchair') && city.resident),
+      'Wheelchair preparation must lease the wheelchair City, not the ordinary layout')
+    assert(!resident.some(city => city.root === studio && city.resident),
+      'A wheelchair lease must not pin an unrelated ordinary City')
     for (const action of ['national-ready', 'national-route']) {
       const response = await api.requestJson(`/api/projects/fixture/${action}`, { method: 'POST', body: request })
       assert.equal(response.status, 200, JSON.stringify(response.body))
@@ -210,6 +220,14 @@ try {
         assert(response.body.choices.every(plan => plan.diagnostics.accessibility.profile === 'wheelchair-strict-v1'))
       }
     }
+    const release = await api.requestJson('/api/projects/fixture/routing-residency', {
+      method: 'POST', body: { ...request, resident: false, leaseId: 'wheelchair-switch' },
+    })
+    assert.equal(release.status, 200)
+    assert.equal(release.body.residency.resident, false)
+    const released = (await api.requestJson('/api/health')).body.nativeRuntime.residentCities
+    assert(released.some(city => city.root === path.join(studio, 'wheelchair') && !city.resident),
+      'Leaving Pathfinder must release the wheelchair lease')
     const buffered = await api.requestJson('/api/projects/fixture/national-route', { method: 'POST', body: { ...request, minimumTransferBufferMinutes: 11 } })
     assert.equal(buffered.status, 200, JSON.stringify(buffered.body))
     assert(buffered.body.choices.length > 0, 'Keep the blocked-route explanation')
@@ -232,12 +250,22 @@ try {
     const alternative = await api.requestJson('/api/projects/fixture/national-route', { method: 'POST', body: { ...request, wheelchair: false, feedId: undefined, feedIds: ['alternative'], scenario: null } })
     assert.equal(alternative.status, 200, JSON.stringify(alternative.body))
     assert(alternative.body.choices.some(plan => plan.status === 'ready' && plan.arriveMinutes === 485), JSON.stringify(alternative.body))
+    const releaseContext = { ...request, resident: true, leaseId: 'invalidated-profile' }
+    assert.equal((await api.requestJson('/api/projects/fixture/routing-residency', {
+      method: 'POST', body: releaseContext,
+    })).status, 200)
     const profileFile = path.join(studio, 'wheelchair', 'network.json')
     fs.renameSync(profileFile, `${profileFile}.saved`)
     try {
       const missing = await api.requestJson('/api/projects/fixture/national-route', { method: 'POST', body: request })
       assert.equal(missing.status, 409)
       assert.match(missing.body.error, /No ordinary route was substituted/)
+      const release = await api.requestJson('/api/projects/fixture/routing-residency', {
+        method: 'POST', body: { ...releaseContext, resident: false },
+      })
+      assert.equal(release.status, 200, 'An invalidated profile must not prevent lease cleanup')
+      assert.equal(release.body.residency.resident, false)
+
     } finally { fs.renameSync(`${profileFile}.saved`, profileFile) }
   } finally { await api.stop() }
   const db = new DatabaseSync(path.join(accessible, 'routing/project.sqlite'), { readOnly: true })

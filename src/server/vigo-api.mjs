@@ -3984,18 +3984,28 @@ async function setStreetResidency(projectId, body) {
 
 async function setRoutingResidency(projectId, body) {
   const project = await readProjectMetadata(projectId)
+  // Releasing a lease must not require the old profile to remain valid: a
+  // rebuild or source change can invalidate it while preparation is in flight.
+  if (body?.resident !== true && body?.wheelchair === true) {
+    return nativeRuntime.setResidency(nativeLayout(path.join(projectMetaDir(projectId), 'wheelchair')), false, body?.leaseId)
+  }
   const feedId = String(body?.feedId ?? '')
-  const { storePath } = await requireRoutingStore(projectId, project, feedId)
+  const wheelchair = studioWheelchairSelection(projectMetaDir(projectId), project, body)
+  const { storePath } = wheelchair ?? await requireRoutingStore(projectId, project, feedId)
   if (body?.resident === true) body = resolveStoreDepartNow(storePath, body)
-  // Queries run in the native City: the lease keeps it open.
-  const layout = nativeLayout(projectMetaDir(projectId), storePath)
+  // Lease the same profile that answers the query, never the ordinary City
+  // on behalf of a wheelchair request.
+  const layout = wheelchair
+    ? nativeLayout(path.dirname(path.dirname(wheelchair.storePath)))
+    : nativeLayout(projectMetaDir(projectId), storePath)
   const residency = nativeRuntime.setResidency(layout, body?.resident === true, body?.leaseId)
   let reachPreparation = null
   if (body?.resident === true && String(body?.serviceDate ?? '').trim()) {
     const selection = await nativeRouteSelection(projectId, project, { ...body, mode: 'transit' }).catch(() => null)
     if (selection) {
       try {
-        reachPreparation = await prepareNativeCity(selection, { ...nationalRequestServiceContext(body), ...transferSettings(body) })
+        reachPreparation = await prepareNativeCity(selection, { ...nationalRequestServiceContext(body), ...transferSettings(body),
+          ...(body?.timePreference === 'arrive' ? { timePreference: 'arrive' } : {}) })
       } catch (error) {
         reachPreparation = {
           ready: false,
