@@ -48,6 +48,16 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      # The macOS 15 runner image has no Rust. rust-toolchain.toml pins the version.
+      - name: Install Rust on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          if [ ! -x "$HOME/.cargo/bin/cargo" ]; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          fi
+          "$HOME/.cargo/bin/rustup" toolchain install
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: rust-cache
         with:

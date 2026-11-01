@@ -98,6 +98,17 @@ jobs:
       - run: python -m pip install ".[progress,speed]" pytest
       - run: npm ci --ignore-scripts
         working-directory: .
+      # The macOS 15 runner image has no Rust. rust-toolchain.toml pins the version.
+      - name: Install Rust on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        working-directory: .
+        run: |
+          if [ ! -x "$HOME/.cargo/bin/cargo" ]; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          fi
+          "$HOME/.cargo/bin/rustup" toolchain install
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - run: npm run build:rust-routing-kernel
         working-directory: .
       - run: npm run build:standalone
