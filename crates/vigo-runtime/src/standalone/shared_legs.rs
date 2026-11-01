@@ -8,8 +8,30 @@ use crate::{
     shared_legs::{proven_path, shared_leg_paths_match},
 };
 use serde_json::{Value, json};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use vigo_route::timetable::{SharedRideQuery, shared_departure_frequency};
+
+/// A collected choice's index among journeys whose shared services wait
+/// until its window or sample has selected its choices.
+pub(super) const DEFERRED_SHARED_LEGS: &str = "\u{0}deferredSharedLegs";
+
+/// One search's endpoints and access, kept for its deferred choices.
+pub(super) struct SharedLegsContext {
+    pub origin: Point,
+    pub destination: Point,
+    pub access: [Candidates; 2],
+    /// The journeys' trip indices belong to this active timetable.
+    pub timetable: Option<(String, Option<u32>)>,
+}
+
+/// A journey whose shared services wait, with the options of the clock it
+/// was searched at.
+pub(super) struct DeferredSharedLegs {
+    pub journey: TimetableMatrixJourney,
+    pub opt: Options,
+    pub context: Rc<SharedLegsContext>,
+}
 
 /// The physical trip and its own stop sequence for a call of a timetable
 /// trip. Linked trips ride only as parts of their through run.
@@ -133,6 +155,52 @@ fn coordinates(leg: &Value) -> Vec<f64> {
 }
 
 impl City {
+    pub(super) fn timetable_identity(&self) -> Option<(String, Option<u32>)> {
+        self.timetable
+            .as_ref()
+            .map(|t| (t.key.clone(), t.coverage_end))
+    }
+
+    /// Search the shared services of each value still marked as deferred.
+    /// A journey marked in several values is searched once.
+    pub(super) fn resolve_shared_legs<'a>(
+        &mut self,
+        values: impl IntoIterator<Item = &'a mut Value>,
+        deferred: &[DeferredSharedLegs],
+    ) -> Result<()> {
+        let mut found: HashMap<usize, Value> = HashMap::new();
+        for value in values {
+            let Some(index) = value
+                .as_object_mut()
+                .and_then(|fields| fields.remove(DEFERRED_SHARED_LEGS))
+                .and_then(|index| index.as_u64())
+                .map(|index| index as usize)
+            else {
+                continue;
+            };
+            if let Some(saved) = found.get(&index) {
+                value["sharedLegAlternatives"] = saved.clone();
+                continue;
+            }
+            let DeferredSharedLegs {
+                journey,
+                opt,
+                context,
+            } = &deferred[index];
+            debug_assert!(self.timetable_identity() == context.timetable);
+            let shared = self.shared_leg_alternatives(
+                value,
+                journey,
+                [&context.origin, &context.destination],
+                opt,
+                [&context.access[0], &context.access[1]],
+            )?;
+            value["sharedLegAlternatives"] = shared.clone();
+            found.insert(index, shared);
+        }
+        Ok(())
+    }
+
     pub(crate) fn shared_leg_alternatives(
         &mut self,
         primary: &Value,

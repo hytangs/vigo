@@ -1,5 +1,5 @@
 import { wheelchairSelectionKey } from './route'
-import { startTransition, useEffect, useLayoutEffect, useRef } from 'react'
+import { startTransition, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { apiJson } from '../app/api'
 import { subscribeDesktopCommands, syncDesktopChromeState } from '../app/desktopBridge'
 import { mergeGtfsRouteAnalysis, routeHasCompleteGtfsAnalysis } from '../app/gtfsAnalysis'
@@ -546,10 +546,17 @@ function RouteRuntime() {
     }
   }, [cityRoutingActive, feedId, project.id, serviceDate, routingServiceDay, activeRouteTool, settings.routingMode, settings.routingDataMode])
 
-  // Prepare the available wheelchair City while the person chooses a journey.
-  // Keep both profiles resident so toggling back and forth does not reopen them.
+  // Open the wheelchair City once the person selects it, then keep both
+  // profiles resident so toggling back and forth does not reopen them. An
+  // unselected profile stays closed: preparing it would double every date's
+  // activation and hold a second City in memory.
+  const [wheelchairRetainedKey, setWheelchairRetainedKey] = useState('')
   useEffect(() => {
-    if (!cityRoutingActive || activeRouteTool !== 'pathfinder' || !feedId || !wheelchairReady) return
+    if (settings.routingWheelchair && wheelchairReady) setWheelchairRetainedKey(wheelchairKey)
+  }, [settings.routingWheelchair, wheelchairReady, wheelchairKey])
+  const wheelchairRetained = wheelchairReady && wheelchairRetainedKey === wheelchairKey
+  useEffect(() => {
+    if (!cityRoutingActive || activeRouteTool !== 'pathfinder' || !feedId || !wheelchairRetained) return
     const leaseId = `desktop-wheelchair-${crypto.randomUUID()}`
     const endpoint = `/api/projects/${encodeURIComponent(project.id)}/routing-residency`
     const request = (resident: boolean, keepalive = false) => fetch(endpoint, {
@@ -566,7 +573,7 @@ function RouteRuntime() {
     }).catch(() => null)
     const acquisition = request(true)
     return () => { void acquisition.then(() => request(false, true)) }
-  }, [cityRoutingActive, activeRouteTool, feedId, project.id, wheelchairKey, wheelchairReady,
+  }, [cityRoutingActive, activeRouteTool, feedId, project.id, wheelchairKey, wheelchairRetained,
     serviceDate, routingServiceDay, settings.routingAllowStreetTransfers,
     settings.routingMinimumTransferBufferMinutes, settings.routingTimePreference])
 

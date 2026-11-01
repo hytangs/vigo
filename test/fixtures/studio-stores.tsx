@@ -80,14 +80,16 @@ window.checkStores = async () => {
   await until(() => scenarioLibrary().saveState === 'saved', 'Scenarios did not load')
   const canvas = document.querySelector('.maplibregl-canvas')
   await pause(700)
-  await until(() => residencyRequests.some(request => request.wheelchair && request.resident), 'Wheelchair City was not prepared before selection')
+  await until(() => wheelchairAvailable(), 'Fixture wheelchair capability did not load')
   const wheelchairLeases = () => residencyRequests.filter(request => request.wheelchair && request.resident).length
-  const initialWheelchairLeases = wheelchairLeases()
+  check(wheelchairLeases() === 0, 'Wheelchair City was prepared before selection')
   for (const enabled of [true, false, true, false]) {
     flushSync(() => setRoutingWheelchair(enabled))
     await pause(25)
   }
-  check(wheelchairLeases() === initialWheelchairLeases, 'Toggling wheelchair reopened its resident City')
+  await until(() => wheelchairLeases() > 0, 'Selecting wheelchair did not prepare its City')
+  await pause(50)
+  check(wheelchairLeases() === 1, 'Toggling wheelchair reopened its resident City')
   const counts = () => ({ ...window.__vigoRenderCounts })
   const before = counts()
   const start = performance.now()

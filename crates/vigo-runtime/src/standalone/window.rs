@@ -31,12 +31,14 @@
 //! searching transit alone when walking wins every choice.
 use super::point::{self, WINDOW_ARRIVAL_SLACK_SECONDS};
 use super::query::{Candidates, Options, Point};
+use super::shared_legs::{DEFERRED_SHARED_LEGS, DeferredSharedLegs, SharedLegsContext};
 use super::{City, Result, fail, flag, materialize::MatrixMaterializationCache, number};
 use crate::route_alternatives::RouteAlternativeRequest;
 use crate::{TimetableMatrixJourney, TimetableMatrixLeg};
 use serde_json::{Value, json};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// Options this module owns; a fixed-departure search never sees them.
@@ -956,7 +958,9 @@ impl City {
         Ok(value)
     }
 
-    /// Replace each transit choice whose last ride `walk_the_rest` beats.
+    /// Replace each transit choice whose last ride `walk_the_rest` beats. The
+    /// replacements park in the window's `parking` cache with its other choices.
+    #[allow(clippy::too_many_arguments)]
     fn walk_the_rest_choices(
         &mut self,
         ends: &Endpoints,
@@ -965,6 +969,7 @@ impl City {
         km: f64,
         plans: &mut [Plan],
         tradeoffs: &mut [Plan],
+        parking: &mut MatrixMaterializationCache,
     ) -> Result<()> {
         let wide = Options {
             walk_m: km * 1000.,
@@ -1006,7 +1011,10 @@ impl City {
                     Some(shorter) => self
                         .window_journey(&wide_ends, &shorter, &at, &mut cache, true)
                         .ok()
-                        .map(|value| (shorter, value)),
+                        .map(|mut value| {
+                            parking.park(&mut value);
+                            (shorter, value)
+                        }),
                     None => None,
                 };
                 found.insert(key.clone(), shorter);
@@ -1085,8 +1093,24 @@ impl City {
         object.insert("maxWalkKm".into(), json!(km));
         object.insert("requireTransitRide".into(), json!(true));
         object.insert("allowLongWalk".into(), json!(false));
+        // Few wider choices survive the merge below: search shared services
+        // only for those. A scheduled request keeps one timetable throughout,
+        // as the preferred search needs no longer coverage than the wider one.
+        let defer = flag(q, "sharedLegs", false)?
+            && q.get("realtimeSnapshot").is_none()
+            && self.query_live.is_none()
+            && self.window_shared_legs.is_none();
+        if defer {
+            self.window_shared_legs = Some(vec![]);
+        }
+        let searched = self.journeys_once(&wider, false);
+        let deferred = if defer {
+            self.window_shared_legs.take()
+        } else {
+            None
+        };
         // A failed wider search leaves the ordinary choices unchanged.
-        let Ok(wider) = self.journeys_once(&wider, false) else {
+        let Ok(wider) = searched else {
             return self.journeys_once(q, evidence);
         };
         // Search the preferred walking limit only as far as a choice could
@@ -1213,6 +1237,9 @@ impl City {
             .map(|i| combined[i].clone())
             .collect();
         choices.sort_by(compare_arrival);
+        if let Some(deferred) = &deferred {
+            self.resolve_shared_legs(choices.iter_mut(), deferred)?;
+        }
         let selected = choices
             .iter()
             .position(|plan| !plan["expandedWalkingLimitKm"].is_number())
@@ -1319,7 +1346,9 @@ impl City {
             b,
         };
         let ride_required = flag(q, "requireTransitRide", false)?;
-        let mut cache = MatrixMaterializationCache::default();
+        // Candidates are retimed, ranked and mostly discarded; only the
+        // returned choices need their lines, calls and endpoint details.
+        let mut cache = MatrixMaterializationCache::parking();
         // The direct walk does not depend on the clock: search it once.
         let mut walk: Option<Option<Value>> = None;
         let mut plans: Vec<Plan> = vec![];
@@ -1356,8 +1385,9 @@ impl City {
                     || (ends.origin.stop.is_none() && ends.destination.stop.is_none()));
             let walk_plan = if considers_walk {
                 if walk.is_none() {
-                    let found =
+                    let mut found =
                         self.street_route(q, &ends.origin, &ends.destination, &opt, "walk")?;
+                    cache.park(&mut found);
                     walk = Some((found["status"] == "ready").then_some(found));
                 }
                 walk.clone().flatten()
@@ -1464,7 +1494,9 @@ impl City {
             let limit_m = (preferred_km * 1000.)
                 .min(horizon / 3600. * opt.walk_speed.unwrap_or(self.speed) * 1000.);
             if walk.is_none() {
-                let found = self.street_route(q, &ends.origin, &ends.destination, &opt, "walk")?;
+                let mut found =
+                    self.street_route(q, &ends.origin, &ends.destination, &opt, "walk")?;
+                cache.park(&mut found);
                 walk = Some((found["status"] == "ready").then_some(found));
             }
             if let Some(w) = walk.clone().flatten()
@@ -1493,7 +1525,15 @@ impl City {
             .transpose()?
             .filter(|_| self.metadata["accessibility"]["profile"] != "wheelchair-strict-v1")
         {
-            self.walk_the_rest_choices(&ends, &opt, horizon, km, &mut plans, &mut tradeoffs)?;
+            self.walk_the_rest_choices(
+                &ends,
+                &opt,
+                horizon,
+                km,
+                &mut plans,
+                &mut tradeoffs,
+                &mut cache,
+            )?;
         }
         // A sample's own journey that still detours through a turnaround is
         // left out while the window offers any other transit journey.
@@ -1563,10 +1603,14 @@ impl City {
             "startMinutes":center,"endMinutes":end,"windowQueryMs":started.elapsed().as_secs_f64() * 1000.,
             "earliestTransit":earliest});
         let mut values = vec![];
+        // A caller that keeps only some choices searches their shared services.
+        let base = self.window_shared_legs.as_ref().map(Vec::len);
+        let mut deferred = vec![];
         for mut plan in choices {
+            cache.unpark(&mut plan.value);
             if shared_legs
                 && plan.value["mode"] == "transit"
-                && let Some((journey, t)) = &plan.source
+                && let Some((journey, t)) = plan.source.take()
             {
                 let at = Options {
                     time: t * 60.,
@@ -1574,13 +1618,18 @@ impl City {
                     end: t * 60. + horizon,
                     ..opt
                 };
-                plan.value["sharedLegAlternatives"] = self.shared_leg_alternatives(
-                    &plan.value,
-                    journey,
-                    [&ends.origin, &ends.destination],
-                    &at,
-                    [&ends.a, &ends.b],
-                )?;
+                if let Some(base) = base {
+                    plan.value[DEFERRED_SHARED_LEGS] = json!(base + deferred.len());
+                    deferred.push((journey, at));
+                } else {
+                    plan.value["sharedLegAlternatives"] = self.shared_leg_alternatives(
+                        &plan.value,
+                        &journey,
+                        [&ends.origin, &ends.destination],
+                        &at,
+                        [&ends.a, &ends.b],
+                    )?;
+                }
             }
             values.push(plan.value);
         }
@@ -1627,6 +1676,31 @@ impl City {
         } else {
             "scheduled"
         });
+        if !deferred.is_empty() {
+            let timetable = self.timetable_identity();
+            let Endpoints {
+                origin,
+                destination,
+                a,
+                b,
+            } = ends;
+            let context = Rc::new(SharedLegsContext {
+                origin,
+                destination,
+                access: [a, b],
+                timetable,
+            });
+            let buffer = self.window_shared_legs.as_mut().unwrap();
+            buffer.extend(
+                deferred
+                    .into_iter()
+                    .map(|(journey, opt)| DeferredSharedLegs {
+                        journey,
+                        opt,
+                        context: context.clone(),
+                    }),
+            );
+        }
         Ok(output)
     }
 }

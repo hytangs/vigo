@@ -2899,6 +2899,7 @@ pub struct AccessMemberPathInput {
 #[cfg_attr(feature = "node", napi(object))]
 #[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
+#[derive(Clone)]
 pub struct StreetPathResult {
     pub found: bool,
     pub distance_m: f64,
@@ -3157,9 +3158,47 @@ pub struct CoordinateKernel {
     destination_cache: HashMap<EndpointCacheKey, Arc<FrontierSearch>>,
     destination_cache_order: VecDeque<EndpointCacheKey>,
     destination_cache_bytes: usize,
+    /// Recent `route_path` answers by exact input, newest first.
+    path_memo: VecDeque<([u64; 6], StreetPathResult)>,
 }
 
+/// A departure window asks for the same walk at every sampled minute.
+#[cfg(feature = "standalone")]
+const PATH_MEMO_ENTRIES: usize = 16;
+
 impl CoordinateKernel {
+    /// `route_path`, answering a repeated input from the last few searches.
+    /// A path depends only on the street graph, terminal access and access
+    /// profile; replacing any of them clears the memo. Without `reuse` the
+    /// path is searched and not retained.
+    #[cfg(feature = "standalone")]
+    pub(crate) fn route_path_reusing(
+        &mut self,
+        input: StreetPathInput,
+        reuse: bool,
+    ) -> napi::Result<StreetPathResult> {
+        let key = [
+            input.origin_lon.to_bits(),
+            input.origin_lat.to_bits(),
+            input.destination_lon.to_bits(),
+            input.destination_lat.to_bits(),
+            input.maximum_distance_m.to_bits(),
+            u64::from(input.maximum_points),
+        ];
+        let started = Instant::now();
+        if reuse && let Some((_, saved)) = self.path_memo.iter().find(|(k, _)| *k == key) {
+            let mut path = saved.clone();
+            path.query_ns = started.elapsed().as_nanos() as f64;
+            return Ok(path);
+        }
+        let path = self.route_path(input)?;
+        if reuse {
+            self.path_memo.push_front((key, path.clone()));
+            self.path_memo.truncate(PATH_MEMO_ENTRIES);
+        }
+        Ok(path)
+    }
+
     fn stop_transfer_path(
         &mut self,
         origin: [f64; 2],
@@ -3591,6 +3630,7 @@ impl CoordinateKernel {
             targets,
             public_components: HashSet::new(),
         });
+        self.path_memo.clear();
         self.profile
             .as_mut()
             .expect("installed profile")
@@ -3757,6 +3797,7 @@ impl CoordinateKernel {
         let mut profile = profile;
         profile.index_public_components(&self.snapshot)?;
         self.profile = Some(profile);
+        self.path_memo.clear();
         self.last_origin_frontier = None;
         self.last_destination_frontier = None;
         self.origin_cache.clear();
@@ -4677,6 +4718,7 @@ impl CoordinateKernel {
         self.destination_cache_bytes = 0;
         self.last_origin_frontier = None;
         self.last_destination_frontier = None;
+        self.path_memo.clear();
         self.query_token = self.query_token.wrapping_add(1).max(1);
     }
 

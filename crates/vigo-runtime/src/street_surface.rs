@@ -1,5 +1,11 @@
 //! Time and distance constrained street intervals, including partial edges.
 use super::*;
+use std::ops::Range;
+
+/// Large surfaces rasterize disjoint segment ranges on up to this many threads.
+const RASTER_PARTS: usize = 4;
+/// Fewer segments per part than this rasterize faster on one grid.
+const RASTER_PART_SEGMENTS: usize = 4096;
 #[path = "street_surface_reuse.rs"]
 mod reuse;
 pub(crate) use reuse::SurfaceReuseCache;
@@ -754,34 +760,72 @@ fn compute_graph<const ENDPOINTS: bool>(
                 .then(|| vec![f64::INFINITY; width * height]),
         )
     });
-    let mut raster_fractions = Vec::with_capacity(8);
-    for &segment in segments.iter() {
-        if reused_raster
-            && restored
-                .as_ref()
-                .is_some_and(|(skip, _)| skip[segment.seed as usize])
-        {
-            continue;
-        }
-        raster_segment(
-            &mut values,
-            &input.bounds,
-            [width, height],
-            &graph,
-            &input,
-            segment,
-            &mut raster_fractions,
-        );
-        if let Some(full) = full_values.as_mut() {
+    let rasterize = |values: &mut [f64], mut full: Option<&mut [f64]>, range: Range<usize>| {
+        let mut fractions = Vec::with_capacity(8);
+        for index in range {
+            let segment = segments[index];
+            if reused_raster
+                && restored
+                    .as_ref()
+                    .is_some_and(|(skip, _)| skip[segment.seed as usize])
+            {
+                continue;
+            }
             raster_segment(
-                full,
-                &full_bounds,
+                values,
+                &input.bounds,
                 [width, height],
                 &graph,
                 &input,
                 segment,
-                &mut raster_fractions,
+                &mut fractions,
             );
+            if let Some(full) = full.as_deref_mut() {
+                raster_segment(
+                    full,
+                    &full_bounds,
+                    [width, height],
+                    &graph,
+                    &input,
+                    segment,
+                    &mut fractions,
+                );
+            }
+        }
+    };
+    // A cell keeps its minimum duration over all segments, so grids for
+    // disjoint segment ranges combine into exactly the sequential raster.
+    let count = segments.len();
+    let parts = rayon::current_num_threads()
+        .min(RASTER_PARTS)
+        .min(count / RASTER_PART_SEGMENTS + 1);
+    if parts <= 1 {
+        rasterize(&mut values, full_values.as_deref_mut(), 0..count);
+    } else {
+        let grids: Vec<(Vec<f64>, Option<Vec<f64>>)> = (0..parts)
+            .into_par_iter()
+            .map(|part| {
+                let mut grid = vec![f64::INFINITY; width * height];
+                let mut full = full_values
+                    .as_ref()
+                    .map(|_| vec![f64::INFINITY; width * height]);
+                rasterize(
+                    &mut grid,
+                    full.as_deref_mut(),
+                    part * count / parts..(part + 1) * count / parts,
+                );
+                (grid, full)
+            })
+            .collect();
+        for (grid, full) in grids {
+            for (value, part) in values.iter_mut().zip(grid) {
+                *value = value.min(part);
+            }
+            if let (Some(values), Some(full)) = (full_values.as_mut(), full) {
+                for (value, part) in values.iter_mut().zip(full) {
+                    *value = value.min(part);
+                }
+            }
         }
     }
     let mut node_evidence = HashMap::<u32, (f64, f64)>::new();

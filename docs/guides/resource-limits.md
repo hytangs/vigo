@@ -12,11 +12,11 @@ At startup, native cache defaults use the smallest reported Linux physical-memor
 | --- | ---: | ---: |
 | Endpoint cache, per role | 64 MiB | 1/64 |
 | Shape geometry cache | 64 MiB | 1/64 |
-| Inactive timetables | 128 MiB | 1/32 |
+| Inactive timetables | 128 MiB, growing to twice a retired view | 1/32, growth up to 1/16 |
 | HTTP pending request bytes | 64 MiB | 1/32 |
 | HTTP retained response bytes | 128 MiB | 1/16 |
 
-HTTP budgets preserve room for one maximum-sized request and one worker response line. Caches are optional retained work: reducing them does not truncate journeys or change routing results. Collections partition the applicable caches across resident scenarios. The active City and query scratch are outside these cache budgets; a small cache does not prove a large network will fit.
+Without `VIGO_TIMETABLE_CACHE_BYTES`, a standalone City's inactive-timetable budget grows to twice the size of a prepared view it retires, so one other service day or clock stays prepared. Growth stops at 1/16 of the detected capacity; with unknown capacity it is limited by the City's own views. Collections keep their fixed budget. HTTP budgets preserve room for one maximum-sized request and one worker response line. Caches are optional retained work: reducing them does not truncate journeys or change routing results. Collections partition the applicable caches across resident scenarios. The active City and query scratch are outside these cache budgets; a small cache does not prove a large network will fit.
 
 `vigo info` and `/v1/info` report `resourcePolicy.memoryCapacityBytes` and `swapCountsAsRam`. Capacity is a startup sizing input, not current free memory or a hard process RSS guarantee. Linux controllers at nonstandard mount locations require explicit operator limits. Restart after changing controller limits.
 

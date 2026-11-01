@@ -5,7 +5,23 @@ use std::{
     env, fs,
     io::{self, BufRead, IsTerminal, Read, Write},
     path::Path,
+    sync::mpsc,
+    time::Duration,
 };
+
+/// How long a stream waits for its next request before it frees its street
+/// search scratch; `VIGO_IDLE_RELEASE_MS=0` keeps it.
+fn idle_release_after() -> Result<Option<Duration>> {
+    let milliseconds = match env::var("VIGO_IDLE_RELEASE_MS") {
+        Ok(value) => value
+            .trim()
+            .parse::<u64>()
+            .map_err(|_| "VIGO_IDLE_RELEASE_MS must be a nonnegative integer")?,
+        Err(env::VarError::NotPresent) => 30_000,
+        Err(error) => return Err(error.into()),
+    };
+    Ok((milliseconds > 0).then(|| Duration::from_millis(milliseconds)))
+}
 
 const HELP: &str = "VIGO — standalone Rust routing and isochrones
 
@@ -241,12 +257,9 @@ fn run() -> Result<()> {
         if !["public", "detailed"].contains(&stream_output) {
             return fail("stream-output must be public or detailed");
         }
-        let stdin = io::stdin();
-        let mut reader = stdin.lock();
         // Bound serialization scratch even for huge matrices. Larger chunks
         // reduce pipe writes without retaining a second complete response.
         let mut stdout = io::BufWriter::with_capacity(64 * 1024, io::stdout().lock());
-        let mut bytes = Vec::new();
         // Like the Node stream, number each nonblank request line from one.
         let mut sequence = 0_u64;
         // The server's own worker also receives live snapshots on this pipe.
@@ -255,16 +268,53 @@ fn run() -> Result<()> {
         } else {
             8 * 1024 * 1024
         };
+        // Read lines on their own thread, so a stream waiting for its next
+        // request can return idle memory. One line is read ahead at most.
+        let (lines, received) = mpsc::sync_channel::<io::Result<Vec<u8>>>(1);
+        std::thread::Builder::new()
+            .name("vigo-stream-input".into())
+            .spawn(move || {
+                let mut reader = io::stdin().lock();
+                loop {
+                    let mut bytes = Vec::new();
+                    match reader
+                        .by_ref()
+                        .take(line_limit as u64 + 1)
+                        .read_until(b'\n', &mut bytes)
+                    {
+                        Ok(0) => return,
+                        Ok(_) => {
+                            if lines.send(Ok(bytes)).is_err() {
+                                return;
+                            }
+                        }
+                        Err(error) => {
+                            let _ = lines.send(Err(error));
+                            return;
+                        }
+                    }
+                }
+            })?;
+        let idle = idle_release_after()?;
+        let mut idle_released = false;
         loop {
-            bytes.clear();
-            let read = reader
-                .by_ref()
-                .take(line_limit as u64 + 1)
-                .read_until(b'\n', &mut bytes)?;
-            if read == 0 {
+            let next = match idle.filter(|_| !idle_released) {
+                Some(after) => match received.recv_timeout(after) {
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        city.release_idle_memory();
+                        idle_released = true;
+                        continue;
+                    }
+                    line => line.ok(),
+                },
+                None => received.recv().ok(),
+            };
+            let Some(bytes) = next else {
                 break;
-            }
-            if read > line_limit {
+            };
+            let bytes = bytes?;
+            idle_released = false;
+            if bytes.len() > line_limit {
                 return fail(format!("NDJSON line exceeds {} MiB", line_limit >> 20));
             }
             if bytes.iter().all(u8::is_ascii_whitespace) {
@@ -320,6 +370,8 @@ fn run() -> Result<()> {
             writeln!(stdout)?;
             stdout.flush()?;
         }
+        // The process exits next and returns the City's memory at once.
+        std::mem::forget(city);
         return Ok(());
     }
     let mut request = if let Some(file) = options.get("request") {
@@ -333,7 +385,11 @@ fn run() -> Result<()> {
     };
     apply_flags(&mut request, &options)?;
     let result = city.execute_public(&command, &request)?;
-    output(&result, &options)
+    output(&result, &options)?;
+    // Freeing every City allocation one by one only delays the exit that
+    // follows; the operating system reclaims the process at once.
+    std::mem::forget(city);
+    Ok(())
 }
 fn output(value: &Value, options: &HashMap<String, String>) -> Result<()> {
     let format = options.get("format").map(String::as_str).unwrap_or("auto");

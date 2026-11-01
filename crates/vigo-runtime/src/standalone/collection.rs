@@ -97,6 +97,15 @@ impl Charge {
     }
 }
 impl Runtime {
+    /// Free the street search scratch an idle City holds and, with glibc,
+    /// return the pages. A collection charges each resident's measured heap,
+    /// so its Cities keep theirs.
+    pub(crate) fn release_idle_memory(&mut self) {
+        if let Self::Single(city) = self {
+            city.street.release_street_scratch();
+            super::release_preparation_memory();
+        }
+    }
     pub(crate) fn install_realtime(&mut self, message: &mut Value) -> Result<()> {
         let Self::Single(city) = self else {
             return fail("GTFS-RT polling requires a single City");
@@ -439,7 +448,9 @@ impl Collection {
                 .min(self.manifest.scenarios.len());
             city.street.partition_cache_budget(capacity);
             city.shape_cache.partition_budget(capacity);
+            // The collection divides its own budget among residents below.
             city.timetable_cache.budget = 0;
+            city.timetable_cache.growth_limit = None;
             if let Some((previous_id, previous)) = self.cities.back_mut() {
                 city.street.reuse_street_scratch(&mut previous.street);
                 self.charges.remove(previous_id.as_str());

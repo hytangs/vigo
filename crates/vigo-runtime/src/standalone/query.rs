@@ -1,6 +1,8 @@
+use super::shared_legs::{DEFERRED_SHARED_LEGS, DeferredSharedLegs, SharedLegsContext};
 use super::{City, Result, capabilities, fail, flag, number};
 use crate::*;
 use serde_json::{Value, json};
+use std::rc::Rc;
 use std::time::Instant;
 
 #[derive(Clone)]
@@ -1093,6 +1095,12 @@ impl City {
         // Reuse immutable leg evidence within this search; clocks are refreshed.
         let mut materialization = (collect || requested.is_some())
             .then(super::materialize::MatrixMaterializationCache::default);
+        // Collected choices are selected without reading shared services:
+        // each keeps its journey's index, and only selected ones are searched.
+        // An arrive-by window defers them further, to its own selection.
+        let window_deferral = collect && self.window_shared_legs.is_some();
+        let base = self.window_shared_legs.as_ref().map_or(0, Vec::len);
+        let mut deferred_shared: Vec<TimetableMatrixJourney> = vec![];
         if (collect || requested.is_some())
             && let Some(j) = journey.as_ref()
         {
@@ -1126,7 +1134,10 @@ impl City {
                 )?;
                 choice["status"] = json!("ready");
                 choice["mode"] = json!("transit");
-                if shared_legs {
+                if shared_legs && collect {
+                    choice[DEFERRED_SHARED_LEGS] = json!(base + deferred_shared.len());
+                    deferred_shared.push(candidate);
+                } else if shared_legs {
                     choice["sharedLegAlternatives"] = self.shared_leg_alternatives(
                         &choice,
                         &candidate,
@@ -1199,13 +1210,18 @@ impl City {
             && output["status"] == "ready"
             && let Some(journey) = journey.as_ref()
         {
-            output["sharedLegAlternatives"] = self.shared_leg_alternatives(
-                &output,
-                journey,
-                [&origin, &destination],
-                &opt,
-                [&a, &b],
-            )?;
+            if window_deferral {
+                output[DEFERRED_SHARED_LEGS] = json!(base + deferred_shared.len());
+                deferred_shared.push(journey.clone());
+            } else {
+                output["sharedLegAlternatives"] = self.shared_leg_alternatives(
+                    &output,
+                    journey,
+                    [&origin, &destination],
+                    &opt,
+                    [&a, &b],
+                )?;
+            }
         }
         if requested.as_ref().is_some_and(|r| r.ranking == "ranked") {
             super::alternatives::promote_ranked(&mut output, &mut choices, opt.arrive);
@@ -1214,7 +1230,29 @@ impl City {
             if output["status"] == "ready" {
                 choices.push(output.clone());
             }
-            output["choices"] = json!(super::alternatives::select(choices, opt.arrive, 5));
+            let mut selected = super::alternatives::select(choices, opt.arrive, 5);
+            // A promoted ranked choice may have become the primary output.
+            for choice in selected
+                .iter_mut()
+                .chain([&mut output])
+                .filter(|_| !window_deferral)
+            {
+                let Some(index) = choice
+                    .as_object_mut()
+                    .and_then(|fields| fields.remove(DEFERRED_SHARED_LEGS))
+                    .and_then(|index| index.as_u64())
+                else {
+                    continue;
+                };
+                choice["sharedLegAlternatives"] = self.shared_leg_alternatives(
+                    choice,
+                    &deferred_shared[index as usize],
+                    [&origin, &destination],
+                    &opt,
+                    [&a, &b],
+                )?;
+            }
+            output["choices"] = json!(selected);
         } else if let Some(search) = alternative_search {
             // Transit alternatives only; the shared public projection selects.
             output["choices"] = Value::Array(choices);
@@ -1243,6 +1281,26 @@ impl City {
         } else {
             "scheduled"
         });
+        if window_deferral && !deferred_shared.is_empty() {
+            let context = Rc::new(SharedLegsContext {
+                origin,
+                destination,
+                access: [a, b],
+                timetable: self.timetable_identity(),
+            });
+            self.window_shared_legs
+                .as_mut()
+                .unwrap()
+                .extend(
+                    deferred_shared
+                        .into_iter()
+                        .map(|journey| DeferredSharedLegs {
+                            journey,
+                            opt: Options { ..opt },
+                            context: context.clone(),
+                        }),
+                );
+        }
         Ok(output)
     }
     fn route_via(&mut self, q: &Value, via: &Value) -> Result<Value> {
@@ -1325,6 +1383,54 @@ impl City {
     fn route_window(&mut self, q: &Value, window: f64) -> Result<Value> {
         let opt = Options::parse(q)?;
         let step = number(q, "windowStepMinutes", 1., 1., 60.)?;
+        // A scheduled window searches shared services only for its final
+        // choices when every sample uses the first one's timetable, so the
+        // deferred journeys keep their trip indices. `activate` covers a
+        // search's end in six-hour blocks from 30:00: earlier arrive-by
+        // deadlines never need more, and later departures need none while the
+        // last one ends in the first one's block.
+        let block = |end: f64| (end.max(108_000.) / 21_600.).ceil();
+        let last_end = opt.end + (window / step).floor() * step * 60.;
+        let defer = (opt.arrive || block(last_end) <= block(opt.end))
+            && flag(q, "sharedLegs", false)?
+            && q.get("realtimeSnapshot").is_none()
+            && self.query_live.is_none()
+            && self.window_shared_legs.is_none();
+        if defer {
+            self.window_shared_legs = Some(vec![]);
+        }
+        let sampled = self.route_window_samples(q, window, &opt, step);
+        let deferred = if defer {
+            self.window_shared_legs.take()
+        } else {
+            None
+        };
+        let (choices, first, searches, reused) = sampled?;
+        let mut choices = super::alternatives::select(choices, opt.arrive, 5);
+        if let Some(deferred) = &deferred {
+            self.resolve_shared_legs(choices.iter_mut(), deferred)?;
+        }
+        // An unsuccessful window retains the original endpoint evidence and
+        // failure class instead of fabricating a generic timetable failure.
+        let mut result = choices.first().cloned().unwrap_or_else(|| first.unwrap());
+        if let Some(deferred) = &deferred {
+            self.resolve_shared_legs([&mut result], deferred)?;
+        }
+        result["choices"] = json!(choices);
+        result["window"] = json!({"minutes":window,"stepMinutes":step,"searches":searches,"reusedSamples":reused,
+            "coverage":"sampled","direction":if opt.arrive {"earlier_arrival_deadlines"} else {"later_departures"},
+            "arrivalSlackMinutes":15,"maximumJourneys":5});
+        Ok(result)
+    }
+    /// Each sampled clock's collected choices, the first sample's answer,
+    /// and how many samples were searched and reused.
+    fn route_window_samples(
+        &mut self,
+        q: &Value,
+        window: f64,
+        opt: &Options,
+        step: f64,
+    ) -> Result<(Vec<Value>, Option<Value>, u32, u32)> {
         let mut choices = vec![];
         let mut first = None;
         let mut searches = 0;
@@ -1371,15 +1477,7 @@ impl City {
                 first = Some(result);
             }
         }
-        let choices = super::alternatives::select(choices, opt.arrive, 5);
-        // An unsuccessful window retains the original endpoint evidence and
-        // failure class instead of fabricating a generic timetable failure.
-        let mut result = choices.first().cloned().unwrap_or_else(|| first.unwrap());
-        result["choices"] = json!(choices);
-        result["window"] = json!({"minutes":window,"stepMinutes":step,"searches":searches,"reusedSamples":reused,
-            "coverage":"sampled","direction":if opt.arrive {"earlier_arrival_deadlines"} else {"later_departures"},
-            "arrivalSlackMinutes":15,"maximumJourneys":5});
-        Ok(result)
+        Ok((choices, first, searches, reused))
     }
     pub fn matrix(&mut self, q: &Value) -> Result<Value> {
         self.matrix_with(q, true)
@@ -1661,14 +1759,17 @@ impl City {
             "walk" => {
                 let speed = opt.walk_speed.unwrap_or(self.speed);
                 let limit = self.direct_walk_limit(q, opt)?;
-                let r = self.street.route_path(StreetPathInput {
-                    origin_lon: origin.coordinate[0],
-                    origin_lat: origin.coordinate[1],
-                    destination_lon: destination.coordinate[0],
-                    destination_lat: destination.coordinate[1],
-                    maximum_distance_m: limit,
-                    maximum_points: 512,
-                })?;
+                let r = self.street.route_path_reusing(
+                    StreetPathInput {
+                        origin_lon: origin.coordinate[0],
+                        origin_lat: origin.coordinate[1],
+                        destination_lon: destination.coordinate[0],
+                        destination_lat: destination.coordinate[1],
+                        maximum_distance_m: limit,
+                        maximum_points: 512,
+                    },
+                    !opt.disable_cache,
+                )?;
                 if !r.found {
                     return Ok(json!({"status":"blocked","reason":"no_path","mode":mode}));
                 }

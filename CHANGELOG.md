@@ -1,5 +1,17 @@
 # Version history
 
+## 1.0.0-rc.3
+
+- Departure windows (Studio's Later departures) rank candidate journeys without copying their lines, intermediate stops, endpoint details and descriptive trip fields; only the returned choices carry them. The wider-walking search's shared services are searched only for the choices that survive merging with the preferred walking limit. Answers are unchanged.
+- Arrive-by windows reuse a recent identical walking path instead of searching it again at every sampled deadline. Scheduled arrive-by windows, and departure windows whose samples share one timetable, search shared services only for the choices they finally return; other windows, for the choices each sample keeps. `disableCache` still searches every path. Answers are unchanged.
+- One-shot CLI commands exit after writing their answer without first freeing the City's memory piece by piece.
+- Reach rasterizes large street surfaces on up to four threads; each cell keeps the same minimum duration.
+- Without `VIGO_TIMETABLE_CACHE_BYTES`, a standalone City's inactive-timetable budget grows to twice the size of a prepared view it retires, up to 1/16 of detected memory. Large Cities such as New York keep their other service day or clock, so arrive-by windows near the start of the day no longer prepare a timetable on every switch.
+- A single-City `vigo stream` frees its street search scratch after 30 seconds without a request (`VIGO_IDLE_RELEASE_MS`); on Linux with glibc the pages return to the system. The next query allocates it again.
+- Studio opens the wheelchair City only once wheelchair routing is selected, then keeps it ready while Route stays open. An unselected profile no longer repeats every date's preparation or holds a second City in memory.
+- Studio leases the wheelchair City that answers wheelchair routes, and releasing it no longer fails when that profile was rebuilt or removed.
+- Depart now and the warmed realtime view use GTFS service time on daylight-saving days, including the repeated fall-back hour.
+
 ## 1.0.0-rc.2
 
 - Keep a continuous street-to-station walk in one leg even when station geometry is missing; omit incomplete lines and preserve shared-service leg references after merging.

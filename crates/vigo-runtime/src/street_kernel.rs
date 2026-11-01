@@ -72,8 +72,15 @@ impl CoordinateKernel {
                 + w.linked_stations.capacity() * size_of::<LinkedSource>()
                 + w.selected.capacity() * size_of::<AccessLabel>();
         }
-        let mut cache =
-            self.surface_snap_cache.byte_length() + self.surface_reuse_cache.byte_length();
+        let mut cache = self.surface_snap_cache.byte_length()
+            + self.surface_reuse_cache.byte_length()
+            + self
+                .path_memo
+                .iter()
+                .map(|(_, path)| {
+                    size_of::<([u64; 6], StreetPathResult)>() + path.coordinates.capacity() * 8
+                })
+                .sum::<usize>();
         let mut frontiers = HashSet::new();
         for (entries, order) in [
             (&self.origin_cache, &self.origin_cache_order),
@@ -233,6 +240,28 @@ impl CoordinateKernel {
         }
     }
 
+    /// Drop the search scratch `reuse_street_scratch` would hand on; the next
+    /// query allocates it again, as after opening. Caches and witnesses stay.
+    #[cfg(feature = "standalone")]
+    pub(crate) fn release_street_scratch(&mut self) {
+        if let Some(index) = &mut self.street_cch {
+            index.path_query = None;
+            index.path_view = None;
+            index.forward_query = DynamicCchQuery::new(0);
+            index.reverse_query = DynamicCchQuery::new(0);
+            index.origin_member_workspace = CchMemberWorkspace::new();
+            index.destination_member_workspace = CchMemberWorkspace::new();
+        }
+        for workspace in [
+            &mut self.origin_workspace,
+            &mut self.destination_workspace,
+            &mut self.path_workspace,
+            &mut self.reverse_path_workspace,
+        ] {
+            *workspace = TileWorkspace::new();
+        }
+    }
+
     #[cfg(feature = "standalone")]
     pub(crate) fn shared_street_owners(&self) -> usize {
         Arc::strong_count(&self.snapshot)
@@ -274,6 +303,7 @@ impl CoordinateKernel {
             destination_cache: HashMap::new(),
             destination_cache_order: VecDeque::new(),
             destination_cache_bytes: 0,
+            path_memo: VecDeque::new(),
         }
     }
 }
