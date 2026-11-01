@@ -1,5 +1,11 @@
 # Version history
 
+## 1.0.0-rc.3
+
+- Studio opens the wheelchair City only once wheelchair routing is selected, then keeps it ready while Route stays open. An unselected profile no longer repeats every date's preparation or holds a second City in memory.
+- Studio leases the wheelchair City that answers wheelchair routes, and releasing it no longer fails when that profile was rebuilt or removed.
+- Depart now and the warmed realtime view use GTFS service time on daylight-saving days, including the repeated fall-back hour.
+
 ## 1.0.0-rc.2
 
 - Keep a continuous street-to-station walk in one leg even when station geometry is missing; omit incomplete lines and preserve shared-service leg references after merging.
