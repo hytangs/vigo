@@ -3,7 +3,7 @@
 ## 1.0.0-rc.3
 
 - Departure windows (Studio's Later departures) rank candidate journeys without copying their lines, intermediate stops and endpoint details; only the returned choices carry them. Answers are unchanged.
-- Arrive-by windows reuse a recent identical walking path instead of searching it again at every sampled deadline, and search shared services only for the choices each sample keeps. `disableCache` still searches every path. Answers are unchanged.
+- Arrive-by windows reuse a recent identical walking path instead of searching it again at every sampled deadline. Scheduled arrive-by windows search shared services only for the choices they finally return; other windows, for the choices each sample keeps. `disableCache` still searches every path. Answers are unchanged.
 - One-shot CLI commands exit after writing their answer without first freeing the City's memory piece by piece.
 - Studio opens the wheelchair City only once wheelchair routing is selected, then keeps it ready while Route stays open. An unselected profile no longer repeats every date's preparation or holds a second City in memory.
 - Studio leases the wheelchair City that answers wheelchair routes, and releasing it no longer fails when that profile was rebuilt or removed.

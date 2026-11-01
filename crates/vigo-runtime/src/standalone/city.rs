@@ -337,6 +337,8 @@ pub struct City {
     pub(super) planned_flex: Option<Vec<super::planned_flex::Zone>>,
     pub(super) flex_overlay: Option<(HashMap<u32, f64>, HashMap<u32, f64>)>,
     pub(super) flex_witness: Option<super::flex_search::Witness>,
+    /// While an arrive-by window samples, its choices' deferred shared services.
+    pub(super) window_shared_legs: Option<Vec<super::shared_legs::DeferredSharedLegs>>,
     pub(crate) calendar: std::sync::OnceLock<super::calendar::CalendarIndex>,
     pub(crate) transfer_inputs: OnceLock<Arc<TransferInputs>>,
     pub(crate) route_types: OnceLock<Arc<HashMap<String, i64>>>,
@@ -735,6 +737,7 @@ impl City {
             planned_flex: None,
             flex_overlay: None,
             flex_witness: None,
+            window_shared_legs: None,
             calendar: Default::default(),
             transfer_inputs: OnceLock::new(),
             route_types: OnceLock::new(),
