@@ -12,6 +12,25 @@ enum LegKey {
     Walk(Option<u32>, Option<u32>, u64, [usize; 2]),
 }
 
+/// Leg fields no ranking reads: the drawn line, the intermediate calls and
+/// the displayed endpoint and access evidence.
+const PARKED_FIELDS: [&str; 6] = [
+    "coordinates",
+    "intermediateStops",
+    "from",
+    "to",
+    "accessCost",
+    "endpointConnector",
+];
+const PARKED_MARKER: &str = "\u{0}parked";
+
+fn parked_index(value: &Value) -> Option<usize> {
+    value
+        .get(PARKED_MARKER)?
+        .as_u64()
+        .map(|index| index as usize)
+}
+
 /// Immutable evidence shared only inside one Route search or Matrix request. Timetable, options,
 /// and endpoint candidates cannot change during that request. No route answers
 /// or mutable street frontiers survive it; output clocks are always refreshed.
@@ -20,8 +39,66 @@ pub(crate) struct MatrixMaterializationCache {
     entries: HashMap<LegKey, Value>,
     trip_details: HashMap<String, Value>,
     bytes: usize,
+    parked: Option<Vec<Value>>,
 }
 impl MatrixMaterializationCache {
+    /// A cache whose journeys keep each leg's `PARKED_FIELDS` aside until
+    /// `unpark`. A departure window copies, retimes and discards many
+    /// candidate journeys and ranks them without reading those fields.
+    pub(crate) fn parking() -> Self {
+        Self {
+            parked: Some(vec![]),
+            ..Self::default()
+        }
+    }
+
+    /// Move a journey's `PARKED_FIELDS` aside, when parking.
+    pub(crate) fn park(&mut self, journey: &mut Value) {
+        for leg in journey
+            .get_mut("legs")
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            self.park_leg(leg);
+        }
+    }
+
+    fn park_leg(&mut self, leg: &mut Value) {
+        let (Some(parked), Some(fields)) = (self.parked.as_mut(), leg.as_object_mut()) else {
+            return;
+        };
+        for field in PARKED_FIELDS {
+            if let Some(value) = fields.get_mut(field)
+                && parked_index(value).is_none()
+            {
+                parked.push(std::mem::replace(
+                    value,
+                    json!({ PARKED_MARKER: parked.len() }),
+                ));
+            }
+        }
+    }
+
+    /// Restore the fields `park` moved aside.
+    pub(crate) fn unpark(&self, journey: &mut Value) {
+        let Some(parked) = &self.parked else {
+            return;
+        };
+        for leg in journey
+            .get_mut("legs")
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            for field in PARKED_FIELDS {
+                if let Some(index) = leg.get(field).and_then(parked_index) {
+                    leg[field] = parked[index].clone();
+                }
+            }
+        }
+    }
+
     fn key(leg: &TimetableMatrixLeg, access: [&Candidates; 2]) -> LegKey {
         if let Some(trip) = leg.trip {
             LegKey::Ride(
@@ -575,6 +652,8 @@ impl City {
             }
             leg_clocks(v, leg);
             if let (Some(cache), Some(key)) = (cache.as_deref_mut(), key) {
+                // A parking cache saves and returns the light leg.
+                cache.park_leg(v);
                 cache.insert(key, v);
             }
         }
@@ -593,6 +672,40 @@ impl City {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parking_restores_display_fields_exactly() {
+        let journey = json!({"status":"ready","departureMinutes":480.,"legs":[
+            {"kind":"walk","durationMinutes":2.,"coordinates":[[0.,0.],[1.,1.]],
+                "from":{"coordinate":[0.,0.]},"to":{"stopId":"A","name":"A"},
+                "accessCost":{"seconds":5},"endpointConnector":{"coordinates":[[0.,0.],[0.,1.]]}},
+            {"kind":"ride","routeId":"R","tripId":"T","stopIds":["A","B","C"],
+                "coordinates":[[1.,1.],[2.,2.]],"intermediateStops":[{"stopId":"B"}],
+                "from":{"stopId":"A"},"to":{"stopId":"C"}}]});
+        let mut cache = MatrixMaterializationCache::parking();
+        let mut parked = journey.clone();
+        cache.park(&mut parked);
+        for leg in parked["legs"].as_array().unwrap() {
+            for field in PARKED_FIELDS {
+                assert!(leg.get(field).is_none_or(|v| parked_index(v).is_some()));
+            }
+        }
+        // Ranking fields stay in place.
+        assert_eq!(parked["legs"][1]["stopIds"], journey["legs"][1]["stopIds"]);
+        assert_eq!(parked["legs"][0]["durationMinutes"], 2.);
+        // Copies share the parked fields; parking a copy again keeps them.
+        let mut copy = parked.clone();
+        cache.park(&mut copy);
+        cache.unpark(&mut copy);
+        assert_eq!(copy, journey);
+        let mut blocked = json!({"status":"blocked"});
+        cache.park(&mut blocked);
+        cache.unpark(&mut blocked);
+        assert_eq!(blocked, json!({"status":"blocked"}));
+        let mut ordinary = journey.clone();
+        MatrixMaterializationCache::default().park(&mut ordinary);
+        assert_eq!(ordinary, journey);
+    }
 
     #[test]
     fn matrix_evidence_keeps_endpoints_and_run_clocks_separate() {

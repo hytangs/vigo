@@ -2,6 +2,7 @@
 
 ## 1.0.0-rc.3
 
+- Departure windows (Studio's Later departures) rank candidate journeys without copying their lines, intermediate stops and endpoint details; only the returned choices carry them. Answers are unchanged.
 - Studio opens the wheelchair City only once wheelchair routing is selected, then keeps it ready while Route stays open. An unselected profile no longer repeats every date's preparation or holds a second City in memory.
 - Studio leases the wheelchair City that answers wheelchair routes, and releasing it no longer fails when that profile was rebuilt or removed.
 - Depart now and the warmed realtime view use GTFS service time on daylight-saving days, including the repeated fall-back hour.

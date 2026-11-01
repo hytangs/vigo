@@ -956,7 +956,9 @@ impl City {
         Ok(value)
     }
 
-    /// Replace each transit choice whose last ride `walk_the_rest` beats.
+    /// Replace each transit choice whose last ride `walk_the_rest` beats. The
+    /// replacements park in the window's `parking` cache with its other choices.
+    #[allow(clippy::too_many_arguments)]
     fn walk_the_rest_choices(
         &mut self,
         ends: &Endpoints,
@@ -965,6 +967,7 @@ impl City {
         km: f64,
         plans: &mut [Plan],
         tradeoffs: &mut [Plan],
+        parking: &mut MatrixMaterializationCache,
     ) -> Result<()> {
         let wide = Options {
             walk_m: km * 1000.,
@@ -1006,7 +1009,10 @@ impl City {
                     Some(shorter) => self
                         .window_journey(&wide_ends, &shorter, &at, &mut cache, true)
                         .ok()
-                        .map(|value| (shorter, value)),
+                        .map(|mut value| {
+                            parking.park(&mut value);
+                            (shorter, value)
+                        }),
                     None => None,
                 };
                 found.insert(key.clone(), shorter);
@@ -1319,7 +1325,9 @@ impl City {
             b,
         };
         let ride_required = flag(q, "requireTransitRide", false)?;
-        let mut cache = MatrixMaterializationCache::default();
+        // Candidates are retimed, ranked and mostly discarded; only the
+        // returned choices need their lines, calls and endpoint details.
+        let mut cache = MatrixMaterializationCache::parking();
         // The direct walk does not depend on the clock: search it once.
         let mut walk: Option<Option<Value>> = None;
         let mut plans: Vec<Plan> = vec![];
@@ -1356,8 +1364,9 @@ impl City {
                     || (ends.origin.stop.is_none() && ends.destination.stop.is_none()));
             let walk_plan = if considers_walk {
                 if walk.is_none() {
-                    let found =
+                    let mut found =
                         self.street_route(q, &ends.origin, &ends.destination, &opt, "walk")?;
+                    cache.park(&mut found);
                     walk = Some((found["status"] == "ready").then_some(found));
                 }
                 walk.clone().flatten()
@@ -1464,7 +1473,9 @@ impl City {
             let limit_m = (preferred_km * 1000.)
                 .min(horizon / 3600. * opt.walk_speed.unwrap_or(self.speed) * 1000.);
             if walk.is_none() {
-                let found = self.street_route(q, &ends.origin, &ends.destination, &opt, "walk")?;
+                let mut found =
+                    self.street_route(q, &ends.origin, &ends.destination, &opt, "walk")?;
+                cache.park(&mut found);
                 walk = Some((found["status"] == "ready").then_some(found));
             }
             if let Some(w) = walk.clone().flatten()
@@ -1493,7 +1504,15 @@ impl City {
             .transpose()?
             .filter(|_| self.metadata["accessibility"]["profile"] != "wheelchair-strict-v1")
         {
-            self.walk_the_rest_choices(&ends, &opt, horizon, km, &mut plans, &mut tradeoffs)?;
+            self.walk_the_rest_choices(
+                &ends,
+                &opt,
+                horizon,
+                km,
+                &mut plans,
+                &mut tradeoffs,
+                &mut cache,
+            )?;
         }
         // A sample's own journey that still detours through a turnaround is
         // left out while the window offers any other transit journey.
@@ -1564,6 +1583,7 @@ impl City {
             "earliestTransit":earliest});
         let mut values = vec![];
         for mut plan in choices {
+            cache.unpark(&mut plan.value);
             if shared_legs
                 && plan.value["mode"] == "transit"
                 && let Some((journey, t)) = &plan.source
