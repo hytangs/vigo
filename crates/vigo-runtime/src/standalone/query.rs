@@ -3,6 +3,9 @@ use crate::*;
 use serde_json::{Value, json};
 use std::time::Instant;
 
+/// A collected choice's index among candidates whose shared services wait for selection.
+const DEFERRED_SHARED_LEGS: &str = "\u{0}deferredSharedLegs";
+
 #[derive(Clone)]
 pub(crate) struct Point {
     pub coordinate: [f64; 2],
@@ -1093,6 +1096,9 @@ impl City {
         // Reuse immutable leg evidence within this search; clocks are refreshed.
         let mut materialization = (collect || requested.is_some())
             .then(super::materialize::MatrixMaterializationCache::default);
+        // Collected choices are selected without reading shared services:
+        // each candidate keeps its index, and only selected ones are searched.
+        let mut deferred_shared = vec![];
         if (collect || requested.is_some())
             && let Some(j) = journey.as_ref()
         {
@@ -1126,7 +1132,10 @@ impl City {
                 )?;
                 choice["status"] = json!("ready");
                 choice["mode"] = json!("transit");
-                if shared_legs {
+                if shared_legs && collect {
+                    choice[DEFERRED_SHARED_LEGS] = json!(deferred_shared.len());
+                    deferred_shared.push(candidate);
+                } else if shared_legs {
                     choice["sharedLegAlternatives"] = self.shared_leg_alternatives(
                         &choice,
                         &candidate,
@@ -1214,7 +1223,25 @@ impl City {
             if output["status"] == "ready" {
                 choices.push(output.clone());
             }
-            output["choices"] = json!(super::alternatives::select(choices, opt.arrive, 5));
+            let mut selected = super::alternatives::select(choices, opt.arrive, 5);
+            // A promoted ranked choice may have become the primary output.
+            for choice in selected.iter_mut().chain([&mut output]) {
+                let Some(index) = choice
+                    .as_object_mut()
+                    .and_then(|fields| fields.remove(DEFERRED_SHARED_LEGS))
+                    .and_then(|index| index.as_u64())
+                else {
+                    continue;
+                };
+                choice["sharedLegAlternatives"] = self.shared_leg_alternatives(
+                    choice,
+                    &deferred_shared[index as usize],
+                    [&origin, &destination],
+                    &opt,
+                    [&a, &b],
+                )?;
+            }
+            output["choices"] = json!(selected);
         } else if let Some(search) = alternative_search {
             // Transit alternatives only; the shared public projection selects.
             output["choices"] = Value::Array(choices);
@@ -1661,14 +1688,17 @@ impl City {
             "walk" => {
                 let speed = opt.walk_speed.unwrap_or(self.speed);
                 let limit = self.direct_walk_limit(q, opt)?;
-                let r = self.street.route_path(StreetPathInput {
-                    origin_lon: origin.coordinate[0],
-                    origin_lat: origin.coordinate[1],
-                    destination_lon: destination.coordinate[0],
-                    destination_lat: destination.coordinate[1],
-                    maximum_distance_m: limit,
-                    maximum_points: 512,
-                })?;
+                let r = self.street.route_path_reusing(
+                    StreetPathInput {
+                        origin_lon: origin.coordinate[0],
+                        origin_lat: origin.coordinate[1],
+                        destination_lon: destination.coordinate[0],
+                        destination_lat: destination.coordinate[1],
+                        maximum_distance_m: limit,
+                        maximum_points: 512,
+                    },
+                    !opt.disable_cache,
+                )?;
                 if !r.found {
                     return Ok(json!({"status":"blocked","reason":"no_path","mode":mode}));
                 }

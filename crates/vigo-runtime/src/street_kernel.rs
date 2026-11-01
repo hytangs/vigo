@@ -72,8 +72,15 @@ impl CoordinateKernel {
                 + w.linked_stations.capacity() * size_of::<LinkedSource>()
                 + w.selected.capacity() * size_of::<AccessLabel>();
         }
-        let mut cache =
-            self.surface_snap_cache.byte_length() + self.surface_reuse_cache.byte_length();
+        let mut cache = self.surface_snap_cache.byte_length()
+            + self.surface_reuse_cache.byte_length()
+            + self
+                .path_memo
+                .iter()
+                .map(|(_, path)| {
+                    size_of::<([u64; 6], StreetPathResult)>() + path.coordinates.capacity() * 8
+                })
+                .sum::<usize>();
         let mut frontiers = HashSet::new();
         for (entries, order) in [
             (&self.origin_cache, &self.origin_cache_order),
@@ -274,6 +281,7 @@ impl CoordinateKernel {
             destination_cache: HashMap::new(),
             destination_cache_order: VecDeque::new(),
             destination_cache_bytes: 0,
+            path_memo: VecDeque::new(),
         }
     }
 }

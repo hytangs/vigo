@@ -333,7 +333,9 @@ impl City {
                 };
                 let path = match transfer {
                     Some(path) => path,
-                    None => self.street.route_path(input())?,
+                    None => self
+                        .street
+                        .route_path_reusing(input(), !opt.disable_cache)?,
                 };
                 (path.coordinates, path.distance_m, path.found)
             };

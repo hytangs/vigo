@@ -320,6 +320,8 @@ fn run() -> Result<()> {
             writeln!(stdout)?;
             stdout.flush()?;
         }
+        // The process exits next and returns the City's memory at once.
+        std::mem::forget(city);
         return Ok(());
     }
     let mut request = if let Some(file) = options.get("request") {
@@ -333,7 +335,11 @@ fn run() -> Result<()> {
     };
     apply_flags(&mut request, &options)?;
     let result = city.execute_public(&command, &request)?;
-    output(&result, &options)
+    output(&result, &options)?;
+    // Freeing every City allocation one by one only delays the exit that
+    // follows; the operating system reclaims the process at once.
+    std::mem::forget(city);
+    Ok(())
 }
 fn output(value: &Value, options: &HashMap<String, String>) -> Result<()> {
     let format = options.get("format").map(String::as_str).unwrap_or("auto");
