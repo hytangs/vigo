@@ -22,7 +22,7 @@
     "residency": {
       "cityOpens": 1,
       "evictions": 0,
-      "inactiveTimetableBudgetBytes": 67108864,
+      "inactiveTimetableBudgetBytes": 134217728,
       "inactiveTimetableRetainedBytes": 0,
       "lastQueryTiming": null,
       "loadedScenarios": 1,

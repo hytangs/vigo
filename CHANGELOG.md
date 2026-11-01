@@ -6,8 +6,8 @@
 - Arrive-by windows reuse a recent identical walking path instead of searching it again at every sampled deadline. Scheduled arrive-by windows, and departure windows whose samples share one timetable, search shared services only for the choices they finally return; other windows, for the choices each sample keeps. `disableCache` still searches every path. Answers are unchanged.
 - One-shot CLI commands exit after writing their answer without first freeing the City's memory piece by piece.
 - Reach rasterizes large street surfaces on up to four threads; each cell keeps the same minimum duration.
+- Without `VIGO_TIMETABLE_CACHE_BYTES`, a standalone City's inactive-timetable budget grows to twice the size of a prepared view it retires, up to 1/16 of detected memory. Large Cities such as New York keep their other service day or clock, so arrive-by windows near the start of the day no longer prepare a timetable on every switch.
 - A single-City `vigo stream` frees its street search scratch after 30 seconds without a request (`VIGO_IDLE_RELEASE_MS`); on Linux with glibc the pages return to the system. The next query allocates it again.
-- The default inactive-timetable budget (`VIGO_TIMETABLE_CACHE_BYTES`) is 64 MiB instead of 128 MiB, so fewer earlier dates stay prepared.
 - Studio opens the wheelchair City only once wheelchair routing is selected, then keeps it ready while Route stays open. An unselected profile no longer repeats every date's preparation or holds a second City in memory.
 - Studio leases the wheelchair City that answers wheelchair routes, and releasing it no longer fails when that profile was rebuilt or removed.
 - Depart now and the warmed realtime view use GTFS service time on daylight-saving days, including the repeated fall-back hour.

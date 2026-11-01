@@ -448,7 +448,9 @@ impl Collection {
                 .min(self.manifest.scenarios.len());
             city.street.partition_cache_budget(capacity);
             city.shape_cache.partition_budget(capacity);
+            // The collection divides its own budget among residents below.
             city.timetable_cache.budget = 0;
+            city.timetable_cache.growth_limit = None;
             if let Some((previous_id, previous)) = self.cities.back_mut() {
                 city.street.reuse_street_scratch(&mut previous.street);
                 self.charges.remove(previous_id.as_str());

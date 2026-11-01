@@ -44,7 +44,7 @@ impl Write for LimitedBytes {
     }
 }
 
-const DEFAULT_BYTES: usize = 64 * 1024 * 1024;
+const DEFAULT_BYTES: usize = 128 * 1024 * 1024;
 const MAX_ENTRIES: usize = 8;
 // Realtime views are superseded by every new snapshot. Keep the latest few so
 // that alternating scheduled and live queries do not rebuild them.
@@ -63,6 +63,11 @@ pub(crate) struct TimetableCache {
     compact: VecDeque<Entry<CompactSource>>,
     clock: u64,
     pub(crate) budget: usize,
+    /// Without `VIGO_TIMETABLE_CACHE_BYTES`, the budget grows to retain one
+    /// inactive view of this City's own size, up to this limit. A large
+    /// City's other service day or clock is otherwise prepared again on
+    /// every switch, as arrive-by windows near the day's start do.
+    pub(crate) growth_limit: Option<usize>,
     pub(crate) bytes: usize,
     pub(crate) hits: u64,
     pub(crate) evictions: u64,
@@ -70,13 +75,17 @@ pub(crate) struct TimetableCache {
 
 impl TimetableCache {
     pub(crate) fn from_env() -> Result<Self> {
-        let budget = match std::env::var("VIGO_TIMETABLE_CACHE_BYTES") {
-            Ok(value) => value
-                .parse::<usize>()
-                .map_err(|_| "VIGO_TIMETABLE_CACHE_BYTES must be a nonnegative integer")?,
-            Err(std::env::VarError::NotPresent) => {
-                crate::resources::cache_budget(DEFAULT_BYTES, 32)
-            }
+        let (budget, growth_limit) = match std::env::var("VIGO_TIMETABLE_CACHE_BYTES") {
+            Ok(value) => (
+                value
+                    .parse::<usize>()
+                    .map_err(|_| "VIGO_TIMETABLE_CACHE_BYTES must be a nonnegative integer")?,
+                None,
+            ),
+            Err(std::env::VarError::NotPresent) => (
+                crate::resources::cache_budget(DEFAULT_BYTES, 32),
+                Some(crate::resources::memory_capacity().map_or(usize::MAX, |bytes| bytes / 16)),
+            ),
             Err(error) => return Err(error.into()),
         };
         Ok(Self {
@@ -85,6 +94,7 @@ impl TimetableCache {
             compact: VecDeque::new(),
             clock: 0,
             budget,
+            growth_limit,
             bytes: 0,
             hits: 0,
             evictions: 0,
@@ -129,6 +139,9 @@ impl TimetableCache {
         let bytes = size_of::<Timetable>()
             + timetable.heap_bytes()
             + timetable.kernel.retained_schedule_bytes();
+        if let Some(limit) = self.growth_limit {
+            self.budget = self.budget.max(bytes.saturating_mul(2).min(limit));
+        }
         // Keep instant kernel reuse when several views fit. On a tight budget,
         // prefer compact sources over one kernel that displaces the other dates.
         if bytes > self.budget
