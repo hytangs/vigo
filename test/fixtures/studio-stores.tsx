@@ -112,7 +112,9 @@ window.checkStores = async () => {
   search('41,11 to 41.01,11.01')
   await until(() => placeRequests.length === 2 && cameraFits > firstFits, 'Second coordinates with the same role labels did not reframe the map')
   await until(() => liveMap.getBounds().contains([11, 41]) && liveMap.getBounds().contains([11.01, 41.01]), 'Map did not reach the new endpoints')
-  await pause(500)
+  // The endpoints enter the view while the camera still eases in; a slower
+  // runner can take longer than the fit's duration. Judge the settled view.
+  await until(() => !liveMap.isMoving(), 'Map did not settle on the new endpoints')
   check(liveMap.getZoom() > 12, 'Typed coordinates should frame the endpoints, not retain the map-click overview zoom')
   const namedFits = cameraFits
   const rawOrigin = route.get().routingOrigin
