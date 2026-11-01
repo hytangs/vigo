@@ -1,3 +1,4 @@
+import { serviceEpochSeconds } from '../src/server/gtfs/service-clock.mjs'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
@@ -24,8 +25,25 @@ assert.deepEqual(local(at('2026-09-20T06:59:50Z', 'America/Los_Angeles')), ['202
 assert.deepEqual(local(at('2026-09-19T15:00:00.001Z', 'America/Los_Angeles')), ['2026-09-19', 'saturday', 481])
 assert.deepEqual(local(at('2026-09-19T15:00:00Z', 'America/Los_Angeles')), ['2026-09-19', 'saturday', 480])
 assert.deepEqual(local(at('2026-09-19T18:30:00Z', 'Asia/Kathmandu')), ['2026-09-20', 'sunday', 15])
-assert.deepEqual(local(at('2026-03-08T06:59:00Z', 'America/New_York')), ['2026-03-08', 'sunday', 119])
+assert.deepEqual(local(at('2026-03-08T06:59:00Z', 'America/New_York')), ['2026-03-08', 'sunday', 179])
 assert.deepEqual(local(at('2026-03-08T07:01:00Z', 'America/New_York')), ['2026-03-08', 'sunday', 181])
+for (const [instant, date, minutes] of [
+  ['2026-11-01T04:30:00Z', '2026-10-31', 1470],
+  ['2026-11-01T05:30:00Z', '2026-11-01', 30],
+  ['2026-11-01T06:30:00Z', '2026-11-01', 90],
+  ['2026-03-08T06:30:00Z', '2026-03-08', 150],
+  ['2026-03-08T07:30:00Z', '2026-03-08', 210],
+]) {
+  const resolved = at(instant, 'America/New_York')
+  assert.equal(resolved.serviceDate, date)
+  assert.equal(resolved.departMinutes, minutes)
+  assert.equal(serviceEpochSeconds(date, 'America/New_York') + minutes * 60, Date.parse(instant) / 1000)
+}
+for (const instant of ['2026-03-08T06:59:59.001Z', '2026-11-01T05:59:59.001Z', '2026-11-02T04:59:59.001Z']) {
+  const result = at(instant, 'America/New_York')
+  assert.equal(serviceEpochSeconds(result.serviceDate, 'America/New_York') * 1000 + result.departMinutes * 60000,
+    Math.ceil(Date.parse(instant) / 60000) * 60000)
+}
 const now = at('2026-09-20T06:58:40Z', 'America/Los_Angeles')
 assert.equal(now.timePreference, 'depart')
 assert.equal(now.timeZone, 'America/Los_Angeles')

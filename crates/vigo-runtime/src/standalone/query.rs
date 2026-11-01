@@ -548,9 +548,9 @@ impl City {
             .duration_since(std::time::UNIX_EPOCH)
             .ok()?
             .as_secs() as i64;
-        let local = chrono::DateTime::from_timestamp(seconds, 0)?.with_timezone(&zone);
-        let request = json!({"serviceDate":local.format("%Y-%m-%d").to_string(),
-            "time":local.format("%H:%M").to_string(),"routingDataMode":"realtime"});
+        let (date, minutes) = super::clock::service_clock_at(seconds, zone).ok()?;
+        let request = json!({"serviceDate":date.to_string(),
+            "timeMinutes":minutes,"routingDataMode":"realtime"});
         Some((request, None))
     }
     pub(crate) fn point(&self, value: &Value) -> Result<Point> {

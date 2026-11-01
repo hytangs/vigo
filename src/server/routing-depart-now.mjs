@@ -1,3 +1,4 @@
+import { serviceEpochSeconds } from './gtfs/service-clock.mjs'
 import { serviceDayForDate } from './service-day.mjs'
 
 function requestError(message, code, statusCode = 400) {
@@ -36,12 +37,18 @@ export function resolveDepartNowRequest(request, agencyTimezones, observationMs 
   const instant = new Date(Math.ceil(nowMs / 60_000) * 60_000)
   if (!Number.isFinite(instant.getTime())) throw requestError('The server clock is unavailable.', 'depart_now_clock_unavailable', 503)
   const parts = Object.fromEntries(formatter.formatToParts(instant).map(part => [part.type, part.value]))
-  const serviceDate = `${parts.year}-${parts.month}-${parts.day}`
+  let serviceDate = `${parts.year}-${parts.month}-${parts.day}`
+  let origin = serviceEpochSeconds(serviceDate, timeZone)
+  // Before the fall-back day's GTFS origin, use the preceding service date.
+  while (instant.getTime() / 1000 < origin) {
+    serviceDate = new Date(Date.parse(`${serviceDate}T12:00:00Z`) - 86400000).toISOString().slice(0, 10)
+    origin = serviceEpochSeconds(serviceDate, timeZone)
+  }
   const descriptors = Object.getOwnPropertyDescriptors(request)
   for (const field of ['departNow', 'arriveMinutes', 'timeMinutes', 'serviceDateFallbackPolicy']) delete descriptors[field]
   for (const [field, value] of Object.entries({
     serviceDate, serviceDay: serviceDayForDate(serviceDate),
-    departMinutes: Number(parts.hour) * 60 + Number(parts.minute),
+    departMinutes: (instant.getTime() / 1000 - origin) / 60,
     timePreference: 'depart', timeZone, allowServiceDateFallback: false,
   })) descriptors[field] = { value, enumerable: true, writable: true, configurable: true }
   return Object.create(Object.getPrototypeOf(request), descriptors)
