@@ -240,6 +240,28 @@ impl CoordinateKernel {
         }
     }
 
+    /// Drop the search scratch `reuse_street_scratch` would hand on; the next
+    /// query allocates it again, as after opening. Caches and witnesses stay.
+    #[cfg(feature = "standalone")]
+    pub(crate) fn release_street_scratch(&mut self) {
+        if let Some(index) = &mut self.street_cch {
+            index.path_query = None;
+            index.path_view = None;
+            index.forward_query = DynamicCchQuery::new(0);
+            index.reverse_query = DynamicCchQuery::new(0);
+            index.origin_member_workspace = CchMemberWorkspace::new();
+            index.destination_member_workspace = CchMemberWorkspace::new();
+        }
+        for workspace in [
+            &mut self.origin_workspace,
+            &mut self.destination_workspace,
+            &mut self.path_workspace,
+            &mut self.reverse_path_workspace,
+        ] {
+            *workspace = TileWorkspace::new();
+        }
+    }
+
     #[cfg(feature = "standalone")]
     pub(crate) fn shared_street_owners(&self) -> usize {
         Arc::strong_count(&self.snapshot)

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0rc3
+
+- Publish Python metadata as `1.0.0rc3` (PEP 440), corresponding to Engine `1.0.0-rc.3`.
+
 ## 1.0.0rc2
 
 - Publish Python metadata as `1.0.0rc2` (PEP 440), corresponding to Engine `1.0.0-rc.2`.

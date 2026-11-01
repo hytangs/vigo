@@ -16,18 +16,20 @@ use vigo_route::timetable::{SharedRideQuery, shared_departure_frequency};
 /// until its window or sample has selected its choices.
 pub(super) const DEFERRED_SHARED_LEGS: &str = "\u{0}deferredSharedLegs";
 
-/// One sample's endpoints, options and access, kept for its deferred choices.
+/// One search's endpoints and access, kept for its deferred choices.
 pub(super) struct SharedLegsContext {
     pub origin: Point,
     pub destination: Point,
-    pub opt: Options,
     pub access: [Candidates; 2],
     /// The journeys' trip indices belong to this active timetable.
     pub timetable: Option<(String, Option<u32>)>,
 }
 
+/// A journey whose shared services wait, with the options of the clock it
+/// was searched at.
 pub(super) struct DeferredSharedLegs {
     pub journey: TimetableMatrixJourney,
+    pub opt: Options,
     pub context: Rc<SharedLegsContext>,
 }
 
@@ -180,13 +182,17 @@ impl City {
                 value["sharedLegAlternatives"] = saved.clone();
                 continue;
             }
-            let DeferredSharedLegs { journey, context } = &deferred[index];
+            let DeferredSharedLegs {
+                journey,
+                opt,
+                context,
+            } = &deferred[index];
             debug_assert!(self.timetable_identity() == context.timetable);
             let shared = self.shared_leg_alternatives(
                 value,
                 journey,
                 [&context.origin, &context.destination],
-                &context.opt,
+                opt,
                 [&context.access[0], &context.access[1]],
             )?;
             value["sharedLegAlternatives"] = shared.clone();

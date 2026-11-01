@@ -7,7 +7,7 @@
   "result": {
     "allocator": null,
     "defaultScenario": "current",
-    "engineVersion": "1.0.0-rc.2",
+    "engineVersion": "1.0.0-rc.3",
     "memory": {
       "cacheHeapBytes": 0,
       "lastOutput": null,
@@ -22,7 +22,7 @@
     "residency": {
       "cityOpens": 1,
       "evictions": 0,
-      "inactiveTimetableBudgetBytes": 134217728,
+      "inactiveTimetableBudgetBytes": 67108864,
       "inactiveTimetableRetainedBytes": 0,
       "lastQueryTiming": null,
       "loadedScenarios": 1,

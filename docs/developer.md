@@ -1,4 +1,4 @@
-# VIGO 1.0.0-rc.2 developer guide
+# VIGO 1.0.0-rc.3 developer guide
 
 Canonical source for the developer chapters of the [VIGO guide](guide.html). Edit the relevant chapter, then run `npm run docs:build`.
 
@@ -619,7 +619,7 @@ The independent suite validates the generated graph and timetable models under t
 
 ## Runtime limits and recovery
 
-The following admission limits and recovery behavior apply to VIGO 1.0.0-rc.2.
+The following admission limits and recovery behavior apply to VIGO 1.0.0-rc.3.
 See [public results](reference/results.md) for the current result schemas.
 
 ### Memory and request admission

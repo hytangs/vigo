@@ -12,24 +12,32 @@ enum LegKey {
     Walk(Option<u32>, Option<u32>, u64, [usize; 2]),
 }
 
-/// Leg fields no ranking reads: the drawn line, the intermediate calls and
-/// the displayed endpoint and access evidence.
-const PARKED_FIELDS: [&str; 6] = [
+/// Leg fields that neither window ranking nor station-walk annotation reads:
+/// the drawn line, intermediate calls, displayed endpoints, access evidence
+/// and descriptive trip details.
+const PARKED_FIELDS: [&str; 19] = [
     "coordinates",
     "intermediateStops",
     "from",
     "to",
     "accessCost",
     "endpointConnector",
+    "headsign",
+    "serviceId",
+    "tripShortName",
+    "directionId",
+    "headwayEstimate",
+    "alerts",
+    "geometrySource",
+    "scenarioService",
+    "realtimeTrip",
+    "bridgedUntimedGapCount",
+    "sourceEqualTime",
+    "components",
+    "boardSequence",
 ];
+/// A parked leg's index of its moved fields in the cache's arena.
 const PARKED_MARKER: &str = "\u{0}parked";
-
-fn parked_index(value: &Value) -> Option<usize> {
-    value
-        .get(PARKED_MARKER)?
-        .as_u64()
-        .map(|index| index as usize)
-}
 
 /// Immutable evidence shared only inside one Route search or Matrix request. Timetable, options,
 /// and endpoint candidates cannot change during that request. No route answers
@@ -68,15 +76,16 @@ impl MatrixMaterializationCache {
         let (Some(parked), Some(fields)) = (self.parked.as_mut(), leg.as_object_mut()) else {
             return;
         };
-        for field in PARKED_FIELDS {
-            if let Some(value) = fields.get_mut(field)
-                && parked_index(value).is_none()
-            {
-                parked.push(std::mem::replace(
-                    value,
-                    json!({ PARKED_MARKER: parked.len() }),
-                ));
-            }
+        if fields.contains_key(PARKED_MARKER) {
+            return;
+        }
+        let moved: serde_json::Map<String, Value> = PARKED_FIELDS
+            .iter()
+            .filter_map(|&field| fields.remove_entry(field))
+            .collect();
+        if !moved.is_empty() {
+            fields.insert(PARKED_MARKER.into(), json!(parked.len()));
+            parked.push(Value::Object(moved));
         }
     }
 
@@ -85,16 +94,18 @@ impl MatrixMaterializationCache {
         let Some(parked) = &self.parked else {
             return;
         };
-        for leg in journey
+        for fields in journey
             .get_mut("legs")
             .and_then(Value::as_array_mut)
             .into_iter()
             .flatten()
+            .filter_map(Value::as_object_mut)
         {
-            for field in PARKED_FIELDS {
-                if let Some(index) = leg.get(field).and_then(parked_index) {
-                    leg[field] = parked[index].clone();
-                }
+            let Some(index) = fields.remove(PARKED_MARKER).and_then(|i| i.as_u64()) else {
+                continue;
+            };
+            if let Value::Object(moved) = &parked[index as usize] {
+                fields.extend(moved.clone());
             }
         }
     }
@@ -686,8 +697,9 @@ mod tests {
         let mut parked = journey.clone();
         cache.park(&mut parked);
         for leg in parked["legs"].as_array().unwrap() {
+            assert!(leg[PARKED_MARKER].is_u64());
             for field in PARKED_FIELDS {
-                assert!(leg.get(field).is_none_or(|v| parked_index(v).is_some()));
+                assert!(leg.get(field).is_none());
             }
         }
         // Ranking fields stay in place.

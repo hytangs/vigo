@@ -44,7 +44,7 @@ impl Write for LimitedBytes {
     }
 }
 
-const DEFAULT_BYTES: usize = 128 * 1024 * 1024;
+const DEFAULT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_ENTRIES: usize = 8;
 // Realtime views are superseded by every new snapshot. Keep the latest few so
 // that alternating scheduled and live queries do not rebuild them.

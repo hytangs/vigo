@@ -1285,7 +1285,6 @@ impl City {
             let context = Rc::new(SharedLegsContext {
                 origin,
                 destination,
-                opt: Options { ..opt },
                 access: [a, b],
                 timetable: self.timetable_identity(),
             });
@@ -1297,6 +1296,7 @@ impl City {
                         .into_iter()
                         .map(|journey| DeferredSharedLegs {
                             journey,
+                            opt: Options { ..opt },
                             context: context.clone(),
                         }),
                 );
@@ -1383,11 +1383,15 @@ impl City {
     fn route_window(&mut self, q: &Value, window: f64) -> Result<Value> {
         let opt = Options::parse(q)?;
         let step = number(q, "windowStepMinutes", 1., 1., 60.)?;
-        // A scheduled arrive-by window searches shared services only for its
-        // final choices. Its earlier deadlines keep the service date and need
-        // no longer timetable coverage, so every sample uses the first one's
-        // timetable and the deferred journeys keep their trip indices.
-        let defer = opt.arrive
+        // A scheduled window searches shared services only for its final
+        // choices when every sample uses the first one's timetable, so the
+        // deferred journeys keep their trip indices. `activate` covers a
+        // search's end in six-hour blocks from 30:00: earlier arrive-by
+        // deadlines never need more, and later departures need none while the
+        // last one ends in the first one's block.
+        let block = |end: f64| (end.max(108_000.) / 21_600.).ceil();
+        let last_end = opt.end + (window / step).floor() * step * 60.;
+        let defer = (opt.arrive || block(last_end) <= block(opt.end))
             && flag(q, "sharedLegs", false)?
             && q.get("realtimeSnapshot").is_none()
             && self.query_live.is_none()

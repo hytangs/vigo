@@ -31,12 +31,14 @@
 //! searching transit alone when walking wins every choice.
 use super::point::{self, WINDOW_ARRIVAL_SLACK_SECONDS};
 use super::query::{Candidates, Options, Point};
+use super::shared_legs::{DEFERRED_SHARED_LEGS, DeferredSharedLegs, SharedLegsContext};
 use super::{City, Result, fail, flag, materialize::MatrixMaterializationCache, number};
 use crate::route_alternatives::RouteAlternativeRequest;
 use crate::{TimetableMatrixJourney, TimetableMatrixLeg};
 use serde_json::{Value, json};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::Arc;
 
 /// Options this module owns; a fixed-departure search never sees them.
@@ -1091,8 +1093,24 @@ impl City {
         object.insert("maxWalkKm".into(), json!(km));
         object.insert("requireTransitRide".into(), json!(true));
         object.insert("allowLongWalk".into(), json!(false));
+        // Few wider choices survive the merge below: search shared services
+        // only for those. A scheduled request keeps one timetable throughout,
+        // as the preferred search needs no longer coverage than the wider one.
+        let defer = flag(q, "sharedLegs", false)?
+            && q.get("realtimeSnapshot").is_none()
+            && self.query_live.is_none()
+            && self.window_shared_legs.is_none();
+        if defer {
+            self.window_shared_legs = Some(vec![]);
+        }
+        let searched = self.journeys_once(&wider, false);
+        let deferred = if defer {
+            self.window_shared_legs.take()
+        } else {
+            None
+        };
         // A failed wider search leaves the ordinary choices unchanged.
-        let Ok(wider) = self.journeys_once(&wider, false) else {
+        let Ok(wider) = searched else {
             return self.journeys_once(q, evidence);
         };
         // Search the preferred walking limit only as far as a choice could
@@ -1219,6 +1237,9 @@ impl City {
             .map(|i| combined[i].clone())
             .collect();
         choices.sort_by(compare_arrival);
+        if let Some(deferred) = &deferred {
+            self.resolve_shared_legs(choices.iter_mut(), deferred)?;
+        }
         let selected = choices
             .iter()
             .position(|plan| !plan["expandedWalkingLimitKm"].is_number())
@@ -1582,11 +1603,14 @@ impl City {
             "startMinutes":center,"endMinutes":end,"windowQueryMs":started.elapsed().as_secs_f64() * 1000.,
             "earliestTransit":earliest});
         let mut values = vec![];
+        // A caller that keeps only some choices searches their shared services.
+        let base = self.window_shared_legs.as_ref().map(Vec::len);
+        let mut deferred = vec![];
         for mut plan in choices {
             cache.unpark(&mut plan.value);
             if shared_legs
                 && plan.value["mode"] == "transit"
-                && let Some((journey, t)) = &plan.source
+                && let Some((journey, t)) = plan.source.take()
             {
                 let at = Options {
                     time: t * 60.,
@@ -1594,13 +1618,18 @@ impl City {
                     end: t * 60. + horizon,
                     ..opt
                 };
-                plan.value["sharedLegAlternatives"] = self.shared_leg_alternatives(
-                    &plan.value,
-                    journey,
-                    [&ends.origin, &ends.destination],
-                    &at,
-                    [&ends.a, &ends.b],
-                )?;
+                if let Some(base) = base {
+                    plan.value[DEFERRED_SHARED_LEGS] = json!(base + deferred.len());
+                    deferred.push((journey, at));
+                } else {
+                    plan.value["sharedLegAlternatives"] = self.shared_leg_alternatives(
+                        &plan.value,
+                        &journey,
+                        [&ends.origin, &ends.destination],
+                        &at,
+                        [&ends.a, &ends.b],
+                    )?;
+                }
             }
             values.push(plan.value);
         }
@@ -1647,6 +1676,31 @@ impl City {
         } else {
             "scheduled"
         });
+        if !deferred.is_empty() {
+            let timetable = self.timetable_identity();
+            let Endpoints {
+                origin,
+                destination,
+                a,
+                b,
+            } = ends;
+            let context = Rc::new(SharedLegsContext {
+                origin,
+                destination,
+                access: [a, b],
+                timetable,
+            });
+            let buffer = self.window_shared_legs.as_mut().unwrap();
+            buffer.extend(
+                deferred
+                    .into_iter()
+                    .map(|(journey, opt)| DeferredSharedLegs {
+                        journey,
+                        opt,
+                        context: context.clone(),
+                    }),
+            );
+        }
         Ok(output)
     }
 }
