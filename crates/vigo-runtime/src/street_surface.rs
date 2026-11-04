@@ -405,6 +405,65 @@ fn compute_graph<const ENDPOINTS: bool>(
         &[]
     };
     let (width, height) = (input.width as usize, input.height as usize);
+    // Fixed rasters need only paths that can still enter the rectangle.
+    // Derive displacement bounds from actual stored lengths, including short
+    // synthetic edges. Coordinate displacement is subadditive along a path.
+    let clip =
+        !input.expand_bounds_to_reached_edges && !input.include_nodes && !input.include_edges;
+    let extent = if clip {
+        *snaps.extent_per_meter[usize::from(ENDPOINTS)].get_or_insert_with(|| {
+            let mut extent = [0f64; 2];
+            let mut include = |a: [f64; 2], b: [f64; 2], distance: f64| {
+                for axis in 0..2 {
+                    let delta = (a[axis] - b[axis]).abs();
+                    if delta > 0. {
+                        extent[axis] = extent[axis].max(if distance > 0. {
+                            delta / distance
+                        } else {
+                            f64::INFINITY
+                        });
+                    }
+                }
+            };
+            for node in 0..graph.node_count() {
+                let a = graph.coordinate(node as u32);
+                if node < graph.node_lats.len() {
+                    for edge in graph.edge_offsets[node]..graph.edge_offsets[node + 1] {
+                        include(
+                            a,
+                            graph.coordinate(graph.target(edge as usize)),
+                            graph.distance(edge as usize),
+                        );
+                    }
+                }
+                if ENDPOINTS && let Some(terminal) = graph.terminal {
+                    for (target, edge) in terminal.surface_neighbors(node as u32) {
+                        include(
+                            a,
+                            graph.coordinate(target),
+                            terminal.surface_edge_distance(edge),
+                        );
+                    }
+                }
+            }
+            extent
+        })
+    } else {
+        [f64::INFINITY; 2]
+    };
+    let can_reach_grid = |node: u32, walked: f64| {
+        if !clip {
+            return true;
+        }
+        let p = graph.coordinate(node);
+        // Keep a coordinate margin for raster boundary roundoff and inflate
+        // the walk budget for accumulated distance roundoff.
+        let remaining = (input.maximum_walk_m - walked).max(0.) + DISTANCE_EPSILON_M;
+        (0..2).all(|axis| {
+            let margin = extent[axis] * remaining * (1. + 1e-9) + 1e-7;
+            p[axis] >= input.bounds[axis] - margin && p[axis] <= input.bounds[axis + 2] + margin
+        })
+    };
     if input.surface_reuse.as_deref() == Some("baseline") {
         reuse.clear();
     }
@@ -601,6 +660,9 @@ fn compute_graph<const ENDPOINTS: bool>(
             continue;
         }
         let current = labels[entry.label_index];
+        if !can_reach_grid(current.node, current.walk_distance_m) {
+            continue;
+        }
         diagnostics.settled_labels = diagnostics.settled_labels.saturating_add(1);
         let node = current.node as usize;
         let public_edges = if !ENDPOINTS || node < graph.node_lats.len() {

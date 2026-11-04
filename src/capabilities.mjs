@@ -45,7 +45,7 @@ const queryFamilies = Object.freeze([
     purpose: 'Find and explain journeys between ordered points.',
     interfaces: Object.freeze({ studio: supported, python: supported, cli: supported }),
     options: Object.freeze([
-      'transit, walk, or drive',
+      'transit, walk, drive, or bike',
       'depart at or arrive by',
       'departure window',
       'alternative journeys (Pareto or ranked)',
@@ -74,7 +74,7 @@ const queryFamilies = Object.freeze([
     interfaces: Object.freeze({ studio: unavailable, python: supported, cli: supported }),
     options: Object.freeze([
       'one to many, many to one, or many to many',
-      'transit, walk, or drive',
+      'transit, walk, drive, or bike',
       'scalar time and distance output',
       'optional compact transit journeys with walking, waiting, and transfers',
       'maximum transfers (0–31 or unlimited)',
@@ -94,7 +94,7 @@ const queryFamilies = Object.freeze([
       'street sampling or coordinate cell centers',
       'scenario comparison',
     ]),
-    modes: Object.freeze({ available: Object.freeze(['transit', 'walk']), unavailable: Object.freeze(['drive']) }),
+    modes: Object.freeze({ available: Object.freeze(['transit', 'walk', 'drive', 'bike']), unavailable: Object.freeze([]) }),
     time: Object.freeze({ available: Object.freeze(['depart_at', 'arrive_by']), unavailable: Object.freeze([]) }),
     note: 'Reach measures modeled network reach. It does not measure people, jobs, demand, or welfare.',
   }),

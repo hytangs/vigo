@@ -20,6 +20,7 @@ import { writeCliFixtureInputs } from '../helpers/cli-fixture-inputs.mjs'
 import { cases, cities } from './cases.mjs'
 
 const root = path.resolve(import.meta.dirname, '../..')
+const checkoutVersion = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version
 const recordedDirectory = path.join(import.meta.dirname, 'recorded')
 const args = process.argv.slice(2)
 const mode = args[0]
@@ -34,6 +35,7 @@ const only = option('only')
 // Fields that legitimately differ between runs or builds. Each is replaced by a
 // fixed value of the same JSON type, so normalized Results stay schema-valid.
 const VARYING = Object.freeze({
+  'meta.engineVersion/engineVersion/capabilities.version': 'Release version; live output must match this checkout',
   'meta.requestId': 'Generated per request unless the caller supplies id',
   'meta.computeUs': 'Measured time',
   'meta.cityRevision': 'Build timestamp of the City',
@@ -58,7 +60,10 @@ const STAMPED = 1784113200000
 export function normalize(result, request = {}) {
   if (!result || typeof result !== 'object' || Array.isArray(result)) return result
   const out = structuredClone(result)
+  if (typeof out.engineVersion === 'string') out.engineVersion = '0.0.0'
+  if (out.schemaVersion === 'vigo.standalone.capabilities.v1' && typeof out.version === 'string') out.version = '0.0.0'
   if (out.meta && typeof out.meta === 'object') {
+    if (typeof out.meta.engineVersion === 'string') out.meta.engineVersion = '0.0.0'
     if (request.id === undefined && typeof out.meta.requestId === 'string') out.meta.requestId = 'vigo-request'
     if (typeof out.meta.computeUs === 'number') out.meta.computeUs = 0
     if (typeof out.meta.cityRevision === 'string') out.meta.cityRevision = 'city-revision'
@@ -103,6 +108,18 @@ function zeroNumbers(value) {
   if (Array.isArray(value)) return value.map(zeroNumbers)
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, zeroNumbers(v)]))
   return value
+}
+
+// RC.4 adds a lazy bicycle owner to the info ledger. Historical non-bicycle
+// receipts must still prove that no bicycle graph was loaded.
+function includeUnloadedBikeLedger(expected, actual) {
+  if (!expected || !actual || typeof expected !== 'object' || typeof actual !== 'object') return
+  if (expected.memory?.ledger && actual.memory?.ledger
+    && !Object.hasOwn(expected.memory.ledger, 'bike') && Object.hasOwn(actual.memory.ledger, 'bike')) {
+    assert.equal(actual.memory.ledger.bike, null, 'Ordinary corpus queries must not load a bicycle graph')
+    expected.memory.ledger.bike = null
+  }
+  for (const key of Object.keys(expected)) includeUnloadedBikeLedger(expected[key], actual[key])
 }
 
 function differences(expected, actual, at = '$', found = []) {
@@ -187,6 +204,9 @@ function normalizeRequest(kind, request) {
 }
 
 function record(entry, outcome) {
+  const version = outcome.result.meta?.engineVersion ?? outcome.result.engineVersion
+    ?? (entry.kind === 'capabilities' ? outcome.result.version : undefined)
+  if (version !== undefined) assert.equal(version, checkoutVersion, 'Replay must use the runtime built from this release')
   return { case: `${entry.city}/${entry.name}`, city: entry.city, kind: entry.kind, ...(entry.flags ? { flags: entry.flags } : {}),
     exitCode: outcome.exitCode, request: normalizeRequest(entry.kind, entry.request), result: normalize(outcome.result, entry.request ?? {}) }
 }
@@ -246,6 +266,11 @@ async function recordOrCheck(write) {
         continue
       }
       const expected = JSON.parse(fs.readFileSync(file, 'utf8'))
+      // Keep historical receipts intact across version changes. Only fields
+      // declared above vary; route clocks, geometry and outcomes remain exact.
+      expected.result = normalize(expected.result, expected.request ?? {})
+      expected.request = normalizeRequest(expected.kind, expected.request)
+      includeUnloadedBikeLedger(expected.result, actual.result)
       // V1 adds admission provenance and one command. Keep the retained 0.5
       // receipts byte-for-byte; assert the additions before projecting them out.
       if (actual.case === 'standard/route-drive-traffic' && !expected.result.meta.traffic) {

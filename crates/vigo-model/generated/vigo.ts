@@ -52,6 +52,30 @@ export interface Accessibility {
   unknownData: string;
 }
 
+export interface AccessibilityLayerResult {
+  /** [percentile][origin][cutoff], weighted opportunity counts. */
+  access: number[][][];
+  /** [percentile][origin][threshold], null when insufficient opportunities */
+  /** are reachable within the routing horizon; valid zero stays zero. */
+  dualSeconds: Array<Array<Array<number | null>>>;
+  id: string;
+}
+
+export interface AccessibilityOptions {
+  cutoffsMinutes: number[];
+  decayFunction?: DecayFunction;
+  dualThresholds?: number[];
+  layers: OpportunityLayer[];
+}
+
+export interface AccessibilityResult {
+  cutoffsMinutes: number[];
+  decayFunction: DecayFunction;
+  dualThresholds: number[];
+  layers: AccessibilityLayerResult[];
+  method: string;
+}
+
 /**
  * POSIX seconds; a missing bound is open.
  */
@@ -128,6 +152,18 @@ export interface AlternativeSearch {
 }
 
 /**
+ * Bicycle route preferences; costs affect selection, never the reported ETA.
+ */
+export interface BikeOptions {
+  /** Maximum estimated traffic stress for cycling; higher levels require legal pushing. */
+  maxLts?: number;
+  profile?: BikeProfile;
+  speedKph?: number;
+}
+
+export type BikeProfile = "balanced" | "fast" | "quiet";
+
+/**
  * `[west, south, east, north]` in WGS84 degrees.
  */
 export type Bounds = [number, number, number, number];
@@ -145,6 +181,7 @@ export interface Capabilities {
   http: HttpCapabilities;
   matrix: MatrixCapabilities;
   modes: string[];
+  monteCarlo?: MonteCarloCapabilities;
   nativeOperations: string[];
   output: OutputCapabilities;
   reach: ReachCapabilities;
@@ -321,7 +358,76 @@ export interface DatasetLimitation {
   exactness?: string;
 }
 
+export type DecayFunction = {
+  type: "step";
+} | {
+  standardDeviationMinutes: number;
+  type: "logistic";
+} | {
+  type: "linear";
+  widthMinutes: number;
+} | {
+  type: "exponential";
+} | {
+  decayConstant: number;
+  type: "fixed-exponential";
+};
+
 export type DiagnosticsLevel = "none" | "summary" | "profile" | "trace";
+
+export type DistributionLayout = {
+  bounds: Bounds;
+  height: number;
+  sampling: string;
+  width: number;
+} | {
+  columns: number;
+  destinations: Point[];
+  order: string;
+  origins: Point[];
+  rows: number;
+};
+
+/**
+ * Travel-time percentiles over a departure window and sampled schedules.
+ */
+export interface DistributionResult {
+  accessibility?: AccessibilityResult;
+  assumptions: string[];
+  /** One flattened destination array per percentile. Null means infinity; */
+  /** finite zero is a valid travel time. Matrix arrays use row-major order. */
+  durationsSeconds: Array<Array<number | null>>;
+  /** The caller's `id`. */
+  id?: unknown;
+  kind: string;
+  layout: DistributionLayout;
+  meta: Meta;
+  percentiles: number[];
+  /** Complete request selectors, retained for reproducibility. */
+  query: unknown;
+  reachableSamples: number[];
+  sampling: DistributionSampling;
+  schema: "vigo.distribution.v1";
+  /** Line number on a resident stream. */
+  sequence?: number;
+  status: OkStatus;
+  timing: unknown;
+  warnings: unknown;
+}
+
+export interface DistributionSampling {
+  departureMinutes: number;
+  method: string;
+  observationBytes: number;
+  quantileMethod: string;
+  requestedDraws: number;
+  sampleCount: number;
+  samplesPerMinute: number;
+  seed: number;
+  stepMinutes: number;
+  stochastic: boolean;
+  unreachable: string;
+}
 
 /**
  * A place on a journey. A free coordinate has no `stop` or `name`.
@@ -409,6 +515,13 @@ export interface FlexOptions {
   durationFactor?: number;
   /** Fallback addition when safe_duration_offset is absent. Default 300 seconds. */
   durationOffsetSeconds?: number;
+}
+
+export interface FrequencyPhasing {
+  atStopIndex: number;
+  fromStopIndex: number;
+  offsetMinutes?: number;
+  serviceId: string;
 }
 
 export interface GtfsSource {
@@ -500,6 +613,7 @@ export interface Journey {
   /** Date anchoring every clock in this journey. Route only; `null` for a */
   /** walking or driving journey without a service date. */
   clockDate?: string | null;
+  cyclingSeconds?: number;
   departureTime: string;
   drivingSeconds?: number;
   durationSeconds: number;
@@ -583,6 +697,7 @@ export interface MatrixRequest {
   /** Default `true`. */
   allowStreetTransfers?: boolean;
   arrivalBufferMinutes?: number;
+  bike?: BikeOptions;
   /** Alias of `routingDataMode`. */
   dataMode?: DataMode;
   destinations: Point[];
@@ -610,12 +725,16 @@ export interface MatrixRequest {
   /** Default 0. */
   minimumTransferBufferMinutes?: number;
   mode?: Mode;
+  /** Seeded departure-window and frequency-schedule distribution. */
+  monteCarlo?: MonteCarloOptions;
   origins: Point[];
   /** Transit Matrix searches the same realtime view as Route. */
   realtimeSnapshot?: RealtimeSnapshot;
   requireCompleteServiceCoverage?: boolean;
   requireTransitRide?: boolean;
   routingDataMode?: DataMode;
+  /** Planned service for Monte Carlo analysis. */
+  scenario?: Scenario;
   /** Member of the loaded scenario collection; omitted selects its default. */
   scenarioId?: string;
   /** `YYYY-MM-DD`. Required for transit. */
@@ -678,7 +797,32 @@ export interface Meta {
   traffic?: unknown;
 }
 
-export type Mode = "transit" | "walk" | "drive";
+export type Mode = "transit" | "walk" | "drive" | "bike";
+
+export interface MonteCarloCapabilities {
+  accessibility: boolean;
+  commands: string[];
+  maximumDraws: number;
+  maximumObservationBytes: number;
+  method: string;
+  phasing: boolean;
+  plannedServices: boolean;
+  scheduledOnly: boolean;
+}
+
+/**
+ * End-exclusive civil-day departure window, evaluated at every minute.
+ */
+export interface MonteCarloOptions {
+  accessibility?: AccessibilityOptions;
+  /** Rounded up to equal samples per minute; exact-only service uses one. */
+  draws?: number;
+  endMinutes: number;
+  /** Nearest-rank percentiles, including unreachable samples as infinity. */
+  percentiles?: number[];
+  seed?: number;
+  startMinutes: number;
+}
 
 /**
  * A stop near an endpoint whose street access was not verified.
@@ -720,6 +864,12 @@ export interface ObservedTraffic {
 }
 
 export type OkStatus = "ok";
+
+export interface OpportunityLayer {
+  /** Nonnegative weights in destination order (row-major cells for Reach). */
+  counts: number[];
+  id: string;
+}
 
 export interface OsmSource {
   name: string | null;
@@ -828,9 +978,9 @@ export interface ReachCapabilities {
 export type ReachFormat = "full" | "surface" | "map";
 
 /**
- * Reach covers transit, walking, and driving travel times.
+ * Reach covers transit, walking, driving, and bicycle travel times.
  */
-export type ReachMode = "transit" | "walk" | "drive";
+export type ReachMode = "transit" | "walk" | "drive" | "bike";
 
 export interface ReachQuery {
   allDay?: AllDayQuery;
@@ -854,6 +1004,7 @@ export interface ReachRequest {
   allDay?: AllDayWindow;
   /** Default `true`. */
   allowStreetTransfers?: boolean;
+  bike?: BikeOptions;
   bounds?: Bounds;
   /** Default `[15, 30, 45, 60]`. */
   cutoffsMinutes?: number[];
@@ -884,6 +1035,8 @@ export interface ReachRequest {
   /** Default 0. */
   minimumTransferBufferMinutes?: number;
   mode?: ReachMode;
+  /** Seeded departure-window and frequency-schedule distribution. */
+  monteCarlo?: MonteCarloOptions;
   /** Where depart-at trips start. Required for depart-at Reach. */
   origin?: Point;
   /** Cells per side. Default 96. */
@@ -1034,7 +1187,7 @@ export interface ResourcePolicy {
 /**
  * Any document the engine writes for a query, keyed by its `schema`.
  */
-export type Response = RouteResult | MatrixResult | ReachResult | CompareResult | InfoResult | CollectionInfoResult | StreamDetail | ErrorResult;
+export type Response = RouteResult | MatrixResult | ReachResult | DistributionResult | CompareResult | InfoResult | CollectionInfoResult | StreamDetail | ErrorResult;
 
 export interface RouteAccess {
   destination: AccessReport;
@@ -1082,6 +1235,7 @@ export interface RouteRequest {
   alternatives?: number;
   /** Arrival reserve for arrive-by transit without via points. */
   arrivalBufferMinutes?: number;
+  bike?: BikeOptions;
   /** Alias of `routingDataMode`. */
   dataMode?: DataMode;
   destination: Point;
@@ -1114,12 +1268,15 @@ export interface RouteRequest {
   minimumTransferBufferMinutes?: number;
   /** Default `transit`. */
   mode?: Mode;
+  /** Seeded departure-window and frequency-schedule distribution. */
+  monteCarlo?: MonteCarloOptions;
   origin: Point;
   realtimeSnapshot?: RealtimeSnapshot;
   requireCompleteServiceCoverage?: boolean;
   /** Default `false`: a direct walk may answer the query. */
   requireTransitRide?: boolean;
   routingDataMode?: DataMode;
+  scenario?: Scenario;
   /** Member of the loaded scenario collection; omitted selects its default. */
   scenarioId?: string;
   /** `YYYY-MM-DD`. Required for transit. */
@@ -1217,12 +1374,15 @@ export interface ScenarioService {
   dwellMinutes?: number;
   /** Default 1500. */
   endMinutes?: number;
+  /** A fixed timetable when true; otherwise simulation samples its phase. */
+  exactTimes?: boolean;
   /** Default 12. */
   headwayMinutes?: number;
   id?: string;
   name?: string;
   /** Default `add`. */
   operation?: ServiceOperation;
+  phaseFrom?: FrequencyPhasing;
   scheduleMode?: ScheduleMode;
   scheduledTrips?: ScheduledTrip[];
   segmentDistancesKm?: number[];
@@ -1234,6 +1394,25 @@ export interface ScenarioService {
   stops: Point[];
   /** Default `estimate-distance`. */
   timeModel?: TimeModel;
+  /** Optional independent timetable rows. Replaces the top-level frequency */
+  /** window; weekdays refer to serviceDate, including times after midnight. */
+  timetables?: ScenarioTimetable[];
+  /** Adjust ride and dwell times while retaining original trip departures. */
+  /** Requires preserve-trips. Selection indexes refer to the edited pattern. */
+  timing?: ServiceTiming;
+}
+
+/**
+ * One independent, end-exclusive planned-service frequency window.
+ */
+export interface ScenarioTimetable {
+  /** ISO weekdays: 1 = Monday, 7 = Sunday. Omitted means every day. */
+  daysOfWeek?: number[];
+  endMinutes: number;
+  exactTimes?: boolean;
+  headwayMinutes: number;
+  id: string;
+  startMinutes: number;
 }
 
 export type ScheduleMode = "frequency" | "preserve-trips";
@@ -1291,6 +1470,18 @@ export interface ServiceAlert {
 export type ServiceDay = "weekday" | "saturday" | "sunday";
 
 export type ServiceOperation = "add" | "augment" | "replace";
+
+export interface ServiceTiming {
+  /** Set dwell at selected stops; mutually exclusive with dwellScale. */
+  dwellMinutes?: number;
+  dwellScale?: number;
+  /** Zero-based segment indexes; omitted selects all segments. */
+  segmentIndexes?: number[];
+  /** Divide moving time by this factor; 2 means twice as fast. */
+  speedFactor?: number;
+  /** Stop indexes after the fixed first departure; omitted selects all. */
+  stopIndexes?: number[];
+}
 
 export type StationPath = "inferred" | "source_path";
 
@@ -1373,7 +1564,7 @@ export interface StreetLeg {
   geometry?: LineString;
   quality: StreetQuality;
   to: Endpoint;
-  type: "walk" | "drive";
+  type: "walk" | "drive" | "bike";
 }
 
 export interface StreetQuality {

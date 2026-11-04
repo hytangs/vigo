@@ -142,6 +142,7 @@
     "test/check-service-benchmark.mjs"
   ],
   "check:correctness": [
+    "test/check-monte-carlo.mjs",
     "test/check-ordered-objective.mjs",
     "test/check-routing-accuracy.mjs",
     "test/check-multi-stop-routing-quality.mjs",

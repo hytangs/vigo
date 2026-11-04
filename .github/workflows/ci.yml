@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, vigo-v1-final]
+    branches: [main, rc4, vigo-v1-final]
   pull_request:
   workflow_dispatch:
 

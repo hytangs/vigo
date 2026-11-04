@@ -1,4 +1,4 @@
-# VIGO 1.0.0-rc.3 developer guide
+# VIGO 1.0.0-rc.4 developer guide
 
 Canonical source for the developer chapters of the [VIGO guide](guide.html). Edit the relevant chapter, then run `npm run docs:build`.
 
@@ -84,6 +84,7 @@ orchestration, and public interfaces.
 | --- | --- |
 | Transit Route | Native forward or reverse timetable search, directed street access, then selected-journey reconstruction |
 | Walk / Drive Route | Native directed street search, CCH acceleration, and path geometry |
+| Bike Route / Matrix | One optional native bicycle graph, turn-aware A* and path geometry |
 | Transit Matrix | Shared native forward scans per origin or reverse scans per destination; optional selected witnesses |
 | Reach | Native timetable propagation and walking surface; JavaScript contours and Result shaping |
 | Scenario | JavaScript validation and compilation of supported changes; native routing applies the compiled overlay |
@@ -619,7 +620,7 @@ The independent suite validates the generated graph and timetable models under t
 
 ## Runtime limits and recovery
 
-The following admission limits and recovery behavior apply to VIGO 1.0.0-rc.3.
+The following admission limits and recovery behavior apply to VIGO 1.0.0-rc.4.
 See [public results](reference/results.md) for the current result schemas.
 
 ### Memory and request admission
@@ -1073,3 +1074,48 @@ in that job. It fails if an expected binary is absent. Never use this flag after
 editing Rust or embedded documentation: local builds remain source-checked by
 Cargo by default. Node and standalone are distinct feature targets and each still
 requires its own initial compilation.
+
+## Bicycle routing
+
+RC.4 adds an optional bicycle graph in `bike_nodes`, `bike_edges`, `bike_turns`,
+and `bike_way_turns` tables inside the existing street database. Existing
+readers ignore these tables; no existing field, snapshot or format identifier
+changes. CLI builds opt in with `--street-modes=walk,bike` or
+`--street-modes=walk,drive,bike`. Studio OSM imports include bike streets.
+
+The graph loads only on a bike query. Attributes use one packed integer per
+directed edge; all three preference profiles share one topology. Search is
+A* over directed edges and active via-way restriction states. Its lower bound
+uses the fastest possible profile speed and the minimum ratio of stored edge
+length to geodesic distance. Ordinary searches retain one cost label per
+equivalent state; nondominated cost/distance labels are needed only if the
+unconstrained optimum exceeds the distance cap. Exceeding the work limit returns an error, not a
+false no-path answer. Endpoint projection reuses the road segment index.
+
+Preference cost is distinct from physical travel seconds. The default
+`balanced` and `quiet` profiles penalize traffic exposure; `fast` minimizes
+estimated travel time. Mapped surfaces and incline change speed. Dismount
+segments use walking time and are materialized as `walk` legs with
+`geometrySource: "osm-dismount"`. Off-network coordinate connectors remain
+unverified walks. Bikes-on-transit, bike sharing, elevation rasters, bicycle
+Reach and time-dependent conditional access are not implemented. Conditional
+ways are excluded; conditional turn restrictions are applied conservatively
+at all times. Unhandled relation shapes are counted in diagnostics.
+
+The importer follows the [OSM access hierarchy](https://wiki.openstreetmap.org/wiki/Key:access).
+Trunk roads retain explicit bicycle restrictions and motorroad exclusions;
+their classification alone does not make them motorways. Movable gates inherit
+the admitted way's access unless private, locked, or time-restricted. Mandatory
+separate cycle paths (`bicycle=use_sidepath`) exclude the roadway. These portable
+defaults are not a country-specific traffic-law model.
+
+Run `npm run check:bike`, the Rust `bike::tests`, and
+`npm run check:format-050`. The latter checks that the published reference
+reader can open a newly written City with the optional bike tables.
+
+Valhalla's [bicycle costing documentation](https://github.com/valhalla/valhalla/blob/master/docs/docs/api/route/api-reference.md)
+and [elevation model](https://valhalla.github.io/valhalla/sif/elevation_costing/)
+provide feature references. VIGO's weights are its own documented heuristics.
+Passing synthetic regressions does not establish route-quality or performance
+parity with Valhalla, GraphHopper, or BRouter. Comparative evidence belongs in
+the separate benchmark workspace.

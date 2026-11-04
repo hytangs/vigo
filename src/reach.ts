@@ -2,7 +2,7 @@ import type { FeatureCollection, Geometry, GeoJsonProperties } from 'geojson'
 import type { GeometrySource, LngLat, MapPreview, RouteMetric } from './domain'
 import { coordinateDistanceKm, orderedPolylineAnchors, polylineDistanceKm, splicePolylineIntervals } from './app/geometry'
 import { entityFeedScope } from './networkTruth'
-import type { RoutingPoint } from './routingModel'
+import type { RoutingBikeOptions, RoutingPoint } from './routingModel'
 
 export function joinScenarioSegmentGeometry(segments: LngLat[][]): LngLat[] {
   const geometry: LngLat[] = []
@@ -423,6 +423,9 @@ export type ScenarioServiceDraft = {
   name: string
   operation: 'add' | 'augment' | 'replace'
   scheduleMode?: 'preserve-trips' | 'frequency'
+  exactTimes?: boolean
+  timetables?: import('../crates/vigo-model/generated/vigo').ScenarioTimetable[]
+  timing?: import('../crates/vigo-model/generated/vigo').ServiceTiming
   sourceRouteId?: string
   bidirectional: boolean
   headwayMinutes: number
@@ -453,6 +456,9 @@ export type ScenarioChangeDraft = {
   id: string
   kind: ScenarioChangeKind
   scheduleMode?: 'preserve-trips' | 'frequency'
+  exactTimes?: boolean
+  timetables?: import('../crates/vigo-model/generated/vigo').ScenarioTimetable[]
+  timing?: import('../crates/vigo-model/generated/vigo').ServiceTiming
   name: string
   routeId?: string
   routeScope?: ScenarioRouteScope
@@ -544,7 +550,7 @@ export type ScenarioStreetEdgeSource =
   | ScenarioStreetEdgeReference
 
 export type ScenarioReachMethod = {
-  mode: 'total-elapsed-walk-transit-walk' | 'total-elapsed-drive'
+  mode: 'total-elapsed-walk-transit-walk' | 'total-elapsed-drive' | 'total-elapsed-bike'
   cutoffMinutes: number
   baselineTerminalWalkKm: number
   scenarioTerminalWalkKm: number
@@ -553,7 +559,7 @@ export type ScenarioReachMethod = {
 }
 
 export type ReachTransitStatus = {
-  status: 'drive_only' | 'walk_only' | 'reached' | 'no_service' | 'no_service_window' | 'no_target_stops' | 'outside_window' | 'no_reachable_stops' | 'preliminary'
+  status: 'bike_only' | 'drive_only' | 'walk_only' | 'reached' | 'no_service' | 'no_service_window' | 'no_target_stops' | 'outside_window' | 'no_reachable_stops' | 'preliminary' | 'sampled'
   detail: string
   requestedDepartureMinutes?: number
   windowEndMinutes?: number
@@ -629,10 +635,13 @@ export type ReachPlace = {
 
 export type ReachResult = {
   schemaVersion: 'vigo.result.reach.v1'
+  distributions?: { baseline: import('../crates/vigo-model/generated/vigo').DistributionResult; scenario: import('../crates/vigo-model/generated/vigo').DistributionResult }
   request: {
     baselineIdentity: string
+    monteCarlo?: import('../crates/vigo-model/generated/vigo').MonteCarloOptions
     feedIds?: string[]
-    mode?: 'walk' | 'transit' | 'drive'
+    mode?: 'walk' | 'transit' | 'drive' | 'bike'
+    bike?: RoutingBikeOptions
     surfaceSampling?: 'street' | 'cell-center'
     /** Arrive-by Reach names a destination; `departMinutes` is then its arrival deadline. */
     timePreference?: 'depart' | 'arrive'

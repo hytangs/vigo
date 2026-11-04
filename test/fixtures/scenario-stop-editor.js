@@ -99,3 +99,21 @@ window.runAssemblyTests = async () => {try {
 } catch(error) {return {failed:error.stack}}};
 
 const runButton = document.createElement('button'); runButton.textContent = 'Load test scenario'; runButton.onclick = () => (location.search.includes('assembly') ? window.runAssemblyTests() : window.runTests()).then(result => { runButton.textContent = JSON.stringify(result); }); document.body.append(runButton);
+
+window.checkTimetableEditor = async () => {
+  const button = label => [...document.querySelectorAll('button')].find(node => node.textContent === label);
+  flushSync(() => button('Add timetable rows').click());
+  flushSync(() => button('Sat').click());
+  flushSync(() => button('Sun').click());
+  const first = document.querySelector('.scenario-timetable-row');
+  const until = first.querySelectorAll('select')[1];
+  until.value = '540';
+  flushSync(() => until.dispatchEvent(new Event('change', { bubbles: true })));
+  flushSync(() => first.querySelector('input[type="checkbox"]').click());
+  flushSync(() => button('Copy row').click());
+  const rows = library.scenarioDrafts[0].interventions[0].timetables;
+  check(rows.length === 2 && rows[0].id !== rows[1].id, 'Copied row needs its own identity');
+  check(rows.every(row => row.endMinutes === 540 && row.exactTimes === true && String(row.daysOfWeek) === '1,2,3,4,5'), 'Copied timetable lost hours, weekdays or exact schedule');
+  for (const row of document.querySelectorAll('.scenario-timetable-row')) check(row.clientWidth >= 250 && row.scrollWidth <= row.clientWidth + 1, 'Timetable row must use the full panel width without overflow');
+  return { distinctRows: true, peakPeriodEnd: true, weekdays: true, exactSchedules: true, fitsPanel: true };
+};

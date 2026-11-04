@@ -1,4 +1,6 @@
 import crypto from 'node:crypto'
+import { normalizeTiming, adjustScheduledTrip } from './scenario-timing.mjs'
+import { normalizeTimetables, activeTimetables } from './scenario-timetables.mjs'
 import { nativeOffStreetEstimates, nativeRasterAreas } from './native-routing-kernel.mjs'
 export { nativeRasterAreas as rasterBoundaryAreas } from './native-routing-kernel.mjs'
 import { reachChangeCounts, reachChangeStats } from './reach-comparison.mjs'
@@ -177,6 +179,10 @@ function normalizedService(value, index) {
     name: compactText(value.name, `Service ${index + 1}`),
     operation,
     scheduleMode,
+    ...(value.exactTimes === undefined ? {} : { exactTimes: value.exactTimes }),
+    ...(value.phaseFrom === undefined ? {} : { phaseFrom: value.phaseFrom }),
+    ...(value.timing === undefined ? {} : { timing: normalizeTiming(value.timing) }),
+    ...(value.timetables === undefined ? {} : { timetables: normalizeTimetables(value.timetables) }),
     ...(preserveTrips ? { scheduledTrips } : {}),
     sourceRouteId: value.sourceRouteId ? compactText(value.sourceRouteId, '', 160) : undefined,
     sourcePatternId: value.sourcePatternId ? compactText(value.sourcePatternId, '', 240) : undefined,
@@ -339,6 +345,7 @@ function directionOffsets(direction, service) {
 }
 
 function compileScenarioOverlay({
+  serviceDate,
   services,
   scenarioStops,
   serviceStopIndexes,
@@ -357,10 +364,10 @@ function compileScenarioOverlay({
   const canBoard = [], canAlight = []
   const runs = directions.flatMap((direction) => direction.service.scheduleMode === 'preserve-trips'
     ? direction.service.scheduledTrips.map((trip) => ({
-        ...direction, trip, start: trip.departureSeconds, end: trip.departureSeconds, headway: 1,
+        ...direction, trip: adjustScheduledTrip(trip, direction.service.timing), start: trip.departureSeconds, end: trip.departureSeconds, headway: 1,
       }))
-    : [{ ...direction, start: direction.service.startMinutes * 60,
-        end: direction.service.endMinutes * 60, headway: direction.service.headwayMinutes * 60 }])
+    : activeTimetables(direction.service, serviceDate).map(row => ({ ...direction, start: row.startMinutes * 60,
+        end: row.endMinutes * 60 - (row.endExclusive ? 1 : 0), headway: row.headwayMinutes * 60 })))
   for (const direction of runs) {
     directionStops.push(...direction.indexes)
     const offsets = direction.trip?.departureOffsetsSeconds ?? direction.offsets.map((minutes) => minutes * 60)
@@ -582,9 +589,11 @@ function scenarioRequestRecord(request) {
     baselineIdentity: request.baselineIdentity,
     ...(request.feedIds ? { feedIds: request.feedIds } : {}),
     mode: request.mode,
+    ...(request.mode === 'bike' ? {bike:request.bike} : {}),
     surfaceSampling: request.surfaceSampling,
     ...reachEndpoint(request),
     departMinutes: request.departMinutes,
+    ...(request.monteCarlo ? { monteCarlo: request.monteCarlo } : {}),
     serviceDate: request.serviceDate,
     serviceDay: request.serviceDay,
     maxWalkKm: request.maxWalkKm,
@@ -607,7 +616,7 @@ function scenarioRequestRecord(request) {
 
 function scenarioReachRecord(request, cutoffMinutes, baselineMinutes, scenarioMinutes) {
   return {
-    mode: request.mode === 'drive' ? 'total-elapsed-drive' : 'total-elapsed-walk-transit-walk',
+    mode: request.mode === 'drive' ? 'total-elapsed-drive' : request.mode === 'bike' ? 'total-elapsed-bike' : 'total-elapsed-walk-transit-walk',
     cutoffMinutes,
     baselineTerminalWalkKm: request.mode === 'drive' ? 0 : request.maxWalkKm,
     scenarioTerminalWalkKm: request.mode === 'drive' ? 0 : request.maxWalkKm,
@@ -789,7 +798,10 @@ function scenarioLimitations(request, hasScenarioChanges) {
       code: 'total_elapsed_time_cutoff',
       detail: `Access walking, waiting, transit, transfers, and terminal walking share one elapsed-time cutoff. Terminal walking uses only the remaining time and is capped at ${request.maxWalkKm} km on the directed OSM network; no geographic envelope is applied.`,
     },
-    request.timePreference === 'arrive' ? {
+    request.monteCarlo ? {
+      code: 'sampled_schedule_distribution',
+      detail: 'Travel-time percentiles include departure-window variation and sampled frequency schedules, with unreachable draws retained. They are not observed operational reliability.',
+    } : request.timePreference === 'arrive' ? {
       code: 'single_destination_arrival_snapshot',
       detail: 'This run represents one destination and one arrival deadline. Test nearby deadlines, service dates, and additional destinations before treating the contrast as temporally or spatially robust.',
     } : {
@@ -858,14 +870,20 @@ export function validateReachRequest(value) {
   if (!cutoffsMinutes.length || cutoffsMinutes.length > 8) {
     throw badRequest('cutoffsMinutes must contain between one and eight values.')
   }
-  const { scenario } = compileReachScenario(value.scenario)
+  const { scenario } = compileReachScenario(value.scenario, value.serviceDate)
   const mode = value.mode ?? 'transit'
-  const surfaceSampling = mode === 'drive' ? 'cell-center' : value.surfaceSampling ?? 'street'
+  const surfaceSampling = ['drive','bike'].includes(mode) ? 'cell-center' : value.surfaceSampling ?? 'street'
   if (!['street', 'cell-center'].includes(value.surfaceSampling ?? 'street')) throw badRequest('surfaceSampling must be street or cell-center.')
-  if (!['transit', 'walk', 'drive'].includes(mode)) throw badRequest('Reach supports transit, walk, or drive.')
+  if (!['transit', 'walk', 'drive', 'bike'].includes(mode)) throw badRequest('Reach supports transit, walk, drive, or bike.')
+  if (value.bike !== undefined && mode !== 'bike') throw badRequest('Bike preferences require bicycle Reach.')
   if ((mode === 'walk' || surfaceSampling === 'cell-center') && (scenario.flexZones.length || scenario.services.length
     || scenario.excludedRouteIds.length || scenario.excludedTripIds.length || scenario.excludedPatternIds.length)) {
     throw badRequest('Planned transit changes require transit Reach with street sampling.')
+  }
+  if (value.monteCarlo !== undefined) {
+    if (!value.monteCarlo || typeof value.monteCarlo !== 'object' || Array.isArray(value.monteCarlo)) throw badRequest('monteCarlo must be an object.')
+    if (mode !== 'transit' || timePreference !== 'depart' || value.includeStreetEdges === true) throw badRequest('Monte Carlo requires depart-at transit with area display.')
+    if (scenario.flexZones.length) throw badRequest('Monte Carlo does not yet support Flex zones.')
   }
   const baselineMaxWalkKm = boundedNumber(value.maxWalkKm ?? 1.2, 'maxWalkKm', 0.2, 5)
   const baselineWalkSpeedKph = boundedNumber(value.walkSpeedKph ?? 4.8, 'walkSpeedKph', 1, 8)
@@ -883,7 +901,9 @@ export function validateReachRequest(value) {
     ...(Array.isArray(value.feedIds) ? { feedIds: [...new Set(value.feedIds.map(id => compactText(id, '', 160)))].sort() } : {}),
     ...endpoint,
     mode,
+    ...(mode === 'bike' ? {bike:value.bike ?? {}} : {}),
     surfaceSampling,
+    ...(value.monteCarlo === undefined ? {} : { monteCarlo: value.monteCarlo }),
     departMinutes: boundedIntegralNumber(value.departMinutes, 'departMinutes', 0, 2_880, 8 * 60),
     serviceDate,
     serviceDay,
@@ -891,8 +911,8 @@ export function validateReachRequest(value) {
     maxTransfers: value.maxTransfers === undefined ? undefined
       : boundedIntegralNumber(value.maxTransfers, 'maxTransfers', 0, 31),
     walkSpeedKph: baselineWalkSpeedKph,
-    includePreliminary: value.includePreliminary !== false,
-    includeStreetEdges: mode !== 'drive' && value.includeStreetEdges !== false,
+    includePreliminary: value.monteCarlo === undefined && value.includePreliminary !== false,
+    includeStreetEdges: value.monteCarlo === undefined && !['drive','bike'].includes(mode) && value.includeStreetEdges !== false,
     radiusKm: boundedNumber(value.radiusKm ?? 8, 'radiusKm', 1, 40),
     rasterSize,
     cutoffsMinutes,
@@ -900,7 +920,7 @@ export function validateReachRequest(value) {
   }
 }
 
-export function compileReachScenario(value) {
+export function compileReachScenario(value, serviceDate) {
   if (value != null && (typeof value !== 'object' || Array.isArray(value))) {
     throw badRequest('scenario must be an object.')
   }
@@ -919,7 +939,9 @@ export function compileReachScenario(value) {
     throw badRequest(`scenario.services is limited to ${maximumScenarioServices} services.`)
   }
   for (const [index, service] of services.entries()) {
-    if (service.scheduleMode === 'frequency' && service.endMinutes <= service.startMinutes) {
+    if (service.timing && service.scheduleMode !== 'preserve-trips') throw badRequest('Timing edits require preserve-trips service.')
+    if (service.timetables && service.scheduleMode !== 'frequency') throw badRequest('Timetable rows require frequency service.')
+    if (service.scheduleMode === 'frequency' && !service.timetables && service.endMinutes <= service.startMinutes) {
       throw badRequest(`scenario.services[${index}].endMinutes must be after startMinutes.`)
     }
   }
@@ -966,6 +988,7 @@ export function compileReachScenario(value) {
     excludedPatternIds,
   }
   const compiled = compileScenarioOverlay({
+    serviceDate,
     services,
     scenarioStops,
     serviceStopIndexes,
@@ -983,8 +1006,8 @@ export function compileReachScenario(value) {
  * runs as Reach, the trips and routes they remove, and per-direction labels
  * and geometry so journeys can describe planned service.
  */
-export function compileRouteScenario(value) {
-  const { scenario, overlay, directions, runDirections } = compileReachScenario(value)
+export function compileRouteScenario(value, serviceDate) {
+  const { scenario, overlay, directions, runDirections } = compileReachScenario(value, serviceDate)
   const changed = Boolean(overlay || scenario.flexZones.length || scenario.excludedRouteIds.length || scenario.excludedTripIds.length)
   if (!changed) return null
   const plan = {
@@ -1068,6 +1091,7 @@ export async function computeReachResult(
   const request = validateReachRequest(value)
   const { stops: scenarioStops, serviceStopIndexes } = uniqueScenarioStops(request.scenario.services)
   const compiledScenario = compileScenarioOverlay({
+    serviceDate: request.serviceDate,
     services: request.scenario.services,
     scenarioStops,
     serviceStopIndexes,
@@ -1119,12 +1143,14 @@ export async function computeReachResult(
   )
   const reachResult = await runReach({
     mode: request.mode,
+    ...(request.mode === 'bike' ? {bike:request.bike} : {}),
     surfaceSampling: request.surfaceSampling,
     stage: 'baseline-range',
     retainSurface: scenarioTransitQueryChanged,
     feedId: request.feedId,
     ...reachEndpoint(request),
     departMinutes: request.departMinutes,
+    ...(request.monteCarlo ? { monteCarlo: request.monteCarlo } : {}),
     serviceDate: request.serviceDate,
     serviceDay: request.serviceDay,
     maxWalkKm: request.maxWalkKm,
@@ -1154,6 +1180,7 @@ export async function computeReachResult(
       feedId: request.feedId,
       ...reachEndpoint(request),
       departMinutes: request.departMinutes,
+    ...(request.monteCarlo ? { monteCarlo: request.monteCarlo } : {}),
       serviceDate: request.serviceDate,
       serviceDay: request.serviceDay,
       maxWalkKm: request.maxWalkKm,
@@ -1301,6 +1328,7 @@ export async function computeReachResult(
   const result = {
     schemaVersion: 'vigo.result.reach.v1',
     request: scenarioRequestRecord(request),
+    ...(request.monteCarlo ? { distributions: { baseline: reachResult.distribution, scenario: scenarioReachRange?.distribution ?? reachResult.distribution } } : {}),
     summary: {
       pixels: request.rasterSize ** 2,
       baselineReachablePixels,
@@ -1313,8 +1341,8 @@ export async function computeReachResult(
         : null,
       maximumCutoffMinutes: maximumCutoff,
       transitStopSeeds: baselineTransitSeeds.length,
-      transitStopsByCutoff: transitStopCountsByCutoff(transitStops, request.cutoffsMinutes),
-      scenarioTransitStopsByCutoff: transitStopCountsByCutoff(scenarioTransitStops, request.cutoffsMinutes),
+      transitStopsByCutoff: request.monteCarlo ? [] : transitStopCountsByCutoff(transitStops, request.cutoffsMinutes),
+      scenarioTransitStopsByCutoff: request.monteCarlo ? [] : transitStopCountsByCutoff(scenarioTransitStops, request.cutoffsMinutes),
       transitStatus: reachResult.diagnostics?.transit ?? null,
       scenarioTransitStatus: scenarioReachRange?.diagnostics?.transit
         ?? reachResult.diagnostics?.transit

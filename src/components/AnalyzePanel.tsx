@@ -13,7 +13,9 @@ import {
   changeReachMaxWalkKm,
   changeRenderMode,
   changeSurfaceSampling,
+  changeMonteCarlo,
   changeReachTravelMode,
+  changeReachBike,
   changeReachTimePreference,
   changeWalkSpeed,
   runSurfaceAnalysis,
@@ -27,11 +29,11 @@ import { activeCaseFeeds, cityGrouping, scenarioLibrary } from '../state/scenari
 import { preview, routingScope, selectedProject, visiblePreparationTasks } from '../state/scope'
 import { preparationState, type PreparationTask } from '../app/preparation'
 import { classNames, formatNumber, type StopMetric } from '../domain'
-import type { RoutingPoint, RoutingTimePreference } from '../routingModel'
+import type { RoutingBikeOptions, RoutingPoint, RoutingTimePreference } from '../routingModel'
 import { ResultMetric } from './UiPrimitives'
 import { AnalysisOriginPicker } from './AnalysisOriginPicker'
 import { OperationProgress } from './OperationProgress'
-import { ReachSettings } from './ReachSettings'
+import { ReachSettings, AnalysisNumberField } from './ReachSettings'
 import { ResultExportActions } from './ResultExportActions'
 import { ScenarioNetworkPicker } from './scenarios/ScenarioNetworkPicker'
 import { exportReachResults, reachExportEntries, reachGeometryAvailable } from '../app/resultExports'
@@ -55,6 +57,29 @@ import {
   type ScenarioView,
 } from '../reach'
 
+function MonteCarloSettings() {
+  const settings = useStore(analyze, state => ({ reachMonteCarlo: state.reachMonteCarlo,
+    reachWindowMinutes: state.reachWindowMinutes, reachDraws: state.reachDraws,
+    reachPercentile: state.reachPercentile, reachSeed: state.reachSeed }), shallowEqual)
+  return <details className="studio-disclosure is-compact reach-advanced">
+    <summary><span>Departure window</span><b>{settings.reachMonteCarlo ? `${settings.reachWindowMinutes} min · P${settings.reachPercentile}` : 'Single departure'}</b></summary>
+    <label className="reach-check"><input type="checkbox" checked={settings.reachMonteCarlo}
+      onChange={event => changeMonteCarlo({ reachMonteCarlo: event.currentTarget.checked })} />
+      <span>Simulate frequency schedules</span></label>
+    {settings.reachMonteCarlo ? <div className="reach-walking-settings">
+      <AnalysisNumberField label="Departure window" value={settings.reachWindowMinutes} min={1} max={240} integer unit="min"
+        onChange={value => { if (value !== undefined) changeMonteCarlo({ reachWindowMinutes: value }) }} />
+      <AnalysisNumberField label="Simulated schedules" value={settings.reachDraws} min={1} max={500} integer
+        onChange={value => { if (value !== undefined) changeMonteCarlo({ reachDraws: value }) }} />
+      <AnalysisNumberField label="Travel-time percentile" value={settings.reachPercentile} min={0} max={100} integer
+        onChange={value => { if (value !== undefined) changeMonteCarlo({ reachPercentile: value }) }} />
+      <AnalysisNumberField label="Random seed" value={settings.reachSeed} min={0} max={4294967295} integer
+        onChange={value => { if (value !== undefined) changeMonteCarlo({ reachSeed: value }) }} />
+      <small>Samples every minute from the selected time. Unreachable draws count toward percentiles. This describes schedule uncertainty, not observed delays.</small>
+    </div> : null}
+  </details>
+}
+
 export type AnalyzeMode = 'single' | 'compare'
 
 export type ComparisonFeedOption = {
@@ -75,8 +100,10 @@ type AnalyzePanelProps = {
   maxWalkKm: number
   maxTransfers?: number
   walkSpeedKph: number
-  travelMode?: 'transit' | 'drive'
-  onTravelModeChange?: (value: 'transit' | 'drive') => void
+  travelMode?: 'transit' | 'drive' | 'bike'
+  bike?: RoutingBikeOptions
+  onBikeChange?: (value: RoutingBikeOptions) => void
+  onTravelModeChange?: (value: 'transit' | 'drive' | 'bike') => void
   surfaceSampling?: 'street' | 'cell-center'
   onSurfaceSamplingChange?: (value: 'street' | 'cell-center') => void
   cutoffMinutes: number
@@ -143,6 +170,7 @@ function ReachSurfaceLegend({
   const arriveBy = reachArrivesBy(analysis.request)
   const timing = analysis.request.mode === 'drive'
     ? arriveBy ? 'Driving time to the destination · road-speed estimates' : 'Driving time · road-speed estimates'
+    : analysis.request.mode === 'bike' ? 'Bicycle travel time · includes pushing and endpoint walks'
     : arriveBy ? `Leave this many minutes before ${serviceTimeLabel(analysis.request.departMinutes)} · first walk ≤ ${terminalWalkKm} km` : ''
   if (!difference && renderMode === 'area') {
     const surface = view === 'scenario' ? 'scenario' : 'baseline'
@@ -239,7 +267,7 @@ export function ReachMetricCards({
   return (
     <div className="reach-metric-grid" aria-label={`${surface === 'baseline' ? 'Baseline' : 'Scenario'} network reach metrics`}>
       <ResultMetric value={`${reachDecimal(areaKm2, 2)} km²`} label={arriveBy ? `sampled area to leave ≤ ${cutoffMinutes} min before` : `sampled area reached by ${cutoffMinutes} min`} />
-      {analysis.request.mode !== 'drive' ? <ResultMetric value={stops === null ? 'Unavailable' : formatNumber(stops)} label={arriveBy ? `stops to board ≤ ${cutoffMinutes} min before` : `stops reached by ${cutoffMinutes} min`} detail={stops === null ? 'Update Reach to compute this cutoff.' : undefined} /> : null}
+      {(analysis.request.mode ?? 'transit') === 'transit' && !analysis.request.monteCarlo ? <ResultMetric value={stops === null ? 'Unavailable' : formatNumber(stops)} label={arriveBy ? `stops to board ≤ ${cutoffMinutes} min before` : `stops reached by ${cutoffMinutes} min`} detail={stops === null ? 'Update Reach to compute this cutoff.' : undefined} /> : null}
     </div>
   )
 }
@@ -256,7 +284,8 @@ export function ReachTransitStatusNotice({
   const status: ReachTransitStatus | null | undefined = surface === 'scenario'
     ? analysis.summary.scenarioTransitStatus ?? analysis.summary.transitStatus
     : analysis.summary.transitStatus
-  if (!status || analysis.request.mode === 'drive') return null
+  if (!status || analysis.request.mode === 'drive' || analysis.request.mode === 'bike') return null
+  if (analysis.request.monteCarlo) return <p className="reach-method-note">P{analysis.request.monteCarlo.percentiles?.[0] ?? 50} travel times across the departure window. Unreachable schedules remain in the distribution.</p>
   const stops = transitStopsForSelectedCutoff(analysis, surface, cutoffMinutes)
   const fullWindow = analysis.summary.maximumCutoffMinutes
   const fullStops = transitStopsForSelectedCutoff(analysis, surface, fullWindow)
@@ -307,6 +336,8 @@ export function AnalyzePanelView({
   walkSpeedKph,
   travelMode = 'transit',
   onTravelModeChange,
+  bike,
+  onBikeChange,
   surfaceSampling = 'street',
   onSurfaceSamplingChange,
   cutoffMinutes,
@@ -341,8 +372,8 @@ export function AnalyzePanelView({
 }: AnalyzePanelProps) {
   const activeCase = cases.find((entry) => entry.id === activeCaseId) ?? cases[0]
   const interventions = activeCase?.interventions ?? []
-  const hasPolicyChanges = travelMode !== 'drive' && interventions.length > 0
-  const hasScenarioChanges = travelMode !== 'drive' && (hasPolicyChanges || scenarioNetworkDiffers(scenarioGroups, activeCase?.groupId))
+  const hasPolicyChanges = travelMode === 'transit' && interventions.length > 0
+  const hasScenarioChanges = travelMode === 'transit' && (hasPolicyChanges || scenarioNetworkDiffers(scenarioGroups, activeCase?.groupId))
   // An arrive-by Reach anchors at its destination and reads the clock as a deadline.
   const arriveBy = timePreference === 'arrive'
   const place = arriveBy ? 'destination' : 'origin'
@@ -354,7 +385,7 @@ export function AnalyzePanelView({
   const scenarioDifference = useMemo(() => analysis ? reachScenarioDifference(analysis, cutoffMinutes) : null, [analysis, cutoffMinutes])
   const analysisExportEntries = useMemo(() => reachExportEntries(analysis), [analysis, cutoffMinutes])
   // A line set to follow roads runs once its path is traced in Scenarios.
-  const untraced = travelMode === 'drive' ? undefined : interventions.find((intervention) => (
+  const untraced = travelMode !== 'transit' ? undefined : interventions.find((intervention) => (
     ['add-line', 'enhance-line', 'change-line'].includes(intervention.kind)
     && intervention.geometryMode === 'auto-road'
     && intervention.geometryStatus !== 'ready'
@@ -433,12 +464,13 @@ export function AnalyzePanelView({
           </div>
         </div>
 
-        <ReachSettings travelMode={travelMode} onTravelModeChange={onTravelModeChange} timePreference={timePreference} cutoffMinutes={cutoffMinutes} maxWalkKm={maxWalkKm} walkSpeedKph={walkSpeedKph}
+        <ReachSettings bike={bike} onBikeChange={onBikeChange} travelMode={travelMode} onTravelModeChange={onTravelModeChange} timePreference={timePreference} cutoffMinutes={cutoffMinutes} maxWalkKm={maxWalkKm} walkSpeedKph={walkSpeedKph}
           maxTransfers={maxTransfers} surfaceSampling={surfaceSampling} hasScenarioChanges={hasPolicyChanges}
           onCutoffChange={onCutoffChange} onMaxWalkKmChange={onMaxWalkKmChange} onWalkSpeedChange={onWalkSpeedChange}
           onMaxTransfersChange={onMaxTransfersChange} onSurfaceSamplingChange={onSurfaceSamplingChange} />
+        {travelMode === 'transit' && timePreference === 'depart' ? <MonteCarloSettings /> : null}
 
-        {travelMode !== 'drive' && cases.length ? (
+        {travelMode === 'transit' && cases.length ? (
           <ScenarioNetworkPicker label="Compare with" ariaLabel="Reach network" value={activeCase?.id ?? ''}
             options={cases.map((entry) => ({ id: entry.id, name: entry.name || 'Untitled scenario' }))} onChange={onSelectCase} />
         ) : null}
@@ -457,7 +489,7 @@ export function AnalyzePanelView({
           </button>
           {loading || !canRun ? (
             <small className="reach-run-hint">
-              {loading ? (travelMode === 'drive' ? 'Computing driving times across the map…' : 'Computing the complete reached-street surface…') : setupHint}
+              {loading ? (travelMode === 'drive' ? 'Computing driving times across the map…' : travelMode === 'bike' ? 'Computing bicycle times across the map…' : 'Computing the complete reached-street surface…') : setupHint}
             </small>
           ) : null}
           {loading ? (
@@ -473,10 +505,10 @@ export function AnalyzePanelView({
           <div className="reach-results-heading">
             <div>
               <strong>{view === 'baseline' ? 'Baseline reach' : view === 'scenario' ? 'Scenario reach' : 'Travel-time change'}</strong>
-              <small>{analysis.request.serviceDate} · {reachArrivesBy(analysis.request) ? 'arrive by ' : ''}{serviceTimeLabel(analysis.request.departMinutes)}</small>
+              <small>{analysis.request.serviceDate} · {reachArrivesBy(analysis.request) ? 'arrive by ' : ''}{serviceTimeLabel(analysis.request.departMinutes)}{analysis.request.monteCarlo ? `–${serviceTimeLabel(analysis.request.monteCarlo.endMinutes)} · P${analysis.request.monteCarlo.percentiles?.[0] ?? 50}` : ''}</small>
             </div>
             <div className="reach-results-tools">
-              {analysis.request.mode !== 'drive' ? <ReachRenderModePicker renderMode={renderMode} onRenderModeChange={onRenderModeChange} /> : null}
+              {(analysis.request.mode ?? 'transit') === 'transit' ? <ReachRenderModePicker renderMode={renderMode} onRenderModeChange={onRenderModeChange} /> : null}
               <ResultExportActions label="Save Reach results" resultKey={analysisExportEntries}
                 disabled={loading || analysis.diagnostics.preliminary || cutoffMinutes > analysis.summary.maximumCutoffMinutes}
                 unavailable={reachGeometryAvailable(analysisExportEntries, cutoffMinutes) ? {} : { geojson: 'Update Reach to retain geometry for this cutoff' }}
@@ -538,6 +570,7 @@ export const AnalyzePanel = memo(function AnalyzePanel() {
     scenarioWalkSpeedKph: state.scenarioWalkSpeedKph,
     reachSurfaceSampling: state.reachSurfaceSampling,
     reachTravelMode: state.reachTravelMode,
+    reachBike: state.reachBike,
     scenarioCutoffMinutes: state.scenarioCutoffMinutes,
     scenarioRenderMode: state.scenarioRenderMode,
     scenarioView: state.scenarioView,
@@ -572,6 +605,8 @@ export const AnalyzePanel = memo(function AnalyzePanel() {
       maxWalkKm={settings.reachMaxWalkKm}
       maxTransfers={settings.reachMaxTransfers}
       walkSpeedKph={settings.scenarioWalkSpeedKph}
+      bike={settings.reachBike}
+      onBikeChange={changeReachBike}
       travelMode={settings.reachTravelMode}
       onTravelModeChange={changeReachTravelMode}
       surfaceSampling={settings.reachSurfaceSampling}

@@ -7,6 +7,39 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BinaryHeap, HashSet};
 use std::sync::Arc;
 
+/// Stable FNV-1a service identity. Delimit fields to avoid concatenation aliases.
+pub fn frequency_key(parts: &[&str]) -> u64 {
+    let mut key = 0xcbf29ce484222325u64;
+    for part in parts {
+        for byte in (part.len() as u64)
+            .to_le_bytes()
+            .iter()
+            .copied()
+            .chain(part.bytes())
+        {
+            key = (key ^ u64::from(byte)).wrapping_mul(0x100000001b3);
+        }
+    }
+    key
+}
+
+/// Counter-based SplitMix64. Query order and the number of destinations cannot
+/// affect a realization. Integer-second phases match GTFS clock resolution.
+fn frequency_phase(seed: u64, draw: u64, window: &HeadwayWindow) -> f64 {
+    fn mix(mut x: u64) -> u64 {
+        x = (x ^ (x >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+        x = (x ^ (x >> 27)).wrapping_mul(0x94d049bb133111eb);
+        x ^ (x >> 31)
+    }
+    let key = mix(seed)
+        ^ mix(draw.wrapping_add(0x9e3779b97f4a7c15))
+        ^ mix(window.key)
+        ^ mix(u64::from(window.headway))
+        ^ mix(window.start.to_bits())
+        ^ mix(window.end.to_bits());
+    (mix(key) % u64::from(window.headway)) as f64
+}
+
 #[derive(Clone, Debug)]
 pub struct TransferRule {
     pub from_stop: u32,
@@ -72,6 +105,8 @@ impl TransferRule {
 }
 #[derive(Clone, Debug)]
 pub struct HeadwayWindow {
+    /// Stable service identity, independent of activation order and cache extent.
+    pub key: u64,
     pub trip: u32,
     /// Service-clock bounds at the first stop; end is exclusive.
     pub start: f64,
@@ -141,6 +176,9 @@ struct StopEvents {
 }
 pub(super) struct ServiceIndex {
     pub(super) data: Arc<ServiceSemantics>,
+    /// One coherent timetable realization, shared by every boarding/search.
+    sample: Cell<Option<(u64, u64)>>,
+    phases: Vec<Option<(usize, f64)>>,
     stop_events: OnceCell<StopEvents>,
     rules: HashMap<(u32, u32), PairRules>,
     windows: HashMap<u32, Vec<usize>>,
@@ -173,6 +211,7 @@ impl ServiceIndex {
         std::mem::size_of::<Self>()
             + self.data.rules.capacity() * std::mem::size_of::<TransferRule>()
             + self.data.headways.capacity() * std::mem::size_of::<HeadwayWindow>()
+            + self.phases.capacity() * std::mem::size_of::<Option<(usize, f64)>>()
             + self.data.trip_routes.capacity() * 4
             + vectors(&self.data.physical_trips)
             + self.stop_events.get().map_or(0, |e| {
@@ -336,7 +375,11 @@ struct Completion {
 impl TimetableKernel {
     pub fn set_service_semantics(&mut self, data: ServiceSemantics) -> Result<()> {
         let mut index = ServiceIndex {
+            // Ordinary and independently sampled services need no phasing
+            // table. Allocate it only when explicit dependencies are installed.
+            phases: Vec::new(),
             data: Arc::new(data),
+            sample: Cell::new(None),
             stop_events: OnceCell::new(),
             rules: HashMap::new(),
             windows: HashMap::new(),
@@ -991,6 +1034,34 @@ impl TimetableKernel {
                     let offset = scheduled - f64::from(self.departure_seconds.view()[first]);
                     for &wi in windows {
                         let w = &s.data.headways[wi];
+                        if let Some((seed, draw)) = s.sample.get() {
+                            let mut root = wi;
+                            let mut chain = Vec::new();
+                            while let Some((parent, shift)) = s.phases.get(root).copied().flatten()
+                            {
+                                chain.push((root, shift));
+                                root = parent;
+                            }
+                            let mut phase = frequency_phase(seed, draw, &s.data.headways[root]);
+                            for &(child, shift) in chain.iter().rev() {
+                                let parent = s.phases[child].unwrap().0;
+                                phase = (s.data.headways[parent].start + phase + shift
+                                    - s.data.headways[child].start)
+                                    .rem_euclid(f64::from(s.data.headways[child].headway));
+                            }
+                            let first = w.start + phase + offset;
+                            let headway = f64::from(w.headway);
+                            let instance = if reverse {
+                                ((ready.min(w.end + offset - 1.) - first) / headway).floor()
+                            } else {
+                                ((ready - first) / headway).ceil().max(0.)
+                            };
+                            let time = first + instance * headway;
+                            if instance >= 0. && time < w.end + offset {
+                                shifts.push((time - scheduled, 0.));
+                            }
+                            continue;
+                        }
                         let wait = f64::from(w.headway).div_euclid(2.) + f64::from(w.headway % 2);
                         let time = if reverse {
                             ready.min(w.end + offset - 1.)
@@ -1214,6 +1285,89 @@ impl TimetableKernel {
     }
     pub fn service_enabled(&self) -> bool {
         self.service.is_some()
+    }
+    /// No graph or event expansion: only the random phase of each frequency
+    /// entry changes. None restores ordinary half-headway queries.
+    pub fn set_frequency_sample(&self, sample: Option<(u64, u64)>) {
+        if let Some(service) = &self.service {
+            service.sample.set(sample);
+        }
+    }
+    pub fn add_frequency_windows(&mut self, windows: Vec<HeadwayWindow>) -> Result<()> {
+        if windows.is_empty() {
+            return Ok(());
+        }
+        let mut data = self
+            .service
+            .as_ref()
+            .map(|s| (*s.data).clone())
+            .unwrap_or_default();
+        data.headways.extend(windows);
+        self.set_service_semantics(data)
+    }
+    /// Lock a child trip's first departure to its parent's plus an offset.
+    /// Each participant must identify exactly one frequency entry. Validate
+    /// the whole dependency graph before installing it.
+    pub fn set_frequency_phasing(&mut self, rules: Vec<(u32, u32, f64)>) -> Result<()> {
+        if rules.is_empty() {
+            return Ok(());
+        }
+        let s = self
+            .service
+            .as_mut()
+            .ok_or_else(|| Error::from_reason("Phasing requires frequency service"))?;
+        let mut phases = vec![None; s.data.headways.len()];
+        let entry = |trip| -> Result<usize> {
+            let entries = s
+                .windows
+                .get(&trip)
+                .filter(|v| v.len() == 1)
+                .ok_or_else(|| {
+                    Error::from_reason("Phasing needs one frequency entry per referenced trip")
+                })?;
+            Ok(entries[0])
+        };
+        for (child, parent, offset) in rules {
+            if !offset.is_finite() {
+                return Err(Error::from_reason("Invalid phase offset"));
+            }
+            let child = entry(child)?;
+            if phases[child].is_some() {
+                return Err(Error::from_reason("Duplicate phasing constraint"));
+            }
+            phases[child] = Some((entry(parent)?, offset));
+        }
+        for (mut child, _) in phases.iter().enumerate() {
+            let mut visited = HashSet::new();
+            while let Some((parent, _)) = phases[child] {
+                if !visited.insert(child) {
+                    return Err(Error::from_reason("Cyclic frequency phasing"));
+                }
+                child = parent;
+            }
+        }
+        s.phases = phases;
+        Ok(())
+    }
+    pub fn has_frequency_service(&self) -> bool {
+        self.service.as_ref().is_some_and(|s| !s.windows.is_empty())
+    }
+    /// Frequency templates outside the query's possible boarding interval
+    /// cannot contribute schedule uncertainty, even in a wider resident view.
+    pub fn has_frequency_service_between(&self, start: f64, end: f64) -> bool {
+        self.service.as_ref().is_some_and(|s| {
+            s.data.headways.iter().any(|w| {
+                let first = self.trip_start.view()[w.trip as usize] as usize;
+                let last = self.trip_start.view()[w.trip as usize + 1] as usize;
+                let offset = (first..last)
+                    .map(|i| {
+                        f64::from(self.departure_seconds.view()[i])
+                            - f64::from(self.departure_seconds.view()[first])
+                    })
+                    .fold(0., f64::max);
+                w.start <= end && w.end + offset > start
+            })
+        })
     }
     pub fn is_headway_trip(&self, trip: u32) -> bool {
         self.service
@@ -2027,6 +2181,68 @@ impl TimetableKernel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn sampled_frequency_matches_explicit_departures_and_preserves_scheduled_transfer() {
+        let window = HeadwayWindow {
+            key: 0,
+            trip: 0,
+            start: 100.,
+            end: 250.,
+            headway: 30,
+        };
+        let mut k = kernel(vec![], vec![window.clone()]);
+        assert_eq!(k.service.as_ref().unwrap().phases.capacity(), 0);
+        // Exclude the second, scheduled 0->1 vehicle. The 1->2 service at
+        // 160 remains exact, and must be caught only when this draw allows it.
+        for draw in 0..100 {
+            k.set_frequency_sample(Some((42, draw)));
+            let phase = frequency_phase(42, draw, &window);
+            for ready in [90., 101., 129.5, 130., 150., 220., 249., 250.] {
+                let first = 100. + phase;
+                let next = first + ((ready - first) / 30.).ceil().max(0.) * 30.;
+                // Arrival at stop 1, then the published departure at 160.
+                let mut direct = TimetableManyQueryInput {
+                    origin_stops: vec![0],
+                    origin_walk_seconds: vec![0.],
+                    destination_offsets: vec![0, 1, 2],
+                    destination_stops: vec![1, 2],
+                    destination_walk_seconds: vec![0., 0.],
+                    excluded_trips: vec![1],
+                    departure: ready,
+                    horizon: 310.,
+                    allow_pre_ride_transfers: false,
+                    allow_post_ride_transfers: Some(vec![false, false]),
+                    maximum_boardings: Some(2),
+                };
+                let r = k
+                    .route_many_csa(
+                        serde_json::from_value(serde_json::to_value(&direct).unwrap()).unwrap(),
+                    )
+                    .unwrap();
+                let expected = if next < 250. {
+                    next + 30.
+                } else {
+                    f64::INFINITY
+                };
+                assert_eq!(r.best_arrivals[0], expected, "draw {draw}, ready {ready}");
+                assert_eq!(
+                    r.best_arrivals[1],
+                    if expected <= 160. {
+                        200.
+                    } else {
+                        f64::INFINITY
+                    }
+                );
+                direct.destination_stops = vec![2, 1];
+                let reordered = k.route_many_csa(direct).unwrap();
+                assert_eq!(reordered.best_arrivals[1], r.best_arrivals[0]);
+                assert_eq!(reordered.best_arrivals[0], r.best_arrivals[1]);
+            }
+        }
+        k.set_frequency_sample(None);
+        assert!(k.has_frequency_service());
+        assert_eq!(k.service.as_ref().unwrap().phases.capacity(), 0);
+    }
     fn kernel(rules: Vec<TransferRule>, headways: Vec<HeadwayWindow>) -> TimetableKernel {
         let mut kernel = TimetableKernel::new(TimetableKernelInput {
             stop_count: 3,
@@ -2420,6 +2636,7 @@ mod tests {
         let mut frequency = kernel(
             vec![],
             vec![HeadwayWindow {
+                key: 0,
                 trip: 2,
                 start: 150.,
                 end: 210.,
@@ -2825,6 +3042,7 @@ mod tests {
         let mut kernel = kernel(
             vec![],
             vec![HeadwayWindow {
+                key: 0,
                 trip: 2,
                 start: 150.,
                 end: 300.,
@@ -2933,6 +3151,7 @@ mod tests {
         let mut kernel = kernel(
             vec![],
             vec![HeadwayWindow {
+                key: 0,
                 trip: 2,
                 start: 150.,
                 end: 300.,

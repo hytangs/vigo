@@ -24,6 +24,8 @@ pub struct Journey {
     pub riding_seconds: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub driving_seconds: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cycling_seconds: Option<i64>,
     pub boardings: u32,
     pub transfers: Option<u32>,
     pub legs: Vec<Leg>,
@@ -35,6 +37,7 @@ pub enum Leg {
     Walk(StreetLeg),
     Transit(Box<TransitLeg>),
     Drive(StreetLeg),
+    Bike(StreetLeg),
 }
 
 /// A place on a journey. A free coordinate has no `stop` or `name`.

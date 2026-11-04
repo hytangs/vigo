@@ -1,3 +1,5 @@
+import { bikePlan, bikeMatrix } from './bike-routing.mjs'
+import { bikeDirections, bikeWayWindows, createBikeWriter } from './bike-profile.mjs'
 import { wheelchairDescriptionFor, wheelchairStreetPolicy, wheelchairWayAllowed, wheelchairNodeAllowed } from './wheelchair-policy.mjs'
 import fs from 'node:fs/promises'
 import fsSync from 'node:fs'
@@ -6,6 +8,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import {
   disposeNativeRoutingKernel,
+  createNativeBikeKernel,
   buildNativeStreetCchIndex,
   nativeStreetCchPrepared,
   prepareNativeDriveKernel,
@@ -352,6 +355,7 @@ export async function buildNationalOsmStore({
   onProgress,
   buildDrivingProfile = process.env.VIGO_BUILD_DRIVE_ACCELERATOR === '1',
   includeDriving = true,
+  includeBiking = false,
   wheelchair = false,
   wheelchairStreets = 'inferred',
   flexDriving = false,
@@ -384,6 +388,9 @@ export async function buildNationalOsmStore({
       road_class INTEGER NOT NULL
     );
   `)
+  const bikeWriter = includeBiking ? createBikeWriter(db, { carAllowed:drivable,
+    walkableWay:nationalOsmWayWalkable, walkableNode:nationalOsmNodeWalkable,
+    walkingDirections:nationalOsmWalkDirections }) : null
   const insertNode = db.prepare('INSERT OR REPLACE INTO nodes VALUES(?,?,?)')
   const insertEdge = db.prepare('INSERT INTO edges VALUES(?,?,?,?)')
   const insertWalkNode = db.prepare('INSERT OR IGNORE INTO walk_nodes VALUES(?,?,?)')
@@ -453,7 +460,9 @@ export async function buildNationalOsmStore({
         forEachPrimitiveEntity(block, groupBytes, {
           way: (way) => {
             const tags = wayTags(way, block.strings)
-            if (!wayAllowed(tags, way.refs) && !platformAllowed(tags) && !(includeDriving && drivable(tags)) && !basemapWriter.needsWay(way, tags)
+            if (!wayAllowed(tags, way.refs) && !platformAllowed(tags) && !(includeDriving && drivable(tags))
+              && !(includeBiking && (Object.values(bikeDirections(tags)).some(Boolean) || bikeWayWindows(tags).length > 0))
+              && !basemapWriter.needsWay(way, tags)
               && !placeWayNeedsNodes(way, tags)) return
             for (const nodeId of way.refs) requireNode(nodeId)
           },
@@ -475,18 +484,21 @@ export async function buildNationalOsmStore({
               nodeCount += 1
               if (isRequiredNode(node.id)) {
                 if (!nodeAllowed(wayTags(node, block.strings))) blockedWalkNodes.add(node.id)
+                bikeWriter?.node(node.id, wayTags(node, block.strings))
                 const [lon, lat] = coordinate(block, node.lat, node.lon)
                 insertNode.run(node.id, lat, lon)
                 transactionRows += 1
               }
             }
           },
+          relation: relation => bikeWriter?.relation(relation, wayTags(relation, block.strings), block.strings),
           denseNodes: (dense) => {
             for (let index = 0; index < dense.ids.length; index += 1) {
               validateNodeId(dense.ids[index])
               nodeCount += 1
               if (!isRequiredNode(dense.ids[index])) continue
               if (!nodeAllowed(denseNodeTags(dense, index, block.strings))) blockedWalkNodes.add(dense.ids[index])
+              bikeWriter?.node(dense.ids[index], denseNodeTags(dense, index, block.strings))
               const [lon, lat] = coordinate(block, dense.lats[index], dense.lons[index])
               insertNode.run(dense.ids[index], lat, lon)
               transactionRows += 1
@@ -496,6 +508,7 @@ export async function buildNationalOsmStore({
             const tags = wayTags(way, block.strings)
             basemapWriter.addWay(way, tags, getNode)
             placeWriter.addWay(way, tags, getNode)
+            bikeWriter?.way(way.id, tags, way.refs, getNode)
             if (platformAllowed(tags)) {
               const directions = nationalOsmWalkDirections(tags)
               if (directions.forward || directions.backward) insertPlatform.run(way.id, JSON.stringify(way.refs), Number(directions.forward), Number(directions.backward))
@@ -527,7 +540,7 @@ export async function buildNationalOsmStore({
               let walkIndexed = false, driveIndexed = false
               if (previous && point) {
                 const distanceM = haversineKm([previous.lon, previous.lat], [point.lon, point.lat]) * 1000
-                if (distanceM > 0 && distanceM < 10_000) {
+                if (Number.isFinite(distanceM) && distanceM > 0) {
                   const nodeAccessAllowed = !blockedWalkNodes.has(previous.id) && !blockedWalkNodes.has(nodeId)
                   if (!nodeAccessAllowed && (walkDirections.forward || walkDirections.backward)) blockedWalkSegmentCount += 1
                   if (nodeAccessAllowed && (walkDirections.forward || walkDirections.backward)) {
@@ -611,7 +624,7 @@ export async function buildNationalOsmStore({
         const a = getNode.get(from), b = getNode.get(to)
         if (!a || !b) continue
         const distance = haversineKm([a.lon, a.lat], [b.lon, b.lat]) * 1000
-        if (!(distance > 0 && distance < 10_000)) continue
+        if (!(Number.isFinite(distance) && distance > 0)) continue
         if (area.forward) insertEdge.run(from, to, distance, area.way_id)
         if (area.backward) insertEdge.run(to, from, distance, area.way_id)
         walkNodeCount += Number(insertWalkNode.run(from, a.lat, a.lon).changes > 0)
@@ -688,7 +701,8 @@ export async function buildNationalOsmStore({
       driveNodeStoredCount,
       driveEdgeCount,
       driveWayCount,
-      preparedModes: includeDriving ? ['walk', 'drive'] : ['walk'],
+      preparedModes: ['walk', ...(includeDriving ? ['drive'] : []), ...(includeBiking ? ['bike'] : [])],
+      ...(bikeWriter?.finish() ?? {}),
       drivingWeightModel: includeDriving ? 'osm-maxspeed-or-highway-default-free-flow-seconds-v1' : null,
       roadClassCatalog: driveRoadClassCatalog,
       directionRestrictedWayCount,
@@ -1390,8 +1404,32 @@ function buildStreetAccelerator(state, force = false, persist = true) {
       state.accelerator = null
       throw new Error(state.acceleratorSnapshotError || 'Could not persist pedestrian accelerator')
     }
+    if (persist && state.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bike_nodes'").get()) {
+      // Preserve source identity across spatial node ordering and compaction.
+      // Coordinate equality alone cannot distinguish bridges and crossings.
+      const lookup = compactNodeLookup(nodeIds)
+      const linkDb = new DatabaseSync(state.storePath)
+      try {
+        linkDb.exec('BEGIN')
+        linkDb.exec('CREATE TABLE IF NOT EXISTS bike_walk_nodes(bike_node INTEGER PRIMARY KEY,walk_node INTEGER NOT NULL); DELETE FROM bike_walk_nodes;')
+        const link = linkDb.prepare('INSERT INTO bike_walk_nodes VALUES(?,?)')
+        for (const row of linkDb.prepare('SELECT node_id FROM bike_nodes').iterate()) {
+          const walk = lookup.get(row.node_id)
+          if (walk !== undefined) link.run(row.node_id, walk)
+        }
+        linkDb.prepare('INSERT OR REPLACE INTO metadata(key,value) VALUES(?,?)').run('bikeWalkAccess', JSON.stringify({
+          version: 1, snapshotSuffix: streetAcceleratorSnapshotSuffix,
+          identity: streetAcceleratorStoreIdentity(state), nodeCount, edgeCount: validEdgeCount,
+        }))
+        linkDb.exec('COMMIT')
+      } catch (error) {
+        try { linkDb.exec('ROLLBACK') } catch {}
+        throw error
+      } finally { lookup.clear(); linkDb.close() }
+    }
     return accelerator
   } catch (error) {
+    state.accelerator = null
     state.acceleratorError = error instanceof Error ? error.message : String(error)
     return null
   } finally {
@@ -2852,6 +2890,11 @@ function blockedStreetRoute(request, failureCode, detail, diagnostics = {}) {
  */
 export function routeNationalStreetStore(storePath, request) {
   validateArrivalBuffer(request, false)
+  if (request.mode === 'bike') {
+    const state = openRuntimeStreetStore(storePath)
+    state.bikeKernel ??= createNativeBikeKernel(storePath)
+    return bikePlan(state.bikeKernel, request)
+  }
   const startedAt = performance.now()
   const mode = request?.mode === 'drive' ? 'drive' : 'walk'
   const timePreference = request?.timePreference === 'arrive' ? 'arrive' : 'depart'
@@ -3164,6 +3207,11 @@ export function routeNationalStreetMatrix(storePath, request = {}, options = {})
   assertMatrixSize(request.origins?.length, request.destinations?.length)
   const origins = normalizeStreetMatrixPoints(request.origins, 'origin')
   const destinations = normalizeStreetMatrixPoints(request.destinations, 'destination')
+  if (request.mode === 'bike') {
+    const state = openRuntimeStreetStore(storePath)
+    state.bikeKernel ??= createNativeBikeKernel(storePath)
+    return bikeMatrix(state.bikeKernel, request, origins, destinations, options.isCancelled)
+  }
   const originSet = uniqueStreetMatrixPoints(origins)
   const destinationSet = uniqueStreetMatrixPoints(destinations)
   const defaultMaximumDistanceKm = mode === 'drive' ? 750 : 50

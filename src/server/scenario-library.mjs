@@ -1,5 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { normalizeTiming } from './scenario-timing.mjs'
+import { normalizeTimetables } from './scenario-timetables.mjs'
 
 // Studio's saved scenarios for one City. A group is a remix: a named set of
 // the City's timetables. A scenario runs on one group, optionally with planned
@@ -93,6 +95,9 @@ function scenarioChange(value, label) {
     id: identifier(value.id, `${label}.id`),
     kind: value.kind,
     name: text(value.name, `${label}.name`, 120),
+    ...optional(value, 'exactTimes', entry => { if (typeof entry !== 'boolean') throw invalid('exactTimes must be boolean.'); return entry }),
+    ...optional(value, 'timing', normalizeTiming),
+    ...optional(value, 'timetables', normalizeTimetables),
     ...optional(value, 'scheduleMode', enumeration(['preserve-trips', 'frequency'])),
     ...optional(value, 'routeId', entry => text(entry, `${label}.routeId`, 320)),
     ...optional(value, 'routeScope', enumeration(['pattern', 'edge', 'route'])),

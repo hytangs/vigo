@@ -1,5 +1,6 @@
 //! Standalone City runtime. No Node, JavaScript evaluator, or external service.
 mod access;
+mod accessibility;
 mod alternatives;
 mod calendar;
 mod city;
@@ -17,6 +18,7 @@ mod http;
 mod linked_trips;
 mod materialize;
 pub(crate) mod memory;
+mod monte_carlo;
 mod ordered;
 mod planned_flex;
 mod planner;
@@ -109,17 +111,18 @@ pub(crate) fn flag(v: &Value, key: &str, default: bool) -> Result<bool> {
 pub fn capabilities() -> Value {
     json!({"schemaVersion":"vigo.standalone.capabilities.v1", "version":env!("CARGO_PKG_VERSION"),
         "runtime":"rust", "standalone":true, "commands":["traffic-import","info","route","matrix","reach","compare","native","stream","serve","health","capabilities"],
-        "modes":["transit","walk","drive"], "timePreferences":["depart_at","arrive_by"],
+        "modes":["transit","walk","drive","bike"], "timePreferences":["depart_at","arrive_by"],
         "scenarioCollections":{"format":"vigo.scenarios.v1","selector":"scenarioId","sharedStreets":true,"boundedResidency":true},"wheelchair":{"supported":true,"requiresCityProfile":"wheelchair-strict-v1","unknownData":"exclude","modes":["transit","walk"],"dataMode":"scheduled"},"cityFormat":"vigo.city.v1","routingStoreFormat":"vigo.routing.store.v4", "requestSchema":"vigo.standalone.query.v1",
         "flex":{"commands":["route","matrix"],"optIn":true,"directOnly":false,"transitTransfers":true,"continuousStopping":true,"wheelchair":true,"conditionalBooking":true,"confirmsAvailability":false,"maximumMatrixCells":4096},
         "route":{"journeyPolicies":["alternatives-v1"],"realtime":true,"transferControls":true,"waypoints":true,"departureWindows":true,"arrivalWindows":true,"alternatives":{"coverage":"sampled","maximum":5},"requestedAlternatives":{"maximum":9,"rankings":["pareto","ranked"],"timePreferences":["depart_at"]},"transitShapes":true,"fareAnnotations":true},
         "matrix":{"journeys":true,"journeyGeometry":true,"traffic":true,"realtimeTransit":true},
-        "reach":{"modes":["transit","walk"],"timePreferences":["depart_at"],"raster":true,"geojson":true,"streets":true,"realtimeTransit":true,"scenarios":["frequency","explicit-scheduled-trips","compiled-overlay"]},
+        "monteCarlo":{"commands":["route","matrix","reach"],"method":"frequency-phase-v1","scheduledOnly":true,"plannedServices":true,"phasing":true,"maximumDraws":10000,"maximumObservationBytes":67108864,"accessibility":true},
+        "reach":{"modes":["transit","walk","drive","bike"],"timePreferences":["depart_at","arrive_by"],"raster":true,"geojson":true,"streets":true,"realtimeTransit":true,"scenarios":["frequency","explicit-scheduled-trips","compiled-overlay"]},
         "compare":{"kinds":["reach"]},
         "http":{"boundedConnections":true,"boundedQueue":true,"workerTerminationOnDeadline":true,"maxRequestBytes":8388608,"maxWorkerResponseBytes":67108864},
         "compatibility":{"studioResultEnvelope":false,"automaticEditorBranchRetiming":false},
         "nativeOperations":["places.describe","timetable.identifiers","timetable.prepare","timetable.route","timetable.arrive_by","timetable.matrix","timetable.many","timetable.arrive_by_many","timetable.pareto","timetable.overlay","access.endpoint","access.endpoints","street.path","street.matrix","street.surface","street.connectors","drive.route","drive.matrix","realtime.compile"],
-        "output":{"streamFormats":["public","detailed"],"schemas":["vigo.route.v1","vigo.matrix.v1","vigo.reach.v1"],"diagnostics":["none","summary","profile","trace"],"durationUnit":"seconds","clock":"service-day HH:MM:SS; hours can exceed 23","geometry":"opt-in includeGeometry","trace":"unstable internal ABI"},
+        "output":{"streamFormats":["public","detailed"],"schemas":["vigo.route.v1","vigo.matrix.v1","vigo.reach.v1","vigo.distribution.v1"],"diagnostics":["none","summary","profile","trace"],"durationUnit":"seconds","clock":"service-day HH:MM:SS; hours can exceed 23","geometry":"opt-in includeGeometry","trace":"unstable internal ABI"},
         "dataPreparation":"Load a prepared City. Raw GTFS/OSM import remains a separate build step."})
 }
 pub fn compare(before: &Value, after: &Value) -> Result<Value> {

@@ -9,7 +9,8 @@ export type RoutingPoint = {
   named?: boolean
 }
 
-export type RoutingTravelMode = 'transit' | 'walk' | 'drive'
+export type RoutingTravelMode = 'transit' | 'walk' | 'drive' | 'bike'
+export type RoutingBikeOptions = { profile: 'balanced' | 'fast' | 'quiet'; speedKph: number; maxLts?: 1 | 2 | 3 | 4 }
 export type RoutingDataMode = 'realtime' | 'scheduled'
 export type RoutingTimePreference = 'depart' | 'arrive'
 export type RoutingSearchProfile = 'balanced' | 'fastest' | 'pareto'
@@ -18,6 +19,7 @@ export type RoutingSearchStrategy =
   | 'exact_constrained_access'
   | 'exact_constrained_egress'
   | 'exact_waypoint_composition'
+  | 'sequential_with_turn_history'
   | 'not_run'
 export type RoutingScheduleMode = 'exact' | 'interpolated-stop-time-gap' | 'realtime-adjusted' | 'none'
 export type RoutingWalkSource = 'osm' | 'direct' | 'transfer' | 'estimated' | 'station-selection'
@@ -87,7 +89,7 @@ export type RoutingLeg = {
     agencyUrl?: string
     options?: Array<{ productId: string; name: string; amount: number; currency: string; media?: string; riderCategory?: string }>
   }
-  type: 'walk' | 'ride' | 'drive'
+  type: 'walk' | 'ride' | 'drive' | 'bike'
   travelMode?: RoutingTravelMode
   scheduleMode?: Exclude<RoutingScheduleMode, 'none'>
   walkSource?: RoutingWalkSource
@@ -119,7 +121,7 @@ export type RoutingLeg = {
   connectingRouteShortName?: string
   // Shared with the standalone runtime; the hyphenated and 'shape' values
   // remain readable in results saved by earlier versions.
-  geometrySource?: 'gtfs_shape' | 'stop_sequence' | 'osm' | 'osm_and_station_path' | 'gtfs_pathway'
+  geometrySource?: 'gtfs_shape' | 'stop_sequence' | 'osm' | 'osm-dismount' | 'osm_and_station_path' | 'gtfs_pathway'
     | 'stop_coordinate_fallback' | 'unverified_transfer' | 'station_selection'
     | 'shape' | 'osm-rust-selected-transfer' | 'stop-coordinate-fallback' | 'station-transfer-schematic'
     | 'scenario_plan'

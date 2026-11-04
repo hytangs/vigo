@@ -76,6 +76,39 @@ try {
   assert.equal(scenarioImprovedPixels(result, 30), 2)
   assert.equal(scenarioWorsenedPixels(result, 15), 0)
   assert.equal(scenarioWorsenedPixels(result, 30), 2, 'Count slower and lost baseline cells, including a scenario beyond the cutoff.')
+  const simulated = { ...result, request: { ...result.request,
+    monteCarlo: { startMinutes: 480, endMinutes: 540, draws: 200, seed: 42, percentiles: [50] } },
+    distributions: { baseline: { sampling: { sampleCount: 240 } }, scenario: { sampling: { sampleCount: 240 } } } }
+  const simulatedRows = Papa.parse(exportReachResults([{ name: 'Simulation', feedId: 'test', result: simulated }], 'csv', 15).text,
+    { header: true, skipEmptyLines: true }).data
+  assert.equal(simulatedRows[0].window_end_minutes, '540')
+  assert.equal(simulatedRows[0].simulation_draws, '240')
+  assert.equal(simulatedRows[0].travel_time_percentile, '50')
+  assert.equal(simulatedRows[0].transit_stops, '')
+  assert.equal(reachResultDifference(result, simulated, 15), null,
+    'A single departure and a sampled distribution cannot establish an area comparison.')
+  assert.deepEqual(reachResultDifference(simulated, simulated, 15), { areaKm2: 0, transitStops: null })
+  for (const options of [{ startMinutes: 481 }, { endMinutes: 600 }, { percentiles: [95] }, { draws: 400 }, { seed: 43 }]) {
+    const different = { ...simulated, request: { ...simulated.request, monteCarlo: { ...simulated.request.monteCarlo, ...options } } }
+    assert.equal(reachResultDifference(simulated, different, 15), null,
+      'Different sampling windows, percentiles or realizations cannot establish a Reach comparison.')
+    const exported = JSON.parse(exportReachResults([{ name: 'Reference', feedId: 'first', result: simulated },
+      { name: 'Different simulation', feedId: 'second', result: different }], 'json', 15).text)
+    assert.equal(exported.selectedSummary[1].differenceFromReference, null)
+  }
+  const defaults = { ...simulated, request: { ...simulated.request, monteCarlo: { startMinutes: 480, endMinutes: 540 } } }
+  const explicitDefaults = { ...defaults, request: { ...defaults.request, monteCarlo: {
+    ...defaults.request.monteCarlo, draws: 200, seed: 0, percentiles: [5, 25, 50, 75, 95] } } }
+  assert.deepEqual(reachResultDifference(defaults, explicitDefaults, 15), { areaKm2: 0, transitStops: null })
+  const bike = { ...result, request: { ...result.request, mode: 'bike', bike: { profile: 'quiet', speedKph: 23, maxLts: 2 } } }
+  const bikeCsv = Papa.parse(exportReachResults([{ name: 'Bike', result: bike }], 'csv', 15).text, { header: true, skipEmptyLines: true })
+  assert.deepEqual(bikeCsv.errors, [])
+  assert.deepEqual(bikeCsv.data.map(row => [row.mode, row.bike_profile, row.bike_speed_kph, row.bike_max_lts]),
+    [['bike', 'quiet', '23', '2'], ['bike', 'quiet', '23', '2']])
+  for (const options of [{ profile: 'fast' }, { speedKph: 18 }, { maxLts: 3 }]) {
+    assert.equal(reachResultDifference(bike, { ...bike, request: { ...bike.request, bike: { ...bike.request.bike, ...options } } }, 15), null,
+      'Different bicycle preferences cannot establish a Reach comparison.')
+  }
   const precise = { ...result, summary: { ...result.summary, changeCountsByCutoff: [{ cutoffMinutes: 15, improvedPixels: 3, worsenedPixels: 2 }] } }
   assert.equal(scenarioImprovedPixels(precise, 15), 3, 'Prefer raw backend counts to the quantized display raster.')
   assert.equal(scenarioWorsenedPixels(precise, 15), 2)

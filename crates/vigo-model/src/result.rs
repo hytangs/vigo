@@ -21,6 +21,8 @@ pub enum Response {
     Matrix(Box<MatrixResult>),
     #[serde(rename = "vigo.reach.v1")]
     Reach(Box<ReachResult>),
+    #[serde(rename = "vigo.distribution.v1")]
+    Distribution(Box<DistributionResult>),
     #[serde(rename = "vigo.compare.v1")]
     Compare(Box<CompareResult>),
     #[serde(rename = "vigo.info.v1")]
@@ -45,6 +47,90 @@ pub enum QueryStatus {
 #[serde(rename_all = "snake_case")]
 pub enum OkStatus {
     Ok,
+}
+
+/// Travel-time percentiles over a departure window and sampled schedules.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DistributionResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accessibility: Option<AccessibilityResult>,
+    pub status: OkStatus,
+    pub kind: String,
+    /// Complete request selectors, retained for reproducibility.
+    pub query: Value,
+    pub meta: Meta,
+    pub sampling: DistributionSampling,
+    pub layout: DistributionLayout,
+    pub percentiles: Vec<u8>,
+    /// One flattened destination array per percentile. Null means infinity;
+    /// finite zero is a valid travel time. Matrix arrays use row-major order.
+    pub durations_seconds: Vec<Vec<Option<Number>>>,
+    pub reachable_samples: Vec<u32>,
+    pub warnings: Value,
+    pub assumptions: Vec<String>,
+    pub timing: Value,
+    /// The caller's `id`.
+    #[serde(default, skip_serializing_if = "Maybe::is_absent")]
+    pub id: Maybe<Value>,
+    /// Line number on a resident stream.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sequence: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AccessibilityResult {
+    pub cutoffs_minutes: Vec<Number>,
+    pub dual_thresholds: Vec<Number>,
+    pub decay_function: crate::DecayFunction,
+    pub layers: Vec<AccessibilityLayerResult>,
+    pub method: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AccessibilityLayerResult {
+    pub id: String,
+    /// [percentile][origin][cutoff], weighted opportunity counts.
+    pub access: Vec<Vec<Vec<Number>>>,
+    /// [percentile][origin][threshold], null when insufficient opportunities
+    /// are reachable within the routing horizon; valid zero stays zero.
+    pub dual_seconds: Vec<Vec<Vec<Option<Number>>>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DistributionSampling {
+    pub method: String,
+    pub seed: u32,
+    pub stochastic: bool,
+    pub requested_draws: u32,
+    pub sample_count: u32,
+    pub departure_minutes: u32,
+    pub samples_per_minute: u32,
+    pub step_minutes: u32,
+    pub quantile_method: String,
+    pub unreachable: String,
+    pub observation_bytes: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum DistributionLayout {
+    Grid {
+        width: u32,
+        height: u32,
+        bounds: Bounds,
+        sampling: String,
+    },
+    Matrix {
+        origins: Vec<crate::Point>,
+        destinations: Vec<crate::Point>,
+        rows: u32,
+        columns: u32,
+        order: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

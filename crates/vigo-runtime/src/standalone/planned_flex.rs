@@ -99,7 +99,7 @@ impl City {
     ) -> Result<(Vec<(Point, f64)>, Surface)> {
         let zones = self.parse_planned_zones(&q["scenario"], q)?;
         self.activate(q)?;
-        self.install_scenario(&q["scenario"])?;
+        self.install_scenario(&q["scenario"], q)?;
         self.apply_transfer_buffer(q)?;
         let mut options = Options::parse(q)?;
         if opt.arrive {

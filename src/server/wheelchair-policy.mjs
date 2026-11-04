@@ -178,6 +178,6 @@ export function validateWheelchairRequest(profile, request) {
   if (!active) return
   if (request.scenario != null) throw new Error('Wheelchair routing requires a prepared City; query-time scenario accessibility is not modeled')
   if (request.wheelchair === false) throw new Error('This wheelchair City cannot provide unrestricted routes')
-  if (request.mode === 'drive') throw new Error('Wheelchair routing supports transit and walk, not drive')
+  if (request.mode === 'drive' || request.mode === 'bike') throw new Error('Wheelchair routing supports transit and walk')
   if ((request.routingDataMode ?? request.dataMode ?? 'scheduled') !== 'scheduled') throw new Error('Wheelchair routing currently requires scheduled service; live accessibility changes are not modeled')
 }

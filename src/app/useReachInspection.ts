@@ -34,6 +34,10 @@ export function useReachInspection({ active, projectId, feedId, result }: {
       if (selection) setSelection(null)
       return
     }
+    if (source.result.request.monteCarlo) {
+      setResponse({ selection: current, plan: null, error: '' })
+      return
+    }
     const controller = new AbortController()
     void apiJson<{ choices: RoutingPlan[] }>(`/api/projects/${encodeURIComponent(projectId)}/national-route`, {
       method: 'POST', signal: controller.signal,

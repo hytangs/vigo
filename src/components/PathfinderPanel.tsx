@@ -1,3 +1,4 @@
+import type { RoutingBikeOptions } from '../routingModel'
 export { RoutingDetailPanel } from './JourneyItinerary'
 import { JourneyDuration } from './JourneyItinerary'
 import { journeyGroups } from '../app/journeyGroups'
@@ -12,6 +13,7 @@ import {
   ArrowUp,
   ArrowUpDown,
   Car,
+  Bike,
   CheckCircle2,
   ChevronRight,
   Footprints,
@@ -57,12 +59,13 @@ function routingPointName(point: RoutingPoint) {
 
 export type RoutingScopeStatus = 'ready' | 'building' | 'failed' | 'missing'
 
-const travelModeIcons = { transit: TrainFront, walk: Footprints, drive: Car } satisfies Record<RoutingTravelMode, unknown>
+const travelModeIcons = { transit: TrainFront, walk: Footprints, drive: Car, bike: Bike } satisfies Record<RoutingTravelMode, unknown>
 
 const travelModeChoices = [
   ['transit', 'Transit'],
   ['walk', 'Walk'],
   ['drive', 'Drive'],
+  ['bike', 'Bike'],
 ] as const satisfies ReadonlyArray<readonly [RoutingTravelMode, string]>
 
 function boardings(plan: RoutingPlan) {
@@ -202,6 +205,8 @@ export function PathfinderRouteList({
               && Math.abs(plan.timePreference === 'arrive' ? earlierMinutes : laterMinutes) < 0.5)
             const tradeoffText = leads ? '' : [...gains, timeTradeoff].join(' · ')
             const tradeoff = tradeoffText.charAt(0).toUpperCase() + tradeoffText.slice(1)
+            const primaryRationale = plan.travelMode === 'bike' ? 'Bike route'
+              : `${plan.travelMode === 'walk' ? 'Walk only · ' : ''}${plan.timePreference === 'arrive' ? 'Latest departure' : 'Earliest arrival'}`
             const routeSequence = plan.legs.length ? ''
               : plan.travelMode === 'walk' ? 'Walk only' : routingPlanRouteSequence(plan) || plan.detail
             const waypointNote = plan.waypoints?.length ? `via ${plan.waypoints.length} stop${plan.waypoints.length === 1 ? '' : 's'}` : ''
@@ -215,7 +220,7 @@ export function PathfinderRouteList({
                 role="radio"
                 aria-checked={selected}
                 tabIndex={selected || (!displayedPlans.some(candidate => candidate.id === selectedPlanId) && plan === displayedPlans[0]) ? 0 : -1}
-                aria-label={`${formatScheduleClock(plan.departMinutes)} to ${formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}, ${formatRoutingMinutes(journeyMinutes)} journey${startWaitMinutes >= 0.5 ? `, leaves ${formatRoutingMinutes(startWaitMinutes)} after your requested time` : ''}, ${plan.transfers} transfer${plan.transfers === 1 ? '' : 's'}, ${formatRoutingMinutes(plan.walkMinutes)} walking${plan.travelMode === 'transit' && plan.legs.some((leg) => leg.type === 'ride') ? `, via ${routingPlanRouteSequence(plan).replaceAll(' -> ', ' then ')}` : ''}. ${tradeoff || (plan.timePreference === 'arrive' ? 'Latest departure' : 'Earliest arrival')}. Open journey.`}
+                aria-label={`${formatScheduleClock(plan.departMinutes)} to ${formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}, ${formatRoutingMinutes(journeyMinutes)} journey${startWaitMinutes >= 0.5 ? `, leaves ${formatRoutingMinutes(startWaitMinutes)} after your requested time` : ''}, ${plan.transfers} transfer${plan.transfers === 1 ? '' : 's'}, ${formatRoutingMinutes(plan.walkMinutes)} walking${plan.travelMode === 'transit' && plan.legs.some((leg) => leg.type === 'ride') ? `, via ${routingPlanRouteSequence(plan).replaceAll(' -> ', ' then ')}` : ''}. ${tradeoff || primaryRationale}. Open journey.`}
               >
                 <span className="pathfinder-route-time" title={startWaitMinutes >= 0.5 ? `Leaves ${formatRoutingMinutes(startWaitMinutes)} after your requested time` : undefined}>
                   <b title="Time from leaving to arriving"><JourneyDuration minutes={journeyMinutes} /></b>
@@ -225,12 +230,12 @@ export function PathfinderRouteList({
                 {plan.legs.length ? <JourneyLegStrip plan={plan} showBar={false} /> : null}
                 {services.length > 1 ? <strong className="pathfinder-group-services">{services.join(' or ')}</strong> : null}
                 <span className="pathfinder-route-footer">
-                  <strong className="pathfinder-route-rationale">{leads ? `${plan.travelMode === 'walk' ? 'Walk only · ' : ''}${plan.timePreference === 'arrive' ? 'Latest departure' : 'Earliest arrival'}` : tradeoff || plan.choiceLabel || 'Another route'}</strong>
+                  <strong className="pathfinder-route-rationale">{leads ? primaryRationale : tradeoff || plan.choiceLabel || 'Another route'}</strong>
                   <span className="pathfinder-route-metrics" aria-hidden="true">
                     {plan.travelMode === 'transit' ? <span><b>{plan.transfers}</b><small>transfer{plan.transfers === 1 ? '' : 's'}</small></span> : null}
                     <span><b>{formatRoutingMinutes(plan.walkMinutes)}</b><small>{plan.travelMode === 'drive' ? 'access' : 'walk'}</small></span>
                     {plan.waitMinutes >= 0.5 ? <span title="Waiting en route"><b>{formatRoutingMinutes(plan.waitMinutes)}</b><small>wait</small></span> : null}
-                    {plan.travelMode !== 'walk' ? <span><b>{formatRoutingMinutes(plan.rideMinutes)}</b><small>{plan.travelMode === 'drive' ? 'drive' : 'ride'}</small></span> : <span><b>0</b><small>vehicles</small></span>}
+                    {plan.travelMode !== 'walk' ? <span><b>{formatRoutingMinutes(plan.rideMinutes)}</b><small>{plan.travelMode === 'bike' ? 'bike' : plan.travelMode === 'drive' ? 'drive' : 'ride'}</small></span> : <span><b>0</b><small>vehicles</small></span>}
                   </span>
                   {startWaitMinutes >= 0.5 ? <span className="pathfinder-route-sequence">Leave {formatRoutingMinutes(startWaitMinutes)} after your requested time.</span> : null}
                   {routeSequence || waypointNote ? <span className="pathfinder-route-sequence">{[routeSequence, waypointNote].filter(Boolean).join(' · ')}</span> : null}
@@ -279,6 +284,8 @@ export type SidebarPathfinderBoxProps = {
   routingStoreReady: boolean
   routingTimePreference: RoutingTimePreference
   routingMode: RoutingTravelMode
+  routingBike?: RoutingBikeOptions
+  onRoutingBikeChange?: (options: RoutingBikeOptions) => void
   routingDataMode: RoutingDataMode
   routingNetwork?: RoutingNetworkChoice
   routingDepartureWindowMinutes: RoutingDepartureWindowMinutes
@@ -334,6 +341,8 @@ export function SidebarPathfinderBox({
   routingStoreReady,
   routingTimePreference,
   routingMode,
+  routingBike,
+  onRoutingBikeChange,
   routingDataMode,
   routingNetwork,
   routingDepartureWindowMinutes,
@@ -476,7 +485,7 @@ export function SidebarPathfinderBox({
           {routingEnabled ? <p className="pathfinder-points-hint" role="status">{pickLabel} on the map</p> : null}
 
           <RoutingSetup {...{
-            routingMode, routingNetwork, routingDataMode, routingTimePreference, routingServiceDate,
+            routingMode, routingBike, onRoutingBikeChange, routingNetwork, routingDataMode, routingTimePreference, routingServiceDate,
             routingServiceCoverage, routingServiceDateAvailability, scheduleTimeMinutes, routingWaypoints,
             routingWheelchair, routingWheelchairAvailable, onRoutingWheelchairChange, routingWheelchairReason, routingWheelchairPreparing, onPrepareWheelchair,
             routingDepartureWindowMinutes, routingMaxTransfers, routingMinimumTransferBufferMinutes,

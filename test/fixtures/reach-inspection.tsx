@@ -4,7 +4,7 @@ import { flushSync } from 'react-dom'
 import { Map } from '../../src/app/mapRuntime'
 import { initialLayers } from '../../src/domain'
 import { useReachInspection } from '../../src/app/useReachInspection'
-import { reachPointSample, reachPointRouteRequest, reachInspectionSources } from '../../src/app/reachInspection'
+import { reachPointSample, reachPointRouteRequest, reachInspectionSources, reachPointDistribution } from '../../src/app/reachInspection'
 import { RouteSurfaceView } from '../../src/components/studio/RouteSurface'
 import { ReachPointInspector } from '../../src/components/ReachPointInspector'
 import '../../src/index.css'
@@ -25,8 +25,8 @@ const result = { schemaVersion: 'vigo.result.reach.v1', request: { baselineIdent
 const preview = { routes: [], stops: [{ id: 'should-be-hidden', name: 'Hidden map stop', lat: 42.36, lon: -71.1, x: 0, y: 0, routes: [], tripCount: 1, transferScore: 1 }], stopPairs: [] }
 const noop = () => {}
 const requests = []
-const originalAddControl = Map.prototype.addControl
-Map.prototype.addControl = function(...args) { window.inspectionMap = this; return originalAddControl.apply(this, args) }
+const originalAddSource = Map.prototype.addSource
+Map.prototype.addSource = function(...args) { window.inspectionMap = this; return originalAddSource.apply(this, args) }
 
 function planFor(body, kind = 'transit') {
   const a = body.origin.coordinate, b = body.destination.coordinate
@@ -200,4 +200,28 @@ window.checkInspectionLayout = async dark => {
   scroll.scrollTop=scroll.scrollHeight;assert(scroll.scrollTop>0||scroll.scrollHeight<=scroll.clientHeight+1,'Itinerary cannot scroll')
   scroll.scrollTop=0
   return {width:innerWidth,dark,scrollable:scroll.scrollHeight>scroll.clientHeight}
+}
+
+window.checkMonteCarloInspection = async () => {
+  const distribution = { layout: { bounds: [-71.12, 42.34, -71.08, 42.38], width: 4, height: 4 },
+    percentiles: [5, 50, 95], sampling: { sampleCount: 200 }, reachableSamples: Array(16).fill(180),
+    durationsSeconds: [Array(16).fill(300), Array(16).fill(600), Array(16).fill(null)] }
+  distribution.durationsSeconds[0][0] = 0
+  const sampled = { ...result, request: { ...result.request, monteCarlo: { startMinutes: 480, endMinutes: 540, seed: 42 } },
+    distributions: { baseline: distribution, scenario: distribution } }
+  assert(reachPointDistribution(sampled, [-71.12, 42.38], 'baseline').seconds[0] === 0, 'Distribution lookup lost valid zero')
+  assert(reachPointDistribution(sampled, [-72, 42.38], 'baseline') === null, 'Outside distribution grid not recognized')
+  const before = requests.length
+  flushSync(() => { window.inspectionSetView('analysis'); window.inspectionSetResult(sampled); window.inspectionSetOrigin(true) })
+  await until(() => window.inspectionMap?.loaded())
+  click([-71.10, 42.36])
+  await until(() => document.querySelector('[aria-label="Sampled travel-time distribution"]'))
+  await new Promise(resolve => setTimeout(resolve, 50))
+  const text = document.querySelector('.reach-point-inspector').textContent
+  assert(text.includes('P5') && text.includes('P50') && text.includes('P95') && text.includes('10 min'), 'Percentile values missing')
+  assert(text.includes('Unreachable at this percentile') && text.includes('180 of 200'), 'Unreachable samples hidden')
+  assert(requests.length === before && !window.inspection.plan, 'Simulation pin launched a single-time journey')
+  const panel = document.querySelector('.reach-point-inspector')
+  assert(panel.scrollWidth <= panel.clientWidth + 1, 'Sampled inspector overflows')
+  return { percentiles: true, unreachable: true, validZero: true, noSingleTimeRequest: true }
 }

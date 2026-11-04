@@ -53,6 +53,15 @@ try {
     return r
   }
   assert.equal((await post()).status, 200); checks++
+  const simulation = await fetch(`${origin}/v1/route`, { method: 'POST', headers,
+    body: JSON.stringify({ origin: { stopId: 'A' }, destination: { stopId: 'B' }, serviceDate: '2026-07-15',
+      maxWalkKm: .01, requireTransitRide: true, monteCarlo: { startMinutes: 480, endMinutes: 483, seed: 42, percentiles: [50] } }) })
+  assert.equal(simulation.status, 200)
+  const distribution = await simulation.json()
+  assert.equal(distribution.schema, 'vigo.distribution.v1')
+  assert.equal(distribution.sampling.sampleCount, 3)
+  assert.equal(distribution.layout.origins.length, 1)
+  checks++
   for (const arrivalBufferMinutes of [5, 6]) {
     const response = await fetch(`${origin}/v1/route`, { method: 'POST', headers,
       body: JSON.stringify({ ...JSON.parse(body), time: '08:35', timePreference: 'arrive_by', arrivalBufferMinutes }) })

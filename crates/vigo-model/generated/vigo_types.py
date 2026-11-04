@@ -35,6 +35,18 @@ Accessibility = TypedDict(
     },
 )
 
+AccessibilityLayerResult = TypedDict(
+    "AccessibilityLayerResult",
+    {
+        # [percentile][origin][cutoff], weighted opportunity counts.
+        "access": list[list[list[float]]],
+        # [percentile][origin][threshold], null when insufficient opportunities
+        # are reachable within the routing horizon; valid zero stays zero.
+        "dualSeconds": list[list[list[float | None]]],
+        "id": str,
+    },
+)
+
 # POSIX seconds; a missing bound is open.
 ActivePeriod = TypedDict(
     "ActivePeriod",
@@ -126,6 +138,8 @@ AlternativeSearch = TypedDict(
         "stepMinutes": NotRequired[float],
     },
 )
+
+BikeProfile = Literal["balanced", "fast", "quiet"]
 
 # `[west, south, east, north]` in WGS84 degrees.
 Bounds = tuple[float, float, float, float]
@@ -225,7 +239,26 @@ DatasetLimitation = TypedDict(
     },
 )
 
+DecayFunction = dict[str, Any]
+
 DiagnosticsLevel = Literal["none", "summary", "profile", "trace"]
+
+DistributionSampling = TypedDict(
+    "DistributionSampling",
+    {
+        "departureMinutes": int,
+        "method": str,
+        "observationBytes": int,
+        "quantileMethod": str,
+        "requestedDraws": int,
+        "sampleCount": int,
+        "samplesPerMinute": int,
+        "seed": int,
+        "stepMinutes": int,
+        "stochastic": bool,
+        "unreachable": str,
+    },
+)
 
 # A GTFS-Realtime enumeration, by name or by numeric code.
 Enumerated = str | int
@@ -283,6 +316,16 @@ FlexOptions = TypedDict(
         "durationFactor": NotRequired[float],
         # Fallback addition when safe_duration_offset is absent. Default 300 seconds.
         "durationOffsetSeconds": NotRequired[float],
+    },
+)
+
+FrequencyPhasing = TypedDict(
+    "FrequencyPhasing",
+    {
+        "atStopIndex": int,
+        "fromStopIndex": int,
+        "offsetMinutes": NotRequired[float],
+        "serviceId": str,
     },
 )
 
@@ -368,7 +411,21 @@ MatrixCapabilities = TypedDict(
     },
 )
 
-Mode = Literal["transit", "walk", "drive"]
+Mode = Literal["transit", "walk", "drive", "bike"]
+
+MonteCarloCapabilities = TypedDict(
+    "MonteCarloCapabilities",
+    {
+        "accessibility": bool,
+        "commands": list[str],
+        "maximumDraws": int,
+        "maximumObservationBytes": int,
+        "method": str,
+        "phasing": bool,
+        "plannedServices": bool,
+        "scheduledOnly": bool,
+    },
+)
 
 # A stop near an endpoint whose street access was not verified.
 NearestStop = TypedDict(
@@ -392,6 +449,15 @@ Notice = TypedDict(
 )
 
 OkStatus = Literal["ok"]
+
+OpportunityLayer = TypedDict(
+    "OpportunityLayer",
+    {
+        # Nonnegative weights in destination order (row-major cells for Reach).
+        "counts": list[float],
+        "id": str,
+    },
+)
 
 OsmSource = TypedDict(
     "OsmSource",
@@ -443,8 +509,8 @@ ReachCapabilities = TypedDict(
 
 ReachFormat = Literal["full"] | Literal["surface"] | Literal["map"]
 
-# Reach covers transit, walking, and driving travel times.
-ReachMode = Literal["transit", "walk", "drive"]
+# Reach covers transit, walking, driving, and bicycle travel times.
+ReachMode = Literal["transit", "walk", "drive", "bike"]
 
 RealtimeCoverage = TypedDict(
     "RealtimeCoverage",
@@ -481,6 +547,20 @@ SampledAlternatives = TypedDict(
     {
         "coverage": str,
         "maximum": int,
+    },
+)
+
+# One independent, end-exclusive planned-service frequency window.
+ScenarioTimetable = TypedDict(
+    "ScenarioTimetable",
+    {
+        # ISO weekdays: 1 = Monday, 7 = Sunday. Omitted means every day.
+        "daysOfWeek": NotRequired[list[int]],
+        "endMinutes": float,
+        "exactTimes": NotRequired[bool],
+        "headwayMinutes": float,
+        "id": str,
+        "startMinutes": float,
     },
 )
 
@@ -523,6 +603,21 @@ SearchSummary = TypedDict(
 ServiceDay = Literal["weekday", "saturday", "sunday"]
 
 ServiceOperation = Literal["add", "augment", "replace"]
+
+ServiceTiming = TypedDict(
+    "ServiceTiming",
+    {
+        # Set dwell at selected stops; mutually exclusive with dwellScale.
+        "dwellMinutes": NotRequired[float],
+        "dwellScale": NotRequired[float],
+        # Zero-based segment indexes; omitted selects all segments.
+        "segmentIndexes": NotRequired[list[int]],
+        # Divide moving time by this factor; 2 means twice as fast.
+        "speedFactor": NotRequired[float],
+        # Stop indexes after the fixed first departure; omitted selects all.
+        "stopIndexes": NotRequired[list[int]],
+    },
+)
 
 StationPath = Literal["inferred"] | Literal["source_path"]
 
@@ -656,6 +751,38 @@ AccessReport = TypedDict(
         # `origin` or `destination`.
         "role": str,
         "suggestedWalkMeters": NotRequired[float],
+    },
+)
+
+AccessibilityOptions = TypedDict(
+    "AccessibilityOptions",
+    {
+        "cutoffsMinutes": list[float],
+        "decayFunction": NotRequired[DecayFunction],
+        "dualThresholds": NotRequired[list[float]],
+        "layers": list[OpportunityLayer],
+    },
+)
+
+AccessibilityResult = TypedDict(
+    "AccessibilityResult",
+    {
+        "cutoffsMinutes": list[float],
+        "decayFunction": DecayFunction,
+        "dualThresholds": list[float],
+        "layers": list[AccessibilityLayerResult],
+        "method": str,
+    },
+)
+
+# Bicycle route preferences; costs affect selection, never the reported ETA.
+BikeOptions = TypedDict(
+    "BikeOptions",
+    {
+        # Maximum estimated traffic stress for cycling; higher levels require legal pushing.
+        "maxLts": NotRequired[int],
+        "profile": NotRequired[BikeProfile],
+        "speedKph": NotRequired[float],
     },
 )
 
@@ -1028,6 +1155,7 @@ Capabilities = TypedDict(
         "http": HttpCapabilities,
         "matrix": MatrixCapabilities,
         "modes": list[str],
+        "monteCarlo": NotRequired[MonteCarloCapabilities],
         "nativeOperations": list[str],
         "output": OutputCapabilities,
         "reach": ReachCapabilities,
@@ -1123,6 +1251,21 @@ Meta = TypedDict(
         "scenarioFingerprint": NotRequired[str],
         # Admission and road matching evidence for supplied traffic.
         "traffic": NotRequired[Any],
+    },
+)
+
+# End-exclusive civil-day departure window, evaluated at every minute.
+MonteCarloOptions = TypedDict(
+    "MonteCarloOptions",
+    {
+        "accessibility": NotRequired[AccessibilityOptions],
+        # Rounded up to equal samples per minute; exact-only service uses one.
+        "draws": NotRequired[int],
+        "endMinutes": int,
+        # Nearest-rank percentiles, including unreachable samples as infinity.
+        "percentiles": NotRequired[list[int]],
+        "seed": NotRequired[int],
+        "startMinutes": int,
     },
 )
 
@@ -1226,7 +1369,7 @@ StreetLeg = TypedDict(
         "geometry": NotRequired[LineString],
         "quality": StreetQuality,
         "to": Endpoint,
-        "type": Literal["walk", "drive"],
+        "type": Literal["walk", "drive", "bike"],
     },
 )
 
@@ -1256,6 +1399,8 @@ CutoffFeatures = TypedDict(
         "type": Literal["FeatureCollection"],
     },
 )
+
+DistributionLayout = dict[str, Any]
 
 # Trip Updates and Service Alerts applied to one transit Route, Matrix or
 # Reach request. Freshness is checked against the current time. With
@@ -1288,12 +1433,15 @@ ScenarioService = TypedDict(
         "dwellMinutes": NotRequired[float],
         # Default 1500.
         "endMinutes": NotRequired[float],
+        # A fixed timetable when true; otherwise simulation samples its phase.
+        "exactTimes": NotRequired[bool],
         # Default 12.
         "headwayMinutes": NotRequired[float],
         "id": NotRequired[str],
         "name": NotRequired[str],
         # Default `add`.
         "operation": NotRequired[ServiceOperation],
+        "phaseFrom": NotRequired[FrequencyPhasing],
         "scheduleMode": NotRequired[ScheduleMode],
         "scheduledTrips": NotRequired[list[ScheduledTrip]],
         "segmentDistancesKm": NotRequired[list[float]],
@@ -1305,6 +1453,12 @@ ScenarioService = TypedDict(
         "stops": list[Point],
         # Default `estimate-distance`.
         "timeModel": NotRequired[TimeModel],
+        # Optional independent timetable rows. Replaces the top-level frequency
+        # window; weekdays refer to serviceDate, including times after midnight.
+        "timetables": NotRequired[list[ScenarioTimetable]],
+        # Adjust ride and dwell times while retaining original trip departures.
+        # Requires preserve-trips. Selection indexes refer to the edited pattern.
+        "timing": NotRequired[ServiceTiming],
     },
 )
 
@@ -1341,65 +1495,35 @@ TransitLeg = TypedDict(
     },
 )
 
-Leg = StreetLeg | TransitLeg
-
-# `POST /v1/matrix`: travel times between every origin and destination.
-MatrixRequest = TypedDict(
-    "MatrixRequest",
+# Travel-time percentiles over a departure window and sampled schedules.
+DistributionResult = TypedDict(
+    "DistributionResult",
     {
-        "allowLongWalk": NotRequired[bool],
-        # Default `true`.
-        "allowStreetTransfers": NotRequired[bool],
-        "arrivalBufferMinutes": NotRequired[int],
-        # Alias of `routingDataMode`.
-        "dataMode": NotRequired[DataMode],
-        "destinations": list[Point],
-        # Added detail: `summary` counters, `profile` timings, or the
-        # unstable internal `trace`. Default `none`.
-        "diagnostics": NotRequired[DiagnosticsLevel],
-        "disableCache": NotRequired[bool],
-        # Include conditional direct Flex journeys with explicit booking and timing assumptions.
-        "flex": NotRequired[FlexOptions],
-        "horizonMinutes": NotRequired[float],
-        # Caller's identifier, echoed as `id` and `meta.requestId`.
+        "accessibility": NotRequired[AccessibilityResult],
+        "assumptions": list[str],
+        # One flattened destination array per percentile. Null means infinity;
+        # finite zero is a valid travel time. Matrix arrays use row-major order.
+        "durationsSeconds": list[list[float | None]],
+        # The caller's `id`.
         "id": NotRequired[Any],
-        # Include GeoJSON on legs.
-        "includeGeometry": NotRequired[bool],
-        "includeJourneys": NotRequired[bool],
-        # Add the City's dataset limitations to the Result. Default `false`.
-        "includeLimitations": NotRequired[bool],
-        "journeyFormat": NotRequired[JourneyFormat],
-        # Query kind on a resident stream.
-        "kind": NotRequired[str],
-        "maxStreetKm": NotRequired[float],
-        "maxTransfers": NotRequired[int],
-        # Default 1.2.
-        "maxWalkKm": NotRequired[float],
-        # Default 0.
-        "minimumTransferBufferMinutes": NotRequired[int],
-        "mode": NotRequired[Mode],
-        "origins": list[Point],
-        # Transit Matrix searches the same realtime view as Route.
-        "realtimeSnapshot": NotRequired[RealtimeSnapshot],
-        "requireCompleteServiceCoverage": NotRequired[bool],
-        "requireTransitRide": NotRequired[bool],
-        "routingDataMode": NotRequired[DataMode],
-        # Member of the loaded scenario collection; omitted selects its default.
-        "scenarioId": NotRequired[str],
-        # `YYYY-MM-DD`. Required for transit.
-        "serviceDate": NotRequired[str],
-        "serviceDay": NotRequired[ServiceDay],
-        "time": NotRequired[Clock],
-        "timeMinutes": NotRequired[float],
-        "timePreference": NotRequired[TimePreferenceInput],
-        "traffic": NotRequired[Traffic],
-        # Default from the City. Walking Route and Matrix, and Reach.
-        "walkSpeedKph": NotRequired[float],
-        # Require a City prepared with the wheelchair-strict-v1 profile.
-        # Omitted inherits the City's profile; `false` rejects a wheelchair City.
-        "wheelchair": NotRequired[bool],
+        "kind": str,
+        "layout": DistributionLayout,
+        "meta": Meta,
+        "percentiles": list[int],
+        # Complete request selectors, retained for reproducibility.
+        "query": Any,
+        "reachableSamples": list[int],
+        "sampling": DistributionSampling,
+        "schema": Literal["vigo.distribution.v1"],
+        # Line number on a resident stream.
+        "sequence": NotRequired[int],
+        "status": OkStatus,
+        "timing": Any,
+        "warnings": Any,
     },
 )
+
+Leg = StreetLeg | TransitLeg
 
 ReachResult = TypedDict(
     "ReachResult",
@@ -1436,6 +1560,181 @@ ReachResult = TypedDict(
     },
 )
 
+# A request-scoped service change. Use `services` or a compiled `overlay`.
+Scenario = TypedDict(
+    "Scenario",
+    {
+        "cityRevision": NotRequired[str],
+        "excludedRouteIds": NotRequired[list[str]],
+        "excludedTripIds": NotRequired[list[str]],
+        # Query-local on-demand zones with an explicit planning time model.
+        "flexZones": NotRequired[list[PlannedFlexZone]],
+        "id": NotRequired[str],
+        "name": NotRequired[str],
+        # A compiled native overlay; see the native field reference.
+        "overlay": NotRequired[Any],
+        "services": NotRequired[list[ScenarioService]],
+    },
+)
+
+# One way to make the trip. Clocks are service-day `HH:MM:SS` (hours may
+# exceed 23); durations are integer seconds.
+Journey = TypedDict(
+    "Journey",
+    {
+        "arrivalTime": str,
+        "boardings": int,
+        # Date anchoring every clock in this journey. Route only; `null` for a
+        # walking or driving journey without a service date.
+        "clockDate": NotRequired[str | None],
+        "cyclingSeconds": NotRequired[int],
+        "departureTime": str,
+        "drivingSeconds": NotRequired[int],
+        "durationSeconds": int,
+        "expandedWalkingLimitKm": NotRequired[float],
+        "legs": list[Leg],
+        "ridingSeconds": int | None,
+        "transfers": int | None,
+        # Gaps before and between legs. Not a reliability margin.
+        "waitingSeconds": int | None,
+        "walkingSeconds": int | None,
+    },
+)
+
+# `POST /v1/matrix`: travel times between every origin and destination.
+MatrixRequest = TypedDict(
+    "MatrixRequest",
+    {
+        "allowLongWalk": NotRequired[bool],
+        # Default `true`.
+        "allowStreetTransfers": NotRequired[bool],
+        "arrivalBufferMinutes": NotRequired[int],
+        "bike": NotRequired[BikeOptions],
+        # Alias of `routingDataMode`.
+        "dataMode": NotRequired[DataMode],
+        "destinations": list[Point],
+        # Added detail: `summary` counters, `profile` timings, or the
+        # unstable internal `trace`. Default `none`.
+        "diagnostics": NotRequired[DiagnosticsLevel],
+        "disableCache": NotRequired[bool],
+        # Include conditional direct Flex journeys with explicit booking and timing assumptions.
+        "flex": NotRequired[FlexOptions],
+        "horizonMinutes": NotRequired[float],
+        # Caller's identifier, echoed as `id` and `meta.requestId`.
+        "id": NotRequired[Any],
+        # Include GeoJSON on legs.
+        "includeGeometry": NotRequired[bool],
+        "includeJourneys": NotRequired[bool],
+        # Add the City's dataset limitations to the Result. Default `false`.
+        "includeLimitations": NotRequired[bool],
+        "journeyFormat": NotRequired[JourneyFormat],
+        # Query kind on a resident stream.
+        "kind": NotRequired[str],
+        "maxStreetKm": NotRequired[float],
+        "maxTransfers": NotRequired[int],
+        # Default 1.2.
+        "maxWalkKm": NotRequired[float],
+        # Default 0.
+        "minimumTransferBufferMinutes": NotRequired[int],
+        "mode": NotRequired[Mode],
+        # Seeded departure-window and frequency-schedule distribution.
+        "monteCarlo": NotRequired[MonteCarloOptions],
+        "origins": list[Point],
+        # Transit Matrix searches the same realtime view as Route.
+        "realtimeSnapshot": NotRequired[RealtimeSnapshot],
+        "requireCompleteServiceCoverage": NotRequired[bool],
+        "requireTransitRide": NotRequired[bool],
+        "routingDataMode": NotRequired[DataMode],
+        # Planned service for Monte Carlo analysis.
+        "scenario": NotRequired[Scenario],
+        # Member of the loaded scenario collection; omitted selects its default.
+        "scenarioId": NotRequired[str],
+        # `YYYY-MM-DD`. Required for transit.
+        "serviceDate": NotRequired[str],
+        "serviceDay": NotRequired[ServiceDay],
+        "time": NotRequired[Clock],
+        "timeMinutes": NotRequired[float],
+        "timePreference": NotRequired[TimePreferenceInput],
+        "traffic": NotRequired[Traffic],
+        # Default from the City. Walking Route and Matrix, and Reach.
+        "walkSpeedKph": NotRequired[float],
+        # Require a City prepared with the wheelchair-strict-v1 profile.
+        # Omitted inherits the City's profile; `false` rejects a wheelchair City.
+        "wheelchair": NotRequired[bool],
+    },
+)
+
+# `POST /v1/reach` (and `/v1/isochrone`): where an origin reaches
+# within cutoffs or, arriving by the requested time, where a
+# destination is reached from.
+ReachRequest = TypedDict(
+    "ReachRequest",
+    {
+        # Five-minute streaming aggregation over a service-day window.
+        "allDay": NotRequired[AllDayWindow],
+        # Default `true`.
+        "allowStreetTransfers": NotRequired[bool],
+        "bike": NotRequired[BikeOptions],
+        "bounds": NotRequired[Bounds],
+        # Default `[15, 30, 45, 60]`.
+        "cutoffsMinutes": NotRequired[list[float]],
+        # Alias of `routingDataMode`.
+        "dataMode": NotRequired[DataMode],
+        # Where arrive-by trips end. Required for arrive-by Reach, which
+        # takes no origin.
+        "destination": NotRequired[Point],
+        # Added detail: `summary` counters, `profile` timings, or the
+        # unstable internal `trace`. Default `none`.
+        "diagnostics": NotRequired[DiagnosticsLevel],
+        "disableCache": NotRequired[bool],
+        # Default 8.
+        "extentRadiusKm": NotRequired[float],
+        # Caller's identifier, echoed as `id` and `meta.requestId`.
+        "id": NotRequired[Any],
+        # Include GeoJSON on legs.
+        "includeGeometry": NotRequired[bool],
+        # Add the City's dataset limitations to the Result. Default `false`.
+        "includeLimitations": NotRequired[bool],
+        "includeNodes": NotRequired[bool],
+        "includeStreetEdges": NotRequired[bool],
+        # Query kind on a resident stream.
+        "kind": NotRequired[str],
+        "maxTransfers": NotRequired[int],
+        # Default 1.2.
+        "maxWalkKm": NotRequired[float],
+        # Default 0.
+        "minimumTransferBufferMinutes": NotRequired[int],
+        "mode": NotRequired[ReachMode],
+        # Seeded departure-window and frequency-schedule distribution.
+        "monteCarlo": NotRequired[MonteCarloOptions],
+        # Where depart-at trips start. Required for depart-at Reach.
+        "origin": NotRequired[Point],
+        # Cells per side. Default 96.
+        "rasterSize": NotRequired[int],
+        "reachFormat": NotRequired[ReachFormat],
+        # Transit Reach searches the same realtime view as Route; a scenario
+        # applies on top of it.
+        "realtimeSnapshot": NotRequired[RealtimeSnapshot],
+        "requireCompleteServiceCoverage": NotRequired[bool],
+        "routingDataMode": NotRequired[DataMode],
+        "scenario": NotRequired[Scenario],
+        # Member of the loaded scenario collection; omitted selects its default.
+        "scenarioId": NotRequired[str],
+        # `YYYY-MM-DD`. Required for transit.
+        "serviceDate": NotRequired[str],
+        "serviceDay": NotRequired[ServiceDay],
+        "surfaceSampling": NotRequired[SurfaceSampling],
+        "time": NotRequired[Clock],
+        "timeMinutes": NotRequired[float],
+        "timePreference": NotRequired[TimePreferenceInput],
+        # Default from the City. Walking Route and Matrix, and Reach.
+        "walkSpeedKph": NotRequired[float],
+        # Require a City prepared with the wheelchair-strict-v1 profile.
+        # Omitted inherits the City's profile; `false` rejects a wheelchair City.
+        "wheelchair": NotRequired[bool],
+    },
+)
+
 # `POST /v1/route`: journeys between two places.
 RouteRequest = TypedDict(
     "RouteRequest",
@@ -1450,6 +1749,7 @@ RouteRequest = TypedDict(
         "alternatives": NotRequired[int],
         # Arrival reserve for arrive-by transit without via points.
         "arrivalBufferMinutes": NotRequired[int],
+        "bike": NotRequired[BikeOptions],
         # Alias of `routingDataMode`.
         "dataMode": NotRequired[DataMode],
         "destination": Point,
@@ -1482,12 +1782,15 @@ RouteRequest = TypedDict(
         "minimumTransferBufferMinutes": NotRequired[int],
         # Default `transit`.
         "mode": NotRequired[Mode],
+        # Seeded departure-window and frequency-schedule distribution.
+        "monteCarlo": NotRequired[MonteCarloOptions],
         "origin": Point,
         "realtimeSnapshot": NotRequired[RealtimeSnapshot],
         "requireCompleteServiceCoverage": NotRequired[bool],
         # Default `false`: a direct walk may answer the query.
         "requireTransitRide": NotRequired[bool],
         "routingDataMode": NotRequired[DataMode],
+        "scenario": NotRequired[Scenario],
         # Member of the loaded scenario collection; omitted selects its default.
         "scenarioId": NotRequired[str],
         # `YYYY-MM-DD`. Required for transit.
@@ -1510,114 +1813,6 @@ RouteRequest = TypedDict(
         # Sample later departures (or earlier deadlines) over this many minutes.
         "windowMinutes": NotRequired[float],
         "windowStepMinutes": NotRequired[float],
-    },
-)
-
-# A request-scoped service change. Use `services` or a compiled `overlay`.
-Scenario = TypedDict(
-    "Scenario",
-    {
-        "cityRevision": NotRequired[str],
-        "excludedRouteIds": NotRequired[list[str]],
-        "excludedTripIds": NotRequired[list[str]],
-        # Query-local on-demand zones with an explicit planning time model.
-        "flexZones": NotRequired[list[PlannedFlexZone]],
-        "id": NotRequired[str],
-        "name": NotRequired[str],
-        # A compiled native overlay; see the native field reference.
-        "overlay": NotRequired[Any],
-        "services": NotRequired[list[ScenarioService]],
-    },
-)
-
-# One way to make the trip. Clocks are service-day `HH:MM:SS` (hours may
-# exceed 23); durations are integer seconds.
-Journey = TypedDict(
-    "Journey",
-    {
-        "arrivalTime": str,
-        "boardings": int,
-        # Date anchoring every clock in this journey. Route only; `null` for a
-        # walking or driving journey without a service date.
-        "clockDate": NotRequired[str | None],
-        "departureTime": str,
-        "drivingSeconds": NotRequired[int],
-        "durationSeconds": int,
-        "expandedWalkingLimitKm": NotRequired[float],
-        "legs": list[Leg],
-        "ridingSeconds": int | None,
-        "transfers": int | None,
-        # Gaps before and between legs. Not a reliability margin.
-        "waitingSeconds": int | None,
-        "walkingSeconds": int | None,
-    },
-)
-
-# `POST /v1/reach` (and `/v1/isochrone`): where an origin reaches
-# within cutoffs or, arriving by the requested time, where a
-# destination is reached from.
-ReachRequest = TypedDict(
-    "ReachRequest",
-    {
-        # Five-minute streaming aggregation over a service-day window.
-        "allDay": NotRequired[AllDayWindow],
-        # Default `true`.
-        "allowStreetTransfers": NotRequired[bool],
-        "bounds": NotRequired[Bounds],
-        # Default `[15, 30, 45, 60]`.
-        "cutoffsMinutes": NotRequired[list[float]],
-        # Alias of `routingDataMode`.
-        "dataMode": NotRequired[DataMode],
-        # Where arrive-by trips end. Required for arrive-by Reach, which
-        # takes no origin.
-        "destination": NotRequired[Point],
-        # Added detail: `summary` counters, `profile` timings, or the
-        # unstable internal `trace`. Default `none`.
-        "diagnostics": NotRequired[DiagnosticsLevel],
-        "disableCache": NotRequired[bool],
-        # Default 8.
-        "extentRadiusKm": NotRequired[float],
-        # Caller's identifier, echoed as `id` and `meta.requestId`.
-        "id": NotRequired[Any],
-        # Include GeoJSON on legs.
-        "includeGeometry": NotRequired[bool],
-        # Add the City's dataset limitations to the Result. Default `false`.
-        "includeLimitations": NotRequired[bool],
-        "includeNodes": NotRequired[bool],
-        "includeStreetEdges": NotRequired[bool],
-        # Query kind on a resident stream.
-        "kind": NotRequired[str],
-        "maxTransfers": NotRequired[int],
-        # Default 1.2.
-        "maxWalkKm": NotRequired[float],
-        # Default 0.
-        "minimumTransferBufferMinutes": NotRequired[int],
-        "mode": NotRequired[ReachMode],
-        # Where depart-at trips start. Required for depart-at Reach.
-        "origin": NotRequired[Point],
-        # Cells per side. Default 96.
-        "rasterSize": NotRequired[int],
-        "reachFormat": NotRequired[ReachFormat],
-        # Transit Reach searches the same realtime view as Route; a scenario
-        # applies on top of it.
-        "realtimeSnapshot": NotRequired[RealtimeSnapshot],
-        "requireCompleteServiceCoverage": NotRequired[bool],
-        "routingDataMode": NotRequired[DataMode],
-        "scenario": NotRequired[Scenario],
-        # Member of the loaded scenario collection; omitted selects its default.
-        "scenarioId": NotRequired[str],
-        # `YYYY-MM-DD`. Required for transit.
-        "serviceDate": NotRequired[str],
-        "serviceDay": NotRequired[ServiceDay],
-        "surfaceSampling": NotRequired[SurfaceSampling],
-        "time": NotRequired[Clock],
-        "timeMinutes": NotRequired[float],
-        "timePreference": NotRequired[TimePreferenceInput],
-        # Default from the City. Walking Route and Matrix, and Reach.
-        "walkSpeedKph": NotRequired[float],
-        # Require a City prepared with the wheelchair-strict-v1 profile.
-        # Omitted inherits the City's profile; `false` rejects a wheelchair City.
-        "wheelchair": NotRequired[bool],
     },
 )
 
@@ -1695,4 +1890,4 @@ CompareRequest = TypedDict(
 )
 
 # Any document the engine writes for a query, keyed by its `schema`.
-Response = RouteResult | MatrixResult | ReachResult | CompareResult | InfoResult | CollectionInfoResult | StreamDetail | ErrorResult
+Response = RouteResult | MatrixResult | ReachResult | DistributionResult | CompareResult | InfoResult | CollectionInfoResult | StreamDetail | ErrorResult

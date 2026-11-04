@@ -118,6 +118,8 @@ impl Candidate {
             "walk"
         } else if self.pieces.iter().all(|v| v["mode"] == "drive") {
             "drive"
+        } else if self.pieces.iter().all(|v| v["mode"] == "bike") {
+            "bike"
         } else {
             "transit"
         };

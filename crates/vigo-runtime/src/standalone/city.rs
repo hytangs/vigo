@@ -313,6 +313,8 @@ pub struct City {
     pub(crate) street: CoordinateKernel,
     pending_pedestrian_profile: Option<(PathBuf, String)>,
     pub(crate) drive: Option<Drive>,
+    // Keep unused bicycle bookkeeping out of every transit-only City.
+    pub(crate) bike: Option<Box<crate::bike::BikeKernel>>,
     pub(crate) polling_enabled: bool,
     pub(crate) timetable: Option<Timetable>,
     /// What the active scenario view adds: new stops and planned services.
@@ -320,6 +322,7 @@ pub struct City {
     pub(crate) scenario_views: HashMap<String, Arc<super::scenario_route::ScenarioPresentation>>,
     /// A scenario Route keeps its view for the whole request.
     pub(crate) pinned_timetable: bool,
+    pub(crate) frequency_sample: Option<(u64, u64)>,
     /// Linked-trip candidates retained across timetables and date switches.
     pub(super) linked_candidates: super::linked_trips::CandidateCache,
     pub(crate) timetable_cache: super::timetable_cache::TimetableCache,
@@ -720,11 +723,13 @@ impl City {
             street,
             pending_pedestrian_profile,
             drive: None,
+            bike: None,
             polling_enabled: false,
             timetable: None,
             scenario_view: None,
             scenario_views: HashMap::new(),
             pinned_timetable: false,
+            frequency_sample: None,
             linked_candidates: Default::default(),
             static_heap_bytes: OnceLock::new(),
             timetable_cache: super::timetable_cache::TimetableCache::from_env()?,
@@ -1053,6 +1058,7 @@ impl City {
     pub(super) fn apply_transfer_buffer(&mut self, request: &Value) -> Result<()> {
         let buffer = number(request, "minimumTransferBufferMinutes", 0., 0., 60.)?;
         if let Some(timetable) = self.timetable.as_mut() {
+            timetable.kernel.set_frequency_sample(self.frequency_sample);
             timetable
                 .kernel
                 .set_minimum_transfer_buffer_seconds(buffer as u32 * 60);
@@ -1546,6 +1552,17 @@ impl City {
                 .as_mut()
                 .map(|t| t.kernel.take_query_workspace())
         })
+    }
+    pub(crate) fn load_bike(&mut self) -> Result<()> {
+        if self.bike.is_none() {
+            self.bike = Some(Box::new(crate::bike::BikeKernel::open(
+                self.street_directory
+                    .join("street-index.sqlite")
+                    .to_str()
+                    .ok_or("City path must be UTF-8")?,
+            )?));
+        }
+        Ok(())
     }
     pub(crate) fn load_drive(&mut self) -> Result<()> {
         if self.manifest["modes"]

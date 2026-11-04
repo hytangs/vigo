@@ -7,8 +7,8 @@ function haversineCoordinateKm(leftLon, leftLat, rightLon, rightLat) {
   const dLon = radians(rightLon - leftLon)
   const latitude1 = radians(leftLat)
   const latitude2 = radians(rightLat)
-  const value = Math.sin(dLat / 2) ** 2
-    + Math.cos(latitude1) * Math.cos(latitude2) * Math.sin(dLon / 2) ** 2
+  const value = Math.min(1, Math.max(0, Math.sin(dLat / 2) ** 2
+    + Math.cos(latitude1) * Math.cos(latitude2) * Math.sin(dLon / 2) ** 2))
   return 6371.0088 * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value))
 }
 

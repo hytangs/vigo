@@ -21,6 +21,7 @@ const generatedClassNames = new Set([
   'is-analyze',
   'is-complete',
   'is-drive',
+  'is-bike',
   'is-explore',
   'is-finished',
   'is-pathfinder',

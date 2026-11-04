@@ -52,6 +52,8 @@
     {"id": "route", "title": "Route", "group": "routing", "source": "docs/guide.md", "section": "route"},
     {"id": "matrix", "title": "Matrix", "group": "routing", "source": "docs/guide.md", "section": "matrix"},
     {"id": "reach", "title": "Reach and isochrones", "group": "routing", "source": "docs/guide.md", "section": "reach-and-isochrones"},
+    {"id": "monte-carlo", "title": "Monte Carlo and accessibility", "group": "routing", "source": "docs/guides/monte-carlo.md"},
+    {"id": "bicycle", "title": "Bicycle routing", "group": "routing", "source": "docs/guides/rust-standalone.md", "section": "bicycle-route-and-matrix"},
     {"id": "scenarios", "title": "Scenarios", "group": "routing", "source": "docs/guide.md", "section": "scenario-semantics"},
     {"id": "realtime", "title": "Realtime transit", "heading": "Realtime journey routing", "group": "routing", "source": "docs/guide.md", "section": "realtime-journey-routing"},
     {"id": "streets", "title": "Streets and traffic", "heading": "Street routing and traffic", "group": "routing", "source": "docs/guide.md", "section": "street-routing"},

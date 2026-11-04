@@ -22,6 +22,14 @@ execFileSync(python, ['test/check-standalone-docs-portability.py'], { cwd: root 
 if (!packagedDocs) execFileSync(python, ['scripts/build-standalone-docs.py', '--check'], { cwd: root })
 assert.equal(spec.openapi, '3.1.0')
 const schemas = spec.components.schemas
+if (!packagedDocs) {
+  const model = JSON.parse(fs.readFileSync(path.join(root, 'crates/vigo-model/generated/openapi.json'), 'utf8'))
+  for (const endpoint of ['route', 'matrix', 'reach', 'isochrone']) {
+    const published = spec.paths[`/v1/${endpoint}`].post, typed = model.paths[`/v1/${endpoint}`].post
+    assert.deepEqual(published.requestBody, typed.requestBody, `${endpoint}: published request model`)
+    assert.deepEqual(published.responses['200'], typed.responses['200'], `${endpoint}: published result model`)
+  }
+}
 function walk(value) {
   if (!value || typeof value !== 'object') return
   if (value.$ref) {

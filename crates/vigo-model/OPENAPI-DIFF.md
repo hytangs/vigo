@@ -1,5 +1,10 @@
 # Generated OpenAPI compared with `docs/standalone-openapi.json`
 
+RC.4 status: the published document now uses `generated/openapi.json` for its
+public contracts, augmented by kernel-derived native operation schemas. The
+comparison below is retained as the historical RC.3 migration audit; its
+unreplaced-document status and open items are not current release claims.
+
 `generated/openapi.json` is produced from the vigo-model types. `docs/standalone-openapi.json` is the published 1.0.0-rc.3 document, built by `scripts/build-standalone-docs.py` from hand-written definitions plus `pub struct` blocks found in the kernel source. This report lists every difference between them.
 
 The published document is not replaced yet. Its native schemas still need a home (see [Open items](#open-items)).

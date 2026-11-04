@@ -190,11 +190,29 @@ function ServiceSettings({ change }: { change: ScenarioChangeDraft }) {
       </select>
       {keepsTrips ? <small>Every trip on the service date keeps running; stop edits change its travel times.</small> : null}
     </label> : null}
-    {!keepsTrips ? <AnalysisNumberField label="Every" value={change.headwayMinutes} min={2} max={180} unit="min"
+    {!keepsTrips && !change.timetables ? <AnalysisNumberField label="Every" value={change.headwayMinutes} min={2} max={180} unit="min"
       onChange={(value) => { if (value !== undefined) updateScenarioChange(change.id, { headwayMinutes: value }) }} /> : null}
     <AnalysisNumberField label="Average speed" value={change.averageSpeedKph} min={4} max={160} unit="km/h"
       onChange={(value) => { if (value !== undefined) updateScenarioChange(change.id, { averageSpeedKph: value }) }} />
-    {!keepsTrips ? <ServiceHours change={change} /> : null}
+    {!keepsTrips && !change.timetables ? <ServiceHours change={change} /> : null}
+    {!keepsTrips && !change.timetables ? <label className="reach-check">
+      <input type="checkbox" checked={change.exactTimes === true}
+        onChange={event => updateScenarioChange(change.id, { exactTimes: event.currentTarget.checked })} />
+      <span><strong>Exact departures in simulation</strong><small>Start at the first service time and repeat at this interval. Otherwise each simulation samples the departure offset.</small></span>
+    </label> : null}
+    {keepsTrips ? <div className="scenario-timing">
+      <p className="reach-help">Keep each trip's first departure. Speed changes affect moving time; dwell changes affect time at stops.</p>
+      <AnalysisNumberField label="Speed factor" value={change.timing?.speedFactor ?? 1} min={0.1} max={10} unit="×"
+        onChange={value => { if (value !== undefined) updateScenarioChange(change.id, { timing: { ...change.timing, speedFactor: value } }) }} />
+      <label className="reach-field"><span>Dwell adjustment</span><select value={change.timing?.dwellMinutes === undefined ? 'scale' : 'set'}
+        onChange={event => updateScenarioChange(change.id, { timing: { ...change.timing, dwellMinutes: event.currentTarget.value === 'set' ? 0.35 : undefined, dwellScale: event.currentTarget.value === 'scale' ? 1 : undefined } })}>
+        <option value="scale">Multiply original dwell</option><option value="set">Set dwell at stops</option></select></label>
+      <AnalysisNumberField label={change.timing?.dwellMinutes === undefined ? 'Dwell factor' : 'Dwell time'}
+        value={change.timing?.dwellMinutes ?? change.timing?.dwellScale ?? 1} min={0} max={change.timing?.dwellMinutes === undefined ? 10 : 60}
+        unit={change.timing?.dwellMinutes === undefined ? '×' : 'min'} onChange={value => { if (value !== undefined) updateScenarioChange(change.id, {
+          timing: { ...change.timing, [change.timing?.dwellMinutes === undefined ? 'dwellScale' : 'dwellMinutes']: value } }) }} />
+    </div> : null}
+    {!keepsTrips ? <TimetableSettings change={change} /> : null}
     {!keepsTrips ? <label className="reach-check">
       <input type="checkbox" role="switch" checked={change.routeScope === 'edge' ? false : change.bidirectional} disabled={change.routeScope === 'edge'}
         onChange={(event) => updateScenarioChange(change.id, { bidirectional: event.currentTarget.checked })} />
@@ -202,6 +220,50 @@ function ServiceSettings({ change }: { change: ScenarioChangeDraft }) {
         ? 'Each matching branch follows its published stop order.'
         : 'Also run this branch reversed. The reverse is not taken from GTFS.'}</small> : null}</span>
     </label> : null}
+  </div>
+}
+
+const timetableTimeOptions = Array.from({ length: 96 }, (_, index) => index * 30)
+
+function TimetableSettings({ change }: { change: ScenarioChangeDraft }) {
+  const rows = change.timetables
+  const initial = () => ({ id: crypto.randomUUID(), startMinutes: change.startMinutes, endMinutes: change.endMinutes,
+    headwayMinutes: change.headwayMinutes, exactTimes: change.exactTimes ?? false })
+  const update = (index: number, patch: Partial<NonNullable<ScenarioChangeDraft['timetables']>[number]>) =>
+    updateScenarioChange(change.id, { timetables: rows!.map((row, i) => i === index ? { ...row, ...patch } : row) })
+  if (!rows) return <button type="button" className="kit-button" onClick={() => updateScenarioChange(change.id, { timetables: [initial()] })}>
+    <Plus size={13} aria-hidden="true" />Add timetable rows</button>
+  return <div className="scenario-timetables">
+    <p className="reach-help">Each row runs on its selected service days. Departures stop before its end time; overlapping rows add service independently.</p>
+    {rows.map((row, index) => <fieldset key={row.id} className="scenario-timetable-row">
+      <legend>Timetable {index + 1}</legend>
+      <div className="reach-field-grid">
+        <label className="reach-field"><span>From</span><select value={row.startMinutes} onChange={event => update(index, { startMinutes: Number(event.currentTarget.value) })}>
+          {[...new Set([...timetableTimeOptions, row.startMinutes])].sort((a, b) => a - b).map(value => <option key={value} value={value}>{serviceTimeLabel(value)}</option>)}
+        </select></label>
+        <label className="reach-field"><span>Until</span><select value={row.endMinutes} onChange={event => update(index, { endMinutes: Number(event.currentTarget.value) })}>
+          {[...new Set([...timetableTimeOptions, row.endMinutes])].sort((a, b) => a - b).map(value => <option key={value} value={value}>{serviceTimeLabel(value)}</option>)}
+        </select></label>
+      </div>
+      {row.endMinutes <= row.startMinutes ? <p role="alert" className="reach-help">End time must be later than start time.</p> : null}
+      <AnalysisNumberField label="Every" value={row.headwayMinutes} min={2} max={180} unit="min" onChange={value => { if (value !== undefined) update(index, { headwayMinutes: value }) }} />
+      <div className="scenario-weekdays" role="group" aria-label={`Timetable ${index + 1} service days`}>
+        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((label, day) => {
+          const days = row.daysOfWeek ?? [1, 2, 3, 4, 5, 6, 7], selected = days.includes(day + 1)
+          return <button key={label} type="button" aria-pressed={selected} disabled={selected && days.length === 1}
+            onClick={() => update(index, { daysOfWeek: selected ? days.filter(value => value !== day + 1) : [...days, day + 1].sort() })}>{label}</button>
+        })}
+      </div>
+      <label className="reach-check"><input type="checkbox" checked={row.exactTimes ?? change.exactTimes ?? false}
+        onChange={event => update(index, { exactTimes: event.currentTarget.checked })} /><span>Exact departures</span></label>
+      <div className="reach-field-grid">
+        <button type="button" className="kit-button" disabled={rows.length >= 32} onClick={() => updateScenarioChange(change.id, { timetables: [...rows, { ...row, id: crypto.randomUUID() }] })}>Copy row</button>
+        <button type="button" className="kit-button" disabled={rows.length === 1} onClick={() => updateScenarioChange(change.id, { timetables: rows.filter((_, i) => i !== index) })}>Remove row</button>
+      </div>
+    </fieldset>)}
+    <button type="button" className="kit-button" disabled={rows.length >= 32} onClick={() => updateScenarioChange(change.id, { timetables: [...rows, initial()] })}><Plus size={13} aria-hidden="true" />Add timetable</button>
+    <button type="button" className="kit-button" onClick={() => updateScenarioChange(change.id, { timetables: undefined,
+      startMinutes: rows[0].startMinutes, endMinutes: rows[0].endMinutes, headwayMinutes: rows[0].headwayMinutes, exactTimes: rows[0].exactTimes })}>Use first row every day</button>
   </div>
 }
 

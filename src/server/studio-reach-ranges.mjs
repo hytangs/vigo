@@ -13,7 +13,7 @@ export function nativePoint(point) {
 
 const plannedServiceFields = ['id', 'name', 'stops', 'scheduleMode', 'scheduledTrips', 'bidirectional',
   'averageSpeedKph', 'dwellMinutes', 'timeModel', 'addedStopDwellMinutes', 'startMinutes', 'endMinutes',
-  'headwayMinutes', 'segmentDistancesKm', 'segmentRuntimeMinutes']
+  'headwayMinutes', 'segmentDistancesKm', 'segmentRuntimeMinutes', 'exactTimes', 'phaseFrom', 'timetables', 'timing']
 
 /**
  * A Studio service as a public planned service. Studio has already resolved
@@ -48,14 +48,15 @@ export function nativeReachRangeRequest(range, { sourceScopes } = {}) {
     kind: 'reach',
     // Studio draws its own areas from the surface and reads typed arrays.
     reachFormat: 'surface',
-    arrayEncoding: 'base64',
+    ...(range.monteCarlo ? { monteCarlo: range.monteCarlo } : { arrayEncoding: 'base64' }),
     mode: range.mode ?? 'transit',
+    ...(range.mode === 'bike' ? {bike:range.bike} : {}),
     surfaceSampling: range.surfaceSampling ?? 'street',
     // One request form for both directions, as the CLI and Python send it.
     timePreference: arriveBy ? 'arrive_by' : 'depart_at',
     ...(arriveBy ? { destination: nativePoint(range.destination) } : { origin: nativePoint(range.origin) }),
     serviceDate: range.serviceDate,
-    timeMinutes: Number(range.departMinutes),
+    ...(range.monteCarlo ? {} : { timeMinutes: Number(range.departMinutes) }),
     maxWalkKm: range.maxWalkKm,
     ...(range.maxTransfers !== undefined ? { maxTransfers: range.maxTransfers } : {}),
     walkSpeedKph: range.walkSpeedKph,
@@ -66,8 +67,8 @@ export function nativeReachRangeRequest(range, { sourceScopes } = {}) {
     includeNodes: false,
     // Elapsed walking costs grow in either direction. The native cache checks
     // direction, limits and every seed before reusing the reference surface.
-    ...(range.stage === 'baseline-range' && range.retainSurface !== false ? { surfaceReuse: 'baseline' }
-      : range.stage === 'scenario-range' ? { surfaceReuse: 'scenario' } : {}),
+    ...(!range.monteCarlo && (range.mode ?? 'transit') === 'transit' && range.stage === 'baseline-range' && range.retainSurface !== false ? { surfaceReuse: 'baseline' }
+      : !range.monteCarlo && (range.mode ?? 'transit') === 'transit' && range.stage === 'scenario-range' ? { surfaceReuse: 'scenario' } : {}),
     ...((range.mode ?? 'transit') === 'transit' ? {
       routingDataMode: 'scheduled',
       requireCompleteServiceCoverage: true,
@@ -181,6 +182,7 @@ function transitStatus(result, range) {
   if ((range.mode ?? 'transit') !== 'transit') {
     return range.mode === 'drive'
       ? { ...base, status: 'drive_only', detail: 'Driving only; road-speed estimates.', reachedStops: 0 }
+      : range.mode === 'bike' ? { ...base, status: 'bike_only', detail: 'Bicycle travel; includes pushing and endpoint walks.', reachedStops: 0 }
       : { ...base, status: 'walk_only', detail: 'Walking only.', reachedStops: 0 }
   }
   if (stops > 0) {
@@ -199,6 +201,16 @@ function transitStatus(result, range) {
 
 /** A native Reach Result as the range Studio's Reach composition expects. */
 export function studioReachRange(result, range) {
+  if (result.schema === 'vigo.distribution.v1') {
+    const values = Float64Array.from(result.durationsSeconds[0], seconds => seconds === null ? Infinity : seconds / 60)
+    return { schemaVersion: 'vigo.result.reach.v1', stops: [], scenarioStops: [], distribution: result,
+      surface: { schemaVersion: rasterSchema, ...result.layout, values, fullValues: values,
+        fullBounds: result.layout.bounds, nodes: [], edges: null, diagnostics: result.sampling },
+      diagnostics: { owner: 'rust_standalone_runtime', algorithm: 'frequency-phase-v1',
+        simulation: result.sampling, transit: { status: 'sampled', detail: `P${result.percentiles[0]} over ${result.sampling.sampleCount} departure/schedule samples` },
+        search: { nativeQueryMs: result.timing.totalMs }, stopSelection: { candidates: 0, selected: 0, sampled: false } } }
+  }
+
   const overlayStops = range.scenarioOverlay?.stops ?? []
   const overlayIds = new Set(overlayStops.map((stop, index) => String(stop?.id ?? `scenario:${index}`)))
   // Arrive-by runs planned services on the scenario's timetable view: a planned
@@ -223,12 +235,14 @@ export function studioReachRange(result, range) {
     surface: nativeSurface(result),
     diagnostics: {
       owner: 'rust_standalone_runtime',
-      algorithm: range.timePreference === 'arrive'
+      algorithm: range.mode === 'bike' ? result.diagnostics?.bike?.algorithm ?? 'bicycle_point_queries'
+        : range.timePreference === 'arrive'
         ? 'rust_resident_reverse_connection_scan_many_to_one'
         : range.scenarioOverlay
         ? 'rust_resident_query_overlay_connection_scan_one_to_many'
         : 'rust_resident_connection_scan_one_to_many',
       transit: transitStatus(result, range),
+      ...(range.mode === 'bike' ? { bike: result.diagnostics?.bike ?? {} } : {}),
       timetable: {
         ...(Number.isInteger(transit?.residentTrips) ? { residentTrips: transit.residentTrips } : {}),
         ...(transit && range.scenarioOverlay ? { scenarioOverlay: {
@@ -241,7 +255,7 @@ export function studioReachRange(result, range) {
         reachedStops: allStops.length,
         excludedTrips: transit?.excludedTrips ?? 0,
         relaxedStops: transit?.relaxedStops ?? transit?.timetable?.relaxedStops ?? 0,
-        nativeQueryMs: Number(((transit?.queryNs ?? transit?.timetable?.queryNs ?? 0) / 1e6).toFixed(3)),
+        ...(range.mode === 'bike' ? {} : { nativeQueryMs: Number(((transit?.queryNs ?? transit?.timetable?.queryNs ?? 0) / 1e6).toFixed(3)) }),
       },
       stopSelection: {
         candidates: allStops.length,

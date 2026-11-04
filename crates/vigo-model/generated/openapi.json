@@ -136,6 +136,115 @@
         ],
         "type": "object"
       },
+      "AccessibilityLayerResult": {
+        "properties": {
+          "access": {
+            "description": "[percentile][origin][cutoff], weighted opportunity counts.",
+            "items": {
+              "items": {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "dualSeconds": {
+            "description": "[percentile][origin][threshold], null when insufficient opportunities\nare reachable within the routing horizon; valid zero stays zero.",
+            "items": {
+              "items": {
+                "items": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "access",
+          "dualSeconds"
+        ],
+        "type": "object"
+      },
+      "AccessibilityOptions": {
+        "additionalProperties": false,
+        "properties": {
+          "cutoffsMinutes": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "decayFunction": {
+            "$ref": "#/components/schemas/DecayFunction"
+          },
+          "dualThresholds": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "layers": {
+            "items": {
+              "$ref": "#/components/schemas/OpportunityLayer"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "layers",
+          "cutoffsMinutes"
+        ],
+        "type": "object"
+      },
+      "AccessibilityResult": {
+        "properties": {
+          "cutoffsMinutes": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "decayFunction": {
+            "$ref": "#/components/schemas/DecayFunction"
+          },
+          "dualThresholds": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "layers": {
+            "items": {
+              "$ref": "#/components/schemas/AccessibilityLayerResult"
+            },
+            "type": "array"
+          },
+          "method": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cutoffsMinutes",
+          "dualThresholds",
+          "decayFunction",
+          "layers",
+          "method"
+        ],
+        "type": "object"
+      },
       "ActivePeriod": {
         "description": "POSIX seconds; a missing bound is open.",
         "properties": {
@@ -365,6 +474,36 @@
         ],
         "type": "object"
       },
+      "BikeOptions": {
+        "additionalProperties": false,
+        "description": "Bicycle route preferences; costs affect selection, never the reported ETA.",
+        "properties": {
+          "maxLts": {
+            "description": "Maximum estimated traffic stress for cycling; higher levels require legal pushing.",
+            "format": "uint8",
+            "maximum": 4,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/BikeProfile"
+          },
+          "speedKph": {
+            "maximum": 40,
+            "minimum": 5,
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "BikeProfile": {
+        "enum": [
+          "balanced",
+          "fast",
+          "quiet"
+        ],
+        "type": "string"
+      },
       "Bounds": {
         "description": "`[west, south, east, north]` in WGS84 degrees.",
         "items": false,
@@ -421,6 +560,9 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "monteCarlo": {
+            "$ref": "#/components/schemas/MonteCarloCapabilities"
           },
           "nativeOperations": {
             "items": {
@@ -1063,6 +1205,87 @@
         ],
         "type": "object"
       },
+      "DecayFunction": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "const": "step",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "standardDeviationMinutes": {
+                "type": "number"
+              },
+              "type": {
+                "const": "logistic",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "standardDeviationMinutes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "const": "linear",
+                "type": "string"
+              },
+              "widthMinutes": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "type",
+              "widthMinutes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "const": "exponential",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "decayConstant": {
+                "type": "number"
+              },
+              "type": {
+                "const": "fixed-exponential",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "decayConstant"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "DiagnosticsLevel": {
         "enum": [
           "none",
@@ -1071,6 +1294,232 @@
           "trace"
         ],
         "type": "string"
+      },
+      "DistributionLayout": {
+        "anyOf": [
+          {
+            "properties": {
+              "bounds": {
+                "$ref": "#/components/schemas/Bounds"
+              },
+              "height": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "sampling": {
+                "type": "string"
+              },
+              "width": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "width",
+              "height",
+              "bounds",
+              "sampling"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "columns": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "destinations": {
+                "items": {
+                  "$ref": "#/components/schemas/Point"
+                },
+                "type": "array"
+              },
+              "order": {
+                "type": "string"
+              },
+              "origins": {
+                "items": {
+                  "$ref": "#/components/schemas/Point"
+                },
+                "type": "array"
+              },
+              "rows": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "origins",
+              "destinations",
+              "rows",
+              "columns",
+              "order"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "DistributionResult": {
+        "description": "Travel-time percentiles over a departure window and sampled schedules.",
+        "properties": {
+          "accessibility": {
+            "$ref": "#/components/schemas/AccessibilityResult"
+          },
+          "assumptions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "durationsSeconds": {
+            "description": "One flattened destination array per percentile. Null means infinity;\nfinite zero is a valid travel time. Matrix arrays use row-major order.",
+            "items": {
+              "items": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "The caller's `id`."
+          },
+          "kind": {
+            "type": "string"
+          },
+          "layout": {
+            "$ref": "#/components/schemas/DistributionLayout"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "percentiles": {
+            "items": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "query": {
+            "description": "Complete request selectors, retained for reproducibility."
+          },
+          "reachableSamples": {
+            "items": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "sampling": {
+            "$ref": "#/components/schemas/DistributionSampling"
+          },
+          "schema": {
+            "const": "vigo.distribution.v1",
+            "type": "string"
+          },
+          "sequence": {
+            "description": "Line number on a resident stream.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OkStatus"
+          },
+          "timing": true,
+          "warnings": true
+        },
+        "required": [
+          "schema",
+          "status",
+          "kind",
+          "query",
+          "meta",
+          "sampling",
+          "layout",
+          "percentiles",
+          "durationsSeconds",
+          "reachableSamples",
+          "warnings",
+          "assumptions",
+          "timing"
+        ],
+        "type": "object"
+      },
+      "DistributionSampling": {
+        "properties": {
+          "departureMinutes": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "method": {
+            "type": "string"
+          },
+          "observationBytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "quantileMethod": {
+            "type": "string"
+          },
+          "requestedDraws": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sampleCount": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "samplesPerMinute": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "seed": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "stepMinutes": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "stochastic": {
+            "type": "boolean"
+          },
+          "unreachable": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "method",
+          "seed",
+          "stochastic",
+          "requestedDraws",
+          "sampleCount",
+          "departureMinutes",
+          "samplesPerMinute",
+          "stepMinutes",
+          "quantileMethod",
+          "unreachable",
+          "observationBytes"
+        ],
+        "type": "object"
       },
       "Endpoint": {
         "description": "A place on a journey. A free coordinate has no `stop` or `name`.",
@@ -1295,6 +1744,33 @@
             "type": "number"
           }
         },
+        "type": "object"
+      },
+      "FrequencyPhasing": {
+        "additionalProperties": false,
+        "properties": {
+          "atStopIndex": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "fromStopIndex": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "offsetMinutes": {
+            "type": "number"
+          },
+          "serviceId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "serviceId",
+          "atStopIndex",
+          "fromStopIndex"
+        ],
         "type": "object"
       },
       "GtfsSource": {
@@ -1549,6 +2025,10 @@
               "null"
             ]
           },
+          "cyclingSeconds": {
+            "format": "int64",
+            "type": "integer"
+          },
           "departureTime": {
             "type": "string"
           },
@@ -1637,6 +2117,7 @@
       "Leg": {
         "discriminator": {
           "mapping": {
+            "bike": "#/components/schemas/StreetLeg",
             "drive": "#/components/schemas/StreetLeg",
             "transit": "#/components/schemas/TransitLeg",
             "walk": "#/components/schemas/StreetLeg"
@@ -1839,6 +2320,9 @@
             "minimum": 0,
             "type": "integer"
           },
+          "bike": {
+            "$ref": "#/components/schemas/BikeOptions"
+          },
           "dataMode": {
             "$ref": "#/components/schemas/DataMode",
             "description": "Alias of `routingDataMode`."
@@ -1926,6 +2410,10 @@
             "$ref": "#/components/schemas/Mode",
             "default": "transit"
           },
+          "monteCarlo": {
+            "$ref": "#/components/schemas/MonteCarloOptions",
+            "description": "Seeded departure-window and frequency-schedule distribution."
+          },
           "origins": {
             "items": {
               "$ref": "#/components/schemas/Point"
@@ -1948,6 +2436,10 @@
           },
           "routingDataMode": {
             "$ref": "#/components/schemas/DataMode"
+          },
+          "scenario": {
+            "$ref": "#/components/schemas/Scenario",
+            "description": "Planned service for Monte Carlo analysis."
           },
           "scenarioId": {
             "description": "Member of the loaded scenario collection; omitted selects its default.",
@@ -2157,9 +2649,108 @@
         "enum": [
           "transit",
           "walk",
-          "drive"
+          "drive",
+          "bike"
         ],
         "type": "string"
+      },
+      "MonteCarloCapabilities": {
+        "properties": {
+          "accessibility": {
+            "type": "boolean"
+          },
+          "commands": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "maximumDraws": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maximumObservationBytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "method": {
+            "type": "string"
+          },
+          "phasing": {
+            "type": "boolean"
+          },
+          "plannedServices": {
+            "type": "boolean"
+          },
+          "scheduledOnly": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "commands",
+          "method",
+          "scheduledOnly",
+          "plannedServices",
+          "phasing",
+          "maximumDraws",
+          "maximumObservationBytes",
+          "accessibility"
+        ],
+        "type": "object"
+      },
+      "MonteCarloOptions": {
+        "additionalProperties": false,
+        "description": "End-exclusive civil-day departure window, evaluated at every minute.",
+        "properties": {
+          "accessibility": {
+            "$ref": "#/components/schemas/AccessibilityOptions"
+          },
+          "draws": {
+            "default": 200,
+            "description": "Rounded up to equal samples per minute; exact-only service uses one.",
+            "format": "uint32",
+            "maximum": 10000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "endMinutes": {
+            "format": "uint32",
+            "maximum": 1440,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "percentiles": {
+            "description": "Nearest-rank percentiles, including unreachable samples as infinity.",
+            "items": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 21,
+            "minItems": 1,
+            "type": "array"
+          },
+          "seed": {
+            "default": 0,
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "startMinutes": {
+            "format": "uint32",
+            "maximum": 1439,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "startMinutes",
+          "endMinutes"
+        ],
+        "type": "object"
       },
       "NearestStop": {
         "description": "A stop near an endpoint whose street access was not verified.",
@@ -2259,6 +2850,26 @@
           "ok"
         ],
         "type": "string"
+      },
+      "OpportunityLayer": {
+        "additionalProperties": false,
+        "properties": {
+          "counts": {
+            "description": "Nonnegative weights in destination order (row-major cells for Reach).",
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "counts"
+        ],
+        "type": "object"
       },
       "OsmSource": {
         "properties": {
@@ -2609,11 +3220,12 @@
         ]
       },
       "ReachMode": {
-        "description": "Reach covers transit, walking, and driving travel times.",
+        "description": "Reach covers transit, walking, driving, and bicycle travel times.",
         "enum": [
           "transit",
           "walk",
-          "drive"
+          "drive",
+          "bike"
         ],
         "type": "string"
       },
@@ -2668,6 +3280,9 @@
             "default": true,
             "description": "Default `true`.",
             "type": "boolean"
+          },
+          "bike": {
+            "$ref": "#/components/schemas/BikeOptions"
           },
           "bounds": {
             "$ref": "#/components/schemas/Bounds"
@@ -2762,6 +3377,10 @@
           "mode": {
             "$ref": "#/components/schemas/ReachMode",
             "default": "transit"
+          },
+          "monteCarlo": {
+            "$ref": "#/components/schemas/MonteCarloOptions",
+            "description": "Seeded departure-window and frequency-schedule distribution."
           },
           "origin": {
             "$ref": "#/components/schemas/Point",
@@ -3241,6 +3860,7 @@
         "discriminator": {
           "mapping": {
             "vigo.compare.v1": "#/components/schemas/CompareResult",
+            "vigo.distribution.v1": "#/components/schemas/DistributionResult",
             "vigo.error.v1": "#/components/schemas/ErrorResult",
             "vigo.info.v1": "#/components/schemas/InfoResult",
             "vigo.matrix.v1": "#/components/schemas/MatrixResult",
@@ -3260,6 +3880,9 @@
           },
           {
             "$ref": "#/components/schemas/ReachResult"
+          },
+          {
+            "$ref": "#/components/schemas/DistributionResult"
           },
           {
             "$ref": "#/components/schemas/CompareResult"
@@ -3427,6 +4050,9 @@
             "minimum": 0,
             "type": "integer"
           },
+          "bike": {
+            "$ref": "#/components/schemas/BikeOptions"
+          },
           "dataMode": {
             "$ref": "#/components/schemas/DataMode",
             "description": "Alias of `routingDataMode`."
@@ -3514,6 +4140,10 @@
             "default": "transit",
             "description": "Default `transit`."
           },
+          "monteCarlo": {
+            "$ref": "#/components/schemas/MonteCarloOptions",
+            "description": "Seeded departure-window and frequency-schedule distribution."
+          },
           "origin": {
             "$ref": "#/components/schemas/Point"
           },
@@ -3531,6 +4161,9 @@
           },
           "routingDataMode": {
             "$ref": "#/components/schemas/DataMode"
+          },
+          "scenario": {
+            "$ref": "#/components/schemas/Scenario"
           },
           "scenarioId": {
             "description": "Member of the loaded scenario collection; omitted selects its default.",
@@ -3845,6 +4478,10 @@
             "minimum": 0,
             "type": "number"
           },
+          "exactTimes": {
+            "description": "A fixed timetable when true; otherwise simulation samples its phase.",
+            "type": "boolean"
+          },
           "headwayMinutes": {
             "default": 12,
             "description": "Default 12.",
@@ -3862,6 +4499,9 @@
             "$ref": "#/components/schemas/ServiceOperation",
             "default": "add",
             "description": "Default `add`."
+          },
+          "phaseFrom": {
+            "$ref": "#/components/schemas/FrequencyPhasing"
           },
           "scheduleMode": {
             "$ref": "#/components/schemas/ScheduleMode"
@@ -3908,10 +4548,69 @@
             "$ref": "#/components/schemas/TimeModel",
             "default": "estimate-distance",
             "description": "Default `estimate-distance`."
+          },
+          "timetables": {
+            "description": "Optional independent timetable rows. Replaces the top-level frequency\nwindow; weekdays refer to serviceDate, including times after midnight.",
+            "items": {
+              "$ref": "#/components/schemas/ScenarioTimetable"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "type": "array"
+          },
+          "timing": {
+            "$ref": "#/components/schemas/ServiceTiming",
+            "description": "Adjust ride and dwell times while retaining original trip departures.\nRequires preserve-trips. Selection indexes refer to the edited pattern."
           }
         },
         "required": [
           "stops"
+        ],
+        "type": "object"
+      },
+      "ScenarioTimetable": {
+        "additionalProperties": false,
+        "description": "One independent, end-exclusive planned-service frequency window.",
+        "properties": {
+          "daysOfWeek": {
+            "description": "ISO weekdays: 1 = Monday, 7 = Sunday. Omitted means every day.",
+            "items": {
+              "format": "uint8",
+              "maximum": 7,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "maxItems": 7,
+            "minItems": 1,
+            "type": "array"
+          },
+          "endMinutes": {
+            "maximum": 4319,
+            "minimum": 0,
+            "type": "number"
+          },
+          "exactTimes": {
+            "type": "boolean"
+          },
+          "headwayMinutes": {
+            "maximum": 1440,
+            "minimum": 0.1,
+            "type": "number"
+          },
+          "id": {
+            "type": "string"
+          },
+          "startMinutes": {
+            "maximum": 4319,
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "startMinutes",
+          "endMinutes",
+          "headwayMinutes"
         ],
         "type": "object"
       },
@@ -4126,6 +4825,47 @@
           "replace"
         ],
         "type": "string"
+      },
+      "ServiceTiming": {
+        "additionalProperties": false,
+        "properties": {
+          "dwellMinutes": {
+            "description": "Set dwell at selected stops; mutually exclusive with dwellScale.",
+            "maximum": 60,
+            "minimum": 0,
+            "type": "number"
+          },
+          "dwellScale": {
+            "maximum": 10,
+            "minimum": 0,
+            "type": "number"
+          },
+          "segmentIndexes": {
+            "description": "Zero-based segment indexes; omitted selects all segments.",
+            "items": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "speedFactor": {
+            "description": "Divide moving time by this factor; 2 means twice as fast.",
+            "maximum": 10,
+            "minimum": 0.1,
+            "type": "number"
+          },
+          "stopIndexes": {
+            "description": "Stop indexes after the fixed first departure; omitted selects all.",
+            "items": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
       },
       "StationPath": {
         "oneOf": [
@@ -4387,7 +5127,8 @@
           "type": {
             "enum": [
               "walk",
-              "drive"
+              "drive",
+              "bike"
             ],
             "type": "string"
           }
@@ -4897,7 +5638,7 @@
   "info": {
     "description": "Route, Matrix, Reach and Compare over a prepared City. Generated from the vigo-model types. Bearer authentication is optional only on a loopback listener without a configured token.",
     "title": "VIGO API",
-    "version": "1.0.0-rc.3"
+    "version": "1.0.0-rc.4"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -5469,7 +6210,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ReachResult"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ReachResult"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DistributionResult"
+                    }
+                  ]
                 }
               }
             },
@@ -5653,7 +6401,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MatrixResult"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/MatrixResult"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DistributionResult"
+                    }
+                  ]
                 }
               }
             },
@@ -6023,7 +6778,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ReachResult"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ReachResult"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DistributionResult"
+                    }
+                  ]
                 }
               }
             },
@@ -6258,7 +7020,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RouteResult"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RouteResult"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DistributionResult"
+                    }
+                  ]
                 }
               }
             },

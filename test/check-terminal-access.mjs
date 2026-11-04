@@ -44,6 +44,19 @@ try {
     expandBoundsToReachedEdges: false,
     independentTerminalWalk: false, includeNodes: true, includeEdges: true })
   const nodeTime = (result, point) => result.nodeEvidence.find(node => Math.abs(node.longitude - point[0]) < 1e-12 && Math.abs(node.latitude - point[1]) < 1e-12)?.durationMinutes
+  const checkFixedRaster = () => {
+    for (const reverseDirection of [false, true]) for (const maximumWalkM of [100, 500, 5000]) {
+      const input = { seedCoordinates: [...home, ...target], seedDurationsMinutes: [0, 3],
+        maximumWalkM, walkSpeedKph: 4.8, maximumDurationMinutes: 60, reverseDirection,
+        bounds: [-.003, 37.999, .001, 38.001], width: 32, height: 32,
+        nodeEvidenceLimit: 0, edgeEvidenceLimit: 0, independentTerminalWalk: false,
+        includeNodes: false, includeEdges: false }
+      assert.deepEqual(kernel.streetSurface({ ...input, expandBoundsToReachedEdges: false }).values,
+        kernel.streetSurface({ ...input, expandBoundsToReachedEdges: true }).values,
+        'Fixed-grid pruning must retain private endpoint access and directed island paths')
+    }
+  }
+  checkFixedRaster()
   for (const start of [origin, home]) {
     const raster = surface(start)
     assert(Math.abs(nodeTime(raster, target) - (publicDistance + (start === home ? 200 : 0)) / 80) < 1e-9,
@@ -122,6 +135,7 @@ try {
   // Directed private access must reverse the search, not the permission.
   graph.edgeSources = [1, 2]; graph.edgeTargets = [0, 1]; graph.edgeDistancesM = [100, 100]
   fs.writeFileSync(file, JSON.stringify(graph)); kernel.configureTerminalAccess(file)
+  checkFixedRaster()
   assert.equal(query(home, target).found, true)
   assert.equal(query(target, home).found, false)
   for (const [origins, destinations] of [[points, [target]], [[target], points], [points, [home, target]]]) {
@@ -157,6 +171,7 @@ try {
     edgeSources: [0, 1], edgeTargets: [1, 0], edgeDistancesM: [33, 33], boundaryComponents: [0],
   }
   fs.writeFileSync(file, JSON.stringify(island)); kernel.configureTerminalAccess(file)
+  checkFixedRaster()
   for (const [i, [from, to]] of [[besidePublic, target], [target, besidePublic]].entries()) {
     const after = query(from, to)
     assert.equal(after.found, true, 'Disconnected optional private attachment retains public route')
@@ -173,6 +188,7 @@ try {
   island.nodeLons.push(origin[0]); island.nodeLats.push(origin[1]); island.publicNodes.push(0)
   island.edgeSources.push(1, 2); island.edgeTargets.push(2, 1); island.edgeDistancesM.push(300, 300)
   fs.writeFileSync(file, JSON.stringify(island)); kernel.configureTerminalAccess(file)
+  checkFixedRaster()
   assert.equal(query(besidePublic, origin, 100).found, false,
     'Walking limit cannot trigger a free fallback past a mapped terminal exit')
   assert(query(besidePublic, origin, 1000).found)

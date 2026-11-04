@@ -181,6 +181,9 @@ pub(super) fn load(
                     f64::from(source.departure_seconds[source.trip_start[trip] as usize]) - first
                 });
             headways.push(HeadwayWindow {
+                // Prepared single-day tables omit date labels; the absolute window
+                // bounds already distinguish adjacent service-day instances.
+                key: vigo_route::timetable::frequency_key(&[&id]),
                 trip: trip as u32,
                 start: start + offset,
                 end: end + offset,

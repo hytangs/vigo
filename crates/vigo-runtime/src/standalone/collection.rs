@@ -81,6 +81,7 @@ impl Charge {
         ] {
             private += n(&ledger, key);
         }
+        private += n(&ledger["bike"], "networkHeapBytes");
         if let Some(drive) = ledger.get("drive") {
             for key in ["networkHeapBytes", "trafficHeapBytes", "workspaceHeapBytes"] {
                 private += n(drive, key);
@@ -345,6 +346,7 @@ impl Collection {
             ] {
                 bytes += n(&ledger, key);
             }
+            bytes += n(&ledger["bike"], "networkHeapBytes");
             if let Some(drive) = ledger.get("drive") {
                 for key in ["networkHeapBytes", "trafficHeapBytes", "workspaceHeapBytes"] {
                     bytes += n(drive, key);
@@ -495,6 +497,7 @@ impl Collection {
                 network += n(street, "sharedHeapBytes");
                 mapped += n(street, "sharedMappedFileBytes");
             }
+            network += n(&ledger["bike"], "networkHeapBytes");
             network += n(street, "accessHeapBytes")
                 + n(&ledger, "cityDictionaryHeapBytes")
                 + n(&ledger, "timetableSourceOwnedHeapBytes")

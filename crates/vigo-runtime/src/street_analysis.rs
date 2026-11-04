@@ -20,6 +20,8 @@ pub(super) struct SurfaceSnapCache {
     entries: HashMap<(u64, u64), (Vec<Snap>, Option<ReciprocalEdgeSnap>)>,
     order: VecDeque<(u64, u64)>,
     snap_bytes: usize,
+    // Public-only and terminal-aware displacement bounds; no per-node index.
+    extent_per_meter: [Option<[f64; 2]>; 2],
 }
 impl SurfaceSnapCache {
     fn attach(

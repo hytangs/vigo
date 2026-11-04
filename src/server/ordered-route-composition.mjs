@@ -332,7 +332,7 @@ export function composeOrderedRoutingPlans(plans, points, request = {}) {
   } : null
   const legs = combinedLegs(plans)
   const travelMode = legs.some(leg => leg.type === 'ride') ? 'transit'
-    : legs.some(leg => leg.type === 'drive') ? 'drive' : 'walk'
+    : legs.some(leg => leg.type === 'bike') ? 'bike' : legs.some(leg => leg.type === 'drive') ? 'drive' : 'walk'
   const first = plans[0]
   const last = plans.at(-1)
   const departMinutes = finiteNumber(first.departMinutes)

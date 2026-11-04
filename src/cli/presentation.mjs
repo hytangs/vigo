@@ -56,6 +56,7 @@ export function publicResultJson(result, request = {}, args = new Map()) {
 }
 
 export function normalizePublicPoint(value) {
+  if (Array.isArray(value)) return { coordinate: value }
   if (!value || typeof value !== 'object' || Array.isArray(value) || !Object.hasOwn(value, 'stop')) return value
   const { stop, ...rest } = value
   if (rest.stopId !== undefined) throw new Error('Supply stop or stopId, not both')

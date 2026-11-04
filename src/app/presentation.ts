@@ -56,6 +56,8 @@ export function isSameStationTransfer(leg: RoutingPlan['legs'][number]) {
 export function routingLegPrimaryLabel(leg: RoutingPlan['legs'][number]) {
   if (leg.type === 'ride') return leg.routeShortName || leg.routeId || 'Transit'
   if (leg.type === 'drive') return 'Drive'
+  if (leg.type === 'bike') return 'Bike'
+  if (leg.geometrySource === 'osm-dismount') return 'Walk bike'
   if (isSameStationTransfer(leg)) {
     if (leg.transferAction === 'same-route-change' && leg.connectingRouteShortName) {
       return `Change to another ${leg.connectingRouteShortName} at ${leg.toName}`
@@ -76,7 +78,7 @@ export function routingPlanRouteSequence(plan: RoutingPlan) {
   // A drive can begin with a short walk to its road; name the drive itself.
   const streetLeg = plan.legs.find((leg) => leg.type === plan.travelMode) ?? plan.legs[0]
   return plan.travelMode === 'transit' ? 'No scheduled ride' : routingLegPrimaryLabel(streetLeg ?? {
-    type: plan.travelMode === 'drive' ? 'drive' : 'walk',
+    type: plan.travelMode === 'bike' ? 'bike' : plan.travelMode === 'drive' ? 'drive' : 'walk',
     fromName: plan.origin.label,
     toName: plan.destination.label,
     startMinutes: plan.departMinutes,

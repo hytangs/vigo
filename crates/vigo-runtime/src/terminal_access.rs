@@ -274,7 +274,6 @@ impl TerminalAccessGraph {
             .flat_map(|local| self.forward[local as usize].iter())
             .map(|&(target, _, edge)| (self.global_node(target), edge as usize))
     }
-
     pub(crate) fn surface_projections(
         &self,
         snapshot: &Snapshot,

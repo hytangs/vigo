@@ -1,5 +1,5 @@
 import { ChevronRight, X } from 'lucide-react'
-import { reachHasServiceChanges, reachPointSample } from '../app/reachInspection'
+import { reachHasServiceChanges, reachPointSample, reachPointDistribution } from '../app/reachInspection'
 import type { useReachInspection } from '../app/useReachInspection'
 import { formatScheduleClock } from '../scheduledVehicles'
 import { RoutingItinerary } from './JourneyItinerary'
@@ -16,6 +16,21 @@ export function ReachPointInspector({ inspection }: { inspection: ReturnType<typ
   const result = source.result, request = result.request
   const baseline = reachPointSample(result, point.coordinate, 'baseline')
   const scenario = reachHasServiceChanges(result) ? reachPointSample(result, point.coordinate, 'scenario') : null
+  if (request.monteCarlo) return <aside className="reach-point-inspector" aria-label="Sampled travel-time distribution">
+    <header><div><span>Grid estimate</span><h2>{point.label}</h2></div>
+      <button type="button" className="icon-button" aria-label="Close destination" onClick={inspection.close}><X size={16} /></button></header>
+    <div className="reach-point-scroll">
+      <p>{request.serviceDate} · {formatScheduleClock(request.monteCarlo.startMinutes)}–{formatScheduleClock(request.monteCarlo.endMinutes)}</p>
+      {(['baseline', ...(scenario ? ['scenario'] as const : [])] as const).map(side => {
+        const distribution = reachPointDistribution(result, point.coordinate, side)
+        return <div key={side}><strong>{side === 'baseline' ? 'Baseline' : request.scenario.name}</strong>
+          {distribution ? <><dl className="reach-point-estimates">{distribution.percentiles.map((p, i) => <div key={p}>
+            <dt>P{p}</dt><dd>{distribution.seconds[i] === null ? 'Unreachable at this percentile' : minutes(distribution.seconds[i]! / 60)}</dd></div>)}</dl>
+            <p>{distribution.reachableSamples} of {distribution.sampleCount} samples reach this cell.</p></> : <p>Outside the computed grid.</p>}</div>
+      })}
+      <p className="reach-point-note">These are departure-window and schedule samples for the selected grid cell. They do not measure observed delays.</p>
+    </div>
+  </aside>
   const cutoff = Math.max(...request.cutoffsMinutes)
   // Arrive-by explains a point by the journey from it, timed to the deadline.
   const arriveBy = request.timePreference === 'arrive'

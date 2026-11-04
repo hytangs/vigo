@@ -11,7 +11,7 @@ import { standaloneBinary } from './helpers/standalone-runtime.mjs'
 const root = path.resolve(import.meta.dirname, '..')
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-reach-grid-'))
 const processes = []
-function resident(exe, args) {
+function resident(exe, args, publicResult = false) {
   const child = spawn(exe, args, { cwd: root, env: { ...process.env, RAYON_NUM_THREADS: '2' } })
   processes.push(child)
   let errors = ''; child.stderr.on('data', value => { errors += value })
@@ -25,7 +25,7 @@ function resident(exe, args) {
     assert(!line.done, errors)
     const value = JSON.parse(line.value)
     assert(!value.error, JSON.stringify(value.error))
-    return value.trace ?? value
+    return publicResult ? value : value.trace ?? value
   }
 }
 let cells = 0
@@ -35,6 +35,7 @@ try {
   execFileSync(process.execPath, ['public/vigo.mjs', 'build', `--gtfs=${inputs.gtfsPath}`, `--osm=${inputs.osmPath}`, `--output=${city}`], { cwd: root, stdio: 'pipe' })
   const node = resident(process.execPath, ['public/vigo.mjs', 'stream', `--city=${city}`, '--service-date=2026-07-15'])
   const rust = resident(standaloneBinary, ['stream', '--city', city])
+  const rustPublic = resident(standaloneBinary, ['stream', '--city', city], true)
   for (const mode of ['walk', 'transit', 'drive']) for (const maxTransfers of [0, 1]) {
     const q = { kind: 'reach', mode, origin: { coordinate: [-77.049, 38.9005] }, serviceDate: '2026-07-15',
       timeMinutes: 475, maxWalkKm: mode === 'drive' && maxTransfers === 1 ? .2 : 1.2, maxTransfers, surfaceSampling: 'cell-center',
@@ -56,14 +57,25 @@ try {
       const row = matrix.rows[i]
       const expected = row.status === 'ready' && row.durationMinutes <= q.cutoffsMinutes.at(-1) ? row.durationMinutes : null
       assert.equal(value === null, expected === null, `${mode} cap ${maxTransfers} matrix cell ${i} reachability`)
-      // Native Reach publishes minutes to three decimals; Matrix retains its
-      // full duration precision. Reachability still has to agree exactly.
+      // Legacy minute-valued traces allow presentation rounding. Reachability
+      // must agree exactly; public integer seconds are checked separately below.
       if (value !== null) assert(Math.abs(value - expected) <= .000501, `${mode} cap ${maxTransfers} matrix cell ${i}: ${value} / ${expected}`)
       assert.equal(value === null, r.surface.values[i] === null, `${mode} runtime cell ${i}: ${value} / ${r.surface.values[i]}`)
       if (value !== null) { reached++; assert(Math.abs(value - r.surface.values[i]) <= .0011, `${mode} cell ${i}: ${value} / ${r.surface.values[i]}`) }
       cells++
     })
     assert(reached > 0 && reached < destinations.length, 'The fixture must cover reachable and blocked cells.')
+    if (mode !== 'transit' && maxTransfers === 0) {
+      const publicGrid = await rustPublic({ ...q, bounds: n.surface.bounds })
+      const publicMatrix = await rustPublic({ kind: 'matrix', mode, origins: [q.origin], destinations,
+        serviceDate: q.serviceDate, timeMinutes: q.timeMinutes, maxWalkKm: q.maxWalkKm,
+        maxStreetKm: 750, walkSpeedKph: 4.8 })
+      const expected = publicMatrix.durationsSeconds[0].map((seconds, i) =>
+        publicMatrix.trace.durationsMinutes[0][i] !== null
+          && publicMatrix.trace.durationsMinutes[0][i] <= q.cutoffsMinutes.at(-1) ? seconds : null)
+      assert.deepEqual(publicGrid.surface.valuesSeconds, expected, `${mode}: round public seconds once, matching Matrix`)
+      assert.deepEqual(publicGrid.fullSurface.valuesSeconds, expected)
+    }
     assert.deepEqual((await node(q)).surface.values, n.surface.values, 'Repeated grids must preserve missing cells and times.')
     if (mode === 'walk' && maxTransfers === 0) {
       const withNodes = await rust({ ...q, bounds: n.surface.bounds, includeNodes: true })

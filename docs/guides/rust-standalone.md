@@ -1,6 +1,6 @@
 # VIGO Rust standalone manual
 
-VIGO 1.0.0-rc.3 · CLI and HTTP reference · Prepared City format 1
+VIGO 1.0.0-rc.4 · CLI and HTTP reference · Prepared City format 1
 
 VIGO runs routing and isochrone queries from a single Rust executable. The executable contains the routing kernels, City loader, JSON interface, and HTTP server. It needs no Node, Python, browser, external routing service, or internet connection at query time. SQLite is compiled in. City data is supplied separately and opened read-only.
 
@@ -16,6 +16,8 @@ This manual describes the **standalone Rust interface**. Requests retain `vigo.s
 - **[Native operations](#18-native-operation-reference)** Packed-array kernel calls and their field reference.
 
 This manual is also part of the searchable, offline [VIGO guide](../guide.html), which the engine serves at `/`. The [OpenAPI specification](../standalone-openapi.json) contains the HTTP request contracts and native input/output types. The [audit record](../reference/rust-standalone-audit.md) describes tested coverage and remaining boundaries.
+
+See [Monte Carlo routing and accessibility](monte-carlo.md) for seeded departure-window distributions, planned-service phasing, decay functions and dual access.
 
 ## Shared scenario collections
 
@@ -336,7 +338,7 @@ Use `vigo route --help` for the general command overview. `--name value` and `--
 | `--stream-output public\|detailed` | Stream | Public results by default; detailed internal wrapper envelope when explicitly selected |
 | `--service-date YYYY-MM-DD` | Route, Matrix, Reach, Native, Stream | Set or override service date |
 | `--time HH:MM[:SS]` | Route, Matrix, Reach, Stream | Set clock; replaces JSON `timeMinutes` |
-| `--mode transit\|walk\|drive` | Route, Matrix, Reach, Stream | Reach supports all three modes |
+| `--mode transit\|walk\|drive\|bike` | Route, Matrix, Reach, Stream | Reach uses cell centers for drive and bike; street evidence is transit/walk only |
 | `--from lon,lat` or `--from stop:ID` | Route, Reach | Origin |
 | `--to lon,lat` or `--to stop:ID` | Route, Reach | Destination; an arrive-by Reach takes a destination |
 | `--max-walk KM` | Route, Matrix, Reach, Stream | Walking endpoint budget |
@@ -392,11 +394,11 @@ Exact identifiers are case-sensitive. Multi-feed IDs may contain a feed scope an
 | `time` | Required unless `timeMinutes` is supplied | `HH:MM[:SS]`, hours 0–71; numeric minutes are also accepted |
 | `timeMinutes` | Alternative clock | Number 0–4319; never combine with `time` |
 | `timePreference` | `depart_at` | `depart_at` or `arrive_by`; aliases `depart` and `arrive` accepted |
-| `mode` | `transit` | `transit`, `walk`, `drive` |
-| `maxWalkKm` | 1.2 | Number 0–100; per transit access/egress endpoint, Reach terminal-walk budget, or Drive walk between a point and its road |
+| `mode` | `transit` | `transit`, `walk`, `drive`, `bike` |
+| `maxWalkKm` | 1.2 | Number 0–100; per transit access/egress endpoint, Reach terminal-walk budget, Drive walk between a point and its road, or Bike endpoint walk |
 | `maxTransfers` | No explicit cap | Integer 0–31; zero means at most one boarding |
 | `horizonMinutes` | 480 | Number 1–2880; Route/Matrix only |
-| `maxStreetKm` | 50 | Number 0.05–1000; Walk/Drive Route/Matrix limit. Zero and values below 0.05 are rejected, never rounded up or treated as unlimited. |
+| `maxStreetKm` | 50 | Number 0.05–1000; Walk/Drive/Bike Route/Matrix limit. Zero and values below 0.05 are rejected, never rounded up or treated as unlimited. |
 | `allowStreetTransfers` | true | Keep or filter walking transfers between separate stops/stations |
 | `minimumTransferBufferMinutes` | 0 | Integer 0–60; extra time per subsequent transit transfer |
 | `requireTransitRide` | false | Transit Route/Matrix boarding policy |
@@ -760,7 +762,7 @@ An arrive-by Reach (`timePreference: "arrive_by"`) takes a `destination` instead
 }
 ```
 
-Transit searches the timetable backwards once from the stops that reach the destination, giving every stop its latest boarding. Walking runs over the streets backwards, so one-way footpaths, escalators and station paths keep their direction; a destination behind authorized private access is entered from its public exits, and the surface covers public streets. Cell-center sampling and Driving route from every cell center to the destination. A deadline earlier than the longest cutoff after midnight searches the preceding service date's late trips, as arrive-by Route does. Exclusions and planned services apply, routed on the scenario's timetable view with scheduled data; a compiled `overlay` and `surfaceReuse` are depart-at only.
+Transit searches the timetable backwards once from the stops that reach the destination, giving every stop its latest boarding. Walking runs over the streets backwards, so one-way footpaths, escalators and station paths keep their direction; a destination behind authorized private access is entered from its public exits, and the surface covers public streets. Cell-center sampling and Driving route from every cell center to the destination. A transit deadline earlier than the longest cutoff after midnight searches the preceding service date's late trips, as arrive-by Route does. Dated bicycle Reach uses the same default 480-minute clock lookback as point Route/Matrix, preserving the absolute deadline across daylight-saving changes. Its cutoffs filter the preferred route's elapsed time; they do not choose a faster, higher-cost route by excluding an earlier preferred departure. Exclusions and planned services apply, routed on the scenario's timetable view with scheduled data; a compiled `overlay` and `surfaceReuse` are depart-at only.
 
 ### Options
 
@@ -1718,8 +1720,8 @@ Terminate HTTPS at a reverse proxy or hosting platform. Give its upstream timeou
 Build the native service image from the repository root:
 
 ```sh
-docker build -f deploy/Dockerfile -t vigo:1.0.0-rc.3 .
-export VIGO_IMAGE=vigo:1.0.0-rc.3
+docker build -f deploy/Dockerfile -t vigo:1.0.0-rc.4 .
+export VIGO_IMAGE=vigo:1.0.0-rc.4
 export VIGO_CITY=/absolute/path/to/prepared-city
 # Set VIGO_API_TOKEN through your deployment secret store.
 docker compose -f deploy/compose.yml up -d --wait
@@ -2026,3 +2028,237 @@ the resident Rust engine and is not a claim of one algorithm traversal.
 ### Batched place names
 
 `POST /v1/native` accepts `{"operation":"places.describe","input":{"longitudes":[-71.06],"latitudes":[42.36]}}`. The result contains parallel `labels` and `kinds` arrays in input order, with null entries when no nearby label is available. Batches are limited to 256 coordinates. This uses the same native place index as Studio: optional prepared OSM naming tables and GTFS stops, without an external geocoder. A label is descriptive and does not change the routing coordinate or establish accessibility.
+
+## Bicycle Route and Matrix
+
+Prepare a City with `--street-modes=walk,bike` or `--street-modes=walk,drive,bike`.
+Older Cities continue to support their existing modes; bicycle permissions
+cannot be recovered from their walking or driving graphs.
+
+```json
+{
+  "mode": "bike",
+  "origin": [-77.05, 38.9],
+  "destination": [-77.03, 38.91],
+  "time": "08:00",
+  "maxStreetKm": 50,
+  "bike": { "profile": "balanced", "speedKph": 18 }
+}
+```
+
+Use the same `bike` object for Matrix. `profile` accepts `balanced` (default),
+`quiet`, or `fast`. `speedKph` is flat, smooth-road cycling speed, from 5 to 40
+(default 18). Surface and mapped incline adjust the estimate. Preference
+penalties select a route without inflating its reported duration.
+
+`bike.maxLts` optionally sets a maximum estimated cycling traffic stress from 1
+to 4. Omit it for the existing profile behavior. Above the limit, the engine
+pushes the bike at 4 km/h where the prepared walking permissions allow it;
+otherwise it excludes the link. These are walking legs with geometry source
+`osm-low-stress`. Direction, access, turn restrictions and distance caps remain
+enforced. Pushing uses the prepared bicycle directions, so it does not introduce
+new pedestrian shortcuts or reverse a bicycle one-way. Conditional pedestrian
+permissions that cannot be established at build time remain excluded for pushing.
+
+New bicycle builds record `bikeStressVersion: 1`. Older Cities still support
+ordinary bike requests, but an LTS request requires a rebuild from OSM. Stress
+shares spare in-memory edge bits; no extra graph or per-profile stress array is
+loaded. Diagnostics identify `osm_estimated_lts_v1` and the requested ceiling.
+Studio exposes the profile, cycling speed and traffic-stress limit in Bike
+journey settings; the default is no limit.
+
+The estimate follows the road-class, speed and lane rules in
+[Conveyal's published LTS implementation](https://github.com/conveyal/analysis-backend/blob/v5.9.0/src/main/java/com/conveyal/r5/labeling/LevelOfTrafficStressLabeler.java).
+Unsignalized intersections inherit stress from other ways meeting at the same
+source node, including roads closed to bicycles; a way does not propagate its
+own opposite-direction score onto itself. This does not propagate recursively.
+Signals suppress that intersection adjustment. Valid integer `lts` tags override
+the estimate, with `lts:forward` and `lts:backward` taking precedence. Invalid
+explicit values stop the build. Directional lanes use explicit facility direction, one-way road direction, or
+`driving_side` data. Explicit high speed or four or more lanes prevents a
+residential, living-street or service classification alone implying LTS 1.
+These last rules are VIGO refinements, not exact R5 equivalence. LTS is an OSM
+estimate, not observed rider safety or the full Mineta methodology. Missing data
+and whole-segment intersection adjustment can distort the estimate.
+
+Depart-at, arrive-by, and ordered Route points are supported. For each routed
+segment, `maxStreetKm` includes endpoint walks; `maxWalkKm` bounds each endpoint's
+walking distance. New Cities follow the prepared public pedestrian network to
+shared bicycle nodes, respecting footpath direction and charging the complete
+network distance. These walking legs expose verified OSM geometry. Source-node
+identity connects the networks; coincident roads or bridges do not create a
+junction. The existing pedestrian snapshot is shared, with no second walking
+graph. Short coordinate-to-street snaps remain unverified and are limited to
+80 m. A nearer pedestrian attachment cannot be skipped to reach an unrelated
+bicycle road. Authorized terminal-access overlays are not used for bike walks.
+
+Older Cities without the optional walking join retain their existing unverified
+straight connectors and wider-road retry policy; rebuild to enable network
+walks. Endpoint candidates use a compact array with a 512 KiB budget per endpoint.
+Coordinates and costs are recovered from the shared graph. Network walking also
+bounds each search to 32,768 labels and queued entries. These limits exclude
+other routing scratch; exceeding one returns an error asking for a smaller
+`maxWalkKm`, rather than returning a truncated route. A
+`bicycle=dismount` section is a walking leg. Public journeys report `bike` legs
+and optional `cyclingSeconds`, separately from transit riding and waiting.
+
+Ordered bicycle points preserve the incoming road and active turn history across
+segments. A point inside a road does not re-enter that road or recheck its source
+junction. Coincident, disconnected roads cannot become a junction at a waypoint.
+Explicit endpoint walks can connect different road attachments and retain the
+same network-versus-snap verification described above. Each segment selects one
+route, so ordered bicycle routing
+is sequential and does not guarantee the best route over all waypoint choices.
+Conservative arrive-by searches carry history forward, then anchor the complete
+route at the requested arrival time.
+
+Bicycle Matrix deduplicates identical coordinates within each request. Depart-at
+rows with at least 64 distinct destinations share a verified search field;
+arrive-by columns do so with at least 64 distinct origins. Smaller batches use
+point routing. Time and physical distance retain the point router's semantics,
+including arrival-deadline slack. Ambiguous equal-cost paths fall back to point
+routing so a different distance cannot be silently substituted. Fields are
+bounded as described below and released between rows or columns. No new graph
+or endpoint cache is retained. Node requests with a cancellation callback or
+ordered waypoints retain their per-pair routing path. Diagnostics expose shared
+fields, certified pairs, point queries and unique endpoint counts.
+
+With verified pedestrian attachments, departure Reach can also
+group destinations whose endpoint-only road permissions match. A restricted
+search replaces repeated point searches only after verifying the chosen paths;
+timed waits and distance limits still fall back. Group
+keys have a 512 KiB query-local budget. Fields are released between groups and
+before point fallbacks, and ordinary transit queries do not allocate them.
+
+Forward fields release their static trees before full point fallbacks allocate
+search scratch. Field records use 32 bytes forward and 48 bytes in reverse;
+forward distance is recovered from the selected path instead of accumulated in
+every record. At 262,144 records this is 8 MiB and 12 MiB respectively, excluding
+queues, attachments, indexes and other scratch. These are temporary structures
+shared by bicycle Matrix and Reach, not additional resident graphs.
+Ordinary bicycle Route records use 40 bytes, with arrival clocks allocated only
+for searches that need them. Dated arrival-profile records reuse the same compact
+base while retaining their time-window bounds.
+
+Bicycle walking access uses 16-byte queue records, keeping physical distance
+once because it is also the search priority. The 32,768-entry queue limit uses
+at most 512 KiB of record storage, excluding labels and attachment scratch.
+Compact walking-node ids use the existing integer hash, and each improving
+label is looked up once. These buffers remain query-local; transit walking
+search and resident graph storage are unchanged.
+
+Bicycle Reach uses the same `bike` preferences, estimated stress limits and
+physical travel times as Route. It routes to cell centers within the requested
+extent, with a 750 km distance cap, and supports surface, map and full output.
+Endpoint walks count toward time; the straight connectors remain unverified.
+It does not return pedestrian street/node evidence. Studio offers Bike under
+Analyze → Reach with an 8 km extent and matching point-inspection preferences.
+
+Depart-at grids share a query-local lower-bound search tree. Each selected
+path is checked against actual timed permissions and destination access before
+use. Dated targets can share additional trees when their improving-path bounds
+have the same changing windows. Fixed permissions remain enforced; changing
+permissions are relaxed, and a path is accepted only when replay proves it
+attains the bound without waiting. A shared proof can authorize wider endpoint
+matching only when every nearest-attachment optimum requires waiting or violates
+a timed permission; ambiguous ties retain the point router's own decision.
+Uncertified paths, different attachments
+and constrained-distance choices use the exact point router. A second tree is built only when needed to prove
+that wider endpoint attachments cannot reach a cell within the cutoff.
+Each tree has a 262,144-label limit; unfinished
+parts fall back to exact queries rather than becoming unreachable cells.
+Window groups keep only target/cost pairs and release each tree before building
+the next. Dated targets with matching destination-access permissions can share
+trees too. Distinct permissions remain separate, and uncommon or over-budget
+groups use exact point routing. Permission-group keys have a 512 KiB budget,
+separate from endpoint arrays and search scratch.
+No tree or per-profile graph is retained between requests. Arrive-by grids share
+a destination-side cost tree that retains node-turn alternatives, then verify
+each path's full forward history, access permissions and dated entry times.
+Unverified paths, duration ties and binding distance limits use exact point
+queries. Wider attachments can prove absence, but cannot substitute a different
+endpoint policy. Reverse-link scratch is capped at 32 MiB and the field at
+262,144 labels; accelerator limits trigger point fallback. Shared fields are
+released before those exact searches allocate their own scratch. These budgets
+are not total-process-memory limits. The grid distance ceiling remains 750 km.
+Reported times are physical durations on preference-optimal paths, not inflated
+comfort costs or a claim that every possible faster path was selected.
+
+Bike does not support live traffic, wheelchair requests, bike sharing
+or taking a bicycle aboard transit. Hill estimates use OSM `incline` tags,
+not a terrain dataset. With `serviceDate`, a known City timezone and newly
+compiled weekly windows, depart-at Route, Matrix and Reach evaluate node-turn and via-way
+restrictions, road access, one-way directions and dismount periods at the time
+the bicycle enters each directed segment. A segment entered while open can be
+completed; following segments are checked at their own entry times.
+For a via-way `no_*` restriction, the window applies when entering its final
+`to` way. A via-way `only_*` restriction applies at entry and at each constrained
+continuation, using that movement's time. Matching prefixes remain tracked while
+a window is inactive, so a later activation is respected. Where waiting changes
+which only-turn alternative has been completed, the search retains the earliest
+movement for each distinct continuation state.
+The search can wait for a road or turn to open or select a detour. Waiting is separate
+from cycling seconds and appears as a gap between consecutive legs. The
+window search covers an eight-day cycle. A clock-offset transition restarts that
+cycle, so a weekly opening skipped by a spring clock change or a skipped civil
+date can still be used the following week. The existing event limit still
+bounds work and reports an error if exhausted.
+Waiting has the preference cost of the profile's least-penalized cycling second;
+reported duration always includes the actual waiting seconds.
+When a timed restriction invalidates the nearest candidate, the search considers other
+street connections within `maxWalkKm` before accepting a long wait. Those
+connectors remain unverified walks. A feasible route bounds the duration of every
+improving route. Permissions that stay fixed inside that horizon remain enforced
+in a relaxed search; changing permissions stay available. If actual-time replay
+attains that lower bound without waiting, it proves an optimal path without
+temporal label storage. Otherwise, temporal searches use
+temporary lower bounds and feasible routes to prune alternatives, with a 262,144-label work limit;
+exhausting it returns an error, never a false no-route result. This is a work
+bound, not a bound on total process memory.
+
+Supported conditions include weekday lists/ranges, comma-separated time windows
+and overnight windows. The last matching conditional value overrides the base
+restriction. Holidays, seasonal or weather conditions, opening-hours semicolon
+rules and unknown conditional roads/gates remain
+conservative. More specific bicycle and direction tags retain their precedence
+over generic access tags, including outside a conditional exception's window.
+Overlapping conditional `only_*` relations remain independent obligations.
+With a usable date/timezone, point arrive-by Route, Matrix and Reach can use
+timed roads and turns. A static lower-bound path is anchored at the arrival
+deadline, then replayed forward with its full turn history. When every move is
+legal without waiting, it proves the preference optimum for the selected endpoint
+attachments (`timingPolicy: dated_arrive_by_verified`). A feasible candidate can
+also bound a backward time interval: permissions fixed throughout that interval
+remain enforced in the lower-bound search. Costs are measured back from the
+deadline, including time that an earlier traversal would need to wait.
+
+When permissions change within that interval, a forward departure-profile search
+retains intervals of legal departure times and the full turn history. Waiting
+splits intervals and preserves distinct conditional `only_*` completion states.
+The search can improve the candidate or prove it optimal, using the same
+`dated_arrive_by_verified` policy. It adds query-local scratch, with at most
+262,144 labels, and no resident graph copy. A feasible-bound or work-limit
+failure returns an error, not an unproven no-route result. The native API also
+respects the available, potentially rebased service-day clock when optimizing;
+a cheaper trip outside that clock cannot hide a feasible trip inside it.
+
+A Route reports its actual arrival, which can precede the requested deadline.
+`earlyArrivalSeconds` and `arrivalDeadlineMinutes` in trace diagnostics explain
+this slack. Matrix and arrive-by Reach include it in departure-to-deadline elapsed
+time; Route does not invent a travel or waiting leg after arrival. Preference
+cost includes the slack at the ordinary waiting rate.
+Ordered arrive-by requests with via points and requests without a usable
+date/timezone retain the conservative policy. No forward wait is shifted past
+the arrival deadline. Exhausting the fully relaxed search over all permitted
+endpoint attachments can also certify a blocked result; exhausting a work limit
+cannot. Arrival-grid diagnostics distinguish certified cells, exact point
+fallbacks and the reasons for falling back.
+
+Depart-at diagnostics report `timingPolicy` as `dated_roads_and_turns`,
+`dated_turns` (including via ways), `dated_node_turns`, or `conservative`.
+Existing compiled via-way windows work on
+open; older Cities without windows keep their stored restrictions. Rebuild from
+OSM to add missing road and turn windows. See the
+[OSM conditional-tag convention](https://wiki.openstreetmap.org/wiki/Conditional_restrictions).
+Diagnostics count unsupported relation shapes; missing
+OSM access or condition data cannot establish that a route is safe to ride.

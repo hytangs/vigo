@@ -11,8 +11,7 @@ function compactLabel(value: string) {
 export function parseRoutingCommand(query: string): RoutingCommand | null {
   let value = compactLabel(query)
   const lower = value.toLowerCase()
-  if (/\b(bike|biking|cycle|cycling)\b/.test(lower)) return null
-  const mode: RoutingTravelMode = /\b(drive|driving|car)\b/.test(lower)
+  const mode: RoutingTravelMode = /\b(bike|biking|cycle|cycling)\b/.test(lower) ? 'bike' : /\b(drive|driving|car)\b/.test(lower)
     ? 'drive'
     : /\b(walk|walking|foot)\b/.test(lower)
       ? 'walk'
@@ -26,7 +25,7 @@ export function parseRoutingCommand(query: string): RoutingCommand | null {
     : undefined
 
   if (timeMatch) value = compactLabel(`${value.slice(0, timeMatch.index)} ${value.slice(timeMatch.index + timeMatch[0].length)}`)
-  value = compactLabel(value.replace(/\b(route|plan|navigate|directions|transit|bus|rail|train|walk|walking|foot|drive|driving|car)\b/gi, ' '))
+  value = compactLabel(value.replace(/\b(route|plan|navigate|directions|transit|bus|rail|train|walk|walking|foot|drive|driving|car|bike|biking|cycle|cycling)\b/gi, ' '))
 
   value = value.replace(/^from\s+/i, '')
   const locationTexts = value

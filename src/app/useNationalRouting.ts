@@ -1,3 +1,4 @@
+import type { RoutingBikeOptions } from '../routingModel'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { RealtimeSnapshot, ServiceDay } from '../domain'
 import type { RoutingDataMode, RoutingPlan, RoutingPoint, RoutingTimePreference, RoutingTravelMode } from '../routingModel'
@@ -42,6 +43,7 @@ type UseNationalRoutingOptions = {
   waypoints: RoutingPoint[]
   destination: RoutingPoint | null
   mode: RoutingTravelMode
+  bike?: RoutingBikeOptions
   routingDataMode: RoutingDataMode
   departMinutes: number
   timePreference: RoutingTimePreference
@@ -83,6 +85,7 @@ export function useNationalRouting({
   waypoints,
   destination,
   mode,
+  bike,
   routingDataMode: preferredDataMode,
   departMinutes,
   timePreference,
@@ -139,6 +142,7 @@ export function useNationalRouting({
   const request = useMemo(() => ({ projectId, storeKey, streetKey, body: {
     ...(routeScenario ? { feedIds: routeScenario.feedIds, scenario: routeScenario.scenario } : { feedId }),
     mode,
+    ...(mode === 'bike' && bike ? { bike } : {}),
     routingDataMode,
     origin,
     waypoints,
@@ -165,7 +169,7 @@ export function useNationalRouting({
     maxStreetKm: mode === 'drive' ? 750 : 50,
     departureWindowMinutes: streetMode ? 0 : departureWindowMinutes,
     departureWindowDirection: !streetMode && departureWindowMinutes > 0 ? 'forward' : undefined,
-  } }), [autoExpandWalking, wheelchair, allowLongWalk, allowStreetTransfers, minimumTransferBufferMinutes, departNow, departureWindowMinutes, destination, feedId, maxWalkKm, maxTransfers, mode, runRevision, origin, projectId, requestDepartMinutes, requestServiceDate, requestServiceDay, requestTimePreference, routeScenario, routingDataMode, storeKey, streetKey, streetMode, waypoints])
+  } }), [bike, autoExpandWalking, wheelchair, allowLongWalk, allowStreetTransfers, minimumTransferBufferMinutes, departNow, departureWindowMinutes, destination, feedId, maxWalkKm, maxTransfers, mode, runRevision, origin, projectId, requestDepartMinutes, requestServiceDate, requestServiceDay, requestTimePreference, routeScenario, routingDataMode, storeKey, streetKey, streetMode, waypoints])
   const completedRequest = useRef<typeof request | null>(null)
 
   const reset = useCallback(() => {

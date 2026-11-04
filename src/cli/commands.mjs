@@ -18,13 +18,13 @@ export const options = {
   spec: ['PATH', 'Scenario source manifest JSON'],
   'prepare-date': ['YYYY-MM-DD', 'Precompile this service date; repeat for other dates', 'repeat'],
   'streets-from': ['PATH', 'Reuse identical immutable streets from a prepared City'],
-  'street-modes': ['VALUE', 'walk or walk,drive (default); walk omits all driving artifacts'],
+  'street-modes': ['VALUE', 'walk, walk,drive (default), walk,bike, or walk,drive,bike; optional modes add only their own graph'],
   'private-access': ['VALUE', 'public (default) or endpoints for authorized access'],
   output: ['PATH', 'Save the result; JSON is also printed (use - for stdout only)'],
   replace: ['', 'Replace an existing City', 'boolean'],
   input: ['PATH', 'Route CSV with origin/destination coordinates or stop IDs'],
   request: ['PATH', 'JSON request file; - reads standard input'],
-  mode: ['VALUE', 'transit (default), walk, or drive'],
+  mode: ['VALUE', 'transit (default), walk, drive, or bike'],
   'data-mode': ['VALUE', 'scheduled (default, research) or realtime with a supplied snapshot'],
   time: ['HH:MM', 'Local service time, 00:00–29:59 (default: 08:00)'],
   'time-preference': ['VALUE', 'depart (default) or arrive'],
@@ -154,7 +154,7 @@ export function usage(version, command = '') {
       const [placeholder, description] = options[name]
       const label = `--${name}${placeholder ? ` ${placeholder}` : ''}`
       const explanation = name === 'output' && command === 'build' ? 'City output directory'
-        : name === 'mode' ? 'transit (default), walk, or drive'
+        : name === 'mode' ? command === 'reach' ? 'transit (default), walk, or drive' : 'transit (default), walk, drive, or bike'
           : name === 'time-preference' ? command === 'reach' ? 'depart (default, from origin) or arrive (to destination)' : 'depart (default) or arrive'
             : description
       return `  ${label.padEnd(28)}${explanation}`

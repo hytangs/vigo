@@ -35,6 +35,10 @@ function fixture(name, { rows, trips = ['T'], frequencies = [], excluded = [] })
   return { store, stagePath, excluded }
 }
 function compare(name, data, errorPattern) {
+  // Frozen 0.5.2 evidence includes its old inclusive frequency endpoint.
+  // Express those SAME departures with exclusive bounds; never rewrite the
+  // retained evidence. The separate oracle below verifies RC.4's new boundary.
+  data = { ...data, frequencies: data.frequencies?.map(row => row[4] === 1 ? row.map((value, index) => index === 2 ? value + 1 : value) : row) }
   const f = fixture(name, data), nativePath = `${f.store}.native`
   fs.copyFileSync(f.store, nativePath)
   const before = contents(nativePath)
@@ -67,6 +71,18 @@ try {
   compare('excluded-still-validates', { rows: [stop(1, 'A', 100), stop(2, 'B', 90)], excluded: ['T'] }, /Non-monotone GTFS trip time/)
   compare('expansion-bound', { rows: [stop(1, 'A', 100), stop(2, 'B', 120)], frequencies: [['T', 0, 100000, 1, 1]] }, /supported expansion bound/)
   compare('frequency-id-collision', { trips: ['T', 'T#frequency-100'], rows: [stop(1, 'A', 100), stop(2, 'B', 120)], frequencies: [['T', 100, 100, 1, 1]] }, /UNIQUE constraint failed/)
+  for (const [name, windows, expected] of [
+    ['exclusive-end', [[100, 160, 30]], [100, 130]],
+    ['partial-headway', [[100, 161, 30]], [100, 130, 160]],
+    ['adjacent-windows', [[100, 160, 30], [160, 221, 60]], [100, 130, 160, 220]],
+  ]) {
+    const f = fixture(name, { rows: [stop(1, 'A', 100), stop(2, 'B', 120)], frequencies: windows.map(row => ['T', ...row, 1]) })
+    const counters = compileNativeGtfsConnections({ storePath: f.store, stopTimesPath: f.stagePath, excludedTripIds: [], cacheKib: 4096 })
+    const rows = contents(f.store).connections
+    assert.equal(counters.exactFrequencyExpandedTripCount, expected.length)
+    assert.deepEqual(rows.map(row => row.departure).sort((a, b) => a - b), expected, name)
+    assert(rows.every(row => row.arrival - row.departure === 20), 'Expansion must retain riding time')
+  }
   let seed = 80321
   const random = n => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed % n }
   for (let trial = 0; trial < 80; trial++) {

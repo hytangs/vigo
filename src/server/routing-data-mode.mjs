@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * @typedef {{routingDataMode?: unknown, serviceDate?: unknown, timePreference?: unknown,
+ * @typedef {{mode?: unknown, routingDataMode?: unknown, serviceDate?: unknown, timePreference?: unknown,
  * arriveMinutes?: unknown, timeMinutes?: unknown, departMinutes?: unknown,
  * realtimeSnapshot?: unknown}} RoutingDataRequest
  */
@@ -23,14 +23,16 @@ export function normalizeRoutingDataRequest(request) {
     request.timePreference === 'arrive'
       ? (request.arriveMinutes ?? request.timeMinutes ?? request.departMinutes)
       : request.departMinutes
+  const streetOnly = ['walk', 'drive', 'bike'].includes(String(request.mode))
   if (
-    typeof date !== 'string' ||
-    !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
-    !Number.isFinite(Date.parse(`${date}T12:00:00Z`)) ||
-    new Date(`${date}T12:00:00Z`).toISOString().slice(0, 10) !== date ||
-    time == null ||
-    time === '' ||
-    !Number.isFinite(Number(time))
+    !streetOnly &&
+    (typeof date !== 'string' ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+      !Number.isFinite(Date.parse(`${date}T12:00:00Z`)) ||
+      new Date(`${date}T12:00:00Z`).toISOString().slice(0, 10) !== date ||
+      time == null ||
+      time === '' ||
+      !Number.isFinite(Number(time)))
   ) {
     const error = Object.assign(
       new Error(

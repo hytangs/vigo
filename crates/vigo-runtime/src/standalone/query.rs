@@ -10,6 +10,15 @@ pub(crate) struct Point {
     pub coordinate: [f64; 2],
     pub stop: Option<String>,
 }
+/// Request-local inputs for repeated departure times. Endpoint access and
+/// direct walking do not depend on the sampled timetable realization.
+pub(super) struct SampleMatrix {
+    input: TimetableMatrixQueryInput,
+    walk_seconds: Vec<f64>,
+    exact: Vec<bool>,
+    pub cells: Vec<usize>,
+    pub width: usize,
+}
 pub(crate) struct Candidates {
     pub stops: Vec<u32>,
     pub seconds: Vec<f64>,
@@ -36,6 +45,7 @@ impl Candidates {
         )
     }
 }
+#[derive(Clone)]
 pub(crate) struct Options {
     pub time: f64,
     pub start: f64,
@@ -143,6 +153,14 @@ impl City {
         self.execute_output(command, request, true)
     }
     fn execute_output(&mut self, command: &str, request: &Value, detailed: bool) -> Result<Value> {
+        if request.get("monteCarlo").is_some() {
+            let result = self.monte_carlo(command, request, detailed);
+            if let Ok(output) = &result {
+                super::memory::record_output(command, &Value::Null, output);
+            }
+            super::release_preparation_memory();
+            return result;
+        }
         if request.get("allDay").is_some() {
             if !matches!(command, "reach" | "isochrone") {
                 return fail("allDay applies only to Reach");
@@ -304,16 +322,24 @@ impl City {
         if !opt.arrive {
             return Ok(None);
         }
-        // Reach looks back as far as its longest cutoff, on the timetable only.
+        // Transit Reach looks back by its cutoff. Bicycle Reach uses the same
+        // default clock horizon as point Route/Matrix: a cutoff filters the
+        // preferred route, and must not select a different, faster route by
+        // removing a cheaper departure on the preceding date.
         let reach = matches!(command, "reach" | "isochrone");
-        if reach && query["mode"].as_str().unwrap_or("transit") != "transit" {
+        if reach
+            && !matches!(
+                query["mode"].as_str().unwrap_or("transit"),
+                "transit" | "bike"
+            )
+        {
             return Ok(None);
         }
         let horizon = if query["mode"] == "walk" && !reach {
             opt.street_m / opt.walk_speed.unwrap_or(self.speed)
                 * 3.6
                 * (query["via"].as_array().map_or(0, Vec::len) + 1) as f64
-        } else if reach {
+        } else if reach && query["mode"] != "bike" {
             query["cutoffsMinutes"].as_array().map_or(60., |cutoffs| {
                 cutoffs.iter().filter_map(Value::as_f64).fold(0., f64::max)
             }) * 60.
@@ -391,7 +417,7 @@ impl City {
         }
         Ok(Some(date.to_string()))
     }
-    fn validate_wheelchair_request(&self, request: &Value) -> Result<()> {
+    pub(super) fn validate_wheelchair_request(&self, request: &Value) -> Result<()> {
         if request.get("wheelchair").is_some_and(|v| !v.is_boolean()) {
             return fail("wheelchair must be boolean");
         }
@@ -411,8 +437,8 @@ impl City {
             if request["wheelchair"] == false {
                 return fail("This wheelchair City cannot provide unrestricted routes");
             }
-            if request["mode"] == "drive" {
-                return fail("Wheelchair routing supports transit and walk, not drive");
+            if request["mode"] == "drive" || request["mode"] == "bike" {
+                return fail("Wheelchair routing supports transit and walk");
             }
             if request
                 .get("routingDataMode")
@@ -435,6 +461,7 @@ impl City {
         let started = Instant::now();
         if matches!(command, "route" | "matrix" | "reach" | "isochrone")
             && request["mode"] != "drive"
+            && request["mode"] != "bike"
         {
             self.ensure_pedestrian_hierarchy()?;
         }
@@ -1320,6 +1347,9 @@ impl City {
         let mut points = vec![q["origin"].clone()];
         points.extend(via.iter().cloned());
         points.push(q["destination"].clone());
+        if q["mode"] == "bike" {
+            return self.bike_via(q, &points, via, &opt);
+        }
         let mut states = vec![super::ordered::Candidate::start(opt.time / 60.)];
         let mut searches = 0;
         let indices: Vec<usize> = if opt.arrive {
@@ -1482,6 +1512,127 @@ impl City {
     pub fn matrix(&mut self, q: &Value) -> Result<Value> {
         self.matrix_with(q, true)
     }
+    pub(super) fn sample_matrix_plan(
+        &mut self,
+        q: &Value,
+        maximum_pairs: usize,
+    ) -> Result<SampleMatrix> {
+        let opt = Options::parse(q)?;
+        let points = |key: &str| -> Result<Vec<Point>> {
+            q[key]
+                .as_array()
+                .ok_or("Matrix endpoints must be arrays")?
+                .iter()
+                .map(|p| self.point(p))
+                .collect()
+        };
+        let origins = points("origins")?;
+        let destinations = points("destinations")?;
+        if origins.is_empty()
+            || destinations.is_empty()
+            || origins.len().saturating_mul(destinations.len()) > 65_536
+        {
+            return fail("Matrix must contain 1..65536 pairs");
+        }
+        let (origins, ai) = Self::distinct_points(&origins);
+        let (destinations, bi) = Self::distinct_points(&destinations);
+        let width = destinations.len();
+        if origins.len() * width > maximum_pairs {
+            return fail("monteCarlo exceeds the 64 MiB observation limit; reduce pairs or draws");
+        }
+        let cells = ai
+            .iter()
+            .flat_map(|&a| bi.iter().map(move |&b| a * width + b))
+            .collect();
+        let a = self.matrix_candidates(&origins, "origin", &opt)?;
+        let b = self.matrix_candidates(&destinations, "destination", &opt)?;
+        let walk_seconds = if flag(q, "requireTransitRide", false)? {
+            vec![f64::INFINITY; origins.len() * width]
+        } else {
+            self.matrix_walk_distances(q, &origins, &destinations, &opt)?
+                .into_iter()
+                .map(|d| d / self.speed * 3.6)
+                .collect()
+        };
+        let exact = origins
+            .iter()
+            .flat_map(|a| {
+                destinations
+                    .iter()
+                    .map(move |b| a.stop.is_some() || b.stop.is_some())
+            })
+            .collect();
+        Ok(SampleMatrix {
+            input: Self::matrix_input(&a, &b, &opt, false),
+            walk_seconds,
+            exact,
+            cells,
+            width: origins.len() * width,
+        })
+    }
+    pub(super) fn sample_matrix(&mut self, plan: &SampleMatrix, opt: &Options) -> Result<Vec<f64>> {
+        let mut input = plan.input.clone();
+        input.departure = opt.start;
+        input.horizon = opt.end;
+        let result = self
+            .timetable
+            .as_mut()
+            .unwrap()
+            .kernel
+            .route_matrix_csa(input)?;
+        Ok(result
+            .times
+            .iter()
+            .enumerate()
+            .map(|(i, &time)| {
+                let duration = time - opt.time;
+                let walk = plan.walk_seconds[i];
+                if !(plan.exact[i] && !duration.is_finite()) && walk <= opt.end - opt.start {
+                    duration.min(walk)
+                } else {
+                    duration
+                }
+            })
+            .collect())
+    }
+    fn matrix_walk_distances(
+        &mut self,
+        q: &Value,
+        origins: &[Point],
+        destinations: &[Point],
+        opt: &Options,
+    ) -> Result<Vec<f64>> {
+        let limit = self.direct_walk_limit(q, opt)?;
+        // A street walk cannot beat the straight-line distance. The margin
+        // covers quantized street lengths.
+        let near = |points: &[Point], others: &[Point]| -> Vec<usize> {
+            (0..points.len())
+                .filter(|&i| {
+                    others.iter().any(|other| {
+                        haversine(points[i].coordinate, other.coordinate) <= limit * 1.01 + 1.
+                    })
+                })
+                .collect()
+        };
+        let a = near(origins, destinations);
+        let b = near(destinations, origins);
+        let mut distances = vec![f64::INFINITY; origins.len() * destinations.len()];
+        if !a.is_empty() && !b.is_empty() {
+            let walk = self.street.route_street_matrix(StreetMatrixInput {
+                origin_coordinates: a.iter().flat_map(|&i| origins[i].coordinate).collect(),
+                destination_coordinates: b
+                    .iter()
+                    .flat_map(|&i| destinations[i].coordinate)
+                    .collect(),
+                maximum_distance_m: limit,
+                disable_cache: Some(opt.disable_cache),
+            })?;
+            for (k, &distance) in walk.distances_m.iter().enumerate() {
+                distances[a[k / b.len()] * destinations.len() + b[k % b.len()]] = distance;
+            }
+        }
+        Ok(distances)
+    }
     /// A Matrix; without `evidence`, unreached endpoints are not explained,
     /// as a caller reading durations alone (a Reach grid) needs no reasons.
     pub(super) fn matrix_with(&mut self, q: &Value, evidence: bool) -> Result<Value> {
@@ -1586,42 +1737,8 @@ impl City {
             })
             .transpose()?;
         if !flag(q, "requireTransitRide", false)? {
-            let limit = self.direct_walk_limit(q, &opt)?;
-            // No street walk is shorter than the straight line, so only
-            // endpoints within the limit of one on the other side need a
-            // street search; the margin covers edge-length rounding.
-            let near = |points: &[Point], others: &[Point]| -> Vec<usize> {
-                (0..points.len())
-                    .filter(|&i| {
-                        others.iter().any(|other| {
-                            haversine(points[i].coordinate, other.coordinate) <= limit * 1.01 + 1.
-                        })
-                    })
-                    .collect()
-            };
-            let near_origins = near(&search_origins, &search_destinations);
-            let near_destinations = near(&search_destinations, &search_origins);
-            let mut distances = vec![f64::INFINITY; search_origins.len() * search_width];
-            if !near_origins.is_empty() && !near_destinations.is_empty() {
-                let walk = self.street.route_street_matrix(StreetMatrixInput {
-                    origin_coordinates: near_origins
-                        .iter()
-                        .flat_map(|&i| search_origins[i].coordinate)
-                        .collect(),
-                    destination_coordinates: near_destinations
-                        .iter()
-                        .flat_map(|&j| search_destinations[j].coordinate)
-                        .collect(),
-                    maximum_distance_m: limit,
-                    disable_cache: Some(opt.disable_cache),
-                })?;
-                let width = near_destinations.len();
-                for (k, &distance) in walk.distances_m.iter().enumerate() {
-                    distances
-                        [near_origins[k / width] * search_width + near_destinations[k % width]] =
-                        distance;
-                }
-            }
+            let distances =
+                self.matrix_walk_distances(q, &search_origins, &search_destinations, &opt)?;
             for (i, &distance) in distances.iter().enumerate() {
                 let minutes = distance / self.speed * 3.6 / 60.;
                 let exact = search_origins[i / search_width].stop.is_some()
@@ -1785,9 +1902,49 @@ impl City {
                         ),
                         source: "osm",
                         verified: true,
+                        wait_before: 0.,
                     }],
                     serde_json::to_value(&r)?,
                 )
+            }
+            "bike" => {
+                self.load_bike()?;
+                let clock = self.bike_clock(q, opt)?;
+                let bike = self.bike.as_ref().unwrap();
+                let route = |bike: &crate::bike::BikeKernel,
+                             origin,
+                             destination,
+                             options,
+                             walk,
+                             speed,
+                             distance,
+                             clock| {
+                    if opt.arrive {
+                        bike.route_arrive_limited(
+                            origin,
+                            destination,
+                            options,
+                            walk,
+                            speed,
+                            distance,
+                            clock,
+                            Some(opt.time),
+                        )
+                    } else {
+                        bike.route_at(origin, destination, options, walk, speed, distance, clock)
+                    }
+                };
+                let r = route(
+                    bike,
+                    origin.coordinate,
+                    destination.coordinate,
+                    bike_options(q)?,
+                    opt.walk_m,
+                    opt.walk_speed.unwrap_or(self.speed),
+                    opt.street_m,
+                    clock,
+                )?;
+                return Self::bike_result(r, opt);
             }
             "drive" => {
                 self.load_drive()?;
@@ -1828,6 +1985,7 @@ impl City {
                     coordinates: vec![from, to],
                     source: "coordinate-snap",
                     verified: false,
+                    wait_before: 0.,
                 };
                 let first = walk(
                     r.origin_walk_seconds,
@@ -1848,6 +2006,7 @@ impl City {
                     coordinates: road,
                     source: "osm",
                     verified: true,
+                    wait_before: 0.,
                 };
                 // Sub-meter gaps are rounding, not walks; keep their seconds.
                 let mut legs = vec![];
@@ -1867,9 +2026,17 @@ impl City {
                 }
                 (legs, diagnostics)
             }
-            _ => return fail("mode must be transit, walk, or drive"),
+            _ => return fail("mode must be transit, walk, drive, or bike"),
         };
-        let seconds: f64 = legs.iter().map(|leg| leg.seconds).sum();
+        Self::street_result(legs, diagnostics, opt, mode)
+    }
+    fn street_result(
+        legs: Vec<StreetLeg>,
+        diagnostics: Value,
+        opt: &Options,
+        mode: &str,
+    ) -> Result<Value> {
+        let seconds: f64 = legs.iter().map(|leg| leg.seconds + leg.wait_before).sum();
         let distance: f64 = legs.iter().map(|leg| leg.meters).sum();
         let (departure, arrival) = if opt.arrive {
             (opt.time - seconds, opt.time)
@@ -1883,6 +2050,7 @@ impl City {
         let legs: Vec<Value> = legs
             .into_iter()
             .map(|leg| {
+                clock += leg.wait_before;
                 let start = clock;
                 clock += leg.seconds;
                 json!({"kind":leg.kind,"departureMinutes":start/60.,"arrivalMinutes":clock/60.,
@@ -1894,6 +2062,127 @@ impl City {
         Ok(
             json!({"status":"ready","mode":mode,"departureMinutes":departure/60.,"arrivalMinutes":arrival/60.,"durationMinutes":seconds/60.,"distanceMeters":distance,"transfers":0,"legs":legs,"diagnostics":diagnostics}),
         )
+    }
+    fn bike_result(r: crate::bike::BikeResult, opt: &Options) -> Result<Value> {
+        let diagnostics = json!({"algorithm":"bike_edge_state_astar", "preferenceCost":r.cost,
+            "settledLabels":r.settled_labels, "originRoadMeters":r.origin_road_meters,
+            "destinationRoadMeters":r.destination_road_meters,
+            "unsupportedRestrictions":r.unsupported_restrictions, "elevationModel":"osm_incline_only",
+            "timingPolicy":r.timing_policy});
+        let mut diagnostics = diagnostics;
+        if let Some(limit) = r.max_lts {
+            diagnostics["trafficStress"] = json!({"model":"osm_estimated_lts_v1",
+                "maximumCyclingLevel":limit,"aboveLimit":"walk_if_permitted"});
+        }
+        if r.status != "ready" {
+            return Ok(
+                json!({"status":"blocked","reason":r.reason,"mode":"bike","diagnostics":diagnostics}),
+            );
+        }
+        let legs = r
+            .legs
+            .into_iter()
+            .map(|leg| StreetLeg {
+                kind: leg.kind,
+                seconds: leg.seconds,
+                meters: leg.meters,
+                coordinates: leg.coordinates,
+                source: leg.source,
+                verified: leg.verified,
+                wait_before: leg.wait_before_seconds,
+            })
+            .collect();
+        let mut adjusted = opt.clone();
+        if opt.arrive && r.end_wait_seconds > 0. {
+            adjusted.time -= r.end_wait_seconds;
+            diagnostics["arrivalDeadlineMinutes"] = json!(opt.time / 60.);
+            diagnostics["earlyArrivalSeconds"] = json!(r.end_wait_seconds);
+        }
+        Self::street_result(legs, diagnostics, &adjusted, "bike")
+    }
+
+    fn bike_via(
+        &mut self,
+        q: &Value,
+        points: &[Value],
+        via: &[Value],
+        opt: &Options,
+    ) -> Result<Value> {
+        let coordinates = points
+            .iter()
+            .map(|p| self.point(p).map(|p| p.coordinate))
+            .collect::<Result<Vec<_>>>()?;
+        self.load_bike()?;
+        let parts = self.bike.as_ref().unwrap().route_through(
+            &coordinates,
+            bike_options(q)?,
+            opt.walk_m,
+            opt.walk_speed.unwrap_or(self.speed),
+            opt.street_m,
+            if opt.arrive {
+                None
+            } else {
+                self.bike_clock(q, opt)?
+            },
+        )?;
+        let seconds = parts
+            .iter()
+            .flat_map(|r| &r.legs)
+            .map(|l| l.seconds + l.wait_before_seconds)
+            .sum::<f64>();
+        // Arrive-by remains conservative and therefore time-independent. Route
+        // forward with full history, then anchor the complete path at arrival.
+        let mut time = if opt.arrive {
+            opt.time - seconds
+        } else {
+            opt.time
+        };
+        let mut state = super::ordered::Candidate::start(time / 60.);
+        for (i, part) in parts.into_iter().enumerate() {
+            let segment_opt = Options {
+                time,
+                arrive: false,
+                ..*opt
+            };
+            let piece = Self::bike_result(part, &segment_opt)?;
+            if piece["status"] != "ready" {
+                return Ok(
+                    json!({"status":"blocked","reason":"via_leg_blocked","legIndex":i,"leg":piece}),
+                );
+            }
+            time = piece["arrivalMinutes"].as_f64().unwrap() * 60.;
+            state = state.extend(std::sync::Arc::new(piece), false);
+        }
+        let mut result = state.finish(&json!(via));
+        result["diagnostics"]["orderedSearch"] = json!({"segmentQueries":points.len()-1,
+            "candidateLimit":1,"alternatives":"sequential_bike_history"});
+        result["choices"] = json!([result.clone()]);
+        Ok(result)
+    }
+
+    pub(super) fn bike_clock(
+        &self,
+        q: &Value,
+        opt: &Options,
+    ) -> Result<Option<crate::bike_time::BikeClock>> {
+        let Some(date) = q["serviceDate"].as_str() else {
+            return Ok(None);
+        };
+        let zone = self.metadata["agencyTimezone"]
+            .as_str()
+            .or_else(|| self.metadata["timezone"].as_str())
+            .or_else(|| {
+                self.metadata["agencyTimezones"]
+                    .as_array()
+                    .filter(|z| z.len() == 1)
+                    .and_then(|z| z[0].as_str())
+            });
+        let Some(zone) = zone else {
+            return Ok(None);
+        };
+        Ok(Some(crate::bike_time::BikeClock::service(
+            date, zone, opt.time,
+        )?))
     }
     fn street_matrix(
         &mut self,
@@ -1924,6 +2213,38 @@ impl City {
                     serde_json::to_value(r)?,
                 )
             }
+            "bike" => {
+                self.load_bike()?;
+                let clock = self.bike_clock(q, opt)?;
+                let bike = self.bike.as_ref().unwrap();
+                let options = bike_options(q)?;
+                let r = bike.matrix(
+                    &origins.iter().map(|p| p.coordinate).collect::<Vec<_>>(),
+                    &destinations
+                        .iter()
+                        .map(|p| p.coordinate)
+                        .collect::<Vec<_>>(),
+                    options,
+                    opt.walk_m,
+                    opt.walk_speed.unwrap_or(self.speed),
+                    opt.street_m,
+                    clock,
+                    opt.arrive,
+                    Some(opt.time),
+                )?;
+                let diagnostics = json!({"algorithm":if r.shared_fields > 0 {"shared_bicycle_matrix_with_verified_paths"} else {"bike_edge_state_astar"},
+                    "settledLabels":r.settled_labels,"sharedFields":r.shared_fields,
+                    "certifiedPairs":r.certified_pairs,"pointQueries":r.point_queries,
+                    "uniqueOrigins":r.unique_origins,"uniqueDestinations":r.unique_destinations,
+                    "treeLimited":r.tree_limited,"unsupportedRestrictions":bike.unsupported_restrictions,
+                    "elevationModel":"osm_incline_only",
+                    "timingPolicy":if clock.is_some() { if opt.arrive {"dated_arrive_by"} else {"dated_roads_and_turns"} } else {"conservative"}});
+                (
+                    r.meters,
+                    r.seconds.into_iter().map(|s| s / 60.).collect(),
+                    diagnostics,
+                )
+            }
             "drive" => {
                 self.load_drive()?;
                 let walking_speed_kph = opt.walk_speed.unwrap_or(self.speed);
@@ -1949,7 +2270,7 @@ impl City {
                     drive_diagnostics(serde_json::to_value(r)?, traffic_diagnostics),
                 )
             }
-            _ => return fail("mode must be transit, walk, or drive"),
+            _ => return fail("mode must be transit, walk, drive, or bike"),
         };
         Ok(
             json!({"kind":"matrix","mode":mode,"originCount":origins.len(),"destinationCount":destinations.len(),"durationsMinutes":durations.chunks(destinations.len()).collect::<Vec<_>>(),"distancesMeters":distances.chunks(destinations.len()).collect::<Vec<_>>(),"diagnostics":diagnostics}),
@@ -2146,11 +2467,13 @@ fn nearest_stop_evidence(stop: &super::city::Stop, meters: f64) -> Value {
     };
     json!({"id":stop.id,"name":name,"distanceKm":meters.round() / 1000.,"distanceKind":"straight_line"})
 }
-fn validate_request(command: &str, q: &Value, polling: bool, live: bool) -> Result<()> {
+pub(super) fn validate_request(command: &str, q: &Value, polling: bool, live: bool) -> Result<()> {
     let common = [
         "kind",
+        "monteCarlo",
         "wheelchair",
         "flex",
+        "bike",
         "id",
         "serviceDate",
         "serviceDay",
@@ -2247,9 +2570,9 @@ fn validate_request(command: &str, q: &Value, polling: bool, live: bool) -> Resu
         }
     }
     if q.get("mode")
-        .is_some_and(|v| !["transit", "walk", "drive"].iter().any(|m| v == *m))
+        .is_some_and(|v| !["transit", "walk", "drive", "bike"].iter().any(|m| v == *m))
     {
-        return fail("mode must be transit, walk, or drive");
+        return fail("mode must be transit, walk, drive, or bike");
     }
     if q.get("timePreference").is_some_and(|v| {
         !["depart_at", "arrive_by", "depart", "arrive"]
@@ -2275,6 +2598,12 @@ fn validate_request(command: &str, q: &Value, polling: bool, live: bool) -> Resu
         flag(q, name, true)?;
     }
     let mode = q["mode"].as_str().unwrap_or("transit");
+    if q.get("bike").is_some() || mode == "bike" {
+        if mode != "bike" || !matches!(command, "route" | "matrix" | "reach" | "isochrone") {
+            return fail("bike options require Bike Route, Matrix or Reach");
+        }
+        bike_options(q)?;
+    }
     if command == "matrix" {
         let journeys = flag(q, "includeJourneys", false)?;
         let geometry = flag(q, "includeGeometry", false)?;
@@ -2296,7 +2625,7 @@ fn validate_request(command: &str, q: &Value, polling: bool, live: bool) -> Resu
             }
         }
     }
-    if !["walk", "drive"].contains(&mode)
+    if !["walk", "drive", "bike"].contains(&mode)
         && !["reach", "isochrone"].contains(&command)
         && q.get("walkSpeedKph").is_some()
     {
@@ -2357,6 +2686,7 @@ struct StreetLeg {
     coordinates: Vec<[f64; 2]>,
     source: &'static str,
     verified: bool,
+    wait_before: f64,
 }
 
 fn walking_coordinates(raw: &[f64], origin: [f64; 2], destination: [f64; 2]) -> Vec<[f64; 2]> {
@@ -2391,6 +2721,15 @@ fn drive_diagnostics(mut value: Value, traffic: Value) -> Value {
         value["traffic"] = traffic;
     }
     value
+}
+
+pub(super) fn bike_options(q: &Value) -> Result<crate::bike::BikeOptions> {
+    let options: crate::bike::BikeOptions = match q.get("bike") {
+        Some(value) => serde_json::from_value(value.clone())?,
+        None => Default::default(),
+    };
+    options.validate()?;
+    Ok(options)
 }
 
 #[cfg(test)]

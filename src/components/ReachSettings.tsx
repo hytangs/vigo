@@ -1,4 +1,6 @@
-import { Car, TrainFront } from 'lucide-react'
+import { BikeRoutingSettings } from './BikeRoutingSettings'
+import type { RoutingBikeOptions } from '../routingModel'
+import { Bike, Car, TrainFront } from 'lucide-react'
 import { useId, useState, type CSSProperties } from 'react'
 import type { RoutingTimePreference } from '../routingModel'
 
@@ -40,9 +42,10 @@ export function AnalysisNumberField({ label, value, min, max, unit, integer = fa
 
 const reachBudgetPresets = [15, 30, 45, 60, 90, 120]
 
-export function ReachSettings({ travelMode = 'transit', onTravelModeChange, timePreference = 'depart', cutoffMinutes, maxWalkKm, walkSpeedKph, maxTransfers, surfaceSampling, hasScenarioChanges,
+export function ReachSettings({ travelMode = 'transit', onTravelModeChange, bike = {profile:'balanced',speedKph:18}, onBikeChange, timePreference = 'depart', cutoffMinutes, maxWalkKm, walkSpeedKph, maxTransfers, surfaceSampling, hasScenarioChanges,
   onCutoffChange, onMaxWalkKmChange, onWalkSpeedChange, onMaxTransfersChange, onSurfaceSamplingChange }: {
-  travelMode?: 'transit' | 'drive'; onTravelModeChange?: (value: 'transit' | 'drive') => void
+  travelMode?: 'transit' | 'drive' | 'bike'; onTravelModeChange?: (value: 'transit' | 'drive' | 'bike') => void
+  bike?: RoutingBikeOptions; onBikeChange?: (value: RoutingBikeOptions) => void
   timePreference?: RoutingTimePreference
   cutoffMinutes: number; maxWalkKm: number; walkSpeedKph: number; maxTransfers?: number
   surfaceSampling: 'street' | 'cell-center'; hasScenarioChanges: boolean
@@ -54,13 +57,14 @@ export function ReachSettings({ travelMode = 'transit', onTravelModeChange, time
   const arriveBy = timePreference === 'arrive'
   return <section className="reach-settings-list" aria-label="Travel limits">
     {onTravelModeChange ? <div className="studio-tabs reach-travel-mode" role="group" aria-label="Travel mode">
-      {([['transit', 'Transit & walk', TrainFront], ['drive', 'Drive', Car]] as const).map(([value, label, Icon]) => (
+      {([['transit', 'Transit & walk', TrainFront], ['drive', 'Drive', Car], ['bike', 'Bike', Bike]] as const).map(([value, label, Icon]) => (
         <button key={value} type="button" aria-pressed={travelMode === value} onClick={() => onTravelModeChange(value)}>
           <Icon size={13} aria-hidden="true" /><span>{label}</span>
         </button>
       ))}
     </div> : null}
     {travelMode === 'drive' ? <small>Road-speed estimates, without live traffic. Routes {arriveBy ? 'from' : 'to'} grid points within 40 km of the {arriveBy ? 'destination' : 'origin'}; areas beyond the map are not evaluated.</small> : null}
+    {travelMode === 'bike' ? <><BikeRoutingSettings value={bike} onChange={onBikeChange} arrive={arriveBy} /><small>Routes {arriveBy ? 'from' : 'to'} grid points within 8 km. Times include cycling, pushing and endpoint walks.</small></> : null}
     <div className="reach-time-budget">
       <AnalysisNumberField label="Time budget" value={cutoffMinutes} min={1} max={240} unit="min"
         onChange={value => { if (value !== undefined) onCutoffChange(value) }} />
@@ -76,7 +80,7 @@ export function ReachSettings({ travelMode = 'transit', onTravelModeChange, time
         ))}
       </div>
     </div>
-    {travelMode !== 'drive' ? <details className="studio-disclosure is-compact reach-advanced">
+    {travelMode === 'transit' ? <details className="studio-disclosure is-compact reach-advanced">
       <summary><span>Limits & method</span><b>{maxTransfers === undefined ? 'Auto rides' : `≤ ${maxTransfers + 1} ride${maxTransfers ? 's' : ''}`} · {maxWalkKm} km walk</b></summary>
       <div className="reach-walking-settings">
         {onMaxTransfersChange ? <AnalysisNumberField label="Maximum transit rides" value={maxTransfers === undefined ? undefined : maxTransfers + 1}
@@ -96,5 +100,6 @@ export function ReachSettings({ travelMode = 'transit', onTravelModeChange, time
         </label> : null}
       </div>
     </details> : null}
+    {travelMode === 'bike' ? <><AnalysisNumberField label="Endpoint walk limit" value={maxWalkKm} min={0.2} max={5} unit="km" onChange={value => { if (value !== undefined) onMaxWalkKmChange(value) }} /><AnalysisNumberField label="Endpoint walking speed" value={walkSpeedKph} min={1} max={8} unit="km/h" onChange={value => { if (value !== undefined) onWalkSpeedChange(value) }} /></> : null}
   </section>
 }

@@ -2474,3 +2474,7 @@ export function nativeNetworkOverview(storePath, sourceScope, asynchronous = fal
 export function selectStudioJourneyChoices(plans, limit = 10) {
   return loadNativeBinding().selectStudioJourneyIndices(JSON.stringify(plans), limit).map(index => plans[index])
 }
+
+export function createNativeBikeKernel(storePath) {
+  return new (loadNativeBinding().BikeKernel)(storePath)
+}

@@ -36,6 +36,7 @@ These fields differ between runs or builds. Each is replaced by a fixed value of
 
 | Field | Why it varies |
 | --- | --- |
+| `meta.engineVersion`, `engineVersion`, capabilities `version` | Release version; live output is checked against the checkout before normalization |
 | `meta.requestId` | Generated unless the request has an `id` |
 | `meta.computeUs`, `profile.timingsUs.*` | Measured time |
 | `meta.cityRevision`, `revision`, `cityRevisions.*` | Build time of the City |
@@ -52,3 +53,8 @@ Realtime snapshots and traffic expire, so those requests are stamped at run time
 The Rust model tests (`crates/vigo-model`) read every file here and write it back unchanged, and validate it against the generated schema.
 
 The release-candidate records include traffic admission, assumptions fingerprints, clock dates and the alternatives policy. Previous records remain available in Git history. The frozen 0.5.0 City archive is unchanged.
+
+Historical info receipts predate the optional bicycle memory owner. Replay
+requires that new ledger field to be `null` before accepting the addition;
+ordinary corpus queries must not load bicycle data. Capability additions are
+reviewed in the capabilities receipt rather than normalized away.

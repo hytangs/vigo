@@ -1,5 +1,5 @@
 mod service;
-pub use service::{HeadwayWindow, ServiceSemantics, TransferRule};
+pub use service::{HeadwayWindow, ServiceSemantics, TransferRule, frequency_key};
 mod columns;
 pub use columns::TimetableBlockPool;
 type SourceU32 = columns::Column<u32>;

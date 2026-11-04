@@ -3057,7 +3057,7 @@ async function requireCaseRoutingStore(projectId, project, body) {
  * case's store of a merged City, or a feed's own store.
  */
 async function nativeRouteSelection(projectId, project, body) {
-  const mode = ['walk', 'drive'].includes(body?.mode) ? body.mode : 'transit'
+  const mode = ['walk', 'drive', 'bike'].includes(body?.mode) ? body.mode : 'transit'
   const wheelchair = studioWheelchairSelection(projectMetaDir(projectId), project, body)
   if (wheelchair) {
     return {
@@ -3243,7 +3243,7 @@ async function runNationalRoute(projectId, body, signal) {
     throw Object.assign(new Error('objective must be earliest_arrival'), { statusCode: 400, code: 'invalid_objective' })
   }
   // Depart-at windows list later departures; arrive-by windows earlier arrivals.
-  const windowMinutes = ['walk', 'drive'].includes(body?.mode) || (body?.timePreference === 'arrive' && body?.waypoints?.length)
+  const windowMinutes = ['walk', 'drive', 'bike'].includes(body?.mode) || (body?.timePreference === 'arrive' && body?.waypoints?.length)
     ? 0
     : integralRoutingMinute(body?.departureWindowMinutes, 'departureWindowMinutes', 0)
   if (windowMinutes > 30) {
@@ -3258,7 +3258,7 @@ async function runNationalRoute(projectId, body, signal) {
   const selection = await nativeRouteSelection(projectId, project, body)
   const serviceContext = body.departNow === true ? {} : nationalRequestServiceContext(body)
   // A scenario changes scheduled transit service.
-  const planned = body.scenario && !['walk', 'drive'].includes(body.mode)
+  const planned = body.scenario && !['walk', 'drive', 'bike'].includes(body.mode)
   const studioBody = { ...body, ...serviceContext, departureWindowMinutes: windowMinutes,
     ...(planned ? { routingDataMode: 'scheduled', realtimeSnapshot: undefined } : {}) }
   const pointed = normalizeRoutingPointIdentities(selection.storePath, studioBody,
@@ -3291,7 +3291,7 @@ async function runNationalRoute(projectId, body, signal) {
 async function nativeRouteScenario(selection, body) {
   assertCaseRouteSources(body.scenario, selection.feedIds, Boolean(selection.sourceScopes))
   const storeIdentity = await nationalRouteArtifactIdentity(selection.storePath)
-  const { scenario } = compileReachScenario(hydrateScenarioRouteServices(selection.storePath, storeIdentity, body).scenario)
+  const { scenario } = compileReachScenario(hydrateScenarioRouteServices(selection.storePath, storeIdentity, body).scenario, body.serviceDate)
   return {
     id: scenario.id,
     name: scenario.name,
@@ -3733,7 +3733,9 @@ let reachBaselineCacheBytes = 0
 
 function reachRangeBytes(range) {
   const surface = range?.surface
-  return 8 * ((surface?.values?.length ?? 0) + (surface?.fullValues?.length ?? 0)) + 640 * (range?.stops?.length ?? 0) + 65_536
+  return 8 * ((surface?.values?.length ?? 0) + (surface?.fullValues?.length ?? 0)
+    + (range?.distribution?.durationsSeconds?.reduce((n, row) => n + row.length, 0) ?? 0)
+    + (range?.distribution?.reachableSamples?.length ?? 0)) + 640 * (range?.stops?.length ?? 0) + 65_536
 }
 
 // Identical ranges requested together (Compare's variants share one reference)
@@ -3813,7 +3815,7 @@ async function runReach(projectId, body, signal, onProgress, onPreliminary) {
   const dispatchRange = async (rangeRequest, scopes) => {
     const [start] = progressWindow(rangeRequest.stage)
     onProgress?.({ phase: 'search', progress: start, detail: rangeRequest.stage === 'scenario-range'
-      ? 'Searching the scenario timetable' : 'Searching the reference timetable' })
+      ? 'Searching the scenario timetable' : rangeRequest.mode === 'bike' ? 'Searching the bicycle network' : 'Searching the reference timetable' })
     const result = await queryNativeCity(reachSelection,
       nativeReachRangeRequest(rangeRequest, { sourceScopes: scopes }), signal)
     return studioReachRange(result, rangeRequest)

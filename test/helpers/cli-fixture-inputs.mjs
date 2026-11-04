@@ -47,6 +47,11 @@ function writeWay(way, pbf) {
 function writePrimitiveGroup(group, pbf) {
   for (const node of group.nodes) pbf.writeMessage(1, writeNode, node)
   for (const way of group.ways ?? [group.way]) pbf.writeMessage(3, writeWay, way)
+  for (const relation of group.relations ?? []) pbf.writeMessage(4, (r, p) => {
+    p.writeVarintField(1, r.id)
+    p.writePackedVarint(2, r.keys); p.writePackedVarint(3, r.values)
+    p.writePackedVarint(8, r.roles); p.writePackedSVarint(9, r.refs); p.writePackedVarint(10, r.types)
+  }, relation)
 }
 
 function writePrimitiveBlock(block, pbf) {
@@ -54,7 +59,7 @@ function writePrimitiveBlock(block, pbf) {
   pbf.writeMessage(2, writePrimitiveGroup, block.group)
 }
 
-function writeOsmFixture(filePath, terminalAccess, unreferencedNodes, nodeIdOffset, platformOutline, wheelchair, terminalNodeTags, terminalWayTags) {
+function writeOsmFixture(filePath, terminalAccess, unreferencedNodes, nodeIdOffset, platformOutline, wheelchair, terminalNodeTags, terminalWayTags, bikeConditionalTurn, bikePreferenceDetour, terminalNodeCoordinates, bikeAccessDetour) {
   const strings = ['', 'highway', 'residential', 'footway', 'service', 'access', 'private', 'foot', 'platform', 'area', 'yes', 'wheelchair']
   const stringIndex = value => {
     let index = strings.indexOf(value)
@@ -74,6 +79,20 @@ function writeOsmFixture(filePath, terminalAccess, unreferencedNodes, nodeIdOffs
         { id: 1, lat: 389_000_000, lon: -770_500_000 },
         { id: 2, lat: 389_050_000, lon: -770_400_000 },
         { id: 3, lat: 389_100_000, lon: -770_300_000 },
+        ...(bikeAccessDetour ? [
+          { id: 4, lat: 389_150_000, lon: -770_200_000 },
+          { id: 5, lat: 389_250_000, lon: -770_350_000 },
+          { id: 6, lat: 389_100_000, lon: -770_100_000 },
+        ] : []),
+        ...(bikePreferenceDetour ? [
+          { id: 8, lat: 389_000_000, lon: -769_500_000 },
+          { id: 9, lat: 390_300_000, lon: -770_000_000 },
+          ...(bikePreferenceDetour === 'sparse' ? [] : [
+            { id: 81, lat: 389_650_000, lon: -770_250_000 },
+            { id: 82, lat: 389_650_000, lon: -769_750_000 },
+          ]),
+        ] : []),
+        ...(bikeConditionalTurn === 'via' ? [{id:7,lat:389_075_000,lon:-770_350_000}] : []),
         ...(platformOutline ? [
           { id: 10, lat: 389_000_300, lon: -770_501_200 },
           { id: 11, lat: 389_000_300, lon: -770_500_800 },
@@ -86,9 +105,26 @@ function writeOsmFixture(filePath, terminalAccess, unreferencedNodes, nodeIdOffs
           { id: 5, lat: 389_000_000, lon: -770_535_000 },
           { id: 6, lat: 389_000_000, lon: -770_520_000 },
         ] : []),
-      ].map((node) => ({ ...tagged(node, terminalNodeTags?.[node.id]), id: node.id + nodeIdOffset })),
+      ].map((node) => ({ ...tagged(node, terminalNodeTags?.[node.id]),
+        ...(terminalNodeCoordinates?.[node.id] ? {lon:Math.round(terminalNodeCoordinates[node.id][0]*1e7),lat:Math.round(terminalNodeCoordinates[node.id][1]*1e7)} : {}),
+        id: node.id + nodeIdOffset })),
       ways: [
-        { id: 10, keys: wheelchair ? [1, 11] : [1], values: wheelchair ? [2, 10] : [2], refs: [1, 1, 1] },
+        { id: 10, keys: wheelchair ? [1, 11] : [1], values: wheelchair ? [2, 10] : [2], refs: bikeConditionalTurn || bikeAccessDetour ? [1, 1] : [1, 1, 1] },
+        ...(bikeAccessDetour ? [
+          tagged({ id: 20, refs: [2, 1] }, { highway: 'residential', bicycle: 'destination' }),
+          tagged({ id: 30, refs: [3, 1] }, { highway: 'residential' }),
+          ...(bikeAccessDetour === 'blocked' ? [] : [tagged({ id: 40, refs: [2, 3, -1] }, {
+            highway: 'cycleway', ...(bikeAccessDetour === 'timed' ? { 'bicycle:conditional': 'no @ (Mo-Fr 08:00-09:00)' } : {}),
+          })]),
+          tagged({ id: 60, refs: [4, 2] }, { highway: 'residential', bicycle: 'destination' }),
+        ] : []),
+        ...(bikePreferenceDetour ? [
+          tagged({ id:40, refs:[1,7] }, { highway:'primary', maxspeed:'80', oneway:'yes',
+            'bicycle:conditional':'no @ (Mo-Fr 08:00-09:00)' }),
+          tagged({ id:50, refs:bikePreferenceDetour === 'sparse' ? [1,8,-1] : [1,80,-72,73,-74] }, { highway:'cycleway', oneway:'yes' }),
+        ] : []),
+        ...(bikeConditionalTurn ? [{ id:20,keys:[1],values:[2],refs:bikeConditionalTurn === 'via' ? [2,5] : [2,1] }] : []),
+        ...(bikeConditionalTurn === 'via' ? [{id:30,keys:[1],values:[2],refs:[7,-4]}] : []),
         ...(platformOutline ? [{ id: 14, keys: [1, 9], values: [8, 10], refs: [10, 1, 1, 1, -3] }] : []),
         ...(terminalAccess ? [
           { id: 11, keys: [1], values: [3], refs: [4, 1] },
@@ -96,6 +132,10 @@ function writeOsmFixture(filePath, terminalAccess, unreferencedNodes, nodeIdOffs
           { id: 13, keys: [1, 7], values: [3, 6], refs: [6, -5] },
         ] : []),
       ].map((way) => ({ ...tagged(way, terminalWayTags?.[way.id]), refs: [way.refs[0] + nodeIdOffset, ...way.refs.slice(1)] })),
+      relations: bikeConditionalTurn ? [tagged({id:30,roles:['from','via','to'].map(stringIndex),
+        refs:bikeConditionalTurn === 'via' ? [10,10,10] : [10,2+nodeIdOffset-10,20-(2+nodeIdOffset)],
+        types:bikeConditionalTurn === 'via' ? [1,1,1] : [1,0,1]},
+        {type:'restriction','restriction:conditional':'no_straight_on @ (Mo-Fr 08:00-09:00)'})] : [],
     },
   })
   const framedBlock = (type, payload) => {
@@ -111,7 +151,7 @@ function writeOsmFixture(filePath, terminalAccess, unreferencedNodes, nodeIdOffs
   ]))
 }
 
-export async function writeCliFixtureInputs(directory, { terminalAccess = false, unreferencedNodes = 0, nodeIdOffset = 0, platformOutline = false, wheelchair = false, terminalNodeTags = {}, terminalWayTags = {} } = {}) {
+export async function writeCliFixtureInputs(directory, { terminalAccess = false, unreferencedNodes = 0, nodeIdOffset = 0, platformOutline = false, wheelchair = false, terminalNodeTags = {}, terminalWayTags = {}, bikeConditionalTurn = false, bikePreferenceDetour = false, terminalNodeCoordinates = {}, bikeAccessDetour = false } = {}) {
   const gtfsPath = path.join(directory, 'fixture.zip')
   const osmPath = path.join(directory, 'fixture.osm.pbf')
   const zip = new JSZip()
@@ -124,6 +164,6 @@ export async function writeCliFixtureInputs(directory, { terminalAccess = false,
   addTable('stop_times.txt', 'trip_id,arrival_time,departure_time,stop_id,stop_sequence\nT1,08:00:00,08:00:00,A,1\nT1,08:10:00,08:10:00,X,2\nT2,08:15:00,08:15:00,X,1\nT2,08:30:00,08:30:00,B,2\n')
   addTable('calendar.txt', 'service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\nWKD,1,1,1,1,1,0,0,20260101,20261231\n')
   fs.writeFileSync(gtfsPath, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))
-  writeOsmFixture(osmPath, terminalAccess, unreferencedNodes, nodeIdOffset, platformOutline, wheelchair, terminalNodeTags, terminalWayTags)
+  writeOsmFixture(osmPath, terminalAccess, unreferencedNodes, nodeIdOffset, platformOutline, wheelchair, terminalNodeTags, terminalWayTags, bikeConditionalTurn, bikePreferenceDetour, terminalNodeCoordinates, bikeAccessDetour)
   return { gtfsPath, osmPath }
 }

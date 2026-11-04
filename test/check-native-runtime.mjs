@@ -48,11 +48,17 @@ function fakeSpawn(_executable, args) {
   child.stdout = new EventEmitter()
   child.stderr = new EventEmitter()
   let queue = Promise.resolve()
-  const die = signal => {
+  const die = (signal, trailingError = null) => {
     if (child.exitCode !== null || child.killed) return
     child.killed = signal === 'SIGKILL'
     child.exitCode = signal ? null : 1
     child.emit('exit', signal ? null : 1, signal)
+    const close = () => {
+      if (trailingError) child.stderr.emit('data', Buffer.from(trailingError))
+      child.emit('close', signal ? null : 1, signal)
+    }
+    if (trailingError) queueMicrotask(close)
+    else close()
   }
   child.kill = signal => die(signal)
   child.unref = () => {}
@@ -67,9 +73,13 @@ function fakeSpawn(_executable, args) {
           die('SIGSEGV')
           return
         }
-        if (request.kind === 'open-failure') {
-          child.stderr.emit('data', Buffer.from('{"error":{"message":"The prepared access profile is stale"}}\n'))
-          die(null)
+        if (request.kind === 'open-failure' || request.kind === 'open-failure-late') {
+          const message = '{"error":{"message":"The prepared access profile is stale"}}\n'
+          if (request.kind === 'open-failure-late') die(null, message)
+          else {
+            child.stderr.emit('data', Buffer.from(message))
+            die(null)
+          }
           return
         }
         child.served.push(request.id)
@@ -148,6 +158,11 @@ try {
   await assert.rejects(runtime.query(stale, { kind: 'open-failure' }),
     error => error.preparation === true && error.retryable === false)
   assert.equal(spawned.length, opened + 1)
+  const late = nativeLayout('/cities/stale-late-stderr')
+  const beforeLate = spawned.length
+  await assert.rejects(runtime.query(late, { kind: 'open-failure-late' }),
+    error => error.preparation === true && error.retryable === false && /prepared access profile is stale/.test(error.message))
+  assert.equal(spawned.length, beforeLate + 1, 'Trailing startup errors must request preparation, not an unprepared retry')
 
   const indexed = { originCount: 2, destinationCount: 2,
     journeyTable: [{ legs: [{ kind: 'ride', tripId: 'trip' }] }, null],

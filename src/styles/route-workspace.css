@@ -344,7 +344,7 @@
 .pathfinder-leg-bar { display: flex; gap: 2px; height: 4px; overflow: hidden; border-radius: 999px; }
 .pathfinder-leg-segment { min-width: 2px; border-radius: 2px; background: var(--leg-color, var(--text-3)); }
 .pathfinder-leg-segment:is(.is-walk, .is-transfer) { background: var(--fill-3); }
-.pathfinder-leg-segment.is-drive { background: var(--text-3); }
+.pathfinder-leg-segment.is-drive, .pathfinder-leg-segment.is-bike { background: var(--text-3); }
 .pathfinder-leg-segment.is-wait { background: repeating-linear-gradient(90deg, var(--fill-3) 0 3px, transparent 3px 5px); }
 
 .pathfinder-group-services { color: var(--text-1); font-size: var(--type-sm); font-weight: 500; }
@@ -471,7 +471,7 @@
 }
 
 .journey-leg.is-ride::before { left: calc(var(--rail-center) - 3px); width: 6px; border: 0; border-radius: 3px; background: var(--journey-line, var(--text-3)); }
-.journey-leg.is-drive::before { left: calc(var(--rail-center) - 2px); width: 4px; border: 0; border-radius: 2px; background: var(--text-3); }
+.journey-leg.is-drive::before, .journey-leg.is-bike::before { left: calc(var(--rail-center) - 2px); width: 4px; border: 0; border-radius: 2px; background: var(--text-3); }
 
 .journey-clock { grid-row: 1; grid-column: 1; padding-top: 1px; color: var(--text-2); font-size: var(--type-sm); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 

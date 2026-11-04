@@ -249,10 +249,14 @@ export function wayTags(way, strings) {
 }
 
 export function coordinate(block, lat, lon) {
-  return [
+  const point = [
     (block.lonOffset + block.granularity * lon) * 1e-9,
     (block.latOffset + block.granularity * lat) * 1e-9,
   ]
+  if (!point.every(Number.isFinite) || Math.abs(point[0]) > 180 || Math.abs(point[1]) > 90) {
+    throw new Error('OSM PBF node has an invalid geographic coordinate.')
+  }
+  return point
 }
 
 async function readExact(handle, length, position) {

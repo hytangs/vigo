@@ -80,7 +80,7 @@ function markdownItinerary(plan: RoutingPlan) {
     ...(summary.timePreference === 'depart' ? [`Before leaving: ${summary.initialWaitMinutes} min after requested departure · total from requested departure: ${summary.totalElapsedMinutes} min`] : []),
     `${summary.walkMinutes} min walking · ${summary.rideMinutes} min riding/driving · ${summary.waitMinutes} min waiting en route · ${summary.transfers} transfers`, '',
     ...plan.legs.flatMap((leg, index) => [
-      `${index + 1}. ${clock(leg.startMinutes)}–${clock(leg.endMinutes)} · ${leg.type === 'ride' ? `Ride ${text(leg.routeShortName ?? leg.routeId ?? '')}` : leg.type === 'drive' ? 'Drive' : 'Walk'} · ${text(leg.fromName)} → ${text(leg.toName)}`,
+      `${index + 1}. ${clock(leg.startMinutes)}–${clock(leg.endMinutes)} · ${leg.type === 'ride' ? `Ride ${text(leg.routeShortName ?? leg.routeId ?? '')}` : leg.type === 'bike' ? 'Bike' : ['osm-dismount','osm-low-stress'].includes(leg.geometrySource ?? '') ? 'Walk bike' : leg.type === 'drive' ? 'Drive' : 'Walk'} · ${text(leg.fromName)} → ${text(leg.toName)}`,
       `   ${leg.durationMinutes} min · ${leg.distanceKm} km${leg.tripId ? ` · trip ${text(leg.tripId)}` : ''}`, '',
     ]),
     ...(plan.diagnostics.dataSemantics?.limitations?.length ? ['Declared limits:',
@@ -182,7 +182,7 @@ export function exportReachResults(entries: ReachExportEntry[], format: ResultEx
   })
   if (format === 'csv') return save(csv([
     ['name', 'feed_id', 'service_date', 'depart_minutes', 'origin_lon', 'origin_lat', 'sampling', 'cutoff_minutes', 'surface', 'reachable_cells', 'area_km2', 'transit_stops', 'faster_or_newly_reached_cells', 'slower_or_lost_cells', 'total_processing_ms', 'area_source', 'reference_feed_id', 'area_delta_km2', 'transit_stop_delta', 'mode', 'max_walk_km', 'walk_speed_kph', 'max_transfers', 'baseline_identity', 'scenario_id', 'reference_surface',
-      'time_preference', 'arrive_by_minutes', 'destination_lon', 'destination_lat'],
+      'time_preference', 'arrive_by_minutes', 'destination_lon', 'destination_lat', 'window_start_minutes', 'window_end_minutes', 'travel_time_percentile', 'simulation_draws', 'simulation_seed', 'bike_profile', 'bike_speed_kph', 'bike_max_lts'],
     ...entries.flatMap(({ name, feedId, result }) => reachSurfaces(entries).map(side => {
       const metrics = reachResultMetrics(result, side, cutoffMinutes)
       const difference = cityComparison ? reachResultDifference(reference.result, result, cutoffMinutes)
@@ -196,7 +196,9 @@ export function exportReachResults(entries: ReachExportEntry[], format: ResultEx
         metrics.areaSource, cityComparison ? reference.feedId : '', difference?.areaKm2, difference?.transitStops,
         result.request.mode ?? 'transit', result.request.maxWalkKm, result.request.walkSpeedKph ?? 4.8,
         result.request.maxTransfers, result.request.baselineIdentity, side === 'scenario' ? result.request.scenario.id : '', 'baseline',
-        arriveBy ? 'arrive_by' : 'depart_at', arriveBy ? result.request.departMinutes : '', ...(arriveBy ? place : ['', ''])]
+        arriveBy ? 'arrive_by' : 'depart_at', arriveBy ? result.request.departMinutes : '', ...(arriveBy ? place : ['', '']), result.request.monteCarlo?.startMinutes, result.request.monteCarlo?.endMinutes,
+        result.request.monteCarlo?.percentiles?.[0], result.distributions?.[side]?.sampling.sampleCount, result.request.monteCarlo?.seed, result.request.mode === 'bike' ? result.request.bike?.profile ?? 'balanced' : '',
+        result.request.mode === 'bike' ? result.request.bike?.speedKph ?? 18 : '', result.request.mode === 'bike' ? result.request.bike?.maxLts : '']
     })),
   ]))
   if (!reachGeometryAvailable(entries, cutoffMinutes)) throw new Error('Update Reach to retain geometry for this cutoff, or save JSON or CSV.')
@@ -204,7 +206,7 @@ export function exportReachResults(entries: ReachExportEntry[], format: ResultEx
     reachSurfaces(entries).flatMap(surface => (result.surface.areas?.[surface]?.features ?? result.surface.contours?.[surface]?.features ?? [])
       .filter(feature => Number(feature.properties?.cutoffMinutes) === cutoffMinutes)
       .map(feature => ({ ...feature, properties: { ...feature.properties, name, feedId, surface,
-        serviceDate: result.request.serviceDate, ...reachClockFields(result.request.timePreference, result.request.departMinutes) } })))) }
+        serviceDate: result.request.serviceDate, ...(result.request.monteCarlo ? { monteCarlo: result.request.monteCarlo } : {}), ...reachClockFields(result.request.timePreference, result.request.departMinutes) } })))) }
   return save(collection)
 }
 

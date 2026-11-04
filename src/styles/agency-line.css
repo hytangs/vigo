@@ -1,10 +1,15 @@
-.app-shell .route-surface .route-map-shell:has(> .agency-line-view) { background: var(--ink-2); }
+.app-shell .route-surface .route-map-shell:has(> .agency-line-view) { display: flex; flex-direction: column; padding-left: var(--line-panel-inset, 0px); background: var(--ink-2); }
+/* Keep the header in flow so wrapped controls never cover the diagram. */
+.app-shell .route-map-shell:has(> .agency-line-view) > .agency-map-context { position: relative; inset: auto; flex: 0 0 auto; flex-wrap: wrap; margin: 16px var(--stage-gutter) 12px; }
+@media (min-width: 900px) {
+  .app-shell.has-stage .route-map-shell:has(> .agency-line-view) { --line-panel-inset: calc(var(--panel-width) + var(--stage-gutter)); }
+}
 .agency-map-actions { display: flex; align-items: center; flex-shrink: 0; gap: 8px; }
 .agency-view-switch { display: flex; gap: 2px; padding: 3px; border: 0; border-radius: var(--radius-md); background: var(--ink-4); }
 .agency-view-switch button { min-height: 28px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-3); padding: 4px 10px; font-size: var(--type-xs); font-weight: 620; cursor: pointer; white-space: nowrap; }
 .agency-view-switch button[aria-pressed="true"] { background: var(--ink-2); color: var(--text-1); box-shadow: 0 0 0 1px var(--line-2), 0 1px 2px rgba(0, 0, 0, 0.22); }
 .agency-view-switch button:focus-visible, .agency-line-vehicle:focus-visible { outline: 2px solid var(--signal-text); outline-offset: 3px; }
-.agency-line-view { position: absolute; inset: 96px 0 0; overflow: auto; padding: 12px 24px 28px; color: var(--text-2); background: var(--ink-2); scrollbar-width: thin; overscroll-behavior: contain; }
+.agency-line-view { position: relative; order: 1; flex: 1 1 0; min-height: 0; overflow: auto; padding: 12px 24px 28px; color: var(--text-2); background: var(--ink-2); scrollbar-width: thin; overscroll-behavior: contain; }
 .agency-line-intro { margin-bottom: 24px; }
 .agency-line-intro > strong { color: var(--text-1); font-size: 16px; letter-spacing: -.02em; font-weight: 600; }
 .agency-line-intro p { margin: 5px 0; color: var(--text-3); font-size: 11px; }
@@ -35,7 +40,7 @@
 .agency-line-paired { grid-column: 1 / -1; list-style: none; padding: 0; margin: 0; }
 .agency-line-paired > li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(95px, 1.1fr) minmax(0, 1fr); }
 .agency-line-paired > li > span { grid-column: 2; grid-row: 1; align-self: center; padding: 0 6px; text-align: center; color: var(--text-1); font-size: 11px; line-height: 1.4; }
-.agency-line-traffic { position: relative; grid-row: 1; display: grid; grid-template-rows: repeat(3, 22px); min-width: 0; }
+.agency-line-traffic { position: relative; grid-row: 1; display: grid; grid-template-rows: repeat(3, minmax(22px, 1fr)); min-width: 0; }
 .agency-line-traffic.is-down { grid-column: 1; padding-right: 25px; }
 .agency-line-traffic.is-up { grid-column: 3; padding-left: 25px; }
 .agency-line-traffic::before { content: ''; position: absolute; top: 0; bottom: 0; width: 3px; background: var(--line-color); opacity: .8; }
@@ -43,7 +48,7 @@
 .agency-line-traffic.is-up::before { left: 10px; }
 .agency-line-paired > li:first-child .agency-line-traffic::before { top: 50%; }
 .agency-line-paired > li:last-child .agency-line-traffic::before { bottom: 50%; }
-.agency-line-traffic > div { display: flex; gap: 4px; align-items: center; overflow-x: auto; scrollbar-width: thin; }
+.agency-line-traffic > div { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; align-content: center; }
 .agency-line-traffic.is-down > div { flex-direction: row-reverse; }
 .agency-line-traffic i { position: absolute; top: calc(50% - 4px); width: 9px; height: 9px; border: 2px solid var(--line-color); border-radius: 50%; background: var(--ink-2); }
 .agency-line-traffic.is-down i { right: 7px; }
@@ -53,7 +58,9 @@
 .agency-line-traffic.is-up .agency-line-stop-marker { left: -11px; }
 .agency-line-traffic .agency-line-stop-marker i { left: 17px; right: auto; }
 .agency-line-stop-marker:hover i { box-shadow: 0 0 0 4px var(--signal-soft); }
-.agency-line-traffic .agency-line-vehicle { position: relative; flex-shrink: 0; height: 20px; padding: 2px 5px; font-size: 10px; line-height: 14px; }
+.agency-line-traffic .agency-line-vehicle { position: relative; flex-shrink: 0; flex-wrap: wrap; max-width: 100%; min-height: 20px; padding: 2px 5px; font-size: 10px; line-height: 14px; }
+.agency-line-traffic .agency-line-vehicle strong { min-width: 0; overflow-wrap: anywhere; }
+.agency-line-traffic .agency-line-vehicle > span { white-space: nowrap; }
 .agency-line-unplaced { padding: 18px 0; margin-top: 18px; border-top: 1px solid var(--line-2); font-size: 11px; color: var(--text-3); }
 .agency-line-unplaced summary { cursor: pointer; }
 .agency-line-unplaced button { display: block; margin-top: 10px; text-align: left; }
@@ -78,7 +85,8 @@
 .agency-vehicle-detail footer { overflow-wrap: anywhere; color: var(--text-3); font-size: 9px; margin-top: 13px; }
 .view-agency .route-map-shell .map-live-card.has-vehicle-timing { width: min(345px, calc(100% - 30px)); max-height: min(430px, calc(100% - var(--map-inspector-bottom, 28px) - 80px)); }
 @media (max-width: 760px) {
-  .agency-line-view { inset: 62px 0 0; padding: 8px 14px 20px; }
+  .agency-line-view { padding: 8px 14px 20px; }
+  .app-shell .route-map-shell:has(> .agency-line-view) > .agency-map-context { margin-top: 8px; }
   .agency-line-directions { column-gap: 16px; }
   .agency-map-actions { gap: 5px; }
   .agency-view-switch button { padding: 4px 6px; font-size: 10px; }

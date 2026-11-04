@@ -22,9 +22,7 @@ pub(crate) struct ScenarioPresentation {
 const RETAINED_VIEWS: usize = 8;
 
 impl City {
-    /// Route `q` on the view its `scenario` describes.
-    pub(super) fn scenario_route(&mut self, q: &Value) -> Result<Value> {
-        let scenario = &q["scenario"];
+    pub(super) fn validate_scenario(&self, scenario: &Value) -> Result<()> {
         for key in scenario
             .as_object()
             .ok_or("scenario must be an object")?
@@ -52,6 +50,12 @@ impl City {
         {
             return fail("Scenario belongs to another City revision");
         }
+        Ok(())
+    }
+    /// Route `q` on the view its `scenario` describes.
+    pub(super) fn scenario_route(&mut self, q: &Value) -> Result<Value> {
+        let scenario = &q["scenario"];
+        self.validate_scenario(scenario)?;
         if q["mode"].as_str().unwrap_or("transit") != "transit" {
             return fail("A scenario changes transit service; route it in transit mode");
         }
@@ -64,7 +68,7 @@ impl City {
         let mut base = q.clone();
         base.as_object_mut().unwrap().remove("scenario");
         self.activate(&base)?;
-        self.install_scenario(scenario)?;
+        self.install_scenario(scenario, q)?;
         // A retained view keeps the buffer it was last searched with.
         self.apply_transfer_buffer(&base)?;
         self.planned_flex = Some(self.parse_planned_zones(scenario, q)?).filter(|z| !z.is_empty());
@@ -82,7 +86,7 @@ impl City {
     }
 
     /// Make the view of the active timetable under `scenario` active.
-    pub(super) fn install_scenario(&mut self, scenario: &Value) -> Result<()> {
+    pub(super) fn install_scenario(&mut self, scenario: &Value, request: &Value) -> Result<()> {
         let mut fixed = scenario.clone();
         if let Some(object) = fixed.as_object_mut() {
             object.remove("flexZones");
@@ -104,7 +108,11 @@ impl City {
         let digest = format!("{:x}", Sha256::digest(serde_json::to_vec(scenario)?));
         // The view's planned stops, routes and trips belong to its own feed.
         let tag = format!("scenario-{}", &digest[..12]);
-        let key = format!("{}:{tag}", t.key);
+        let key = format!(
+            "{}:{tag}:frequency={}",
+            t.key,
+            self.frequency_sample.is_some()
+        );
         let coverage_end = t.coverage_end;
         if let (Some(index), Some(presentation)) = (
             self.timetable_cache.find(&key, coverage_end),
@@ -117,7 +125,12 @@ impl City {
             self.scenario_view = Some(presentation);
             return Ok(());
         }
-        let (view, presentation) = self.derive_scenario(scenario, &tag, key.clone())?;
+        let (view, presentation) = self.derive_scenario(
+            scenario,
+            &tag,
+            key.clone(),
+            Self::validated_service_date(request)?,
+        )?;
         self.retire_timetable();
         self.timetable = Some(view);
         self.install_query_workspace();
@@ -135,11 +148,12 @@ impl City {
         scenario: &Value,
         tag: &str,
         key: String,
+        date: chrono::NaiveDate,
     ) -> Result<(Timetable, ScenarioPresentation)> {
         let planned = if scenario["services"].is_null() {
             None
         } else {
-            Some(self.planned(scenario)?)
+            Some(self.planned(scenario, date)?)
         };
         let t = self.timetable.as_ref().unwrap();
         let n = t.stop_ids.len() as u32;
@@ -230,7 +244,19 @@ impl City {
             pattern_can_board: planned.board.clone().into(),
             pattern_can_alight: planned.alight.clone().into(),
             run_start_seconds: seconds(&planned.starts).into(),
-            run_end_seconds: seconds(&planned.ends).into(),
+            run_end_seconds: planned
+                .ends
+                .iter()
+                .enumerate()
+                .map(|(run, &end)| {
+                    if self.frequency_sample.is_some() && planned.random[run] {
+                        planned.starts[run].round() as u32
+                    } else {
+                        end.round() as u32
+                    }
+                })
+                .collect::<Vec<_>>()
+                .into(),
             run_headway_seconds: planned
                 .headways
                 .iter()
@@ -241,12 +267,106 @@ impl City {
             added_transfer_to: to.into(),
             added_transfer_duration: duration.into(),
         };
-        let view = self
+        let mut view = self
             .timetable
             .as_ref()
             .unwrap()
             .kernel
             .scenario_view(plan)?;
+
+        if self.frequency_sample.is_some() {
+            let windows = view
+                .added_trip_patterns
+                .iter()
+                .enumerate()
+                .filter_map(|(added, &run)| {
+                    let run = run as usize;
+                    planned.random[run].then(|| vigo_route::timetable::HeadwayWindow {
+                        key: vigo_route::timetable::frequency_key(&[
+                            scenario["services"][planned.run_services[run]]["id"]
+                                .as_str()
+                                .unwrap_or("planned"),
+                            &format!(
+                                "{}:{}:{}",
+                                planned.run_services[run],
+                                planned.run_entries[run],
+                                planned.run_inbound[run]
+                            ),
+                        ]),
+                        trip: trip_ids.len() as u32 + added as u32,
+                        start: planned.starts[run].round(),
+                        end: planned.ends[run].round(),
+                        headway: planned.headways[run].round().max(1.) as u32,
+                    })
+                })
+                .collect();
+            view.kernel.add_frequency_windows(windows)?;
+            let services = scenario["services"].as_array().cloned().unwrap_or_default();
+            let run_for = |service: usize| -> Result<usize> {
+                let runs: Vec<_> = planned
+                    .run_services
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, owner)| **owner == service)
+                    .map(|(run, _)| run)
+                    .collect();
+                if runs.len() != 1 || !planned.random[runs[0]] {
+                    return fail(
+                        "Phasing requires unidirectional frequency services with non-exact times",
+                    );
+                }
+                Ok(runs[0])
+            };
+            let trip_for = |run: usize| -> Result<u32> {
+                view.added_trip_patterns
+                    .iter()
+                    .position(|&p| p as usize == run)
+                    .map(|added| trip_ids.len() as u32 + added as u32)
+                    .ok_or_else(|| "Missing phase trip".into())
+            };
+            let mut constraints = vec![];
+            for (index, service) in services.iter().enumerate() {
+                let Some(phase) = service.get("phaseFrom") else {
+                    continue;
+                };
+                let phase: vigo_model::FrequencyPhasing = serde_json::from_value(phase.clone())?;
+                let matches: Vec<_> = services
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, s)| s["id"] == phase.service_id)
+                    .map(|(i, _)| i)
+                    .collect();
+                if matches.len() != 1 {
+                    return fail("phaseFrom.serviceId must identify one service");
+                }
+                let child = run_for(index)?;
+                let parent = run_for(matches[0])?;
+                let offset = |run: usize, stop: u32| -> Result<f64> {
+                    let start = planned.direction_offsets[run] as usize;
+                    let end = planned.direction_offsets[run + 1] as usize;
+                    let stop = start + stop as usize;
+                    if stop >= end {
+                        return fail("Phase stop index is outside its service");
+                    }
+                    Ok(if stop + 1 == end {
+                        planned.arrivals[stop]
+                    } else {
+                        planned.departures[stop]
+                    })
+                };
+                let seconds = phase.offset_minutes.map_or(0., |n| n.0);
+                if !seconds.is_finite() || seconds.abs() > 1440. {
+                    return fail("Invalid phase offsetMinutes");
+                }
+                constraints.push((
+                    trip_for(child)?,
+                    trip_for(parent)?,
+                    offset(parent, phase.from_stop_index)? - offset(child, phase.at_stop_index)?
+                        + seconds * 60.,
+                ));
+            }
+            view.kernel.set_frequency_phasing(constraints)?;
+        }
 
         // Names: new stops, and one route per planned service.
         let services = scenario["services"].as_array().cloned().unwrap_or_default();

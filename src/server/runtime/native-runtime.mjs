@@ -111,7 +111,9 @@ class StreamProcess {
     this.child.stderr.on('data', chunk => { this.stderr = (this.stderr + chunk.toString()).slice(-8_000) })
     this.child.stdin.on('error', () => {})
     this.child.on('error', error => this.fail(new NativeCityUnavailableError(`VIGO could not start its runtime: ${error.message}`)))
-    this.child.on('exit', (code, signal) => {
+    // exit can precede the last stderr chunk. Wait for closed streams so a
+    // repairable missing/stale City is not reduced to an opaque exit code.
+    this.child.on('close', (code, signal) => {
       const detail = this.lastError() || `exit ${code ?? signal}`
       // A process that opened its City, or was killed, can be replaced; one
       // that could not open it reports why.

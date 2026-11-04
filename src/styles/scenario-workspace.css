@@ -113,6 +113,13 @@
 .scenario-path-status.is-error { color: var(--alert); }
 
 /* Stops and zone corners */
+.scenario-timing, .scenario-timetables { display: grid; grid-column: 1 / -1; gap: 10px; min-width: 0; }
+.scenario-timetable-row { display: grid; gap: 8px; min-width: 0; margin: 0; padding: 10px; border: 1px solid var(--line-1); border-radius: 8px; }
+.scenario-timetable-row legend { padding: 0 4px; color: var(--text-2); font-size: var(--type-sm); }
+.scenario-weekdays { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+.scenario-weekdays button { min-width: 0; padding: 6px 0; border: 1px solid var(--line-1); border-radius: 5px; background: var(--fill-1); color: var(--text-2); font-size: var(--type-xs); cursor: pointer; }
+.scenario-weekdays button[aria-pressed="true"] { background: var(--signal-soft); color: var(--text-1); border-color: var(--signal); }
+.scenario-weekdays button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 .scenario-stops { display: grid; gap: 8px; min-width: 0; }
 .scenario-stops-head { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .scenario-stops-head > span { display: inline-flex; flex: 1; align-items: center; gap: 6px; min-width: 0; color: var(--text-2); font-size: var(--type-sm); }

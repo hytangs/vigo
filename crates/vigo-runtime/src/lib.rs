@@ -6,6 +6,8 @@ compile_error!(
 );
 #[cfg(any(feature = "node", test))]
 mod basemap_tiles;
+mod bike;
+mod bike_time;
 pub mod compiler;
 #[cfg(any(feature = "node", test))]
 mod decimal_rounding;
@@ -3280,6 +3282,7 @@ impl CoordinateKernel {
     #[cfg_attr(feature = "node", napi)]
     pub fn configure_terminal_access(&mut self, path: String) -> napi::Result<()> {
         self.terminal_access = Some(shared_streets::terminal(&self.snapshot, &path)?);
+        self.surface_snap_cache = street_analysis::SurfaceSnapCache::default();
         self.surface_reuse_cache = street_analysis::SurfaceReuseCache::default();
         self.clear_endpoint_caches();
         Ok(())

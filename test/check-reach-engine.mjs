@@ -23,6 +23,7 @@ import { normalizeRoutingPointIdentities } from '../src/server/routing-point-ide
 import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
 import { readGtfsRouteAnalysis } from '../src/server/gtfs-analysis-store.mjs'
 import { nativePreliminaryRequest, nativeReachRangeRequest, studioReachRange } from '../src/server/studio-reach-ranges.mjs'
+import { validateReachRequest } from '../src/server/reach.mjs'
 
 const repositoryRoot = path.resolve(import.meta.dirname, '..')
 const folder = await fsp.mkdtemp(path.join(os.tmpdir(), 'vigo-reach-'))
@@ -266,6 +267,15 @@ try {
   const rangeSurface = { width: 48, height: 48, bounds: [7.99, 46.99, 8.02, 47.01] }
   const departRange = { stage: 'baseline-range', origin: selectedOrigin, departMinutes: 480, cutoffMinutes: 20, surface: rangeSurface }
   const arriveRange = { stage: 'baseline-range', timePreference: 'arrive', destination: selectedDestination, departMinutes: 490, cutoffMinutes: 20, surface: rangeSurface }
+  const bike = {profile:'quiet',speedKph:22,maxLts:2}
+  const normalizedBike = validateReachRequest({mode:'bike',bike,origin:selectedOrigin,serviceDate:'2026-07-20'})
+  assert.deepEqual(normalizedBike.bike,bike)
+  assert.equal(normalizedBike.surfaceSampling,'cell-center')
+  assert.equal(normalizedBike.includeStreetEdges,false)
+  const bikeRange = {...departRange,mode:'bike',bike}
+  assert.deepEqual(nativeReachRangeRequest(bikeRange).bike,bike)
+  assert.equal(studioReachRange({stops:[]},bikeRange).diagnostics.transit.status,'bike_only')
+  assert.throws(()=>validateReachRequest({mode:'walk',bike,origin:selectedOrigin,serviceDate:'2026-07-20'}),/Bike preferences/)
   assert.deepEqual([nativeReachRangeRequest(departRange).timePreference, nativeReachRangeRequest(departRange).surfaceReuse], ['depart_at', 'baseline'])
   assert.equal(nativeReachRangeRequest({ ...departRange, stage: 'scenario-range' }).surfaceReuse, 'scenario')
   assert.equal(nativeReachRangeRequest({ ...departRange, retainSurface: false }).surfaceReuse, undefined,
@@ -310,6 +320,15 @@ try {
   }
   const apiReach = await endpoint('reach', { ...boundaryRequest, cutoffsMinutes: [20], rasterSize: 48, includePreliminary: false, includeStreetEdges: false })
   assert(apiReach.result.summary.transitStopSeeds > 0, 'Reach API must resolve imported-stop identity before dispatch.')
+  const simulated = await endpoint('reach', { ...boundaryRequest, cutoffsMinutes: [20], rasterSize: 48,
+    includePreliminary: false, includeStreetEdges: false,
+    monteCarlo: { startMinutes: 480, endMinutes: 483, draws: 6, seed: 42, percentiles: [50] } })
+  assert.equal(simulated.result.distributions.baseline.schema, 'vigo.distribution.v1')
+  assert.equal(simulated.result.distributions.baseline.sampling.sampleCount, 3)
+  assert.equal(simulated.result.request.monteCarlo.seed, 42)
+  assert.equal(simulated.result.summary.transitStatus.status, 'sampled')
+  assert.deepEqual(simulated.result.summary.transitStopsByCutoff, [])
+  assert(simulated.result.limitations.some(item => item.code === 'sampled_schedule_distribution'))
   const localPattern = readGtfsRouteAnalysis(storePath, 'R1', { includeTripIds: true }).routes[0]
   const replacement = { operation: 'replace', sourceRouteId: 'feed-local::R1', sourcePatternId: localPattern.patternId,
     routeScope: 'pattern', headwayMinutes: 10, startMinutes: 300, endMinutes: 1500 }

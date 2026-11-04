@@ -189,15 +189,73 @@ impl City {
         size: usize,
         bounds: &[f64],
         maximum: f64,
-    ) -> Result<Vec<f64>> {
+    ) -> Result<(Vec<f64>, Value)> {
         let mut values = Vec::with_capacity(size * size);
         let mut query = q.clone();
         query["kind"] = json!("matrix");
-        if q["mode"] == "drive" && q.get("maxStreetKm").is_none() {
+        if matches!(q["mode"].as_str(), Some("drive" | "bike")) && q.get("maxStreetKm").is_none() {
             query["maxStreetKm"] = json!(750.);
         }
         // Arrive-by Reach measures from every cell to its destination.
-        let arrive = super::query::Options::parse(q)?.arrive;
+        let opt = super::query::Options::parse(q)?;
+        let arrive = opt.arrive;
+        if q["mode"] == "bike" {
+            self.load_bike()?;
+            let options = super::query::bike_options(q)?;
+            let clock = self.bike_clock(q, &opt)?;
+            let targets: Vec<[f64; 2]> = (0..size * size)
+                .map(|i| {
+                    [
+                        bounds[0]
+                            + ((i % size) as f64 + 0.5) / size as f64 * (bounds[2] - bounds[0]),
+                        bounds[3]
+                            - ((i / size) as f64 + 0.5) / size as f64 * (bounds[3] - bounds[1]),
+                    ]
+                })
+                .collect();
+            let place = self.point(&q[if arrive { "destination" } else { "origin" }])?;
+            let bike = self.bike.as_ref().unwrap();
+            let result = if arrive {
+                bike.many_to(
+                    &targets,
+                    place.coordinate,
+                    options,
+                    opt.walk_m,
+                    opt.walk_speed.unwrap_or(self.speed),
+                    750_000.,
+                    clock,
+                    maximum * 60.,
+                    Some(opt.time),
+                )?
+            } else {
+                bike.many_from(
+                    place.coordinate,
+                    &targets,
+                    options,
+                    opt.walk_m,
+                    opt.walk_speed.unwrap_or(self.speed),
+                    750_000.,
+                    clock,
+                    maximum * 60.,
+                )?
+            };
+            let diagnostics = json!({"algorithm":if arrive {"shared_bicycle_arrival_tree_with_verified_paths"} else {"shared_bicycle_lower_bound_tree_with_verified_paths"},
+                "settledLabels":result.settled_labels,"certifiedTargets":result.certified_targets,
+                "exactFallbackTargets":result.fallback_targets,"treeLimited":result.tree_limited,
+                "fallbackReasons":result.fallback_reasons,
+                "scopedTrees":result.scoped_trees,
+                "timedAttachmentCertificates":result.attachment_certificates,
+                "timedAccessGroups":result.access_groups,
+                "accessGroupKeyBytes":result.access_group_key_bytes,
+                "accessGroupLimitTargets":result.access_group_limit_targets,
+                "profile":options.profile,"speedKph":options.speed_kph,"maxLts":options.max_lts,
+                "durationPolicy":if arrive {"deadline_elapsed_on_minimum_preference_cost_route"} else {"physical_seconds_on_minimum_preference_cost_route"},
+                "timingPolicy":if clock.is_some() {if arrive {"dated_arrive_by_verified"} else {"dated_roads_and_turns"}} else {"conservative"}});
+            return Ok((
+                result.seconds.into_iter().map(|v| v / 60.).collect(),
+                diagnostics,
+            ));
+        }
         let (place, cells) = if arrive {
             ("destinations", "origins")
         } else {
@@ -244,14 +302,30 @@ impl City {
                 value
                     .as_f64()
                     .filter(|v| v.is_finite() && *v <= maximum)
-                    .map(|v| (v * 1000.).round() / 1000.)
+                    // Keep Matrix precision until the public seconds
+                    // projection. Rounding minutes first can move a value
+                    // across a half-second boundary and disagree with Matrix.
                     .unwrap_or(f64::INFINITY)
             }));
         }
-        Ok(values)
+        Ok((
+            values,
+            if q["mode"] == "bike" {
+                json!({"algorithm":"bicycle_point_queries",
+            "timingPolicy":"conservative","durationPolicy":"physical_seconds_on_minimum_preference_cost_route"})
+            } else {
+                Value::Null
+            },
+        ))
     }
 
     pub fn reach(&mut self, q: &Value) -> Result<Value> {
+        self.reach_with(q, false)
+    }
+    pub(super) fn reach_sample(&mut self, q: &Value) -> Result<Value> {
+        self.reach_with(q, true)
+    }
+    fn reach_with(&mut self, q: &Value, sample: bool) -> Result<Value> {
         if let Some(scenario) = q.get("scenario") {
             for key in scenario
                 .as_object()
@@ -309,10 +383,15 @@ impl City {
         }
         let place = self.point(&q[field])?;
         let mode = q["mode"].as_str().unwrap_or("transit");
-        if !["transit", "walk", "drive"].contains(&mode) {
-            return fail("Reach supports transit, walk, or drive");
+        if !["transit", "walk", "drive", "bike"].contains(&mode) {
+            return fail("Reach supports transit, walk, drive, or bike");
         }
-        let sampling = if mode == "drive" {
+        if mode == "bike"
+            && (flag(q, "includeStreetEdges", false)? || flag(q, "includeNodes", false)?)
+        {
+            return fail("Bicycle Reach uses cell-center sampling without street or node evidence");
+        }
+        let sampling = if mode == "drive" || mode == "bike" {
             "cell-center"
         } else {
             match q.get("surfaceSampling") {
@@ -455,7 +534,7 @@ impl City {
                 if q["routingDataMode"] == "realtime" || q["dataMode"] == "realtime" {
                     return fail("Scenario Reach uses the scheduled timetable");
                 }
-                self.install_scenario(source_scenario.unwrap())?;
+                self.install_scenario(source_scenario.unwrap(), q)?;
                 self.apply_transfer_buffer(q)?;
             }
             let a = self.candidates(&place, "origin", &opt)?;
@@ -515,7 +594,13 @@ impl City {
                 .and_then(Value::as_array)
                 .is_some_and(|a| !a.is_empty())
             {
-                let overlay = self.scenario(scenario.unwrap(), input, &place, &opt)?;
+                let overlay = self.scenario(
+                    scenario.unwrap(),
+                    input,
+                    &place,
+                    &opt,
+                    Self::validated_service_date(q)?,
+                )?;
                 overlay_members = overlay
                     .input
                     .overlay_base_stops
@@ -536,7 +621,9 @@ impl City {
                     .unwrap()
                     .kernel
                     .route_overlay_many_csa(overlay.input)?;
-                transit = serde_json::to_value(&result)?;
+                if !sample {
+                    transit = serde_json::to_value(&result)?;
+                }
                 Some(result.timetable)
             } else if let Some(overlay) = scenario.and_then(|s| s.get("overlay")) {
                 let mut input = input;
@@ -610,7 +697,9 @@ impl City {
                     .route_overlay_many_csa(serde_json::from_value::<
                         TimetableOverlayManyQueryInput,
                     >(value)?)?;
-                transit = serde_json::to_value(&result)?;
+                if !sample {
+                    transit = serde_json::to_value(&result)?;
+                }
                 Some(result.timetable)
             } else {
                 let result = self
@@ -619,7 +708,9 @@ impl City {
                     .unwrap()
                     .kernel
                     .route_many_csa(input)?;
-                transit = serde_json::to_value(&result)?;
+                if !sample {
+                    transit = serde_json::to_value(&result)?;
+                }
                 Some(result)
             };
             if let Some(result) = &result
@@ -634,8 +725,10 @@ impl City {
             }
             let t = self.timetable.as_ref().unwrap();
             // The active view's size shows which sources a City case selected.
-            transit["residentTrips"] = json!(t.trip_ids.len());
-            transit["excludedTrips"] = json!(excluded_count);
+            if !sample {
+                transit["residentTrips"] = json!(t.trip_ids.len());
+                transit["excludedTrips"] = json!(excluded_count);
+            }
             let arrivals = result.as_ref().map_or(&[][..], |r| &r.best_arrivals[..]);
             for (i, &arrival) in arrivals.iter().enumerate() {
                 let duration = (arrival - opt.time) / 60.;
@@ -672,7 +765,9 @@ impl City {
                         .get(i - n)
                         .ok_or("Missing scenario egress identity")?
                 });
-                stops.push(json!({"stopId":id,"name":name,"coordinate":coordinate,"durationMinutes":duration}));
+                if !sample {
+                    stops.push(json!({"stopId":id,"name":name,"coordinate":coordinate,"durationMinutes":duration}));
+                }
             }
         }
         let include_edges = flag(q, "includeStreetEdges", false)?;
@@ -704,22 +799,39 @@ impl City {
         } else {
             Value::Null
         };
-        let grid = if sampling == "cell-center" {
-            Some(self.reach_grid_values(q, size, &bounds, maximum)?)
+        let (grid, bike_diagnostics) = if sampling == "cell-center" {
+            let (values, diagnostics) = self.reach_grid_values(q, size, &bounds, maximum)?;
+            (Some(values), diagnostics)
         } else {
-            None
+            (None, Value::Null)
         };
         if let Some(values) = &grid
-            && (mode == "drive" || (!include_edges && !flag(q, "includeNodes", false)?))
+            && (mode == "drive"
+                || mode == "bike"
+                || (!include_edges && !flag(q, "includeNodes", false)?))
         {
+            if sample {
+                return Ok(
+                    json!({"surface":{"sampling":sampling,"width":size,"height":size,
+                    "bounds":bounds,"values":values}}),
+                );
+            }
             let areas = if polygons {
                 areas(values, size, size, &bounds, &cutoffs)
             } else {
                 Value::Null
             };
+            let reached = values.iter().filter(|v| v.is_finite()).count();
+            let mut diagnostics = json!({"transit":transit,"surface":{"surfaceModel":"coordinate_to_coordinate_cell_centers",
+                "sampledTargets":values.len(),"reachableTargets":reached,"blockedTargets":values.len()-reached,
+                "queryErrors":0,"fixedRequestedGrid":true,"walkingSpeedKph":opt.walk_speed.unwrap_or(self.speed),
+                "directWalkingLimitKm":if mode == "drive" || mode == "bike" { Value::Null } else { json!(opt.walk_m/1000.) },"travelMode":mode,"fixedExtent":true}});
+            if !bike_diagnostics.is_null() {
+                diagnostics["bike"] = bike_diagnostics;
+            }
             if q["reachFormat"] == "map" {
                 return Ok(
-                    json!({"kind":"reach","mode":mode,"cutoffsMinutes":cutoffs,"areas":areas,"mapBounds":bounds,"diagnostics":{"transit":transit},"warnings":self.metadata["routingLimitations"]}),
+                    json!({"kind":"reach","mode":mode,"cutoffsMinutes":cutoffs,"areas":areas,"mapBounds":bounds,"diagnostics":diagnostics,"warnings":self.metadata["routingLimitations"]}),
                 );
             }
             let contours = if polygons {
@@ -727,7 +839,6 @@ impl City {
             } else {
                 Value::Null
             };
-            let reached = values.iter().filter(|v| v.is_finite()).count();
             return Ok(without_polygons(
                 anchored(
                     q,
@@ -735,10 +846,7 @@ impl City {
                 "cutoffsMinutes":cutoffs,"stops":stops,"surface":{"sampling":sampling,"width":size,"height":size,
                     "bounds":bounds,"values":f64s(values),"fullBounds":bounds,"fullValues":f64s(values),"arrayEncoding":raster_encoding,"nodes":[],"edges":null},
                 "areas":areas,"fullAreas":areas,"contours":contours,"fullContours":contours,
-                "diagnostics":{"transit":transit,"surface":{"surfaceModel":"coordinate_to_coordinate_cell_centers",
-                    "sampledTargets":values.len(),"reachableTargets":reached,"blockedTargets":values.len()-reached,
-                    "queryErrors":0,"fixedRequestedGrid":true,"walkingSpeedKph":opt.walk_speed.unwrap_or(self.speed),
-                    "directWalkingLimitKm":if mode == "drive" { Value::Null } else { json!(opt.walk_m/1000.) },"travelMode":mode,"fixedExtent":true}},"warnings":self.metadata["routingLimitations"]}),
+                "diagnostics":diagnostics,"warnings":self.metadata["routingLimitations"]}),
                 ),
                 polygons,
             ));
@@ -788,7 +896,7 @@ impl City {
             node_evidence_limit: 30_000,
             include_edges,
             edge_evidence_limit: 0,
-            expand_bounds_to_reached_edges: true,
+            expand_bounds_to_reached_edges: !sample,
             reverse_direction: Some(opt.arrive),
         })?;
         if let Some(values) = grid {
@@ -826,6 +934,12 @@ impl City {
             result.reached_pixels = result.values.iter().filter(|v| v.is_finite()).count() as u32;
         }
         let full_bounds = result.full_surface_bounds.as_ref().unwrap_or(&bounds);
+        if sample {
+            return Ok(
+                json!({"surface":{"sampling":sampling,"width":size,"height":size,
+                "bounds":bounds,"values":result.values}}),
+            );
+        }
         let full_values = result
             .full_surface_values
             .as_ref()
@@ -899,7 +1013,7 @@ impl City {
             return fail("Scenario Reach uses the scheduled timetable");
         }
         if planned || linked_view {
-            self.install_scenario(scenario.unwrap())?;
+            self.install_scenario(scenario.unwrap(), q)?;
             self.apply_transfer_buffer(q)?;
             self.pinned_timetable = true;
         }

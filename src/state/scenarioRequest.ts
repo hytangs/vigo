@@ -81,6 +81,9 @@ export function scenarioRequestFor(scenario: ScenarioDraft | undefined) {
         : intervention.kind === 'change-line'
           ? 'replace'
           : 'augment',
+      ...(intervention.timing && intervention.kind === 'change-line' && intervention.scheduleMode !== 'frequency' ? { timing: intervention.timing } : {}),
+      ...(intervention.timetables && !(intervention.kind === 'change-line' && intervention.scheduleMode !== 'frequency') ? { timetables: intervention.timetables } : {}),
+      ...(intervention.exactTimes === undefined ? {} : { exactTimes: intervention.exactTimes }),
       scheduleMode: intervention.kind === 'change-line' ? intervention.scheduleMode ?? 'preserve-trips' : 'frequency',
       sourceRouteId: scenarioRoute ? scenarioSourceRouteId(scenarioRoute) : undefined,
       sourcePatternId: scenarioRoute?.patternId ?? scenarioRoute?.id,

@@ -2,7 +2,7 @@ import { reachPlace, scenarioReachedAreaKm2, scenarioReachablePixels, type Reach
 
 /** A missing exact cutoff is unknown, even if a longer window reached stops. */
 export function reachTransitStops(result: ReachResult, surface: ScenarioSurface, cutoffMinutes: number): number | null {
-  if (result.diagnostics.preliminary) return null
+  if (result.diagnostics.preliminary || result.request.monteCarlo || (result.request.mode ?? 'transit') !== 'transit') return null
   const entries = surface === 'baseline' ? result.summary.transitStopsByCutoff
     : result.summary.scenarioTransitStopsByCutoff ?? result.summary.transitStopsByCutoff
   const count = entries?.find(entry => entry.cutoffMinutes === cutoffMinutes)?.stops
@@ -24,7 +24,11 @@ export function reachResultMetrics(result: ReachResult, surface: ScenarioSurface
 export function reachResultsComparable(reference: ReachResult, result: ReachResult, cutoffMinutes: number) {
   const settings = ({ request }: ReachResult) => [request.timePreference ?? 'depart', reachPlace(request).coordinate, request.serviceDate, request.departMinutes,
     request.mode ?? 'transit', request.surfaceSampling ?? 'street', request.maxWalkKm,
-    request.walkSpeedKph ?? 4.8, request.maxTransfers ?? null]
+    request.walkSpeedKph ?? 4.8, request.maxTransfers ?? null,
+    request.mode === 'bike' ? [request.bike?.profile ?? 'balanced', request.bike?.speedKph ?? 18, request.bike?.maxLts ?? null] : null,
+    request.monteCarlo ? [request.monteCarlo.startMinutes, request.monteCarlo.endMinutes,
+      request.monteCarlo.draws ?? 200, request.monteCarlo.seed ?? 0,
+      request.monteCarlo.percentiles ?? [5, 25, 50, 75, 95]] : null]
   return !reference.diagnostics.preliminary && !result.diagnostics.preliminary
     && cutoffMinutes <= reference.summary.maximumCutoffMinutes && cutoffMinutes <= result.summary.maximumCutoffMinutes
     && JSON.stringify(settings(reference)) === JSON.stringify(settings(result))

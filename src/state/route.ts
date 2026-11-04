@@ -16,7 +16,7 @@ import {
 } from '../app/routingPlan'
 import { createStore, memoizeLast } from '../app/store'
 import type { RoutingDepartureWindowMinutes } from '../app/uiOptions'
-import type { RoutingDataMode, RoutingPlan, RoutingPoint, RoutingTimePreference, RoutingTravelMode } from '../routingModel'
+import type { RoutingBikeOptions, RoutingDataMode, RoutingPlan, RoutingPoint, RoutingTimePreference, RoutingTravelMode } from '../routingModel'
 import {
   appendRoutingPointSequence,
   insertRoutingPointBeforeDestination,
@@ -51,6 +51,7 @@ export type RouteState = {
   routingResidencyCoverage: RoutingServiceCoverage | null
   routingTimePreference: RoutingTimePreference
   routingMode: RoutingTravelMode
+  routingBike: RoutingBikeOptions
   routingDataMode: RoutingDataMode
   routingDepartureWindowMinutes: RoutingDepartureWindowMinutes
   routingWalkLimitExplicit: boolean
@@ -85,6 +86,7 @@ const initialRouteState = (): RouteState => ({
   routingResidencyCoverage: null,
   routingTimePreference: 'depart',
   routingMode: 'transit',
+  routingBike: { profile:'balanced', speedKph:18 },
   routingDataMode: readRoutingDataModePreference(),
   routingDepartureWindowMinutes: 20,
   routingMaxWalkKm: 1.2,
@@ -275,6 +277,14 @@ export function changeRoutingMode(routingMode: RoutingTravelMode) {
     ...(routingMode !== 'transit' ? { routingTimePreference: 'depart' as const } : {}),
     selectedRoutingPlanId: '',
   })
+  resetEngine()
+}
+
+export function changeRoutingBike(routingBike: RoutingBikeOptions) {
+  if (!['balanced','fast','quiet'].includes(routingBike.profile) || !Number.isFinite(routingBike.speedKph)
+    || routingBike.speedKph < 5 || routingBike.speedKph > 40
+    || (routingBike.maxLts !== undefined && ![1,2,3,4].includes(routingBike.maxLts))) return
+  route.set({ routingBike, selectedRoutingPlanId: '' })
   resetEngine()
 }
 

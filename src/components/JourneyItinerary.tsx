@@ -1,4 +1,4 @@
-import { Car, Clock3, Footprints, X } from 'lucide-react'
+import { Bike, Car, Clock3, Footprints, X } from 'lucide-react'
 import { useEffect, useRef, type CSSProperties } from 'react'
 import {
   formatRoutingLegDuration,
@@ -73,7 +73,7 @@ export function RoutingItinerary({ plan, destinationLabel }: { plan: RoutingPlan
         const immediateVehicleChange = ride && previousLeg?.type === 'ride'
           && previousLeg.tripId !== leg.tripId && wait === 0 && leg.inSeatSeconds == null
         const transfer = isSameStationTransfer(leg)
-        const kind = ride ? 'ride' : leg.type === 'drive' ? 'drive' : transfer ? 'transfer' : 'walk'
+        const kind = ride ? 'ride' : leg.type === 'bike' ? 'bike' : leg.type === 'drive' ? 'drive' : transfer ? 'transfer' : 'walk'
         const color = routingLegColor(leg)
         // A stop where a ride ends takes that ride's colour, as on a line diagram.
         const nodeColor = color ?? (previousLeg ? routingLegColor(previousLeg) : undefined)
@@ -81,7 +81,7 @@ export function RoutingItinerary({ plan, destinationLabel }: { plan: RoutingPlan
           ...color ? { '--journey-line': color, '--journey-ink': routingLegTextColor(color) } : {},
           ...nodeColor ? { '--journey-node': nodeColor } : {},
         } as CSSProperties
-        const MoveIcon = leg.type === 'drive' ? Car : Footprints
+        const MoveIcon = leg.type === 'bike' ? Bike : leg.type === 'drive' ? Car : Footprints
         const via = viaStarts.get(index)
         const viaLabel = via === undefined ? '' : journeyPlace(plan.waypoints![via].label, `Via stop ${via + 1}`)
         return <li key={index} className={classNames('journey-leg', `is-${kind}`, nodeColor && 'has-station', via !== undefined && 'is-via')} style={style}>
@@ -99,7 +99,7 @@ export function RoutingItinerary({ plan, destinationLabel }: { plan: RoutingPlan
               <span className="journey-leg-meta">{leg.scenarioService ? <span className="journey-planned">Planned · {leg.scenarioService.scenarioName} · </span> : null}{leg.stopCount > 0 ? `${leg.stopCount} ${leg.headwayEstimate ? 'service' : leg.scenarioService ? 'planned' : 'scheduled'} stop${leg.stopCount === 1 ? '' : 's'}` : 'Transit ride'} · {formatRoutingLegDuration(leg)}</span>
             </div> : <p className="journey-move">
               <MoveIcon size={13} aria-hidden="true" />
-              <span>{transfer ? 'Change' : leg.type === 'drive' ? 'Drive' : 'Walk'}</span>
+              <span>{transfer ? 'Change' : leg.type === 'bike' ? 'Bike' : ['osm-dismount','osm-low-stress'].includes(leg.geometrySource ?? '') ? 'Walk bike' : leg.type === 'drive' ? 'Drive' : 'Walk'}</span>
               <span className="journey-leg-meta">{formatRoutingLegDuration(leg)}{leg.distanceKm > 0 ? ` · ${formatDistance(leg.distanceKm)}` : ''}</span>
             </p>}
             {transfer && (leg.geometrySource === 'stop_coordinate_fallback' || leg.stationAccessStatus === 'unverified') ? <p className="journey-leg-meta journey-transfer-note">Map line approximate</p> : null}
@@ -170,7 +170,7 @@ export function RoutingDetailPanel({
     <aside className="routing-detail-panel" aria-label="Routing details" data-map-occluder="">
       <header className="routing-detail-head">
         <div className="routing-detail-title">
-          <p className="journey-eyebrow">{plan.travelMode === 'transit' ? routingDataModeLabel(plan) || 'Transit' : plan.travelMode === 'drive' ? 'Drive' : 'Walk'} journey</p>
+          <p className="journey-eyebrow">{plan.travelMode === 'transit' ? routingDataModeLabel(plan) || 'Transit' : plan.travelMode === 'bike' ? 'Bike' : plan.travelMode === 'drive' ? 'Drive' : 'Walk'} journey</p>
           <div className="routing-detail-time">
             <h2><JourneyDuration minutes={routingPlanJourneyMinutes(plan)} suffix=" total" /></h2>
             <p className="journey-time-range">{formatScheduleClock(plan.departMinutes)} <span aria-hidden="true">→</span> {formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}</p>

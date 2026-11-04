@@ -34,7 +34,7 @@ function routePoint(point) {
  * and the compiled scenario overlay.
  */
 export function nativeRouteRequest(body, context = {}) {
-  const mode = ['walk', 'drive'].includes(body.mode) ? body.mode : 'transit'
+  const mode = ['walk', 'drive', 'bike'].includes(body.mode) ? body.mode : 'transit'
   const arrive = body.timePreference === 'arrive'
   const waypoints = Array.isArray(body.waypoints) ? body.waypoints : []
   const transit = mode === 'transit'
@@ -52,7 +52,7 @@ export function nativeRouteRequest(body, context = {}) {
       timePreference: arrive ? 'arrive_by' : 'depart_at',
     }),
     ...Object.fromEntries(['maxWalkKm', 'maxStreetKm', 'maxTransfers', 'allowLongWalk', 'allowStreetTransfers',
-      'minimumTransferBufferMinutes', 'horizonMinutes', 'flex']
+      'minimumTransferBufferMinutes', 'horizonMinutes', 'flex', 'bike']
       .filter(key => body[key] !== undefined && body[key] !== null).map(key => [key, body[key]])),
   }
   if (transit) {
@@ -153,8 +153,8 @@ function studioLeg(leg, index, count, body) {
     ...(leg.geometrySource ? { geometrySource: leg.geometrySource } : {}),
     ...(Number.isInteger(leg.orderedSegmentIndex) ? { orderedSegmentIndex: leg.orderedSegmentIndex } : {}),
   }
-  if (leg.kind === 'drive') {
-    return { type: 'drive', travelMode: 'drive', ...shared, stopCount: 0, streetPathVerified: true }
+  if (leg.kind === 'drive' || leg.kind === 'bike') {
+    return { type: leg.kind, travelMode: leg.kind, ...shared, stopCount: 0, streetPathVerified: true }
   }
   if (leg.kind !== 'ride') {
     const connector = leg.endpointConnector?.coordinates
@@ -238,7 +238,8 @@ function provenance(trace, body, context, { serviceDate, requested, realtime, ar
     walkingPolicy: { ...nationalRoutingAccessPolicy },
     searchParameters: {
       travelMode: body.mode ?? 'transit',
-      objective: 'earliest_arrival',
+      objective: body.mode === 'bike' ? 'minimum_bicycle_preference_cost' : 'earliest_arrival',
+      ...(body.mode === 'bike' ? { bike: { profile: body.bike?.profile ?? 'balanced', speedKph: body.bike?.speedKph ?? 18 } } : {}),
       maxWalkKm: body.maxWalkKm,
       directWalkLimitKm: directWalkEndToEndLimitKm(body),
       requireTransitRide: body.requireTransitRide === true,
@@ -307,7 +308,7 @@ function windowDiagnostics(trace, plan) {
 
 function streetPlan(raw, trace, body, context) {
   if (!raw.legs?.length) return null
-  const mode = raw.mode === 'drive' ? 'drive' : 'walk'
+  const mode = ['drive', 'bike'].includes(raw.mode) ? raw.mode : 'walk'
   const timePreference = body.timePreference === 'arrive' ? 'arrive' : 'depart'
   const departMinutes = minutes(raw.departureMinutes)
   const arriveMinutes = minutes(raw.arrivalMinutes)
@@ -318,14 +319,14 @@ function streetPlan(raw, trace, body, context) {
   }))
   const distanceKm = legs.reduce((sum, leg) => sum + leg.distanceKm, 0)
   const walkMinutes = minutes(legs.filter(leg => leg.type === 'walk').reduce((sum, leg) => sum + leg.durationMinutes, 0))
-  const driveMinutes = minutes(legs.filter(leg => leg.type === 'drive').reduce((sum, leg) => sum + leg.durationMinutes, 0))
+  const driveMinutes = minutes(legs.filter(leg => leg.type === 'drive' || leg.type === 'bike').reduce((sum, leg) => sum + leg.durationMinutes, 0))
   const toName = String(body.destination?.label ?? 'Destination')
-  const streetMode = body.mode === 'walk' || body.mode === 'drive'
+  const streetMode = ['walk', 'drive', 'bike'].includes(body.mode)
   const trafficApplied = mode === 'drive' && raw.diagnostics?.traffic?.status === 'applied'
   // A street-mode request names its own route; a transit request reports a winning walk.
   const [label, title, detail] = streetMode
-    ? [mode === 'drive' ? (trafficApplied ? 'Fastest drive · live traffic' : 'Fastest drive') : 'Direct walk',
-      `${mode === 'drive' ? 'Drive' : 'Walk'} to ${toName}`,
+    ? [mode === 'bike' ? 'Bike route' : mode === 'drive' ? (trafficApplied ? 'Fastest drive · live traffic' : 'Fastest drive') : 'Direct walk',
+      `${mode === 'bike' ? 'Bike' : mode === 'drive' ? 'Drive' : 'Walk'} to ${toName}`,
       `${distanceKm.toFixed(distanceKm < 10 ? 2 : 1)} km · ${Math.max(1, Math.round(durationMinutes))} min`]
     : [raw.alternativeStrategy ? 'Walk only' : 'Walk instead', raw.alternativeStrategy ? 'Walk only' : 'Walk instead',
       `${Math.max(1, Math.round(durationMinutes))} min / direct OSM walk`]
@@ -334,16 +335,18 @@ function streetPlan(raw, trace, body, context) {
       origin: body.origin, destination: body.destination, coordinates: legs.map(leg => leg.coordinates) }),
     status: 'ready', travelMode: mode, timePreference, maxWalkKm: streetMode && mode === 'walk' ? body.maxStreetKm ?? body.maxWalkKm : body.maxWalkKm,
     scheduleMode: 'none', choiceLabel: raw.choiceLabel ?? label, recommended: raw.recommended ?? true, title, detail,
-    departMinutes, arriveMinutes, durationMinutes, waitMinutes: 0,
+    departMinutes, arriveMinutes, durationMinutes,
+    waitMinutes: mode === 'bike' ? Math.max(0, minutes(durationMinutes - walkMinutes - driveMinutes)) : 0,
     walkMinutes, rideMinutes: driveMinutes, transfers: 0,
     origin: body.origin, destination: body.destination, legs,
     diagnostics: {
       ...resultDiagnostics(trace, body, context),
       ...windowDiagnostics(trace, raw),
-      scheduleMode: 'none', searchProfile: 'fastest', searchStrategy: 'exact',
+      scheduleMode: 'none', searchProfile: mode === 'bike' ? body.bike?.profile ?? 'balanced' : 'fastest', searchStrategy: 'exact',
       ...(mode === 'walk' ? { walkingPolicyId: 'vigo-national-direct-physical-walk' } : {}),
-      algorithm: mode === 'drive' ? 'rust_exact_drive_search' : 'rust_direct_walk',
-      optimality: mode === 'drive' ? 'exact_drive_time' : 'graph_verified_direct_walk',
+      algorithm: mode === 'bike' ? 'bike_edge_state_astar' : mode === 'drive' ? 'rust_exact_drive_search' : 'rust_direct_walk',
+      ...(mode === 'bike' ? { bike: raw.diagnostics } : {}),
+      optimality: mode === 'bike' ? 'exact_stored_bike_preference_cost' : mode === 'drive' ? 'exact_drive_time' : 'graph_verified_direct_walk',
       originStreetPathVerified: legs[0].streetPathVerified === true,
       destinationStreetPathVerified: legs.at(-1).streetPathVerified === true,
       ...(mode === 'walk' ? { directWalkDistanceKm: distanceKm } : {}),
@@ -488,7 +491,7 @@ function blockedPlan(raw, trace, body, context, failure) {
   return {
     id: planId('national-blocked', { failure: code, serviceDate: body.serviceDate, departMinutes,
       maxWalkKm: body.maxWalkKm, origin: body.origin, destination: body.destination }),
-    status: 'blocked', travelMode: ['walk', 'drive'].includes(body.mode) ? body.mode : 'transit',
+    status: 'blocked', travelMode: ['walk', 'drive', 'bike'].includes(body.mode) ? body.mode : 'transit',
     timePreference: body.timePreference === 'arrive' ? 'arrive' : 'depart', maxWalkKm: body.maxWalkKm,
     choiceLabel: arrive ? 'No arrive-by itinerary' : 'No exact itinerary', recommended: true, title, detail, departMinutes,
     durationMinutes: 0, waitMinutes: 0, walkMinutes: 0, rideMinutes: 0, transfers: 0,
@@ -510,7 +513,7 @@ function blockedPlan(raw, trace, body, context, failure) {
 const pointLabel = (point, index) => String(point?.label ?? '').trim() || `Point ${index + 1}`
 
 function orderedTitle(mode, waypointCount) {
-  const noun = mode === 'drive' ? 'Drive' : mode === 'walk' ? 'Walk' : 'Transit'
+  const noun = mode === 'bike' ? 'Bike' : mode === 'drive' ? 'Drive' : mode === 'walk' ? 'Walk' : 'Transit'
   return `${noun} via ${waypointCount} ${waypointCount === 1 ? 'stop' : 'stops'}`
 }
 
@@ -535,9 +538,9 @@ function orderedPlan(raw, trace, body, context) {
     diagnostics: {
       ...base.diagnostics,
       departureWindow: undefined,
-      searchStrategy: 'exact_waypoint_composition',
+      searchStrategy: mode === 'bike' ? 'sequential_with_turn_history' : 'exact_waypoint_composition',
       algorithm: 'ordered_waypoint_composition',
-      optimality: 'best_objective_within_bounded_waypoint_frontier',
+      optimality: mode === 'bike' ? 'sequential_segment_choices' : 'best_objective_within_bounded_waypoint_frontier',
       sequenceOptimization: 'user_order_preserved',
       orderedPointCount: points.length,
       waypointCount: body.waypoints.length,
@@ -600,7 +603,7 @@ function studioPlan(raw, trace, body, context) {
     if (raw?.status === 'ready') return orderedPlan(raw, trace, body, context)
   }
   if (raw?.status !== 'ready') return blockedPlan(raw ?? {}, trace, body, context)
-  if (raw.mode === 'walk' || raw.mode === 'drive') return streetPlan(raw, trace, body, context)
+  if (['walk', 'drive', 'bike'].includes(raw.mode)) return streetPlan(raw, trace, body, context)
   return transitPlan(raw, trace, body, context) ?? blockedPlan(raw, trace, body, context)
 }
 

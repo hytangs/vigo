@@ -2,6 +2,7 @@
 use super::query::{Options, Point};
 use super::{City, Result, fail, flag, number};
 use crate::{StreetMatrixInput, TimetableManyQueryInput, TimetableOverlayManyQueryInput};
+use chrono::{Datelike, NaiveDate};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
@@ -25,9 +26,11 @@ pub(crate) struct Planned {
     pub starts: Vec<f64>,
     pub ends: Vec<f64>,
     pub headways: Vec<f64>,
+    pub random: Vec<bool>,
     /// Each run's service and whether it runs the service in reverse.
     pub run_services: Vec<usize>,
     pub run_inbound: Vec<bool>,
+    pub run_entries: Vec<String>,
     /// Resident trips a replacement removes.
     pub excluded_trips: Vec<u32>,
 }
@@ -38,6 +41,7 @@ impl City {
         mut base: TimetableManyQueryInput,
         origin: &Point,
         opt: &Options,
+        date: NaiveDate,
     ) -> Result<Overlay> {
         let Planned {
             points,
@@ -53,7 +57,7 @@ impl City {
             headways,
             excluded_trips,
             ..
-        } = self.planned(scenario)?;
+        } = self.planned(scenario, date)?;
         base.excluded_trips.extend(excluded_trips);
         let n = self.timetable.as_ref().unwrap().stop_ids.len();
         let m = points.len();
@@ -142,7 +146,7 @@ impl City {
     }
 
     /// Compile `scenario.services` against the active timetable.
-    pub(crate) fn planned(&mut self, scenario: &Value) -> Result<Planned> {
+    pub(crate) fn planned(&mut self, scenario: &Value, date: NaiveDate) -> Result<Planned> {
         let services = scenario["services"]
             .as_array()
             .ok_or("scenario.services must be an array")?;
@@ -161,9 +165,11 @@ impl City {
         let mut starts = vec![];
         let mut ends = vec![];
         let mut headways = vec![];
+        let mut random = vec![];
         let mut labels = vec![];
         let mut run_services = vec![];
         let mut run_inbound = vec![];
+        let mut run_entries = vec![];
         let mut excluded_trips = vec![];
         for (service_index, s) in services.iter().enumerate() {
             for key in s
@@ -187,6 +193,10 @@ impl City {
                     "startMinutes",
                     "endMinutes",
                     "headwayMinutes",
+                    "exactTimes",
+                    "timetables",
+                    "timing",
+                    "phaseFrom",
                     "segmentDistancesKm",
                     "segmentRuntimeMinutes",
                 ]
@@ -247,6 +257,9 @@ impl City {
                     "frequency"
                 });
             let t = self.timetable.as_ref().unwrap();
+            if preserve != "preserve-trips" && s.get("timing").is_some() {
+                return fail("timing requires scheduleMode preserve-trips");
+            }
             if operation == "replace" {
                 if let Some(trips) = s["scheduledTrips"].as_array() {
                     for trip in trips {
@@ -277,6 +290,13 @@ impl City {
                     excluded_trips.extend(selected);
                 }
             }
+            if s.get("phaseFrom").is_some() && self.frequency_sample.is_none() {
+                return fail("Frequency phasing requires a monteCarlo analysis");
+            }
+            let exact = flag(s, "exactTimes", false)?;
+            if preserve != "frequency" && s.get("timetables").is_some() {
+                return fail("timetables requires scheduleMode frequency");
+            }
             let mut add_direction = |indexes: &[u32],
                                      dep: Vec<f64>,
                                      arr: Vec<f64>,
@@ -285,7 +305,9 @@ impl City {
                                      start: f64,
                                      end: f64,
                                      headway: f64,
-                                     inbound: bool|
+                                     inbound: bool,
+                                     sampled: bool,
+                                     entry: &str|
              -> Result<()> {
                 if [dep.len(), arr.len(), b.len(), a.len()]
                     .iter()
@@ -304,6 +326,8 @@ impl City {
                 starts.push(start);
                 ends.push(end);
                 headways.push(headway);
+                random.push(sampled);
+                run_entries.push(entry.to_owned());
                 run_services.push(service_index);
                 run_inbound.push(inbound);
                 Ok(())
@@ -315,18 +339,19 @@ impl City {
                 let trips=s["scheduledTrips"].as_array().ok_or("preserve-trips requires explicit scheduledTrips with original trip IDs and arrival/departure offsets")?;
                 for trip in trips {
                     let start = number(trip, "departureSeconds", 0., 0., 1_048_575.)?;
-                    let dep = vec_f64(&trip["departureOffsetsSeconds"])?;
-                    let arr = vec_f64(&trip["arrivalOffsetsSeconds"])?;
+                    let mut dep = vec_f64(&trip["departureOffsetsSeconds"])?;
+                    let mut arr = vec_f64(&trip["arrivalOffsetsSeconds"])?;
+                    if let Some(timing) = s.get("timing") {
+                        adjust_timing(timing, &mut dep, &mut arr)?;
+                    }
                     let b = permissions(trip.get("canBoard"), indexes.len())?;
                     let a = permissions(trip.get("canAlight"), indexes.len())?;
-                    add_direction(&indexes, dep, arr, b, a, start, start, 1., false)?;
+                    add_direction(&indexes, dep, arr, b, a, start, start, 1., false, false, "")?;
                 }
             } else if preserve == "frequency" {
                 let speed = number(s, "averageSpeedKph", 22., 1., 300.)?;
                 let dwell = number(s, "dwellMinutes", 0.35, 0., 60.)? * 60.;
-                let start = number(s, "startMinutes", 300., 0., 4319.)? * 60.;
-                let end = number(s, "endMinutes", 1500., 0., 4319.)? * 60.;
-                let headway = number(s, "headwayMinutes", 12., 0.1, 1440.)? * 60.;
+                let entries = frequency_entries(s, date, exact)?;
                 let segment = |field: &str| -> Result<Option<Vec<f64>>> {
                     s.get(field)
                         .map(|v| {
@@ -395,31 +420,52 @@ impl City {
                     dep
                 };
                 let dep = offsets(false);
-                add_direction(
-                    &indexes,
-                    dep.clone(),
-                    dep.clone(),
-                    vec![1; indexes.len()],
-                    vec![1; indexes.len()],
-                    start,
-                    end,
-                    headway,
-                    false,
-                )?;
-                if flag(s, "bidirectional", true)? {
-                    let reverse = offsets(true);
-                    let reversed: Vec<u32> = indexes.iter().rev().copied().collect();
+                let reverse = offsets(true);
+                let reversed: Vec<u32> = indexes.iter().rev().copied().collect();
+                for entry in entries {
+                    // The overlay compiler's bound is inclusive. Every explicit
+                    // timetable row uses the same end-exclusive clock as GTFS.
+                    let end = if entry.exclusive {
+                        entry.end - 1.
+                    } else {
+                        entry.end
+                    };
                     add_direction(
-                        &reversed,
-                        reverse.clone(),
-                        reverse,
+                        &indexes,
+                        dep.clone(),
+                        dep.clone(),
                         vec![1; indexes.len()],
                         vec![1; indexes.len()],
-                        start,
-                        end,
-                        headway,
-                        true,
+                        entry.start,
+                        if !entry.exact && self.frequency_sample.is_some() {
+                            entry.end
+                        } else {
+                            end
+                        },
+                        entry.headway,
+                        false,
+                        !entry.exact,
+                        &entry.id,
                     )?;
+                    if flag(s, "bidirectional", true)? {
+                        add_direction(
+                            &reversed,
+                            reverse.clone(),
+                            reverse.clone(),
+                            vec![1; indexes.len()],
+                            vec![1; indexes.len()],
+                            entry.start,
+                            if !entry.exact && self.frequency_sample.is_some() {
+                                entry.end
+                            } else {
+                                end
+                            },
+                            entry.headway,
+                            true,
+                            !entry.exact,
+                            &entry.id,
+                        )?;
+                    }
                 }
             } else {
                 return fail("scheduleMode must be frequency or preserve-trips");
@@ -441,12 +487,135 @@ impl City {
             starts,
             ends,
             headways,
+            random,
             run_services,
             run_inbound,
+            run_entries,
             excluded_trips,
         })
     }
 }
+fn adjust_timing(value: &Value, departures: &mut [f64], arrivals: &mut [f64]) -> Result<()> {
+    let timing: vigo_model::ServiceTiming = serde_json::from_value(value.clone())?;
+    if departures.len() < 2
+        || arrivals.len() != departures.len()
+        || departures[0] != 0.
+        || arrivals[0] != 0.
+    {
+        return fail("Timing edits require matching schedule offsets starting at zero");
+    }
+    let speed = number(value, "speedFactor", 1., 0.1, 10.)?;
+    let scale = number(value, "dwellScale", 1., 0., 10.)?;
+    let dwell = timing
+        .dwell_minutes
+        .map(|_| number(value, "dwellMinutes", 0., 0., 60.))
+        .transpose()?;
+    if dwell.is_some() && timing.dwell_scale.is_some() {
+        return fail("Choose dwellMinutes or dwellScale, not both");
+    }
+    let selected = |indexes: &Option<Vec<u32>>, min: usize, max: usize| -> Result<Vec<bool>> {
+        let mut selected = vec![indexes.is_none(); departures.len()];
+        if let Some(indexes) = indexes {
+            if indexes.is_empty() {
+                return fail("Timing selections must not be empty");
+            }
+            for &index in indexes {
+                let index = index as usize;
+                if index < min || index >= max || selected[index] {
+                    return fail("Timing indexes must be distinct and inside the service pattern");
+                }
+                selected[index] = true;
+            }
+        }
+        Ok(selected)
+    };
+    let segments = selected(&timing.segment_indexes, 0, departures.len() - 1)?;
+    let stops = selected(&timing.stop_indexes, 1, departures.len())?;
+    let mut original_previous = departures[0];
+    for i in 1..departures.len() {
+        let running = arrivals[i] - original_previous;
+        let standing = departures[i] - arrivals[i];
+        original_previous = departures[i];
+        if running < 0. || standing < 0. {
+            return fail("Cannot adjust non-monotone schedule offsets");
+        }
+        arrivals[i] = departures[i - 1] + running / if segments[i - 1] { speed } else { 1. };
+        departures[i] = arrivals[i]
+            + if stops[i] {
+                dwell.map_or(standing * scale, |m| m * 60.)
+            } else {
+                standing
+            };
+        if !departures[i].is_finite() || departures[i] > 1_048_575. {
+            return fail("Adjusted schedule exceeds the supported time range");
+        }
+    }
+    Ok(())
+}
+
+struct FrequencyEntry {
+    id: String,
+    start: f64,
+    end: f64,
+    headway: f64,
+    exact: bool,
+    exclusive: bool,
+}
+
+fn frequency_entries(s: &Value, date: NaiveDate, exact: bool) -> Result<Vec<FrequencyEntry>> {
+    let read =
+        |entry: &Value, id: String, exact: bool, exclusive: bool| -> Result<FrequencyEntry> {
+            let start = number(entry, "startMinutes", 300., 0., 4319.)? * 60.;
+            let end = number(entry, "endMinutes", 1500., 0., 4319.)? * 60.;
+            let headway = number(entry, "headwayMinutes", 12., 0.1, 1440.)? * 60.;
+            if end.round() <= start.round() {
+                return fail(
+                    "Frequency service endMinutes must exceed startMinutes by at least one second",
+                );
+            }
+            Ok(FrequencyEntry {
+                id,
+                start,
+                end,
+                headway,
+                exact,
+                exclusive,
+            })
+        };
+    let Some(rows) = s.get("timetables") else {
+        return Ok(vec![read(s, String::new(), exact, exact)?]);
+    };
+    let rows = rows
+        .as_array()
+        .filter(|a| !a.is_empty() && a.len() <= 32)
+        .ok_or("timetables must contain 1 to 32 rows")?;
+    let mut ids = std::collections::HashSet::new();
+    let mut entries = vec![];
+    for row in rows {
+        let typed: vigo_model::ScenarioTimetable = serde_json::from_value(row.clone())?;
+        if typed.id.trim().is_empty() || typed.id.len() > 160 || !ids.insert(typed.id.clone()) {
+            return fail("Timetable IDs must be unique, nonempty and at most 160 bytes");
+        }
+        let entry = read(row, typed.id, typed.exact_times.unwrap_or(exact), true)?;
+        if let Some(days) = typed.days_of_week {
+            if days.is_empty()
+                || days.len() > 7
+                || days.iter().any(|d| !(1..=7).contains(d))
+                || days.iter().collect::<std::collections::HashSet<_>>().len() != days.len()
+            {
+                return fail(
+                    "daysOfWeek must list distinct ISO weekdays from 1 (Monday) through 7 (Sunday)",
+                );
+            }
+            if !days.contains(&(date.weekday().number_from_monday() as u8)) {
+                continue;
+            }
+        }
+        entries.push(entry);
+    }
+    Ok(entries)
+}
+
 fn vec_f64(v: &Value) -> Result<Vec<f64>> {
     v.as_array()
         .ok_or_else(|| "Expected a numeric array".into())

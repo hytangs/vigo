@@ -17,6 +17,7 @@ import {
   changeRoutingDepartureWindow,
   changeRoutingMaxWalkKm,
   changeRoutingMode,
+  changeRoutingBike,
   changeRoutingTimePreference,
   clearRouting,
   pickRoutingPoint,
@@ -91,6 +92,7 @@ function SidebarRouteBox() {
     routingDestination: state.routingDestination,
     routingTimePreference: state.routingTimePreference,
     routingMode: state.routingMode,
+    routingBike: state.routingBike,
     routingDataMode: state.routingDataMode,
     routingDepartureWindowMinutes: state.routingDepartureWindowMinutes,
     routingMaxWalkKm: state.routingMaxWalkKm,
@@ -128,6 +130,8 @@ function SidebarRouteBox() {
       routingStoreReady={engine.ready}
       routingTimePreference={settings.routingTimePreference}
       routingMode={settings.routingMode}
+      routingBike={settings.routingBike}
+      onRoutingBikeChange={changeRoutingBike}
       routingDataMode={settings.routingMode === 'transit' && routingNetworkState.selectedId ? 'scheduled' : settings.routingDataMode}
       routingNetwork={routingNetworkState}
       routingDepartureWindowMinutes={settings.routingDepartureWindowMinutes}

@@ -39,6 +39,10 @@ try {
   assert.doesNotMatch(metricHtml, /6928|6,928|selected window/, 'Backend full-window detail must not masquerade as a selected-cutoff count')
   assert.match(cards(result, 90), /6,928/)
   assert.match(cards(result, 45, 'scenario'), /4,200/, 'Scenario presentation uses its own cutoff table')
+  const bikeResult = { ...result, request: { mode: 'bike' } }
+  assert.match(cards(bikeResult), /1,234\.56 km²/)
+  assert.doesNotMatch(cards(bikeResult), /stops reached|Unavailable/)
+  assert.equal(notice(bikeResult), '')
 
   const zeroAtCutoff = { ...result, summary: { ...result.summary, transitStopsByCutoff: [{ cutoffMinutes: 45, stops: 0 }, { cutoffMinutes: 90, stops: 6928 }] } }
   const zeroNotice = notice(zeroAtCutoff)
@@ -111,6 +115,12 @@ try {
   const departSource = { ...source, result: { ...arriveResult, request: { ...arriveResult.request, timePreference: undefined, destination: undefined, origin: destination } } }
   const departBody = reachPointRouteRequest(departSource, start, '__project__')
   assert.deepEqual([departBody.origin, departBody.destination, departBody.timePreference, 'arriveMinutes' in departBody], [destination, start, 'depart', false])
+  const bikeOptions = { profile: 'quiet', speedKph: 23, maxLts: 2 }
+  const bikeSource = { ...departSource, result: { ...departSource.result, request: { ...departSource.result.request, mode: 'bike', bike: bikeOptions } } }
+  const bikeBody = reachPointRouteRequest(bikeSource, start, '__project__')
+  assert.deepEqual(bikeBody.bike, bikeOptions)
+  assert.equal(bikeBody.maxStreetKm, 750)
+  assert.equal(bikeBody.walkSpeedKph, 4.8)
   const plan = { status: 'ready', travelMode: 'transit', timePreference: 'arrive', departMinutes: 517, arriveMinutes: 537, durationMinutes: 20,
     legs: [], origin: start, destination, diagnostics: {} }
   const inspector = renderToStaticMarkup(createElement(ReachPointInspector, { inspection: { point: start, source, plan, loading: false, error: '', close: () => {}, retry: () => {} } }))

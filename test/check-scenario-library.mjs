@@ -18,6 +18,8 @@ try {
       { id: 'b', label: 'B', source: 'route', coordinate: [-71.07, 42.35], stopId: 'place-b' },
     ], headwayMinutes: 8, averageSpeedKph: 24, startMinutes: 360, endMinutes: 1320, bidirectional: true,
     geometryMode: 'auto-road', geometryStatus: 'loading', geometryError: 'stale', unknownField: 'dropped',
+    timetables: [{ id: 'morning', startMinutes: 420, endMinutes: 600, headwayMinutes: 6, daysOfWeek: [1, 2, 3, 4, 5], exactTimes: false }],
+    timing: { speedFactor: 1.2, dwellScale: .5 },
   }
   const library = {
     groups: [{ id: 'baseline', name: 'Baseline', feedIds: ['mbta', 'mbta'] }, { id: 'future', name: 'Future', feedIds: ['mbta', 'rail-link'] }],
@@ -34,6 +36,8 @@ try {
   assert.equal(saved.scenarios[0].changes[0].geometryError, undefined)
   assert.equal(saved.scenarios[0].changes[0].unknownField, undefined, 'Unknown fields are not stored.')
   assert.deepEqual(saved.scenarios[0].changes[0].stops[1].stopId, 'place-b')
+  assert.deepEqual(saved.scenarios[0].changes[0].timetables, change.timetables, 'Timetable rows retain weekdays and exact-times settings after saving.')
+  assert.deepEqual(saved.scenarios[0].changes[0].timing, change.timing, 'Saved timing adjustments survive changing editing modes.')
 
   await assert.rejects(writeScenarioLibrary(directory, library, 0, writeJsonAtomic), error => {
     assert.equal(error.statusCode, 409, 'A stale window cannot overwrite newer scenarios.')

@@ -47,6 +47,70 @@ are still needed before claiming comprehensive format coverage.
 The policy is permanent; the tests are evidence for the cases they execute,
 not a proof that all future code or every possible City is compatible.
 
+## Optional bicycle profile
+
+RC.4 writers can add `bikeProfileVersion=1` metadata and four base tables to
+`street-index.sqlite`. They do not change the walking/driving snapshots,
+required layouts, City version, or existing units. Historical readers ignore
+them; new readers require them only for Bike Route and Matrix. A missing
+profile produces a bike-preparation error without rebuilding an old City.
+
+| Table | Columns |
+| --- | --- |
+| `bike_nodes` | OSM `node_id`, integer `lon_e7`, integer `lat_e7` |
+| `bike_edges` | `from_node`, `to_node`, positive `distance_cm`, OSM `way_id`, packed `attributes` |
+| `bike_turns` | `via_node`, `from_way`, `to_way`, `only_turn` flags |
+| `bike_way_turns` | `from_way`, ordered JSON `via_ways`, `to_way`, `only_turn` flags |
+
+Each edge is directed. Length is rounded upward to centimetres. Attribute
+bits encode road class (0–2), facility (3–4), surface (5–6), dismount (7),
+incline percent plus 30 (8–13), motor speed in km/h (14–21), and destination
+access (22); upper bits are reserved. This compact profile stores no tag strings.
+
+The low turn flag bit marks an `only_*` restriction. For node turns, bits 1
+and 2 distinguish same-way U-turn and straight movements; bit 3 makes a
+conditional-only rule independent of other allowed alternatives. For via-way
+turns, bit 1 marks that independent conditional rule. Without a timing index,
+conditional prohibitions apply all day. Optional metadata counts unsupported relation
+shapes and conditional restrictions. The reference-reader gate also opens a
+new City containing these bicycle tables.
+
+An optional `bike_turn_windows` table is identified by
+`bikeTurnWindowVersion=1`. Its columns are `turn_table` (0 for `bike_turns`, 1 for
+`bike_way_turns`), `turn_row` (the referenced table's SQLite rowid),
+`start_minute`, and `end_minute`. Row identities must be preserved with this
+index. Each interval is half-open in a Monday-first local week:
+`0 <= start_minute < end_minute <= 10080`. Intervals for one restriction must
+not overlap and are limited to 256. A restriction without interval rows applies
+at all times. Malformed present indexes produce a bicycle-preparation error;
+absent indexes preserve the conservative baseline behavior.
+
+Writers compile weekly weekday/time ranges and conditional overrides into these
+intervals. Unrecognized expressions remain conservative. Readers that ignore the
+index still enforce every retained restriction. The current runtime evaluates
+node-turn and via-way windows for dated depart-at requests with a known City
+timezone. Both share one interned schedule pool. No-turn via-way restrictions
+are checked at the final movement; only-turn restrictions constrain each
+movement while the mapped sequence is being followed.
+
+Optional `bike_timed_edges` and `bike_edge_windows` tables are identified by
+`bikeEdgeWindowVersion=1`. Timed edges have the same five columns and units as
+`bike_edges`, plus a positive `window_id`. Their allowed entry intervals are in
+`bike_edge_windows(window_id,start_minute,end_minute)`, with the same Monday-first,
+half-open minute convention and 256-interval limit. Every referenced schedule
+must exist, and every stored schedule must be referenced. Both tables must be
+present together. Equal schedules may be shared across edges and directions.
+
+These supplemental edges never replace the conservative meaning of legacy
+`bike_edges`. Earlier bicycle readers ignore them. The current runtime admits
+them only with a usable depart-at date/timezone, evaluates permissions at entry
+to each directed segment, and permits completion of a segment entered while
+open. Attribute variants, such as cycling versus dismounting, use separate timed
+edges. `bike_nodes` contains their endpoints; old readers may see isolated nodes.
+The runtime shares one graph across all bicycle preferences and keeps the window
+lookup sparse. Internal timed-edge and incoming-turn flags reuse reserved bits
+in memory only; they are never persisted in `attributes`.
+
 ## Add street names to an existing City
 
 Older Cities may lack the optional `place_streets` and `place_areas` tables.
@@ -97,3 +161,37 @@ endpoint overlay. Overlay heap usage is charged per City, separately from the
 shared base. `check-scenario-endpoint-access.mjs` compares distinct-boundary
 scenarios with separately built Cities, including resident switching, eviction,
 relocation and optional published-reader checks.
+
+### Optional bicycle traffic stress
+
+`bikeStressVersion=1` adds an optional `stress INTEGER NOT NULL` column to
+`bike_edges` and, when present, `bike_timed_edges`. Bits 0–2 contain an estimated
+LTS integer 1–4; bit 3 permits walking while pushing the bicycle. All other bits
+must be zero. Walking permission includes both incident nodes and the direction
+of the way. The `attributes` word, table identities and existing units do not
+change. Older readers may ignore this column. New readers require both the
+version and valid values before accepting a traffic-stress limit; old Cities
+without it retain ordinary bicycle routing. The writer removes temporary
+intersection data before sealing the City. Custom LTS and signal-aware
+intersection adjustment are compiled into the column, not inferred at runtime.
+
+### Optional bicycle walking access
+
+`bikeWalkAccess` is a JSON metadata value with `version: 1`, the adjacent
+`snapshotSuffix` (`.street-accelerator-v7.bin`), and the pedestrian snapshot's
+`identity`, `nodeCount` and `edgeCount`. It identifies the optional table
+`bike_walk_nodes(bike_node INTEGER PRIMARY KEY, walk_node INTEGER NOT NULL)`.
+`bike_node` is the original OSM node ID in `bike_nodes`; `walk_node` is the
+zero-based vertex index in that exact spatially ordered pedestrian snapshot.
+The join is built from source IDs, not coordinate equality, before source-table
+compaction. Walking indexes must be unique, in range, and coordinate-consistent
+with their bicycle node. A present malformed or mismatched index fails admission.
+
+These links enable bounded access/egress walks on the prepared public pedestrian
+graph. The runtime shares its existing immutable snapshot; it retains only the
+node join and query-local walking scratch. Network walks count toward the walking
+and total-distance limits and supply mapped geometry. Ordinary coordinate snaps
+remain unverified and use the existing 80 m pedestrian snap ceiling. A nearer
+pedestrian attachment cannot be skipped to snap to an unrelated bicycle road.
+Older readers ignore this index; absent metadata preserves legacy bicycle
+coordinate attachment. Rebuilding from OSM creates the index for older Cities.

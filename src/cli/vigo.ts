@@ -270,7 +270,7 @@ async function routeOne(
   const body = { ...request, departureWindowMinutes: 0 }
   const query: Record<string, any> = nativeRouteRequest(body)
   delete query.requireCompleteServiceCoverage
-  for (const key of ['arrivalBufferMinutes', 'disableCache', 'walkSpeedKph']) {
+  for (const key of ['arrivalBufferMinutes', 'disableCache', 'walkSpeedKph', 'bike']) {
     if (request[key] !== undefined) query[key] = request[key]
   }
   if (request.__disableNativeStreetPathCache !== undefined) query.disableCache = request.__disableNativeStreetPathCache
@@ -321,6 +321,9 @@ function resolveRuntimePaths(args: CliArguments) {
 }
 
 function runtimeOptions(args: CliArguments, request: Record<string, unknown> = {}) {
+  if (Object.hasOwn(request, 'monteCarlo')) {
+    throw new Error('monteCarlo routing requires the Rust vigo executable or native HTTP endpoint.')
+  }
   if (Object.hasOwn(request, 'windowMinutes') || Object.hasOwn(request, 'windowStepMinutes')) {
     throw new Error('windowMinutes and windowStepMinutes require the standalone Rust CLI or /v1/route service. The Node CLI supports departureWindowMinutes (a centered departure profile).')
   }
@@ -336,9 +339,10 @@ function runtimeOptions(args: CliArguments, request: Record<string, unknown> = {
   }
   const routingPreference = 'fastest'
   const timeMinutes = args.has('time') ? parseClock(value(args, 'time')) : parseNdjsonTime(request.time ?? request.timeMinutes ?? '08:00', 'time')
-  const serviceDate = normalizeServiceDate(value(args, 'service-date'))
-  if (!serviceDate) throw new Error('--service-date is required for exact timetable routing')
-  const serviceDay = resolveServiceDay(serviceDate, value(args, 'service-day')) as ServiceDay
+  const serviceDate = normalizeServiceDate(value(args, 'service-date', String(request.serviceDate ?? '')))
+  const mode = value(args, 'mode', String(request.mode ?? 'transit'))
+  if (!serviceDate && mode === 'transit') throw new Error('--service-date is required for exact timetable routing')
+  const serviceDay = (serviceDate ? resolveServiceDay(serviceDate, value(args, 'service-day')) : 'weekday') as ServiceDay
   const maxWalkKm = parseNumber(value(args, 'max-walk', String(request.maxWalkKm ?? 1.2)), 'max-walk', 0)
   const horizonMinutes = boundedAnalyticalNumber(args, request, 'horizon', 'horizonMinutes', 480, 1, 2_880)
   const maxTransfers = args.has('max-transfers') || request.maxTransfers !== undefined
@@ -351,7 +355,7 @@ function runtimeOptions(args: CliArguments, request: Record<string, unknown> = {
   const { routingDataMode } = normalizeRoutingDataRequest({
     routingDataMode: args.has('data-mode') ? value(args, 'data-mode')
       : request.routingDataMode === undefined ? 'scheduled' : request.routingDataMode,
-    serviceDate, timePreference, departMinutes: timeMinutes, arriveMinutes: timeMinutes,
+    mode, serviceDate, timePreference, departMinutes: timeMinutes, arriveMinutes: timeMinutes,
   })
   return {
     routingDataMode,
@@ -389,8 +393,8 @@ async function computeRouteRequest(
     timePreference: options.timePreference,
     departureWindowMinutes: options.departureWindowMinutes,
   }) as RouteAlternatives | null
-  if (!['transit', 'walk', 'drive'].includes(mode)) {
-    throw new Error('route mode must be transit, walk, or drive')
+  if (!['transit', 'walk', 'drive', 'bike'].includes(mode)) {
+    throw new Error('route mode must be transit, walk, drive, or bike')
   }
   if (options.routingDataMode === 'realtime' && request.traffic && mode !== 'drive') throw new Error('Supplied traffic requires Drive Route.')
   const stopLookup = openStopLookup(storePath)
@@ -433,6 +437,7 @@ async function computeRouteRequest(
     arrivalBufferMinutes: request.arrivalBufferMinutes,
     departureWindowMinutes: options.departureWindowMinutes,
     walkingSpeedKph: request.walkSpeedKph,
+    bike: request.bike,
     ...(options.routingDataMode === 'realtime' && mode === 'transit' && request.realtimeSnapshot
       ? { realtimeSnapshot: request.realtimeSnapshot } : {}),
     ...(options.routingDataMode === 'realtime' && mode === 'drive' && request.traffic
@@ -841,7 +846,7 @@ function validateAnalysisDataMode(options: ReturnType<typeof runtimeOptions>, co
     if (request.realtimeSnapshot || request.live) throw new Error('Drive Matrix accepts supplied traffic only.')
     return
   }
-  normalizeScheduledAnalysisRequest({ ...options, departMinutes: options.timeMinutes }, command)
+  normalizeScheduledAnalysisRequest({ ...options, mode, departMinutes: options.timeMinutes }, command)
 }
 
 function analyticalRuntimeOptions(args: CliArguments, command: string, request: Record<string, unknown>) {
@@ -911,8 +916,8 @@ async function computePreparedMatrix(
     Array.isArray(request.destinations) ? request.destinations.length : 0)
   if (request.scenario) throw new Error('Planned transit Scenarios are supported by Reach, not Matrix.')
   const mode = String(value(args, 'mode', String(request.mode ?? 'transit')))
-  if (!['transit', 'walk', 'drive'].includes(mode)) {
-    throw new Error('matrix mode must be transit, walk, or drive')
+  if (!['transit', 'walk', 'drive', 'bike'].includes(mode)) {
+    throw new Error('matrix mode must be transit, walk, drive, or bike')
   }
   for (const option of ['includeJourneys', 'includeGeometry']) {
     if (request[option] != null && typeof request[option] !== 'boolean') throw new Error(`Matrix ${option} must be a boolean.`)
@@ -957,7 +962,7 @@ async function computePreparedMatrix(
     routingDataMode: options.routingDataMode,
   }
   for (const key of ['requireTransitRide', 'allowLongWalk', 'disableCache', 'allowStreetTransfers',
-    'minimumTransferBufferMinutes', 'arrivalBufferMinutes', 'includeJourneys', 'includeGeometry', 'walkSpeedKph', 'flex']) {
+    'minimumTransferBufferMinutes', 'arrivalBufferMinutes', 'includeJourneys', 'includeGeometry', 'walkSpeedKph', 'flex', 'bike']) {
     if (request[key] !== undefined) nativeRequest[key] = request[key]
   }
   if (options.routingDataMode === 'realtime' && mode === 'drive') nativeRequest.traffic = request.traffic
@@ -1372,7 +1377,8 @@ async function runOsmCompiler(args: CliArguments) {
   const result = await buildNationalOsmStore({
     pbfPath: osmPbf,
     outputPath,
-    includeDriving: value(args, 'street-modes', 'walk,drive') === 'walk,drive' || enabled(args, 'flex-driving'),
+    includeDriving: value(args, 'street-modes', 'walk,drive').split(',').includes('drive') || enabled(args, 'flex-driving'),
+    includeBiking: value(args, 'street-modes', 'walk,drive').split(',').includes('bike'),
     flexDriving: enabled(args, 'flex-driving'),
     wheelchair: enabled(args, 'wheelchair'),
     wheelchairStreets: wheelchairStreets(args),
@@ -1440,7 +1446,7 @@ async function runBuildScenarios(args: CliArguments) {
   }
   const osm = await resolveInput(spec.osm as { path: string; sha256?: string }, 'OSM')
   const streetModes = spec.streetModes ?? 'walk'
-  if (!['walk', 'walk,drive'].includes(String(streetModes))) throw new Error('streetModes must be walk or walk,drive')
+  if (!['walk', 'walk,drive', 'walk,bike', 'walk,drive,bike'].includes(String(streetModes))) throw new Error('streetModes must be walk, walk,drive, walk,bike, or walk,drive,bike')
   if (wheelchair && streetModes !== 'walk') throw new Error('Wheelchair collections require streetModes walk')
   const privateAccess = spec.privateAccess ?? 'public'
   if (typeof privateAccess !== 'string' || !['public', 'endpoints'].includes(privateAccess)) throw new Error('privateAccess must be public or endpoints')
@@ -1572,7 +1578,7 @@ async function runCityCompiler(args: CliArguments) {
   const accessibility = wheelchair ? wheelchairDescriptionFor(streets) : null
   const streetModes = value(args, 'street-modes', wheelchair ? 'walk' : 'walk,drive')
   if (wheelchair && streetModes !== 'walk') throw new Error('Wheelchair Cities require --street-modes walk')
-  if (!['walk', 'walk,drive'].includes(streetModes)) throw new Error('street-modes must be walk or walk,drive')
+  if (!['walk', 'walk,drive', 'walk,bike', 'walk,drive,bike'].includes(streetModes)) throw new Error('street-modes must be walk, walk,drive, walk,bike, or walk,drive,bike')
   const privateAccess = value(args, 'private-access', 'public')
   if (wheelchair && privateAccess !== 'public') throw new Error('Wheelchair Cities require public access')
   if (!['public', 'endpoints'].includes(privateAccess)) throw new Error('private-access must be public or endpoints')
@@ -1597,7 +1603,8 @@ async function runCityCompiler(args: CliArguments) {
   if (sharedCity && (Boolean(sharedCity.accessibility) !== wheelchair
       || (wheelchair && (sharedCity.accessibility as { streetEvidence?: string })?.streetEvidence !== accessibility?.streetEvidence)
       || sharedCity.sources?.osm?.sha256 !== osmSha256 || sharedCity.preparationPolicy !== 'vigo.city.prepare.v2'
-      || sharedCity.modes?.includes('drive') !== (streetModes === 'walk,drive'))) {
+      || sharedCity.modes?.includes('drive') !== streetModes.split(',').includes('drive')
+      || sharedCity.modes?.includes('bike') !== streetModes.split(',').includes('bike'))) {
     throw new Error('Shared streets require matching OSM bytes, prepared modes, accessibility and preparation policy.')
   }
   const outputValue = value(args, 'output')
@@ -1778,7 +1785,7 @@ async function runCityCompiler(args: CliArguments) {
       apiVersion,
       cityFormatVersion,
       preparationPolicy: 'vigo.city.prepare.v2',
-      modes: streetModes === 'walk' ? ['transit', 'walk'] : ['transit', 'walk', 'drive'],
+      modes: ['transit', ...streetModes.split(',')],
       ...(flexDriving ? { flexVehicleEstimates: true } : {}),
       validation: { schemaVersion: 'vigo.preparation.validation.v1', routingLimitations: routingMetadata.routingLimitations ?? [], blockingRoutingFeatures: routingMetadata.blockingRoutingFeatures ?? [], excludedTripCount: routingMetadata.featureInventory?.excludedTripCount ?? 0 },
       kind: 'city',

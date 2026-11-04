@@ -10,6 +10,7 @@ import {
   orientNativeStreetPathCoordinates,
 } from '../src/server/native-routing-kernel.mjs'
 import { integralNumber, timingMilliseconds } from '../src/server/number-utils.mjs'
+import { nativeGridFixture } from './helpers/native-grid-fixture.mjs'
 
 assert.equal(normalizeNativeMilliseconds(2_500_000), 2.5)
 assert.equal(normalizeNativeMilliseconds(undefined), 0)
@@ -1171,11 +1172,53 @@ try {
     'An earlier short prefix and a later longer prefix need separate arrival intervals.')
   assert.deepEqual([...competingPrefixes.edgeEvidenceDurations], [2.625, 6.125])
   assert.deepEqual([...competingPrefixes.edgeEvidenceStartDurations], [2, 3.625])
+  // Fixed-map pruning must preserve every cell even for edge-interior seeds,
+  // competing walk budgets, reverse travel and paths entering from outside.
+  // Compare against the unrestricted full-extent search on the same graph.
+  for (const reverseDirection of [false, true]) for (const bounds of [
+    boundarySurfaceInput.bounds, [-.001, 37.9999, .001, 38.0001], [.0035, 37.9999, .0041, 38.0001],
+    [.01, 37.9999, .011, 38.0001],
+  ]) for (const maximumWalkM of [0, 100, 700, 1000]) {
+    const query = { ...boundarySurfaceInput, bounds, reverseDirection, maximumWalkM,
+      maximumDurationMinutes: 20, seedCoordinates: [-.004, 38, 0, 38, .004, 38],
+      seedDurationsMinutes: [2, 3, 1], seedWalkDistancesM: [0, 60, 0],
+      includeNodes: false, includeEdges: false }
+    assert.deepEqual(interiorKernel.streetSurface({ ...query, expandBoundsToReachedEdges: false }).values,
+      interiorKernel.streetSurface({ ...query, expandBoundsToReachedEdges: true }).values,
+      'Bounding the work to the requested map must preserve its raster exactly')
+  }
   const unsnappedSurface = interiorKernel.streetSurface({ ...boundarySurfaceInput,
     seedCoordinates: [1, 38] })
   assert(!unsnappedSurface.values.some(Number.isFinite))
   assert(!unsnappedSurface.fullSurfaceValues.some(Number.isFinite),
     'An unsnapped origin must not invent a zero-minute cell in the expanded surface.')
+
+  for (const distanceScale of [1, .01, 0]) {
+    const folder = path.join(temporaryDirectory, `surface-grid-${distanceScale}`)
+    fs.mkdirSync(folder)
+    const fixture = nativeGridFixture(folder, 24)
+    // Deliberately unrealistic short/zero edges ensure pruning relies on the
+    // stored metric, never a straight-line geographic-distance assumption.
+    if (distanceScale !== 1) {
+      const bytes = fs.readFileSync(fixture.snapshotPath)
+      const header = JSON.parse(bytes.subarray(0, 4096).toString().trim())
+      fixture.values.edgeDistances.forEach((distance, index) =>
+        bytes.writeDoubleLE(distance * distanceScale, header.arrays.edgeDistances.offset + index * 8))
+      fs.writeFileSync(fixture.snapshotPath, bytes)
+    }
+    const gridKernel = new CoordinateKernel(fixture.snapshotPath)
+    for (const reverseDirection of [false, true]) for (const maximumWalkM of [0, 200, 800, 5000]) {
+      const query = { ...boundarySurfaceInput, bounds: [.010, 38.010, .012, 38.012],
+        seedCoordinates: fixture.coordinates([0, 12 * 24 + 12, 575]), seedDurationsMinutes: [0, 3, 7],
+        maximumWalkM, maximumDurationMinutes: 60, reverseDirection, includeNodes: false, includeEdges: false }
+      const clipped = gridKernel.streetSurface({ ...query, expandBoundsToReachedEdges: false })
+      const full = gridKernel.streetSurface({ ...query, expandBoundsToReachedEdges: true })
+      assert.deepEqual(clipped.values, full.values, 'Pruned multi-edge raster must equal the full graph result')
+      if (distanceScale === 1 && maximumWalkM === 800) {
+        assert(clipped.settledLabels < full.settledLabels, 'Fixed bounds must eliminate irrelevant search work')
+      }
+    }
+  }
 
   const contractedChainSnapshotPath = path.join(
     temporaryDirectory,

@@ -29,10 +29,25 @@ pub struct Capabilities {
     pub wheelchair: WheelchairCapabilities,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flex: Option<FlexCapabilities>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub monte_carlo: Option<MonteCarloCapabilities>,
     pub scenario_collections: CollectionCapabilities,
     pub http: HttpCapabilities,
     pub native_operations: Vec<String>,
     pub compatibility: CompatibilityCapabilities,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MonteCarloCapabilities {
+    pub commands: Vec<String>,
+    pub method: String,
+    pub scheduled_only: bool,
+    pub planned_services: bool,
+    pub phasing: bool,
+    pub maximum_draws: u32,
+    pub maximum_observation_bytes: u64,
+    pub accessibility: bool,
 }
 
 /// Conditional GTFS service supported by this executable. Absent on older runtimes.

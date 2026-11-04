@@ -160,6 +160,40 @@ pub enum SurfaceSampling {
     CellCenter,
 }
 
+/// Bicycle route preferences; costs affect selection, never the reported ETA.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BikeOptions {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub profile: Option<BikeProfile>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    #[schemars(range(min = 5, max = 40))]
+    pub speed_kph: Option<Number>,
+    /// Maximum estimated traffic stress for cycling; higher levels require legal pushing.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    #[schemars(range(min = 1, max = 4))]
+    pub max_lts: Option<u8>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum BikeProfile {
+    Balanced,
+    Fast,
+    Quiet,
+}
+
 /// Include conditional GTFS Flex journeys. Booking is never performed by VIGO.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -197,6 +231,9 @@ macro_rules! query_request {
         #[serde(rename_all = "camelCase", deny_unknown_fields)]
         pub struct $name {
             $($fields)*
+            /// Seeded departure-window and frequency-schedule distribution.
+            #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
+            pub monte_carlo: Option<MonteCarloOptions>,
             /// Added detail: `summary` counters, `profile` timings, or the
             /// unstable internal `trace`. Default `none`.
             #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
@@ -265,9 +302,92 @@ macro_rules! query_request {
     };
 }
 
+/// End-exclusive civil-day departure window, evaluated at every minute.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MonteCarloOptions {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub accessibility: Option<AccessibilityOptions>,
+    #[schemars(range(min = 0, max = 1439))]
+    pub start_minutes: u32,
+    #[schemars(range(min = 1, max = 1440))]
+    pub end_minutes: u32,
+    /// Rounded up to equal samples per minute; exact-only service uses one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    #[schemars(range(min = 1, max = 10000), extend("default" = 200))]
+    pub draws: Option<u32>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    #[schemars(extend("default" = 0))]
+    pub seed: Option<u32>,
+    /// Nearest-rank percentiles, including unreachable samples as infinity.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    #[schemars(length(min = 1, max = 21))]
+    pub percentiles: Option<Vec<u8>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AccessibilityOptions {
+    pub layers: Vec<OpportunityLayer>,
+    pub cutoffs_minutes: Vec<Number>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub decay_function: Option<DecayFunction>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub dual_thresholds: Option<Vec<Number>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OpportunityLayer {
+    pub id: String,
+    /// Nonnegative weights in destination order (row-major cells for Reach).
+    pub counts: Vec<Number>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(
+    tag = "type",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum DecayFunction {
+    Step,
+    Logistic { standard_deviation_minutes: Number },
+    Linear { width_minutes: Number },
+    Exponential,
+    FixedExponential { decay_constant: Number },
+}
+
 query_request! {
     /// `POST /v1/route`: journeys between two places.
     RouteRequest {
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
+        pub scenario: Option<Scenario>,
         /// Include conditional direct Flex journeys with explicit booking and timing assumptions.
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
         pub flex: Option<FlexOptions>,
@@ -300,6 +420,8 @@ query_request! {
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
         #[schemars(extend("default" = "transit"))]
         pub mode: Option<Mode>,
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
+        pub bike: Option<BikeOptions>,
         /// Default 50.
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
         #[schemars(range(min = 0.05, max = 1000), extend("default" = 50))]
@@ -347,6 +469,9 @@ query_request! {
 query_request! {
     /// `POST /v1/matrix`: travel times between every origin and destination.
     MatrixRequest {
+        /// Planned service for Monte Carlo analysis.
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
+        pub scenario: Option<Scenario>,
         /// Include conditional direct Flex journeys with explicit booking and timing assumptions.
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
         pub flex: Option<FlexOptions>,
@@ -370,6 +495,8 @@ query_request! {
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
         #[schemars(extend("default" = "transit"))]
         pub mode: Option<Mode>,
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
+        pub bike: Option<BikeOptions>,
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
         #[schemars(range(min = 0.05, max = 1000), extend("default" = 50))]
         pub max_street_km: Option<Number>,
@@ -418,6 +545,8 @@ query_request! {
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
         #[schemars(extend("default" = "transit"))]
         pub mode: Option<ReachMode>,
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
+        pub bike: Option<BikeOptions>,
         #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "present")]
         #[schemars(extend("default" = "full"))]
         pub reach_format: Option<ReachFormat>,
@@ -568,6 +697,36 @@ pub enum TimeModel {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ScenarioService {
+    /// A fixed timetable when true; otherwise simulation samples its phase.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub exact_times: Option<bool>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub phase_from: Option<FrequencyPhasing>,
+    /// Optional independent timetable rows. Replaces the top-level frequency
+    /// window; weekdays refer to serviceDate, including times after midnight.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    #[schemars(length(min = 1, max = 32))]
+    pub timetables: Option<Vec<ScenarioTimetable>>,
+    /// Adjust ride and dwell times while retaining original trip departures.
+    /// Requires preserve-trips. Selection indexes refer to the edited pattern.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub timing: Option<ServiceTiming>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -685,6 +844,89 @@ pub struct ScenarioService {
     )]
     #[schemars(inner(range(min = 0)))]
     pub segment_distances_km: Option<Vec<Number>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FrequencyPhasing {
+    pub service_id: String,
+    pub at_stop_index: u32,
+    pub from_stop_index: u32,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub offset_minutes: Option<Number>,
+}
+
+/// One independent, end-exclusive planned-service frequency window.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ScenarioTimetable {
+    pub id: String,
+    #[schemars(range(min = 0, max = 4319))]
+    pub start_minutes: Number,
+    #[schemars(range(min = 0, max = 4319))]
+    pub end_minutes: Number,
+    #[schemars(range(min = 0.1, max = 1440))]
+    pub headway_minutes: Number,
+    /// ISO weekdays: 1 = Monday, 7 = Sunday. Omitted means every day.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    #[schemars(length(min = 1, max = 7), inner(range(min = 1, max = 7)))]
+    pub days_of_week: Option<Vec<u8>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub exact_times: Option<bool>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ServiceTiming {
+    /// Divide moving time by this factor; 2 means twice as fast.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    #[schemars(range(min = 0.1, max = 10))]
+    pub speed_factor: Option<Number>,
+    /// Zero-based segment indexes; omitted selects all segments.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub segment_indexes: Option<Vec<u32>>,
+    /// Set dwell at selected stops; mutually exclusive with dwellScale.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    #[schemars(range(min = 0, max = 60))]
+    pub dwell_minutes: Option<Number>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    #[schemars(range(min = 0, max = 10))]
+    pub dwell_scale: Option<Number>,
+    /// Stop indexes after the fixed first departure; omitted selects all.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    pub stop_indexes: Option<Vec<u32>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]

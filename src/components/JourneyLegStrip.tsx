@@ -1,4 +1,4 @@
-import { Bus, Car, ChevronRight, Footprints, Ship, TrainFront, TramFront } from 'lucide-react'
+import { Bus, Bike, Car, ChevronRight, Footprints, Ship, TrainFront, TramFront } from 'lucide-react'
 import type { CSSProperties } from 'react'
 import { formatRoutingMinutes, isSameStationTransfer, routingLegColor, routingLegTextColor } from '../app/presentation'
 import { classNames } from '../domain'
@@ -61,7 +61,7 @@ export function JourneyLegStrip({ plan, showBar = true }: { plan: RoutingPlan; s
                 </span>
               ) : (
                 <span className="pathfinder-leg-walk" title={formatRoutingMinutes(leg.durationMinutes)}>
-                  {leg.type === 'drive' ? <Car size={12} /> : <Footprints size={12} />}
+                  {leg.type === 'bike' ? <Bike size={12} /> : leg.type === 'drive' ? <Car size={12} /> : <Footprints size={12} />}
                   {compactWalks ? null : formatRoutingMinutes(leg.durationMinutes)}
                 </span>
               )}

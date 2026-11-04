@@ -1,5 +1,14 @@
 # Version history
 
+## 1.0.0-rc.4 (unreleased)
+
+- Add optional bicycle Route and Matrix, with balanced, quiet and fast preferences, separate preference cost and ETA, bicycle access/contraflow, surfaces, mapped incline, dismount legs, and node/via-way turn restrictions.
+- Load one bicycle graph only on demand. Retain the existing City format and omit bike data from CLI builds unless selected. Studio OSM imports include bike streets.
+- Expose Bike in Studio and generated public types; report cycling time separately from transit riding and waiting.
+- Add synthetic bicycle regressions and extend the historical-reader gate to a City containing optional bike tables. Leading-engine parity is not established by these checks.
+- Retain valid OSM segments longer than 10 km in walking, driving and bicycle imports. Bound road-index duplication without adding graph nodes or changing exact endpoint projections; reject invalid geographic coordinates explicitly.
+- Keep the route line view clear of the floating sidebar. Let its header and vehicle labels wrap in smaller windows without covering directions or stops.
+
 ## 1.0.0-rc.3
 
 - Departure windows (Studio's Later departures) rank candidate journeys without copying their lines, intermediate stops, endpoint details and descriptive trip fields; only the returned choices carry them. The wider-walking search's shared services are searched only for the choices that survive merging with the preferred walking limit. Answers are unchanged.

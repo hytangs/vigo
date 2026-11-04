@@ -130,8 +130,8 @@ struct Trip {
     instances: Option<Vec<Instance>>,
 }
 
-// Preserve the published compiler's inclusive frequency endpoint and ordering.
-// Changing these semantics is a separate correctness change, not a migration.
+// GTFS end_time is exclusive: no departure is invented when service ceases
+// or changes headway. Existing Cities keep their stored expanded trips.
 fn frequency_instances(db: &Connection, trip: &str, start: f64) -> CompileResult<Vec<Instance>> {
     let mut statement = db.prepare_cached("SELECT start_time,end_time,headway_secs FROM frequencies WHERE trip_id=? AND exact_times=1 ORDER BY start_time,end_time,headway_secs")?;
     let mut rows = statement.query([trip])?;
@@ -141,11 +141,12 @@ fn frequency_instances(db: &Connection, trip: &str, start: f64) -> CompileResult
         let from: f64 = row.get(0)?;
         let to: f64 = row.get(1)?;
         let headway: f64 = row.get(2)?;
-        let count = ((to - from) / headway).floor() + 1.0;
+        let count = ((to - from) / headway).ceil();
         if !from.is_finite()
             || !to.is_finite()
             || !headway.is_finite()
             || headway <= 0.0
+            || to <= from
             || !count.is_finite()
             || !(1.0..=100_000.0).contains(&count)
         {

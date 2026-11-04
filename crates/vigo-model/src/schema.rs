@@ -316,7 +316,7 @@ pub fn openapi() -> Value {
             "route",
             "Route",
             route,
-            reference("RouteResult"),
+            json!({"oneOf":[reference("RouteResult"), reference("DistributionResult")]}),
             "A journey, or `not_found` when none satisfies the request.",
         ),
     );
@@ -326,7 +326,7 @@ pub fn openapi() -> Value {
             "matrix",
             "Matrix",
             matrix,
-            reference("MatrixResult"),
+            json!({"oneOf":[reference("MatrixResult"), reference("DistributionResult")]}),
             "Travel times for every origin and destination.",
         ),
     );
@@ -336,7 +336,7 @@ pub fn openapi() -> Value {
             "reach",
             "Reach",
             reach.clone(),
-            reference("ReachResult"),
+            json!({"oneOf":[reference("ReachResult"), reference("DistributionResult")]}),
             "Reached area and times.",
         ),
     );
@@ -346,7 +346,7 @@ pub fn openapi() -> Value {
             "isochrone",
             "Reach (alias)",
             reach,
-            reference("ReachResult"),
+            json!({"oneOf":[reference("ReachResult"), reference("DistributionResult")]}),
             "Same as `/v1/reach`.",
         ),
     );

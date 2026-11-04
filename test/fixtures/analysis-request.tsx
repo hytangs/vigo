@@ -44,7 +44,7 @@ function fill(element, value) {
   flushSync(() => element.dispatchEvent(new Event('input', { bubbles: true })))
 }
 function field(name) {
-  return [...document.querySelectorAll('.reach-settings-list label')].find(label => label.querySelector('span')?.textContent === name).querySelector('input')
+  return [...document.querySelectorAll('label.reach-setting-row')].find(label => label.querySelector('span')?.textContent === name).querySelector('input')
 }
 window.checkAnalysisRequest = async () => {
   await until(() => document.querySelector('.city-card-open'))
@@ -112,5 +112,20 @@ window.checkAnalysisRequest = async () => {
   }
   timeChoice('Leave at')
   assert(kicker().startsWith('Origin'), 'Leave at restores the origin')
-  return { networkRemix: true, exactLimits: true, noHiddenWindow: true, automaticLimit: true, arriveBy: true, requests: requests.length }
+  fill(timeInput, '08:00')
+  const simulation = [...document.querySelectorAll('label')].find(label => label.textContent === 'Simulate frequency schedules')
+  simulation.closest('details').open = true
+  flushSync(() => simulation.querySelector('input').click())
+  fill(field('Departure window'), 90); fill(field('Simulated schedules'), 300)
+  fill(field('Travel-time percentile'), 75); fill(field('Random seed'), 1234)
+  flushSync(() => document.querySelector('.reach-run').click())
+  await until(() => requests.length === 6 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
+  assert(JSON.stringify(requests[5].monteCarlo) === JSON.stringify({ startMinutes: 480, endMinutes: 570, draws: 300, seed: 1234, percentiles: [75] }), 'App lost simulation controls')
+  assert(requests[5].rasterSize === 96 && requests[5].includeStreetEdges === false, 'Simulation must use the bounded grid without per-draw edge output')
+  timeChoice('Arrive by')
+  flushSync(() => document.querySelector('.reach-run').click())
+  await until(() => requests.length === 7 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
+  assert(!requests[6].monteCarlo && requests[6].rasterSize > 96, 'Hidden simulation settings must not degrade ordinary arrival analysis')
+  timeChoice('Leave at')
+  return { networkRemix: true, exactLimits: true, noHiddenWindow: true, automaticLimit: true, arriveBy: true, monteCarlo: true, requests: requests.length }
 }

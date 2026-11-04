@@ -60,6 +60,7 @@ function compactCch(result) {
 try {
   const result = await buildNationalOsmStore({
     ...workerData,
+    includeBiking: workerData.includeBiking !== false && !workerData.wheelchair,
     // A project street import is an interactive prerequisite for both walk
     // access and route-edit geometry. Persist the compact drive snapshot now
     // so the first route query does not pay the profile-build cost.

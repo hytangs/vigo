@@ -35,7 +35,7 @@ function sampleRaster(raster: Pick<ReachResult['surface']['raster'], 'bounds' | 
 export type ReachInspectionSource = { id: string; label: string; result: ReachResult; feedId?: string }
 
 export function reachInspectionSources(result: ReachResult | null): ReachInspectionSource[] {
-  return result ? [{ id: result.request.baselineIdentity, label: result.request.mode === 'drive' ? 'Driving' : 'Scheduled service', result }] : []
+  return result ? [{ id: result.request.baselineIdentity, label: result.request.mode === 'drive' ? 'Driving' : result.request.mode === 'bike' ? 'Bicycle' : 'Scheduled service', result }] : []
 }
 
 export function reachHasServiceChanges(result: ReachResult) {
@@ -53,14 +53,29 @@ export function reachPointRouteRequest(source: ReachInspectionSource, point: Rou
   return {
     ...(request.feedIds?.length ? { feedIds: request.feedIds } : { feedId: source.feedId ?? fallbackFeedId }),
     ...(arriveBy ? { origin: point, destination: request.destination } : { origin: request.origin, destination: point }),
-    mode: request.mode ?? 'transit', routingDataMode: 'scheduled', timePreference: arriveBy ? 'arrive' : 'depart',
+    mode: request.mode ?? 'transit', ...(request.mode === 'bike' ? {bike:request.bike} : {}), routingDataMode: 'scheduled', timePreference: arriveBy ? 'arrive' : 'depart',
     departMinutes: request.departMinutes, ...(arriveBy ? { arriveMinutes: request.departMinutes } : {}),
     serviceDate: request.serviceDate, serviceDay: request.serviceDay,
     maxWalkKm: request.maxWalkKm, maxTransfers: request.maxTransfers,
+    ...(request.mode === 'bike' ? {maxStreetKm:750,walkSpeedKph:request.walkSpeedKph} : {}),
     allowServiceDateFallback: false, objective: 'earliest_arrival', departureWindowMinutes: 0,
     // Inspect destinations under the map's walking limit, including direct walks.
     allowLongWalk: false, requireTransitRide: false,
     // Point routing's transfer graph uses the City's prepared walking speed.
     // Do not submit an unsupported speed or silently ignore a scenario overlay.
   }
+}
+
+/** Read the stored distribution at the pin; never substitute a single-time journey. */
+export function reachPointDistribution(result: ReachResult, coordinate: LngLat, surface: ScenarioSurface) {
+  const distribution = result.distributions?.[surface]
+  if (!distribution || !('width' in distribution.layout)) return null
+  const { bounds: [west, south, east, north], width, height } = distribution.layout
+  const [lon, lat] = coordinate
+  if (![lon, lat].every(Number.isFinite) || lon < west || lon > east || lat < south || lat > north) return null
+  const x = Math.min(width - 1, Math.floor((lon - west) / (east - west) * width))
+  const y = Math.min(height - 1, Math.floor((north - lat) / (north - south) * height))
+  const index = y * width + x
+  return { percentiles: distribution.percentiles, seconds: distribution.durationsSeconds.map(values => values[index]),
+    reachableSamples: distribution.reachableSamples[index], sampleCount: distribution.sampling.sampleCount }
 }

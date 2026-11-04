@@ -4,7 +4,18 @@ import os from 'node:os'
 import path from 'node:path'
 import { deflateSync } from 'node:zlib'
 import { PbfWriter } from 'pbf'
-import { forEachPbfBlock, osmPbfLimits } from '../src/server/osm-pbf-reader.mjs'
+import { coordinate, forEachPbfBlock, osmPbfLimits } from '../src/server/osm-pbf-reader.mjs'
+import { haversineKm } from '../src/server/geometry-utils.mjs'
+
+const coordinateBlock={latOffset:0,lonOffset:0,granularity:100}
+assert.deepEqual(coordinate(coordinateBlock,900_000_000,1_800_000_000),[180,90])
+for (const [lat,lon] of [[900_000_001,0],[-900_000_001,0],[0,1_800_000_001],[0,-1_800_000_001],[NaN,0],[0,Infinity]]) {
+  assert.throws(()=>coordinate(coordinateBlock,lat,lon),/invalid geographic coordinate/)
+}
+for (let latitude=-89;latitude<90;latitude+=.7) {
+  const distance=haversineKm([23.4,latitude],[-156.6,-latitude])
+  assert(Number.isFinite(distance)&&Math.abs(distance-Math.PI*6371.0088)<.001)
+}
 
 function pbfMessage(write, value) {
   const writer = new PbfWriter()

@@ -18,7 +18,7 @@ import {
   type ScenarioView,
   type ServiceEdgeDecomposition,
 } from '../reach'
-import type { RoutingPoint, RoutingTimePreference } from '../routingModel'
+import type { RoutingBikeOptions, RoutingPoint, RoutingTimePreference } from '../routingModel'
 import { buildRoutingPointFromMap } from '../routingUi'
 import { changeServiceDate, clock, serviceDay } from './clock'
 import { route } from './route'
@@ -53,8 +53,14 @@ export type AnalyzeState = {
   reachMaxWalkKm: number
   reachMaxTransfers: number | undefined
   scenarioWalkSpeedKph: number
-  reachTravelMode: 'transit' | 'drive'
+  reachTravelMode: 'transit' | 'drive' | 'bike'
+  reachBike: RoutingBikeOptions
   reachSurfaceSampling: 'street' | 'cell-center'
+  reachMonteCarlo: boolean
+  reachWindowMinutes: number
+  reachDraws: number
+  reachPercentile: number
+  reachSeed: number
   scenarioView: ScenarioView
   scenarioRenderMode: ScenarioRenderMode
   comparisonFeedIds: string[]
@@ -81,7 +87,13 @@ const initialAnalyzeState = (): AnalyzeState => ({
   reachMaxTransfers: undefined,
   scenarioWalkSpeedKph: 4.8,
   reachTravelMode: 'transit',
+  reachBike: {profile:'balanced',speedKph:18},
   reachSurfaceSampling: 'street',
+  reachMonteCarlo: false,
+  reachWindowMinutes: 60,
+  reachDraws: 200,
+  reachPercentile: 50,
+  reachSeed: 0,
   scenarioView: 'comparison',
   scenarioRenderMode: 'area',
   comparisonFeedIds: [],
@@ -195,6 +207,22 @@ function reachPlaceFields({ analysisOrigin, reachTimePreference }: AnalyzeState)
     : { origin: analysisOrigin }
 }
 
+function simulationEnabled(settings = analyze.get()) {
+  return settings.reachMonteCarlo && settings.reachTravelMode === 'transit' && settings.reachTimePreference === 'depart'
+}
+
+function simulationOptions(settings = analyze.get()) {
+  if (!simulationEnabled(settings)) return {}
+  const startMinutes = clock.get().scheduleTimeMinutes
+  return { monteCarlo: { startMinutes, endMinutes: Math.min(1440, startMinutes + settings.reachWindowMinutes),
+    draws: settings.reachDraws, seed: settings.reachSeed, percentiles: [settings.reachPercentile] } }
+}
+
+export function changeMonteCarlo(settings: Partial<Pick<AnalyzeState, 'reachMonteCarlo' | 'reachWindowMinutes' | 'reachDraws' | 'reachPercentile' | 'reachSeed'>>) {
+  analyze.set({ ...settings, scenarioRenderMode: 'area' })
+  invalidateAnalyzeResult()
+}
+
 export function comparisonRequestBody(variant: CompareVariant, reference: CompareVariant, includeStreetEdges: boolean) {
   const { reachMaxWalkKm, reachMaxTransfers, reachSurfaceSampling, scenarioWalkSpeedKph, scenarioCutoffMinutes } = analyze.get()
   const { scheduleTimeMinutes } = clock.get()
@@ -205,16 +233,17 @@ export function comparisonRequestBody(variant: CompareVariant, reference: Compar
     ...(reference.feedIds.join() !== variant.feedIds.join() ? { baselineFeedIds: reference.feedIds } : {}),
     ...reachPlaceFields(analyze.get()),
     departMinutes: scheduleTimeMinutes,
+    ...simulationOptions(),
     serviceDate: routingServiceDate,
     serviceDay: routingServiceDay,
     maxWalkKm: reachMaxWalkKm,
     maxTransfers: reachMaxTransfers,
     walkSpeedKph: reachSurfaceSampling === 'cell-center' ? 4.8 : scenarioWalkSpeedKph,
     surfaceSampling: reachSurfaceSampling,
-    rasterSize: reachSurfaceSampling === 'street' ? desktopStreetReachRasterSize : desktopReachRasterSize,
+    rasterSize: simulationEnabled() ? 96 : reachSurfaceSampling === 'street' ? desktopStreetReachRasterSize : desktopReachRasterSize,
     cutoffsMinutes: [scenarioCutoffMinutes],
     includePreliminary: false,
-    includeStreetEdges,
+    includeStreetEdges: simulationEnabled() ? false : includeStreetEdges,
     payload: 'compact',
     scenario: variant.scenario ?? { id: variant.id, name: variant.label, services: [], excludedRouteIds: [] },
   }
@@ -428,8 +457,8 @@ export async function runSurfaceAnalysis(includeStreetEdges = analyze.get().scen
     analyze.set({ scenarioError: grouping.error || selection.error })
     return
   }
-  const draft = settings.reachTravelMode === 'drive'
-    ? { scenario: { id: 'driving', name: 'Driving', services: [], excludedRouteIds: [] } }
+  const draft = settings.reachTravelMode !== 'transit'
+    ? { scenario: { id: settings.reachTravelMode, name: settings.reachTravelMode === 'bike' ? 'Bicycle' : 'Driving', services: [], excludedRouteIds: [] } }
     : activeScenarioDraft()
   if ('error' in draft) {
     analyze.set({ scenarioError: draft.error ?? 'Configure the active case before running it.' })
@@ -439,7 +468,7 @@ export async function runSurfaceAnalysis(includeStreetEdges = analyze.get().scen
   const baselineFeeds = baselineGroup && !caseFeedSelection({ ...grouping.value, cases: { baseline: baselineGroupId } }, 'baseline', project).error
     ? [...new Set(baselineGroup.feedIds)].sort() : null
   const { scheduleTimeMinutes, serviceDate } = clock.get()
-  const hasScenarioChanges = settings.reachTravelMode !== 'drive' && (Boolean(activeScenario()?.interventions.length) || scenarioNetworkDiffers(grouping.value.groups, selection.group?.id))
+  const hasScenarioChanges = settings.reachTravelMode === 'transit' && (Boolean(activeScenario()?.interventions.length) || scenarioNetworkDiffers(grouping.value.groups, selection.group?.id))
   analysisAbort?.abort()
   const controller = new AbortController()
   analysisAbort = controller
@@ -457,24 +486,26 @@ export async function runSurfaceAnalysis(includeStreetEdges = analyze.get().scen
         signal: controller.signal,
         body: JSON.stringify({
           feedIds: selection.feedIds,
-          ...(settings.reachTravelMode !== 'drive' && baselineFeeds && baselineFeeds.join() !== [...selection.feedIds].sort().join() ? { baselineFeedIds: baselineFeeds } : {}),
+          ...(settings.reachTravelMode === 'transit' && baselineFeeds && baselineFeeds.join() !== [...selection.feedIds].sort().join() ? { baselineFeedIds: baselineFeeds } : {}),
           ...reachPlaceFields(settings),
           departMinutes: scheduleTimeMinutes,
+          ...simulationOptions(settings),
           serviceDate,
           serviceDay: serviceDay(),
           maxWalkKm: settings.reachMaxWalkKm,
           maxTransfers: settings.reachMaxTransfers,
-          walkSpeedKph: settings.reachSurfaceSampling === 'cell-center' ? 4.8 : settings.scenarioWalkSpeedKph,
+          walkSpeedKph: settings.reachTravelMode !== 'bike' && settings.reachSurfaceSampling === 'cell-center' ? 4.8 : settings.scenarioWalkSpeedKph,
           mode: settings.reachTravelMode,
-          surfaceSampling: settings.reachTravelMode === 'drive' ? 'cell-center' : settings.reachSurfaceSampling,
+          ...(settings.reachTravelMode === 'bike' ? {bike:settings.reachBike} : {}),
+          surfaceSampling: settings.reachTravelMode !== 'transit' ? 'cell-center' : settings.reachSurfaceSampling,
           radiusKm: settings.reachTravelMode === 'drive' ? 40 : 8,
-          rasterSize: settings.reachTravelMode !== 'drive' && settings.reachSurfaceSampling === 'street' ? desktopStreetReachRasterSize : desktopReachRasterSize,
+          rasterSize: simulationEnabled(settings) ? 96 : settings.reachTravelMode === 'transit' && settings.reachSurfaceSampling === 'street' ? desktopStreetReachRasterSize : desktopReachRasterSize,
           cutoffsMinutes: reachTimeBands(settings.scenarioCutoffMinutes),
           // The final baseline surface is rendered after transit/routing
           // seeds are known. Avoid spending a second full OSM traversal on
           // a provisional walk-only surface for every scenario run.
           includePreliminary: false,
-          includeStreetEdges,
+          includeStreetEdges: settings.reachTravelMode !== 'transit' || simulationEnabled(settings) ? false : includeStreetEdges,
           payload: 'compact',
           scenario: draft.scenario,
         }),
@@ -504,6 +535,14 @@ export function cancelSurfaceAnalysis() {
 // Analyze panel settings. A changed question clears the shown result.
 export function changeReachTravelMode(reachTravelMode: AnalyzeState['reachTravelMode']) {
   analyze.set({ reachTravelMode, scenarioRenderMode: 'area' })
+  invalidateAnalyzeResult()
+}
+
+export function changeReachBike(reachBike: RoutingBikeOptions) {
+  if (!['balanced','fast','quiet'].includes(reachBike.profile) || !Number.isFinite(reachBike.speedKph)
+    || reachBike.speedKph < 5 || reachBike.speedKph > 40
+    || (reachBike.maxLts !== undefined && ![1,2,3,4].includes(reachBike.maxLts))) return
+  analyze.set({reachBike})
   invalidateAnalyzeResult()
 }
 

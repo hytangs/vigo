@@ -482,6 +482,7 @@ fn journey(v: &mut Value, geometry: bool) -> Value {
     let mut walking = 0i64;
     let mut riding = 0i64;
     let mut driving = 0i64;
+    let mut cycling = 0i64;
     for l in out["legs"].as_array().unwrap() {
         let duration = l["durationSeconds"].as_i64().unwrap_or(0);
         match l["type"].as_str() {
@@ -494,14 +495,20 @@ fn journey(v: &mut Value, geometry: bool) -> Value {
                         .round() as i64
             }
             Some("drive") => driving += duration,
+            Some("bike") => cycling += duration,
             _ => (),
         }
     }
     if !out["legs"].as_array().unwrap().is_empty() {
         out["walkingSeconds"] = json!(walking);
         out["ridingSeconds"] = json!(riding);
-        out["waitingSeconds"] =
-            json!((out["durationSeconds"].as_i64().unwrap() - walking - riding - driving).max(0));
+        out["waitingSeconds"] = json!(
+            (out["durationSeconds"].as_i64().unwrap() - walking - riding - driving - cycling)
+                .max(0)
+        );
+        if cycling > 0 {
+            out["cyclingSeconds"] = json!(cycling);
+        }
         if driving > 0 {
             out["drivingSeconds"] = json!(driving);
         }
@@ -617,10 +624,10 @@ fn complete_journey_endpoints(result: &mut Value, origin: &Value, destination: &
         }
     }
 }
-fn digest(v: &Value) -> String {
+pub(crate) fn digest(v: &Value) -> String {
     format!("{:x}", Sha256::digest(serde_json::to_vec(v).unwrap()))
 }
-fn request_id() -> String {
+pub(crate) fn request_id() -> String {
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let time = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
