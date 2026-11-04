@@ -14,7 +14,9 @@ const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-monte-carlo-'))
 const children = []
 function resident(city, detailed = false, node = false) {
   const child = spawn(node ? process.execPath : binary, [...(node ? ['public/vigo.mjs'] : []), 'stream', '--city', city, ...(detailed ? ['--stream-output=detailed'] : [])], { cwd: root })
-  children.push(child)
+  // Register immediately so cleanup also observes a reader that exited early.
+  const closed = new Promise(resolve => child.once('close', resolve))
+  children.push({ child, closed })
   let stderr = ''; child.stderr.on('data', data => { stderr += data })
   const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]()
   return async request => {
@@ -326,8 +328,16 @@ try {
       assert.deepEqual(ok(await run({ ...base, timeMinutes: 480 })).durationsSeconds, ordinary.durationsSeconds)
     }
   }
-  console.log('Monte Carlo: exact-minute oracle, sampled bounds, transfers, shared draws, reproducibility, cleanup and validation passed')
 } finally {
-  for (const child of children) child.kill()
-  if (!process.env.VIGO_KEEP_MONTE_CARLO_FIXTURES) fs.rmSync(temporary, { recursive: true, force: true })
+  // EOF lets the Node CLI close its native reader too. Windows keeps mapped
+  // City files locked until these processes and their streams have closed.
+  await Promise.all(children.map(async ({ child, closed }) => {
+    const timeout = setTimeout(() => child.kill(), 5000)
+    try {
+      child.stdin.end()
+      assert.equal(await closed, 0, 'Resident stream must close cleanly on EOF')
+    } finally { clearTimeout(timeout) }
+  }))
+  if (!process.env.VIGO_KEEP_MONTE_CARLO_FIXTURES) fs.rmSync(temporary, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
+console.log('Monte Carlo: exact-minute oracle, sampled bounds, transfers, shared draws, reproducibility, cleanup and validation passed')
