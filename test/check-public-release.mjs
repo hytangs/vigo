@@ -169,6 +169,8 @@ const releaseWorkflow = fs.readFileSync(
   path.join(root, '.github', 'workflows', 'release-check.yml'),
   'utf8',
 )
+assert.equal(releaseWorkflow.match(/release_tag:\s*\n(?:[^\n]*\n)*?\s+default: (\S+)/u)?.[1], `v${packageJson.version}`,
+  'Manual release workflow must default to the current package version.')
 const [releaseBuildSection, releaseAttestationSection = ''] = releaseWorkflow.split(/\r?\n  attest:\r?\n/u)
 assert(!releaseBuildSection.includes('id-token: write'), 'The release build job must not receive an OIDC token.')
 assert(!releaseBuildSection.includes('attestations: write'), 'The release build job must not receive attestation write access.')

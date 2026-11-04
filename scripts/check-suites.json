@@ -1,6 +1,7 @@
 {
   "check:studio": [
     "test/check-package-audit.mjs",
+    "test/check-packaging-globs.mjs",
     "test/check-static-assets.mjs",
     "test/check-check-runner.mjs"
   ],

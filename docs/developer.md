@@ -231,6 +231,13 @@ analysis, vehicle interpolation and local search remain active application code.
 
 `public/main.mjs` owns windows, menus, dialogs, and the `vigo://studio` resource scheme. `public/preload.cjs` exposes a small desktop bridge to an isolated renderer without Node access. Engine runs in a utility process; packaged Studio has no TCP listener. Packaging copies the shared `public/` distribution once.
 
+Desktop build tooling overrides `@electron/asar`'s `glob` and `minimatch` with
+patched versions for [cancelled traversal](https://github.com/advisories/GHSA-3g3m-2fjr-6pw4)
+and [pattern amplification](https://github.com/advisories/GHSA-g3hv-75wg-m249).
+These are development-only dependencies. `check:studio` verifies archive contents,
+exclusions and unpack patterns through the packaging tool's resolved ASAR library.
+Remove the overrides when ASAR's dependency ranges include the patched versions.
+
 Network shares one route/station selection across its tabs, map, and line diagram. Known feed namespaces resolve against the City timetable; ambiguous bare IDs cannot select an agency. Station scope includes platforms, while a platform keeps its own events. Observation refreshes do not move the map.
 
 | Surface | Owner |
