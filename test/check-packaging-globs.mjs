@@ -37,10 +37,11 @@ try {
   assert(!entries.some(name => name.includes('ignored')), 'Ignored files leaked into the archive')
   for (const [name, content] of Object.entries(files)) {
     assert(entries.includes('/' + name), `Missing packaged file: ${name}`)
-    assert.equal(extractFile(archive, name).toString(), content, `Changed packaged file: ${name}`)
+    // ASAR traverses nested archive directories using the host path separator.
+    assert.equal(extractFile(archive, path.normalize(name)).toString(), content, `Changed packaged file: ${name}`)
   }
   for (const name of ['native/kernel.node', 'locales/en/message.txt']) {
-    assert.equal(statFile(archive, name).unpacked, true, `Unpack pattern did not match ${name}`)
+    assert.equal(statFile(archive, path.normalize(name)).unpacked, true, `Unpack pattern did not match ${name}`)
     assert.equal(await readFile(path.join(archive + '.unpacked', name), 'utf8'), files[name])
   }
   assert(!statFile(archive, 'main.js').unpacked, 'Ordinary files should remain packed')
