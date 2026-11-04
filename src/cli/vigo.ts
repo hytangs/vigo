@@ -321,9 +321,6 @@ function resolveRuntimePaths(args: CliArguments) {
 }
 
 function runtimeOptions(args: CliArguments, request: Record<string, unknown> = {}) {
-  if (Object.hasOwn(request, 'monteCarlo')) {
-    throw new Error('monteCarlo routing requires the Rust vigo executable or native HTTP endpoint.')
-  }
   if (Object.hasOwn(request, 'windowMinutes') || Object.hasOwn(request, 'windowStepMinutes')) {
     throw new Error('windowMinutes and windowStepMinutes require the standalone Rust CLI or /v1/route service. The Node CLI supports departureWindowMinutes (a centered departure profile).')
   }
@@ -376,6 +373,7 @@ async function computeRouteRequest(
   args: CliArguments, request: Record<string, any>,
   paths: ReturnType<typeof resolveRuntimePaths>,
 ) {
+  if (Object.hasOwn(request, 'monteCarlo')) return computeDistribution(args, request, paths, 'route')
   const { storePath, streetStorePath, city } = paths
   validateWheelchairRequest(city.accessibility?.profile, { ...request,
     mode: value(args, 'mode', String(request.mode ?? 'transit')),
@@ -752,7 +750,8 @@ async function runRouteStream(args: CliArguments) {
           requestArgs.set('time', [`${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`])
         }
         let result
-        if (input.kind === 'route') result = await computeRouteRequest(requestArgs, input, paths)
+        if (Object.hasOwn(input, 'monteCarlo')) result = await computeDistribution(requestArgs, input, paths, String(input.kind))
+        else if (input.kind === 'route') result = await computeRouteRequest(requestArgs, input, paths)
         else if (input.kind === 'reach') result = await computeReachRequest(requestArgs, input, paths)
         else {
           const options = analyticalRuntimeOptions(requestArgs, 'matrix', input)
@@ -1038,12 +1037,58 @@ async function computePreparedMatrix(
 async function runMatrix(args: CliArguments) {
   const request = await readStructuredRequest(args, 'matrix')
   const paths = resolveRuntimePaths(args)
+  if (Object.hasOwn(request, 'monteCarlo')) {
+    try {
+      writeJsonResult(await computeDistribution(args, request, paths, 'matrix'), value(args, 'output'), value(args, 'format', 'auto'))
+    } finally {
+      disposeNationalGtfsStore(paths.storePath)
+      closeNativeCity()
+    }
+    return
+  }
   assertMatrixSize((request.origins as unknown[])?.length, (request.destinations as unknown[])?.length)
   const options = analyticalRuntimeOptions(args, 'matrix', request)
   const payload = await computePreparedMatrix(args, request, paths, options, openStopLookup(paths.storePath))
   writeJsonResult(publicResult({ ...payload, timing: { ...payload.timing,
     endToEndMs: Number((performance.now() - cliStartedAt).toFixed(3)),
   } }, request, args), value(args, 'output'), value(args, 'format', 'auto'))
+}
+
+// Simulation has its own result contract. Keep the native request intact so
+// its validation, sample plan, provenance and bounded observation storage are
+// identical for the CLI, Python and HTTP interfaces. Ordinary queries never
+// enter this path or allocate simulation state.
+async function computeDistribution(
+  args: CliArguments, request: Record<string, any>,
+  paths: ReturnType<typeof resolveRuntimePaths>, kind: string,
+) {
+  const input = { ...presentationRequest(request, args), kind } as Record<string, any>
+  for (const [option, field] of [['time-preference', 'timePreference'], ['data-mode', 'routingDataMode'], ['service-day', 'serviceDay'], ['objective', 'objective']]) {
+    if (args.has(option)) input[field] = value(args, option)
+  }
+  for (const [option, field] of [['extent-radius', 'extentRadiusKm'], ['walk-speed', 'walkSpeedKph'], ['departure-window', 'departureWindowMinutes']]) {
+    if (args.has(option)) input[field] = Number(value(args, option))
+  }
+  if (input.departureWindowMinutes !== undefined) throw new Error('departureWindowMinutes does not apply to monteCarlo routing')
+  if (input.objective !== undefined) {
+    if (input.objective !== 'earliest_arrival') throw new Error('objective must be earliest_arrival')
+    delete input.objective
+  }
+  if (kind === 'matrix') {
+    // Python and the Node Matrix interface label endpoints with {id, point}.
+    // Native points carry the same caller ID directly beside stopId/coordinate.
+    for (const key of ['origins', 'destinations']) {
+      if (Array.isArray(input[key])) input[key] = input[key].map((entry: any) => {
+        if (!entry || typeof entry !== 'object' || !Object.hasOwn(entry, 'point')) return entry
+        const point = normalizePublicPoint(typeof entry.point === 'string' ? { stopId: entry.point } : entry.point)
+        if (!point || typeof point !== 'object' || Array.isArray(point)) throw new Error('Invalid Matrix point')
+        return { ...point, ...(entry.id !== undefined ? { id: String(entry.id) } : {}) }
+      })
+    }
+  }
+  const { trace, openMs } = await queryNativeCity(paths.cityPath, input)
+  return { ...trace, timing: { ...trace.timing, openMs,
+    endToEndMs: Number((performance.now() - cliStartedAt).toFixed(3)) } }
 }
 
 function reachCutoffs(args: CliArguments, request: Record<string, unknown>) {
@@ -1066,6 +1111,7 @@ async function computeReachRequest(
   args: CliArguments, request: Record<string, any>,
   paths: ReturnType<typeof resolveRuntimePaths>,
 ) {
+  if (Object.hasOwn(request, 'monteCarlo')) return computeDistribution(args, request, paths, 'reach')
   if (Object.hasOwn(request, 'allDay')) {
     throw new Error('allDay Reach currently requires the Rust vigo executable or native HTTP endpoint.')
   }
@@ -1080,7 +1126,7 @@ async function computeReachRequest(
     throw new Error('Reach does not support supplied traffic or live transit state.')
   }
   const mode = value(args, 'mode', String(request.mode ?? 'transit'))
-  if (!['transit', 'walk', 'drive'].includes(mode)) throw new Error('Reach supports transit, walk, or drive.')
+  if (!['transit', 'walk', 'drive', 'bike'].includes(mode)) throw new Error('Reach supports transit, walk, drive, or bike.')
   if (args.has('radius') || Object.hasOwn(request, 'radiusKm')) {
     throw new Error('Unknown Reach extent; use --extent-radius or extentRadiusKm')
   }
@@ -1130,7 +1176,7 @@ async function computeReachRequest(
   const place = arrive
     ? analyticalPoint(request.destination, 'Destination', stopLookup)
     : analyticalPoint(request.origin, 'Origin', stopLookup)
-  const surfaceSampling = mode === 'drive' ? 'cell-center' : request.surfaceSampling ?? 'street'
+  const surfaceSampling = mode === 'drive' || mode === 'bike' ? 'cell-center' : request.surfaceSampling ?? 'street'
   const plannedScenario = nativeScenario(scenario)
   const { trace, openMs, computeMs } = await queryNativeCity(paths.cityPath, {
     kind: 'reach',
@@ -1141,6 +1187,7 @@ async function computeReachRequest(
     routingDataMode: options.routingDataMode,
     mode,
     surfaceSampling,
+    ...(request.bike !== undefined ? { bike: request.bike } : {}),
     maxWalkKm: options.maxWalkKm,
     ...(options.maxTransfers !== undefined ? { maxTransfers: options.maxTransfers } : {}),
     walkSpeedKph,
@@ -1175,6 +1222,7 @@ async function computeReachRequest(
       routingDataMode: options.routingDataMode,
       mode,
       surfaceSampling,
+      ...(request.bike !== undefined ? { bike: request.bike } : {}),
       [arrive ? 'destination' : 'origin']: place,
       timePreference: arrive ? 'arrive_by' : 'depart_at',
       timeMinutes: options.timeMinutes,

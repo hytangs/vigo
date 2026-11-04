@@ -58,6 +58,8 @@ with vigo.build(
 ```
 
 Use `street_modes="walk"` for a walking/transit-only City; the default `"walk,drive"` also prepares driving data.
+Choose `"walk,bike"` or `"walk,drive,bike"` to prepare bicycle streets. Bike data
+is optional and requires an engine advertising bicycle City preparation.
 
 An existing City at `output` raises `VigoError`; pass `replace=True` only when you intend to replace it.
 `progress=None` shows Build stages and elapsed time in notebooks and terminals and
@@ -115,7 +117,7 @@ Route includes point-to-point, depart-at, arrive-by, departure-window, walking, 
 | --- | --- | --- |
 | `origin`, `destination` | Required | Exact stop IDs, coordinate pairs, or point mappings |
 | `waypoints` | Empty | Intermediate points in the given order |
-| `mode` | `"transit"` | `"transit"`, `"walk"`, or `"drive"` |
+| `mode` | `"transit"` | `"transit"`, `"walk"`, `"drive"`, or `"bike"` |
 | `depart_at` / `arrive_by` | One required | `HH:MM`, `datetime.time`, or `datetime.datetime` |
 | `service_date` | Required unless time is a datetime | ISO date string or `datetime.date`; interpreted on the feed's local service day |
 | `max_walk_km` | `1.2` | Each transit access and egress walking budget |
@@ -189,7 +191,7 @@ for row in matrix.rows:
     print(row["originId"], row["destinationId"], row["status"], row["durationMinutes"])
 ```
 
-Use `mode="walk"` or `mode="drive"` for street matrices.
+Use `mode="walk"`, `mode="drive"`, or `mode="bike"` for street matrices.
 
 The Matrix Result is `ready` when the computation completes; some or all of its rows may still be blocked. Count row outcomes before aggregating durations. See [Matrix results](guide.md#matrix-1).
 
@@ -237,7 +239,7 @@ Reach asks one of two questions. Depart-at Reach takes an `origin` and `depart_a
 | `depart_at` | `None` (`"08:00"`) | Departure time; used with `origin` |
 | `destination` | `None` | Where arrive-by trips end; used with `arrive_by` instead of an origin |
 | `arrive_by` | `None` | Arrival deadline; used with `destination` |
-| `mode` | `"transit"` | `"transit"` or `"walk"`; walking requires advertised runtime support |
+| `mode` | `"transit"` | `"transit"`, `"walk"`, `"drive"`, or `"bike"`; street modes require advertised runtime support |
 | `surface_sampling` | `"street"` | `"street"` for reachable network edges, or `"cell-center"` for coordinate cell centers |
 | `include_street_edges` | `False` | Include reached street edges in the surface; adds output size |
 | `cutoffs_minutes` | `(15, 30, 45, 60)` | Increasing cutoffs, each 1–240 minutes |
@@ -277,6 +279,64 @@ Use the word Accessibility only when a separate analysis combines travel impedan
 
 `extent_radius_km` bounds the computed area, not just the display. `raster_size` changes the grid resolution. Keep both fixed, together with the origin or destination, direction, and other assumptions, when comparing a baseline and a Scenario.
 
+## Bike and Monte Carlo options
+
+All three query families accept `bike=None` and `monte_carlo=None`. These are
+options mappings using the Engine's camelCase field names. Existing queries do
+not send either field unless supplied. `city.supports(query)` checks the selected
+runtime's capabilities before opening a stream.
+
+With `mode="bike"`, `bike` accepts `profile` (`"fast"`, `"balanced"`, or `"quiet"`),
+`speedKph` (5–40) and `maxLts` (integer 1–4). Omit fields to use Engine defaults.
+The City must contain bicycle streets. Stress estimates come from OSM, not
+measured safety; terrain elevation, bike sharing and bikes aboard transit are
+outside this mode. Bike and Drive Reach use cell-center sampling.
+
+With `mode="transit"`, `monte_carlo` accepts:
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `startMinutes`, `endMinutes` | Required | Integer minutes, `0 <= start < end <= 1440`; end-exclusive |
+| `draws` | 200 | Requested draws, integer 1–10000 |
+| `seed` | 0 | Unsigned 32-bit integer |
+| `percentiles` | `[5, 25, 50, 75, 95]` | 1–21 strictly increasing integers in 0–100 |
+| `accessibility` | Omitted | Native opportunity layers, cutoffs, decay and optional dual thresholds |
+
+Supply `service_date` and omit `depart_at` and `arrive_by`. Monte Carlo cannot
+combine with waypoints, another departure window, alternatives, Flex, live or
+traffic state, per-sample journeys or geometry, street-edge output, or a street
+distance limit. Planned transit Scenarios work with all three Monte Carlo query
+families. Ordinary planned transit remains available through Reach.
+
+Each departure minute receives equal weight. Exact timetables need one sample
+per minute. Frequency draws round upward to an equal count per minute. The
+Engine limits observations to 64 MiB and percentile output to one million values;
+this does not bound the whole resident process. See the
+[Engine method and accessibility contract](https://github.com/hytangs/vigo/blob/main/docs/guides/monte-carlo.md).
+
+For a distribution Result, `is_distribution` is true; `status == "ready"` means
+the analysis completed, even if every outcome is unreachable. `distribution`
+and `value` return independent copies of `vigo.distribution.v1`.
+`percentiles`, `sampling` and `accessibility` expose its selected metadata.
+`durationsSeconds[p][i]` uses seconds, with `None` for an unreachable quantile and
+zero for a valid zero-duration result. Unreachable samples participate as
+positive infinity. Layout and `reachableSamples` retain all requested cells.
+
+`iter_rows()` yields percentile-major records containing `percentile`,
+`cellIndex`, `rowIndex`, `columnIndex`, `durationSeconds` and `reachableSamples`.
+For Matrix, rows and columns identify origins and destinations; for Reach they
+identify grid cells. Caller IDs and bounds remain in the native `layout`.
+CSV export writes these records incrementally; JSON preserves the full result.
+The original result is already resident. `rows` explicitly materializes a tuple.
+Journey-table and GeoJSON methods reject distributions rather than inventing a
+representative itinerary. `duration_minutes` is `None` and `legs` is empty.
+
+`compare()` accepts distributions with identical percentiles, sampling methods
+and endpoint/grid layouts. It reports changes in minutes and finite/unreachable
+counts per percentile. These are differences of marginal percentiles, not
+percentiles of paired changes or a statistical significance test. Mixing a
+distribution and a single-time result raises `ValueError`.
+
 ## Scenario
 
 `city.scenario(name, *, services=(), without_routes=(), live=None, traffic=None, expires_at=None)` returns an immutable Scenario tied to that City revision. It exposes the same `run`, `route`, `matrix`, `reach`, `supports`, and `submit` methods. Query options such as walking limits remain Query parameters.
@@ -284,7 +344,7 @@ Use the word Accessibility only when a separate analysis combines travel impedan
 | Scenario state | Supported Python Queries |
 | --- | --- |
 | No changes | The City's supported Queries |
-| `services` and/or `without_routes` | Transit Reach; walking-only Reach rejects planned transit changes |
+| `services` and/or `without_routes` | Transit Reach, plus Monte Carlo Route, Matrix and Reach; street-only queries reject planned transit changes |
 | `traffic` | Drive Route and Matrix, with advertised supplied-traffic capability |
 | `live` | Unavailable through Python |
 | Combined planned, live, or traffic states | Unsupported |

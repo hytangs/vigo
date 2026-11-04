@@ -1,10 +1,10 @@
-# VIGO Python 1.0.0rc3 guide
+# VIGO Python 1.0.0rc4 guide
 
 Canonical source for the [documentation reader](index.html). Edit the relevant chapter, then rebuild the reader.
 
 ## Routing from Python, without rebuilding the network.
 
-VIGO Python 1.0.0rc3 gives scripts and notebooks a small set of objects for transport analysis. Build or open a City, run Route, Matrix, or Reach, and retain the Result. Reuse one open City for repeated work.
+VIGO Python 1.0.0rc4 gives scripts and notebooks a small set of objects for transport analysis. Build or open a City, run Route, Matrix, or Reach, and retain the Result. Reuse one open City for repeated work.
 
 ### Start with a working example
 
@@ -39,7 +39,7 @@ This example requires a City covering central Boston and a feed active on the ch
 
 ### Read the result correctly
 
-Python uses `ready` and `blocked` Result statuses and minute-valued travel times. A completed Matrix can contain blocked rows. Invalid inputs and execution failures raise exceptions. [Results and exports](#results) explains each field and the comparison rules.
+Python uses `ready` and `blocked` Result statuses. Ordinary queries use minute-valued travel times; opt-in Monte Carlo distributions retain seconds. A completed Matrix can contain blocked rows. Invalid inputs and execution failures raise exceptions. [Results and exports](#results) explains each field and the comparison rules.
 
 The [public Engine CLI and HTTP schemas](https://github.com/hytangs/vigo/blob/main/docs/reference/results.md) use seconds and different status names. Use Python's documented Result properties in Python applications.
 
@@ -49,18 +49,18 @@ Use a context manager, retain the open City, and request Matrix journeys or geom
 
 ### Reference and support
 
-[Read these docs offline](index.html) · [Python API](reference.md) · [Troubleshooting](#troubleshooting) · [Examples](../examples/README.md) · [1.0.0rc3 release notes](releases/1.0.0rc3.md) · [Contributing](../CONTRIBUTING.md)
+[Read these docs offline](index.html) · [Python API](reference.md) · [Troubleshooting](#troubleshooting) · [Examples](../examples/README.md) · [1.0.0rc4 release notes](releases/1.0.0rc4.md) · [Contributing](../CONTRIBUTING.md)
 
 ## Your first Python query
 
-Install VIGO Python 1.0.0rc3, select Engine 1.0, and open a prepared City. The example below asks for a journey from Harvard Square to South Station.
+Install VIGO Python 1.0.0rc4, select Engine 1.0, and open a prepared City. The example below asks for a journey from Harvard Square to South Station.
 
 ### 1. Install
 
 For a packaged installation, download the `VIGO-Python-…` ZIP matching your OS and CPU from the [VIGO releases page](https://github.com/hytangs/vigo/releases) and unzip it. It contains the wheel, `INSTALL.txt`, and the runtime manifest. Replace the filename below with the unzipped wheel:
 
 ```sh
-python -m pip install "/path/to/vigo-1.0.0rc3-py3-none-PLATFORM.whl[speed]"
+python -m pip install "/path/to/vigo-1.0.0rc4-py3-none-PLATFORM.whl[speed]"
 ```
 
 Platform wheels include Node, the headless CLI bundle, and the Rust kernel. The optional `speed` extra adds accelerated JSON decoding. Omit the extra for the dependency-free Python package; the packaged Engine is still included. Python 3.10 or newer is required.
@@ -165,7 +165,7 @@ Query choices such as a walking limit, departure time, or time cutoff are not Sc
 
 VIGO checks a selected combination before running it. It never drops an unsupported change and quietly returns the unchanged City.
 
-Python supports planned service changes in Reach and supplied traffic in Drive Route/Matrix. Python live-transit Scenarios, realtime transit Matrix, and realtime Reach are unsupported. Supplied traffic uses the shared native driving kernel and requires an engine that advertises that capability.
+Python supports planned service changes in Reach and in Monte Carlo Route, Matrix and Reach, plus supplied traffic in Drive Route/Matrix. Python live-transit Scenarios, realtime transit Matrix, and realtime Reach are unsupported. Supplied traffic uses the shared native driving kernel and requires an engine that advertises that capability.
 
 `city.supports(query)` and `scenario.supports(query)` return a `Support` value with a reason and available alternative when the selected context cannot execute a combination. This is not a complete data-validation pass; execution still checks points, dates, and runtime inputs. See the [Python support table](reference.md#scenario).
 
@@ -252,6 +252,43 @@ waypoints is currently unsupported.
 ## Workflows
 
 These examples use the public `vigo` package and a complete City at `./boston`. Replace the paths, points, and service date with values covered by your data. They describe scheduled model outputs, not observed journeys. See the [reference](reference.md) for all arguments and the [walkthrough notebook](../examples/walkthrough.ipynb) for an interactive, end-to-end version.
+
+### Bicycle routing and departure-window distributions
+
+Build bicycle streets with `vigo.build(..., street_modes="walk,drive,bike")`,
+then select Bike on Route, Matrix or Reach. The default build remains
+`"walk,drive"`; old Cities need bicycle data before this mode can run.
+
+The following examples require a prepared City with bicycle streets, stop IDs
+`A` and `B`, and service on the stated date. Substitute your own covered inputs:
+
+```python
+import vigo
+
+with vigo.open("./city") as city:
+    bike = city.route(
+        "A", "B", mode="bike", bike={"profile": "quiet", "maxLts": 2},
+        depart_at="08:00", service_date="2026-07-15",
+    )
+    window = city.matrix(
+        {"home": "A"}, {"work": "B"}, service_date="2026-07-15",
+        monte_carlo={"startMinutes": 480, "endMinutes": 540,
+                     "draws": 200, "seed": 42, "percentiles": [50, 95]},
+    )
+    print(window.sampling)
+    for row in window.iter_rows():
+        print(row["percentile"], row["durationSeconds"])
+    window.export("./window.json")
+    window.export("./window.csv")
+```
+
+Monte Carlo uses scheduled transit and a departure window; omit point times.
+Unreachable quantiles are `None`, not zero. Frequency phases are shared across
+all endpoints within a sample. Results describe unknown schedules and passenger
+departure times, not observed reliability. Planned Scenarios also support
+Monte Carlo Route, Matrix and Reach. See the
+[option and result reference](reference.md#bike-and-monte-carlo-options) for
+accessibility inputs, memory limits, export units and comparison semantics.
 
 ### Find a journey
 
@@ -563,7 +600,7 @@ Timing describes execution, not accuracy. Synthetic integration tests check cont
 | Source checkout or universal development wheel | Select a compatible external Engine | Wrapper development or an independently managed Engine |
 | Python with a complete Studio installation | Select the app or extracted distribution | Reusing the Engine shipped with Studio |
 
-Python requires version 3.10 or newer. Install a local platform wheel with `python -m pip install /path/to/vigo-1.0.0rc3-py3-none-PLATFORM.whl`, substituting its real filename. The package has no mandatory Python dependencies. `tqdm` optionally draws Build progress as a live status line.
+Python requires version 3.10 or newer. Install a local platform wheel with `python -m pip install /path/to/vigo-1.0.0rc4-py3-none-PLATFORM.whl`, substituting its real filename. The package has no mandatory Python dependencies. `tqdm` optionally draws Build progress as a live status line.
 
 For a source install, run `python -m pip install -e .` from the wrapper checkout, then select a compatible runtime explicitly. An adjacent Engine checkout is not automatically selected. Maintainers can [stage and build a headless platform wheel](../CONTRIBUTING.md#build-a-headless-wheel).
 

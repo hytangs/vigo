@@ -1,6 +1,6 @@
 # Version history
 
-## 1.0.0-rc.4 (unreleased)
+## 1.0.0-rc.4
 
 - Add optional bicycle Route and Matrix, with balanced, quiet and fast preferences, separate preference cost and ETA, bicycle access/contraflow, surfaces, mapped incline, dismount legs, and node/via-way turn restrictions.
 - Load one bicycle graph only on demand. Retain the existing City format and omit bike data from CLI builds unless selected. Studio OSM imports include bike streets.
@@ -8,6 +8,9 @@
 - Add synthetic bicycle regressions and extend the historical-reader gate to a City containing optional bike tables. Leading-engine parity is not established by these checks.
 - Retain valid OSM segments longer than 10 km in walking, driving and bicycle imports. Bound road-index duplication without adding graph nodes or changing exact endpoint projections; reject invalid geographic coordinates explicitly.
 - Keep the route line view clear of the floating sidebar. Let its header and vehicle labels wrap in smaller windows without covering directions or stops.
+- Add opt-in Monte Carlo Route, Matrix and Reach through the native engine, Node CLI and Python, with seeded frequency schedules, unreachable-inclusive percentiles, planned timetables and optional accessibility indicators.
+- Complete Python Bike Route, Matrix and Reach, bike-enabled builds, distribution exports and marginal-percentile comparisons. Preserve existing defaults and require runtime capabilities for new features.
+- Allocate sampling, phasing and fixed-grid bounds only when used, and keep sampling work outside the ordinary transit scan.
 
 ## 1.0.0-rc.3
 

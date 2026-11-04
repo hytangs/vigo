@@ -176,9 +176,8 @@ struct StopEvents {
 }
 pub(super) struct ServiceIndex {
     pub(super) data: Arc<ServiceSemantics>,
-    /// One coherent timetable realization, shared by every boarding/search.
-    sample: Cell<Option<(u64, u64)>>,
-    phases: Vec<Option<(usize, f64)>>,
+    /// Ordinary Cities retain no sampling or phasing allocation.
+    simulation: OnceCell<Box<FrequencySimulation>>,
     stop_events: OnceCell<StopEvents>,
     rules: HashMap<(u32, u32), PairRules>,
     windows: HashMap<u32, Vec<usize>>,
@@ -200,6 +199,47 @@ pub(super) struct ServiceIndex {
     ordinary_searches: Cell<u64>,
     stateful_searches: Cell<u64>,
 }
+#[derive(Default)]
+struct FrequencySimulation {
+    sample: Cell<Option<(u64, u64)>>,
+    phases: Vec<Option<(usize, f64)>>,
+}
+impl FrequencySimulation {
+    // Keep opt-in sampling work out of the ordinary stateful scan's code body.
+    #[inline(never)]
+    fn departure(
+        &self,
+        sample: (u64, u64),
+        windows: &[HeadwayWindow],
+        wi: usize,
+        offset: f64,
+        ready: f64,
+        reverse: bool,
+    ) -> Option<f64> {
+        let mut root = wi;
+        let mut chain = Vec::new();
+        while let Some((parent, shift)) = self.phases.get(root).copied().flatten() {
+            chain.push((root, shift));
+            root = parent;
+        }
+        let mut phase = frequency_phase(sample.0, sample.1, &windows[root]);
+        for &(child, shift) in chain.iter().rev() {
+            let parent = self.phases[child].unwrap().0;
+            phase = (windows[parent].start + phase + shift - windows[child].start)
+                .rem_euclid(f64::from(windows[child].headway));
+        }
+        let w = &windows[wi];
+        let first = w.start + phase + offset;
+        let headway = f64::from(w.headway);
+        let instance = if reverse {
+            ((ready.min(w.end + offset - 1.) - first) / headway).floor()
+        } else {
+            ((ready - first) / headway).ceil().max(0.)
+        };
+        let time = first + instance * headway;
+        (instance >= 0. && time < w.end + offset).then_some(time)
+    }
+}
 impl ServiceIndex {
     pub(super) fn byte_length(&self) -> usize {
         fn vectors<T>(v: &Vec<Vec<T>>) -> usize {
@@ -211,7 +251,10 @@ impl ServiceIndex {
         std::mem::size_of::<Self>()
             + self.data.rules.capacity() * std::mem::size_of::<TransferRule>()
             + self.data.headways.capacity() * std::mem::size_of::<HeadwayWindow>()
-            + self.phases.capacity() * std::mem::size_of::<Option<(usize, f64)>>()
+            + self.simulation.get().map_or(0, |s| {
+                std::mem::size_of::<FrequencySimulation>()
+                    + s.phases.capacity() * std::mem::size_of::<Option<(usize, f64)>>()
+            })
             + self.data.trip_routes.capacity() * 4
             + vectors(&self.data.physical_trips)
             + self.stop_events.get().map_or(0, |e| {
@@ -375,11 +418,8 @@ struct Completion {
 impl TimetableKernel {
     pub fn set_service_semantics(&mut self, data: ServiceSemantics) -> Result<()> {
         let mut index = ServiceIndex {
-            // Ordinary and independently sampled services need no phasing
-            // table. Allocate it only when explicit dependencies are installed.
-            phases: Vec::new(),
             data: Arc::new(data),
-            sample: Cell::new(None),
+            simulation: OnceCell::new(),
             stop_events: OnceCell::new(),
             rules: HashMap::new(),
             windows: HashMap::new(),
@@ -1034,30 +1074,17 @@ impl TimetableKernel {
                     let offset = scheduled - f64::from(self.departure_seconds.view()[first]);
                     for &wi in windows {
                         let w = &s.data.headways[wi];
-                        if let Some((seed, draw)) = s.sample.get() {
-                            let mut root = wi;
-                            let mut chain = Vec::new();
-                            while let Some((parent, shift)) = s.phases.get(root).copied().flatten()
-                            {
-                                chain.push((root, shift));
-                                root = parent;
-                            }
-                            let mut phase = frequency_phase(seed, draw, &s.data.headways[root]);
-                            for &(child, shift) in chain.iter().rev() {
-                                let parent = s.phases[child].unwrap().0;
-                                phase = (s.data.headways[parent].start + phase + shift
-                                    - s.data.headways[child].start)
-                                    .rem_euclid(f64::from(s.data.headways[child].headway));
-                            }
-                            let first = w.start + phase + offset;
-                            let headway = f64::from(w.headway);
-                            let instance = if reverse {
-                                ((ready.min(w.end + offset - 1.) - first) / headway).floor()
-                            } else {
-                                ((ready - first) / headway).ceil().max(0.)
-                            };
-                            let time = first + instance * headway;
-                            if instance >= 0. && time < w.end + offset {
+                        if let Some(simulation) = s.simulation.get()
+                            && let Some(sample) = simulation.sample.get()
+                        {
+                            if let Some(time) = simulation.departure(
+                                sample,
+                                &s.data.headways,
+                                wi,
+                                offset,
+                                ready,
+                                reverse,
+                            ) {
                                 shifts.push((time - scheduled, 0.));
                             }
                             continue;
@@ -1290,7 +1317,15 @@ impl TimetableKernel {
     /// entry changes. None restores ordinary half-headway queries.
     pub fn set_frequency_sample(&self, sample: Option<(u64, u64)>) {
         if let Some(service) = &self.service {
-            service.sample.set(sample);
+            if sample.is_some() {
+                service
+                    .simulation
+                    .get_or_init(Box::default)
+                    .sample
+                    .set(sample);
+            } else if let Some(simulation) = service.simulation.get() {
+                simulation.sample.set(None);
+            }
         }
     }
     pub fn add_frequency_windows(&mut self, windows: Vec<HeadwayWindow>) -> Result<()> {
@@ -1346,7 +1381,8 @@ impl TimetableKernel {
                 child = parent;
             }
         }
-        s.phases = phases;
+        s.simulation.get_or_init(Box::default);
+        s.simulation.get_mut().unwrap().phases = phases;
         Ok(())
     }
     pub fn has_frequency_service(&self) -> bool {
@@ -2191,7 +2227,8 @@ mod tests {
             headway: 30,
         };
         let mut k = kernel(vec![], vec![window.clone()]);
-        assert_eq!(k.service.as_ref().unwrap().phases.capacity(), 0);
+        k.set_frequency_sample(None);
+        assert!(k.service.as_ref().unwrap().simulation.get().is_none());
         // Exclude the second, scheduled 0->1 vehicle. The 1->2 service at
         // 160 remains exact, and must be caught only when this draw allows it.
         for draw in 0..100 {
@@ -2241,7 +2278,17 @@ mod tests {
         }
         k.set_frequency_sample(None);
         assert!(k.has_frequency_service());
-        assert_eq!(k.service.as_ref().unwrap().phases.capacity(), 0);
+        assert_eq!(
+            k.service
+                .as_ref()
+                .unwrap()
+                .simulation
+                .get()
+                .unwrap()
+                .phases
+                .capacity(),
+            0
+        );
     }
     fn kernel(rules: Vec<TransferRule>, headways: Vec<HeadwayWindow>) -> TimetableKernel {
         let mut kernel = TimetableKernel::new(TimetableKernelInput {

@@ -12,8 +12,8 @@ const root = path.resolve(import.meta.dirname, '..')
 const binary = process.env.VIGO_MONTE_CARLO_BINARY || standaloneBinary
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-monte-carlo-'))
 const children = []
-function resident(city, detailed = false) {
-  const child = spawn(binary, ['stream', '--city', city, ...(detailed ? ['--stream-output=detailed'] : [])], { cwd: root })
+function resident(city, detailed = false, node = false) {
+  const child = spawn(node ? process.execPath : binary, [...(node ? ['public/vigo.mjs'] : []), 'stream', '--city', city, ...(detailed ? ['--stream-output=detailed'] : [])], { cwd: root })
   children.push(child)
   let stderr = ''; child.stderr.on('data', data => { stderr += data })
   const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]()
@@ -63,6 +63,19 @@ try {
     for (const key of ['schema', 'status', 'kind', 'query', 'sampling', 'layout', 'percentiles', 'durationsSeconds', 'reachableSamples', 'warnings', 'assumptions']) {
       assert.deepEqual(detailed.trace[key], result[key], `Detailed output preserves ${key}`)
     }
+    for (const detail of [false, true]) {
+      const nodeRun = resident(city, detail, true)
+      const response = ok(await nodeRun({ ...base, monteCarlo: mc }))
+      const distribution = detail ? response.trace : response
+      for (const key of ['schema', 'status', 'kind', 'query', 'sampling', 'layout', 'percentiles', 'durationsSeconds', 'reachableSamples', 'warnings', 'assumptions']) {
+        assert.deepEqual(distribution[key], result[key], `Node ${mode} detailed=${detail} preserves ${key}`)
+      }
+      assert.equal(distribution.meta.queryFingerprint, result.meta.queryFingerprint)
+      assert.equal((await nodeRun({ ...base, monteCarlo: mc, time: '08:00' })).status, 'error')
+      const following = ok(await nodeRun({ ...base, timeMinutes: 480 }))
+      if (!detail) assert.deepEqual(following.durationsSeconds, ordinary.durationsSeconds)
+      else assert.equal(following.trace.rows.length, 4)
+    }
     if (mode === 'scheduled') {
       // Exercise nearly the full output budget while retaining only two unique
       // OD observations. Public and detailed streams must expand identically.
@@ -86,8 +99,11 @@ try {
       const requestFile = path.join(folder, 'simulation.json')
       fs.writeFileSync(requestFile, JSON.stringify({ ...base, monteCarlo: mc }))
       const nodeCli = spawnSync(process.execPath, ['public/vigo.mjs', 'matrix', '--city', city, '--request', requestFile], { cwd: root, encoding: 'utf8' })
-      assert.notEqual(nodeCli.status, 0, 'The Node CLI must not silently ignore simulation options')
-      assert.match(nodeCli.stdout + nodeCli.stderr, /native|Rust/i)
+      assert.equal(nodeCli.status, 0, nodeCli.stderr)
+      const nodeResult = ok(JSON.parse(nodeCli.stdout))
+      assert.equal(nodeResult.schema, 'vigo.distribution.v1')
+      assert.deepEqual(nodeResult.durationsSeconds, result.durationsSeconds)
+      assert.equal(nodeResult.meta.queryFingerprint, result.meta.queryFingerprint)
     }
     if (process.env.VIGO_MONTE_CARLO_CORPUS) {
       fs.mkdirSync(process.env.VIGO_MONTE_CARLO_CORPUS, { recursive: true })

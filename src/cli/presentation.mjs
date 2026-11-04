@@ -42,12 +42,14 @@ export function presentationRequest(request, args = new Map()) {
 }
 
 export function publicResult(result, request = {}, args = new Map()) {
+  if (result.schema === 'vigo.distribution.v1') return result
   const formatted = formatPublicResult(result.kind ?? 'route', presentationRequest(request, args), result)
   if (result.city?.accessibility) formatted.accessibility = result.city.accessibility
   return formatted
 }
 
 export function publicResultJson(result, request = {}, args = new Map()) {
+  if (result.schema === 'vigo.distribution.v1') return JSON.stringify(result)
   const serialized = serializePublicResult(result.kind ?? 'route', presentationRequest(request, args), result)
   // The shared Rust projection already places a stream `sequence`.
   const extra = result.city?.accessibility ? { accessibility: result.city.accessibility } : {}

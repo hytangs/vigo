@@ -27,8 +27,8 @@ separate compiler correction.
 ```
 
 Send this with `vigo matrix --city city --request request.json`, the resident
-stream, or `POST /v1/matrix`. Use the native executable; the Node CLI rejects
-`monteCarlo` explicitly. A Route request uses `origin` and `destination` and
+stream, or `POST /v1/matrix`. The native executable, Node CLI and Python
+`monte_carlo` option use the same resident Rust sampler. A Route request uses `origin` and `destination` and
 returns a distribution for that pair, rather than a representative itinerary.
 Reach uses its existing origin, bounds, raster size, cutoffs and sampling mode.
 

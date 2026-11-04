@@ -411,43 +411,44 @@ fn compute_graph<const ENDPOINTS: bool>(
     let clip =
         !input.expand_bounds_to_reached_edges && !input.include_nodes && !input.include_edges;
     let extent = if clip {
-        *snaps.extent_per_meter[usize::from(ENDPOINTS)].get_or_insert_with(|| {
-            let mut extent = [0f64; 2];
-            let mut include = |a: [f64; 2], b: [f64; 2], distance: f64| {
-                for axis in 0..2 {
-                    let delta = (a[axis] - b[axis]).abs();
-                    if delta > 0. {
-                        extent[axis] = extent[axis].max(if distance > 0. {
-                            delta / distance
-                        } else {
-                            f64::INFINITY
-                        });
+        *snaps.extent_per_meter.get_or_insert_with(Box::default)[usize::from(ENDPOINTS)]
+            .get_or_insert_with(|| {
+                let mut extent = [0f64; 2];
+                let mut include = |a: [f64; 2], b: [f64; 2], distance: f64| {
+                    for axis in 0..2 {
+                        let delta = (a[axis] - b[axis]).abs();
+                        if delta > 0. {
+                            extent[axis] = extent[axis].max(if distance > 0. {
+                                delta / distance
+                            } else {
+                                f64::INFINITY
+                            });
+                        }
+                    }
+                };
+                for node in 0..graph.node_count() {
+                    let a = graph.coordinate(node as u32);
+                    if node < graph.node_lats.len() {
+                        for edge in graph.edge_offsets[node]..graph.edge_offsets[node + 1] {
+                            include(
+                                a,
+                                graph.coordinate(graph.target(edge as usize)),
+                                graph.distance(edge as usize),
+                            );
+                        }
+                    }
+                    if ENDPOINTS && let Some(terminal) = graph.terminal {
+                        for (target, edge) in terminal.surface_neighbors(node as u32) {
+                            include(
+                                a,
+                                graph.coordinate(target),
+                                terminal.surface_edge_distance(edge),
+                            );
+                        }
                     }
                 }
-            };
-            for node in 0..graph.node_count() {
-                let a = graph.coordinate(node as u32);
-                if node < graph.node_lats.len() {
-                    for edge in graph.edge_offsets[node]..graph.edge_offsets[node + 1] {
-                        include(
-                            a,
-                            graph.coordinate(graph.target(edge as usize)),
-                            graph.distance(edge as usize),
-                        );
-                    }
-                }
-                if ENDPOINTS && let Some(terminal) = graph.terminal {
-                    for (target, edge) in terminal.surface_neighbors(node as u32) {
-                        include(
-                            a,
-                            graph.coordinate(target),
-                            terminal.surface_edge_distance(edge),
-                        );
-                    }
-                }
-            }
-            extent
-        })
+                extent
+            })
     } else {
         [f64::INFINITY; 2]
     };

@@ -27,7 +27,8 @@ def _one_shot(runtime, city, kind, request, arguments, timeout):
         capture_output=True, check=True, timeout=timeout,
         env=_command_environment(runtime.command),
     )
-    return json.loads(response.stdout)["trace"]
+    result = json.loads(response.stdout)
+    return result if result.get("schema") == "vigo.distribution.v1" else result["trace"]
 
 
 @unittest.skipUnless(
@@ -45,6 +46,7 @@ class LiveRuntimeTest(unittest.TestCase):
                 Path(cls.temporary.name) / "city",
                 gtfs=inputs / "fixture.zip",
                 osm=inputs / "fixture.osm.pbf",
+                street_modes="walk,drive,bike",
                 progress=True,
             )
 
@@ -77,6 +79,95 @@ class LiveRuntimeTest(unittest.TestCase):
                 self.assertEqual(ride["flexEstimate"]["assumption"], "published_timetable")
                 self.assertEqual(ride["startMinutes"], 480)
                 self.assertEqual(ride["endMinutes"], 500)
+
+    def test_bike_route_matrix_and_reach_match_engine(self) -> None:
+        for profile in ("fast", "balanced", "quiet"):
+            with self.subTest(profile=profile):
+                bike = {"profile": profile, "speedKph": 16, "maxLts": 4}
+                options = {"mode": "bike", "bike": bike, "depart_at": "08:00", "service_date": "2026-07-15"}
+                route = self.city.route("A", "B", **options)
+                matrix = self.city.matrix(["A"], ["B"], **options)
+                reach = self.city.reach("A", raster_size=48, extent_radius_km=2, **options)
+                self.assertEqual(route.status, "ready")
+                self.assertAlmostEqual(route.duration_minutes, matrix.rows[0]["durationMinutes"], places=3)
+                for result in (route, matrix, reach):
+                    self.assertEqual(result.query["mode"], "bike")
+                request = {"origin": "A", "mode": "bike", "bike": bike, "time": "08:00", "serviceDate": "2026-07-15"}
+                expected = _one_shot(self.city.runtime, self.city.path, "reach",
+                                     {**request, "rasterSize": 48, "extentRadiusKm": 2}, [], 60)
+                self.assertEqual(reach.value, expected["surface"])
+        slow = self.city.route("A", "B", mode="bike", bike={"speedKph": 8},
+                               depart_at="08:00", service_date="2026-07-15")
+        self.assertGreater(slow.duration_minutes, route.duration_minutes)
+        reverse = self.city.reach(destination="B", mode="bike", arrive_by="08:30",
+                                  service_date="2026-07-15", raster_size=48, extent_radius_km=2)
+        self.assertEqual(reverse.query["timePreference"], "arrive_by")
+        self.assertEqual(len(reverse.value["values"]), 48 * 48)
+
+    def test_monte_carlo_contract_and_ordinary_query_isolation(self) -> None:
+        window = {"startMinutes": 480, "endMinutes": 483, "draws": 12, "seed": 42, "percentiles": [0, 50, 100]}
+        options = {"service_date": "2026-07-15", "monte_carlo": window}
+        baseline = self.city.matrix(["A"], ["B"], depart_at="08:00", service_date="2026-07-15")
+        results = [self.city.route("A", "B", **options), self.city.matrix(["A"], ["B"], **options),
+                   self.city.reach("A", raster_size=48, extent_radius_km=2, **options)]
+        for result in results:
+            self.assertTrue(result.is_distribution)
+            self.assertEqual(result.status, "ready")
+            self.assertEqual(result.percentiles, (0, 50, 100))
+            self.assertEqual(result.sampling["sampleCount"], 3)
+            self.assertFalse(result.sampling["stochastic"])
+            expected = _one_shot(self.city.runtime, self.city.path, result.kind, result.query, [], 60)
+            for key in ("schema", "status", "kind", "sampling", "layout", "percentiles", "durationsSeconds", "reachableSamples", "assumptions"):
+                self.assertEqual(result.to_dict()[key], expected[key], key)
+            self.assertEqual(result.to_dict()["meta"]["queryFingerprint"], expected["meta"]["queryFingerprint"])
+            self.assertNotIn("time", result.query)
+            self.assertNotIn("waypoints", result.query)
+            self.assertTrue(list(result.iter_rows()))
+            output = Path(self.temporary.name) / f"distribution-{result.kind}.json"
+            result.export(output)
+            self.assertEqual(json.loads(output.read_text()), result.to_dict())
+            result.export(output.with_suffix(".csv"))
+            self.assertGreater(output.with_suffix(".csv").stat().st_size, 100)
+        repeated = self.city.matrix(["A"], ["B"], **options)
+        change = results[1].compare(repeated)
+        self.assertTrue(all(row["meanChangeMinutes"] in (0, None) and row["newlyReachableCells"] == 0
+                            and row["noLongerReachableCells"] == 0 for row in change.value["percentiles"]))
+        self.assertEqual(baseline.rows, self.city.matrix(["A"], ["B"], depart_at="08:00", service_date="2026-07-15").rows)
+        # Native validation errors must also leave the ordinary timetable intact.
+        with self.assertRaises(vigo.VigoError):
+            self.city.matrix(["A"], ["B"], service_date="2026-07-15",
+                             monte_carlo={**window, "accessibility": {"layers": [{"id": "jobs", "counts": [-1]}]}})
+        self.assertEqual(baseline.rows, self.city.matrix(["A"], ["B"], depart_at="08:00", service_date="2026-07-15").rows)
+
+    def test_frequency_distributions_and_planned_services(self) -> None:
+        inputs = Path(os.environ["VIGO_TEST_INPUTS"])
+        gtfs = Path(self.temporary.name) / "frequency.zip"
+        with zipfile.ZipFile(inputs / "fixture.zip") as source, zipfile.ZipFile(gtfs, "w") as target:
+            for name in source.namelist():
+                if name != "frequencies.txt":
+                    target.writestr(name, source.read(name))
+            target.writestr("frequencies.txt", "trip_id,start_time,end_time,headway_secs,exact_times\nT1,08:00:00,09:00:00,600,0\n")
+        with vigo.build(Path(self.temporary.name) / "frequency-city", gtfs=gtfs,
+                        osm=inputs / "fixture.osm.pbf", street_modes="walk", runtime=self.city.runtime) as city:
+            window = {"startMinutes": 480, "endMinutes": 483, "draws": 60, "seed": 42, "percentiles": [0, 50, 100],
+                      "accessibility": {"layers": [{"id": "jobs", "counts": [2, 3]}], "cutoffsMinutes": [15, 60]}}
+            options = {"service_date": "2026-07-15", "max_walk_km": 0.01, "require_transit_ride": True,
+                       "horizon_minutes": 60, "monte_carlo": window}
+            result = city.matrix(["A"], ["B", "X"], **options)
+            self.assertTrue(result.sampling["stochastic"])
+            self.assertEqual(result.sampling["sampleCount"], 60)
+            self.assertEqual(result.accessibility["layers"][0]["id"], "jobs")
+            self.assertTrue(any(value is None for row in result.value["durationsSeconds"] for value in row))
+            self.assertEqual(result.value["durationsSeconds"], city.matrix(["A"], ["B", "X"], **options).value["durationsSeconds"])
+            planned = city.scenario("Add service", services=[{
+                "id": "planned", "stops": [{"stopId": "A"}, {"stopId": "X"}],
+                "startMinutes": 480, "endMinutes": 540, "headwayMinutes": 5,
+                "bidirectional": False, "segmentRuntimeMinutes": [3],
+            }])
+            changed = planned.matrix(["A"], ["B", "X"], **options)
+            self.assertTrue(all(row[1] is not None for row in changed.value["durationsSeconds"]))
+            self.assertEqual(changed.scenario_name, "Add service")
+            self.assertEqual(result.value["durationsSeconds"], city.matrix(["A"], ["B", "X"], **options).value["durationsSeconds"])
 
     def test_parallel_batch_preserves_order_dates_and_full_journeys(self) -> None:
         queries = [vigo.Matrix({"a": "A"}, {"b": "B"}, include_journeys=True,

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.0rc4
+
+- Add opt-in Bike Route, Matrix and Reach, with profile, speed and stress options, and bike-enabled City builds. Existing build defaults stay unchanged.
+- Add Monte Carlo Route, Matrix and Reach through the resident Rust engine, including planned services and accessibility indicators.
+- Preserve distribution provenance and unreachable outcomes; add row-wise CSV export and marginal-percentile comparisons without constructing a second result table.
+- Fail before starting a query when an older runtime lacks the requested feature.
+
 ## 1.0.0rc3
 
 - Publish Python metadata as `1.0.0rc3` (PEP 440), corresponding to Engine `1.0.0-rc.3`.

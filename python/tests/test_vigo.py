@@ -160,10 +160,11 @@ class VigoPythonTest(unittest.TestCase):
             self.assertEqual(matrix.query["origins"], [
                 {"id": "origin", "point": {"stop": {"id": "A", "feed": "feed"}}}
             ])
-            for options in ({"mode": "drive"}, {"surface_sampling": "coordinate"},
+            for options in ({"mode": "flying"}, {"surface_sampling": "coordinate"},
                             {"include_street_edges": "true"}):
                 with self.assertRaises(vigo.InvalidQuery):
                     city.reach("A", service_date="2026-07-15", **options)
+            self.assertFalse(city.supports(vigo.Reach("A", mode="drive")).supported)
             with patch.dict(city.runtime.capabilities, {"queries": []}):
                 self.assertFalse(city.supports(vigo.Reach("A", mode="walk")).supported)
             self.assertFalse(city.scenario("planned", without_routes=["R1"]).supports(

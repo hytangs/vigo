@@ -29,10 +29,14 @@ export const publicCliCommands = Object.freeze([
 
 const supported = 'supported'
 const unavailable = 'unavailable'
+const modes = Object.freeze({ available: Object.freeze(['transit', 'walk', 'drive', 'bike']), unavailable: Object.freeze([]) })
+const bike = Object.freeze({ profiles: Object.freeze(['fast', 'balanced', 'quiet']), speedKph: Object.freeze({ min: 5, max: 40 }), maxLts: Object.freeze({ min: 1, max: 4 }) })
+const monteCarlo = Object.freeze({ schema: 'vigo.distribution.v1', method: 'frequency-phase-v1', modes: Object.freeze(['transit']), timePreferences: Object.freeze(['depart_at']), scheduledOnly: true, plannedServices: true, maximumDraws: 10000, maximumObservationBytes: 64 * 1024 * 1024 })
 
 const queryFamilies = Object.freeze([
   Object.freeze({
     id: 'route',
+    modes, bike, monteCarlo,
     flex: Object.freeze({ optIn: true, directOnly: false, transitTransfers: true, continuousStopping: true, wheelchair: true, conditionalBooking: true, confirmsAvailability: false }),
     suppliedTraffic: true,
     resident: true,
@@ -62,6 +66,7 @@ const queryFamilies = Object.freeze([
   }),
   Object.freeze({
     id: 'matrix',
+    modes, bike, monteCarlo,
     flex: Object.freeze({ optIn: true, directOnly: false, transitTransfers: true, continuousStopping: true, wheelchair: true, conditionalBooking: true, maximumCells: 4096 }),
     suppliedTraffic: true,
     transitStreetCacheControl: true,
@@ -83,6 +88,7 @@ const queryFamilies = Object.freeze([
   }),
   Object.freeze({
     id: 'reach',
+    bike, monteCarlo,
     resident: true,
     label: 'Reach',
     purpose: 'Map where the network can reach within one or more time limits.',
@@ -94,7 +100,7 @@ const queryFamilies = Object.freeze([
       'street sampling or coordinate cell centers',
       'scenario comparison',
     ]),
-    modes: Object.freeze({ available: Object.freeze(['transit', 'walk', 'drive', 'bike']), unavailable: Object.freeze([]) }),
+    modes,
     time: Object.freeze({ available: Object.freeze(['depart_at', 'arrive_by']), unavailable: Object.freeze([]) }),
     note: 'Reach measures modeled network reach. It does not measure people, jobs, demand, or welfare.',
   }),
@@ -103,7 +109,7 @@ const queryFamilies = Object.freeze([
 export const capabilityCatalog = Object.freeze({
   schemaVersion: capabilitySchemaVersion,
   wheelchair: Object.freeze({ supported: true, requiresCityProfile: 'wheelchair-strict-v1', unknownData: 'exclude', modes: ['transit', 'walk'], dataMode: 'scheduled' }),
-  city: Object.freeze({ privateAccess: Object.freeze(['public', 'endpoints']) }),
+  city: Object.freeze({ privateAccess: Object.freeze(['public', 'endpoints']), streetModes: Object.freeze(['walk', 'walk,drive', 'walk,bike', 'walk,drive,bike']) }),
   product: Object.freeze({
     name: 'VIGO',
     definition: 'VIGO turns GTFS and OSM into a city model for routing, network-wide travel-time analysis, and service-change testing.',
@@ -163,7 +169,7 @@ export function vigoCapabilities(productVersion) {
   return {
     ...capabilityCatalog,
     productVersion,
-    output: { requestServiceDate: true, streamFormats: ['public', 'detailed'], schemas: ['vigo.route.v1', 'vigo.matrix.v1', 'vigo.reach.v1'], diagnostics: ['none', 'summary', 'profile', 'trace'], durationUnit: 'seconds', geometry: 'opt-in includeGeometry', trace: 'unstable internal ABI' },
+    output: { requestServiceDate: true, streamFormats: ['public', 'detailed'], schemas: ['vigo.route.v1', 'vigo.matrix.v1', 'vigo.reach.v1', 'vigo.distribution.v1'], diagnostics: ['none', 'summary', 'profile', 'trace'], durationUnit: 'seconds', geometry: 'opt-in includeGeometry', trace: 'unstable internal ABI' },
     apiVersion,
     cityFormatVersion,
     resultSchemaVersion,

@@ -17,6 +17,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from itertools import pairwise
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, TypeGuard, TypeVar, overload
@@ -102,6 +103,8 @@ class Route:
     alternative_ranking: str | None = None
     alternative_slack_minutes: float | None = None
     flex: Mapping[str, Any] | None = None
+    bike: Mapping[str, Any] | None = None
+    monte_carlo: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +127,8 @@ class Matrix:
     disable_cache: bool = False
 
     flex: Mapping[str, Any] | None = None
+    bike: Mapping[str, Any] | None = None
+    monte_carlo: Mapping[str, Any] | None = None
 
 @dataclass(frozen=True, slots=True)
 class Reach:
@@ -143,6 +148,8 @@ class Reach:
     include_street_edges: bool = False
     destination: Point | None = None
     arrive_by: str | dt.time | dt.datetime | None = None
+    bike: Mapping[str, Any] | None = None
+    monte_carlo: Mapping[str, Any] | None = None
 
 
 Query = Route | Matrix | Reach
@@ -457,6 +464,10 @@ class Result:
     scenario_name: str | None = None
 
     def __post_init__(self) -> None:
+        if self.is_distribution:
+            if self._payload.get("status") != "ok" or self._payload.get("kind") != self.kind:
+                raise VigoError("VIGO returned an invalid distribution Result")
+            return
         if self._payload.get("resultSchemaVersion") != RESULT_SCHEMA_VERSION:
             raise VigoError("VIGO returned an unsupported Result schema")
         if self.status not in {"ready", "blocked"}:
@@ -464,7 +475,30 @@ class Result:
 
     @property
     def status(self) -> str:
+        if self.is_distribution and self._payload.get("status") == "ok":
+            return "ready"
         return str(self._payload.get("status"))
+
+    @property
+    def is_distribution(self) -> bool:
+        return self._payload.get("schema") == "vigo.distribution.v1"
+
+    @property
+    def distribution(self) -> dict[str, Any] | None:
+        """A copy of the native distribution, including its units and provenance."""
+        return self.to_dict() if self.is_distribution else None
+
+    @property
+    def percentiles(self) -> tuple[int, ...]:
+        return tuple(self._payload.get("percentiles", ()))
+
+    @property
+    def sampling(self) -> dict[str, Any]:
+        return copy_json(dict(self._payload.get("sampling") or {}))
+
+    @property
+    def accessibility(self) -> dict[str, Any]:
+        return copy_json(dict(self._payload.get("accessibility") or {}))
 
     @property
     def warnings(self) -> tuple[Any, ...]:
@@ -481,6 +515,8 @@ class Result:
 
     @property
     def value(self) -> Any:
+        if self.is_distribution:
+            return self.distribution
         if self.kind == "route":
             return copy_json(self._payload.get("result"))
         if self.kind == "matrix":
@@ -509,10 +545,24 @@ class Result:
         The complete Engine response is already resident in this Result.
         Iteration avoids allocating a second complete collection of rows.
         """
+        if self.is_distribution:
+            layout = self._payload["layout"]
+            columns = layout.get("columns", layout.get("width"))
+            for percentile, durations in zip(self._payload["percentiles"], self._payload["durationsSeconds"]):
+                for index, duration in enumerate(durations):
+                    yield {
+                        "percentile": percentile, "cellIndex": index,
+                        "rowIndex": index // columns, "columnIndex": index % columns,
+                        "durationSeconds": duration,
+                        "reachableSamples": self._payload["reachableSamples"][index],
+                    }
+            return
         for row in self._payload.get("rows", ()):
             yield copy_json(row)
 
     def _journey_items(self) -> Iterator[tuple[int, Mapping[str, Any], Mapping[str, Any] | None]]:
+        if self.is_distribution:
+            raise TypeError("Monte Carlo Results contain distributions, not journeys; use iter_rows()")
         if self.kind == "route":
             journey = self._payload.get("result")
             yield 0, {"status": self.status}, journey if isinstance(journey, Mapping) else None
@@ -612,6 +662,8 @@ class Result:
                           separators=(",", ":") if indent is None else None)
 
     def to_geojson(self) -> dict[str, Any]:
+        if self.is_distribution:
+            raise TypeError("Monte Carlo Results have no journey or contour geometry; use JSON or CSV")
         if self.kind == "reach":
             return copy_json(
                 self._payload.get("contours")
@@ -645,6 +697,11 @@ class Result:
             destination.write_text(
                 json.dumps(self.to_geojson(), indent=2, allow_nan=False) + "\n", encoding="utf-8"
             )
+        elif destination.suffix.lower() == ".csv" and self.is_distribution:
+            with destination.open("w", newline="", encoding="utf-8") as stream:
+                writer = csv.DictWriter(stream, fieldnames=["percentile", "cellIndex", "rowIndex", "columnIndex", "durationSeconds", "reachableSamples"])
+                writer.writeheader()
+                writer.writerows(self.iter_rows())
         elif destination.suffix.lower() == ".csv" and self.kind == "matrix":
             rows = self._payload.get("rows", ())
             fields = list(dict.fromkeys(key for row in rows for key in row))
@@ -890,13 +947,50 @@ class City:
     def _support(self, query: Query, scenario: Scenario | None) -> Support:
         if not isinstance(query, (Route, Matrix, Reach)):
             raise InvalidQuery("query must be Route, Matrix, or Reach")
+        kind = "route" if isinstance(query, Route) else "matrix" if isinstance(query, Matrix) else "reach"
+        capability = self._query_capability(kind)
+        if query.bike is not None:
+            if query.mode != "bike":
+                raise InvalidQuery("bike options require mode='bike'")
+            if not isinstance(query.bike, Mapping) or set(query.bike) - {"profile", "speedKph", "maxLts"}:
+                raise InvalidQuery("bike accepts profile, speedKph, and maxLts")
+            if query.bike.get("profile", "balanced") not in ("fast", "balanced", "quiet"):
+                raise InvalidQuery("bike profile must be fast, balanced, or quiet")
+            speed = query.bike.get("speedKph", 16)
+            lts = query.bike.get("maxLts", 4)
+            if not _finite(speed) or not 5 <= speed <= 40:
+                raise InvalidQuery("bike speedKph must be finite and between 5 and 40")
+            if type(lts) is not int or not 1 <= lts <= 4:
+                raise InvalidQuery("bike maxLts must be an integer from 1 to 4")
+        if query.mode == "bike" and not capability.get("bike"):
+            return Support(False, "bike", ("runtime with Bike routing support",))
+        if query.monte_carlo is not None:
+            _validate_monte_carlo(query.monte_carlo)
+            if capability.get("monteCarlo", {}).get("schema") != "vigo.distribution.v1":
+                return Support(False, "monte_carlo", ("runtime with Monte Carlo distribution support",))
+            incompatible = query.mode != "transit" or query.depart_at is not None or query.arrive_by is not None
+            if isinstance(query, Route):
+                incompatible |= bool(query.waypoints or query.departure_window_minutes or query.alternatives
+                                     or query.alternative_ranking is not None or query.alternative_slack_minutes is not None)
+            if isinstance(query, Matrix):
+                incompatible |= query.include_journeys or query.include_geometry or query.max_distance_km is not None
+            if isinstance(query, (Route, Matrix)):
+                incompatible |= query.flex is not None
+            if isinstance(query, Reach):
+                incompatible |= query.include_street_edges
+            if scenario is not None:
+                incompatible |= scenario.live is not None or scenario.traffic is not None
+            if incompatible:
+                return Support(False, "monte_carlo_combination", ("scheduled transit with a window, without point times, journeys or live state",))
         if isinstance(query, Reach):
-            if query.mode not in {"transit", "walk"}:
-                raise InvalidQuery("Reach mode must be transit or walk")
+            if query.mode not in {"transit", "walk", "drive", "bike"}:
+                raise InvalidQuery("Reach mode must be transit, walk, drive, or bike")
             if query.surface_sampling not in {"street", "cell-center"}:
                 raise InvalidQuery("surface_sampling must be street or cell-center")
             if type(query.include_street_edges) is not bool:
                 raise InvalidQuery("include_street_edges must be boolean")
+            if query.mode == "bike" and query.include_street_edges:
+                return Support(False, "bike_reach_geometry", ("Bike Reach with cell-center sampling",))
             # Depart-at Reach spreads from an origin; arrive-by Reach gathers
             # toward a destination, as in the Engine's request contract.
             if query.depart_at is not None and query.arrive_by is not None:
@@ -912,8 +1006,8 @@ class City:
                 raise InvalidQuery("Reach requires an origin, or a destination with arrive_by")
             capability = self._query_capability("reach")
             modes = capability.get("modes", {}).get("available", ())
-            if query.mode == "walk" and "walk" not in modes:
-                return Support(False, "walk_reach", ("runtime with walking Reach support",))
+            if query.mode != "transit" and query.mode not in modes:
+                return Support(False, f"{query.mode}_reach", (f"runtime with {query.mode} Reach support",))
             if (
                 query.arrive_by is not None
                 and "arrive_by" not in capability.get("time", {}).get("available", ())
@@ -931,8 +1025,8 @@ class City:
                 raise InvalidQuery("require_transit_ride must be boolean")
             if not _finite(query.horizon_minutes) or not 1 <= query.horizon_minutes <= 2880:
                 raise InvalidQuery("horizon_minutes must be finite and between 1 and 2880")
-            if query.mode not in {"transit", "walk", "drive"}:
-                raise InvalidQuery("mode must be transit, walk, or drive")
+            if query.mode not in {"transit", "walk", "drive", "bike"}:
+                raise InvalidQuery("mode must be transit, walk, drive, or bike")
             if query.max_transfers is not None and (
                 type(query.max_transfers) is not int or not 0 <= query.max_transfers <= 31
             ):
@@ -1000,7 +1094,9 @@ class City:
         if sum((planned, live, traffic)) > 1:
             return Support(False, "scenario_state_combination")
         if planned:
-            if isinstance(query, Reach) and query.mode == "walk":
+            if query.monte_carlo is not None:
+                return Support(True)
+            if isinstance(query, Reach) and query.mode != "transit":
                 return Support(False, "planned_transit_walk_reach", ("transit Reach",))
             return (
                 Support(True)
@@ -1134,6 +1230,8 @@ class City:
         support = self._support(query, scenario)
         if not support.supported:
             raise UnsupportedQuery(support)
+        if query.monte_carlo is not None:
+            return self._distribution(query, scenario)
         if isinstance(query, Route):
             return self._route(query, scenario)
         if isinstance(query, Matrix):
@@ -1141,6 +1239,41 @@ class City:
         if isinstance(query, Reach):
             return self._reach(query, scenario)
         raise TypeError("query must be Route, Matrix, or Reach")
+
+    def _distribution(self, query: Query, scenario: Scenario | None) -> Result:
+        started = time.perf_counter()
+        service_date = _date_text(query.service_date)
+        if service_date is None:
+            raise InvalidQuery("Monte Carlo requires service_date and a window in monte_carlo")
+        request: dict[str, Any] = {
+            "mode": "transit", "timePreference": "depart_at", "routingDataMode": "scheduled",
+            "maxWalkKm": query.max_walk_km, "monteCarlo": _thaw(query.monte_carlo),
+        }
+        if isinstance(query, (Route, Matrix)):
+            request.update(horizonMinutes=query.horizon_minutes, requireTransitRide=query.require_transit_ride,
+                           disableCache=query.disable_cache)
+            if query.max_transfers is not None:
+                request["maxTransfers"] = query.max_transfers
+        if isinstance(query, Route):
+            request.update(kind="route", origin=_point_payload(query.origin), destination=_point_payload(query.destination))
+        elif isinstance(query, Matrix):
+            request.update(kind="matrix", origins=_point_rows(query.origins, "origin"),
+                           destinations=_point_rows(query.destinations, "destination"))
+            if query.walk_speed_kph != 4.8:
+                request["walkSpeedKph"] = query.walk_speed_kph
+        else:
+            assert query.origin is not None
+            request.update(kind="reach", origin=_point_payload(query.origin), reachFormat="surface",
+                           surfaceSampling=query.surface_sampling, cutoffsMinutes=list(query.cutoffs_minutes),
+                           extentRadiusKm=query.extent_radius_km, rasterSize=query.raster_size,
+                           walkSpeedKph=query.walk_speed_kph)
+        if scenario and (scenario.services or scenario.without_routes):
+            request["scenario"] = {"id": "scenario", "name": scenario.name, "services": _thaw(scenario.services),
+                                   "excludedRouteIds": list(scenario.without_routes)}
+        with self._stream(service_date) as stream:
+            payload = stream.query(request)
+        payload.setdefault("timing", {})["endToEndMs"] = round((time.perf_counter() - started) * 1000, 3)
+        return Result(request["kind"], MappingProxyType(payload), self.revision_id, scenario.name if scenario else None)
 
     def _route(self, query: Route, scenario: Scenario | None) -> Result:
         started = time.perf_counter()
@@ -1153,6 +1286,7 @@ class City:
             "destination": _point_payload(query.destination),
             "waypoints": [_point_payload(waypoint) for waypoint in query.waypoints],
             "mode": query.mode,
+            **({"bike": _thaw(query.bike)} if query.bike is not None else {}),
             "time": clock,
             "timePreference": "arrive" if query.arrive_by is not None else "depart",
             "objective": query.objective,
@@ -1190,6 +1324,7 @@ class City:
         started = time.perf_counter()
         request = {
             "kind": "matrix",
+            **({"bike": _thaw(query.bike)} if query.bike is not None else {}),
             "requireTransitRide": query.require_transit_ride,
             **({"flex": _thaw(query.flex)} if query.flex is not None else {}),
             "disableCache": query.disable_cache,
@@ -1240,6 +1375,7 @@ class City:
         assert endpoint is not None, "_support requires the endpoint for this direction"
         request = {
             "mode": query.mode,
+            **({"bike": _thaw(query.bike)} if query.bike is not None else {}),
             "surfaceSampling": query.surface_sampling,
             "includeStreetEdges": query.include_street_edges,
             "time": clock,
@@ -1473,8 +1609,10 @@ def build(
     runtime_info = resolve_runtime(runtime)
     if private_access not in {"public", "endpoints"}:
         raise ValueError("private_access must be public or endpoints")
-    if street_modes not in {"walk", "walk,drive"}:
-        raise ValueError("street_modes must be walk or walk,drive")
+    if street_modes not in {"walk", "walk,drive", "walk,bike", "walk,drive,bike"}:
+        raise ValueError("street_modes must be walk, walk,drive, walk,bike, or walk,drive,bike")
+    if "bike" in street_modes and street_modes not in runtime_info.capabilities.get("city", {}).get("streetModes", ()):
+        raise VigoError("This runtime does not support building Bike Cities.")
     if private_access == "endpoints" and "endpoints" not in runtime_info.capabilities.get("city", {}).get("privateAccess", ()):
         raise VigoError("This runtime does not support authorized private endpoint access.")
     arguments = [
@@ -1498,8 +1636,29 @@ def _finite(value: Any) -> TypeGuard[int | float]:
     )
 
 
+def _validate_monte_carlo(options: Mapping[str, Any]) -> None:
+    if not isinstance(options, Mapping) or set(options) - {"startMinutes", "endMinutes", "draws", "seed", "percentiles", "accessibility"}:
+        raise InvalidQuery("monte_carlo accepts startMinutes, endMinutes, draws, seed, percentiles, and accessibility")
+    start, end = options.get("startMinutes"), options.get("endMinutes")
+    if type(start) is not int or type(end) is not int or not 0 <= start < end <= 1440:
+        raise InvalidQuery("monte_carlo requires 0 <= startMinutes < endMinutes <= 1440")
+    draws, seed = options.get("draws", 200), options.get("seed", 0)
+    if type(draws) is not int or not 1 <= draws <= 10000:
+        raise InvalidQuery("monte_carlo draws must be an integer from 1 to 10000")
+    if type(seed) is not int or not 0 <= seed <= 4294967295:
+        raise InvalidQuery("monte_carlo seed must be an unsigned 32-bit integer")
+    percentiles = options.get("percentiles", (5, 25, 50, 75, 95))
+    if (not isinstance(percentiles, Sequence) or not 1 <= len(percentiles) <= 21
+            or any(type(p) is not int or not 0 <= p <= 100 for p in percentiles)
+            or any(a >= b for a, b in pairwise(percentiles))):
+        raise InvalidQuery("monte_carlo percentiles must be 1 to 21 increasing integers from 0 to 100")
+    if "accessibility" in options and not isinstance(options["accessibility"], Mapping):
+        raise InvalidQuery("monte_carlo accessibility must be an options mapping")
+
+
 def _comparison_counts(pairs: Any, unit: str) -> dict[str, Any]:
-    changes = []
+    comparable = faster = slower = unchanged = 0
+    total = 0.0
     newly_reachable = 0
     no_longer_reachable = 0
     for left, right in pairs:
@@ -1507,15 +1666,20 @@ def _comparison_counts(pairs: Any, unit: str) -> dict[str, Any]:
         newly_reachable += int(not left_ready and right_ready)
         no_longer_reachable += int(left_ready and not right_ready)
         if left_ready and right_ready:
-            changes.append(right - left)
+            change = right - left
+            comparable += 1
+            total += change
+            faster += int(change < -1e-9)
+            slower += int(change > 1e-9)
+            unchanged += int(abs(change) <= 1e-9)
     return {
-        f"comparable{unit}": len(changes),
-        f"faster{unit}": sum(value < -1e-9 for value in changes),
-        f"slower{unit}": sum(value > 1e-9 for value in changes),
-        f"unchanged{unit}": sum(abs(value) <= 1e-9 for value in changes),
+        f"comparable{unit}": comparable,
+        f"faster{unit}": faster,
+        f"slower{unit}": slower,
+        f"unchanged{unit}": unchanged,
         f"newlyReachable{unit}": newly_reachable,
         f"noLongerReachable{unit}": no_longer_reachable,
-        "meanChangeMinutes": round(sum(changes) / len(changes), 3) if changes else None,
+        "meanChangeMinutes": round(total / comparable, 3) if comparable else None,
     }
 
 
@@ -1526,7 +1690,22 @@ def compare(before: Result, after: Result) -> Result:
         raise TypeError("compare requires two Results")
     if before.kind != after.kind or before.kind not in {"route", "matrix", "reach"}:
         raise ValueError("Results must come from the same Query family")
-    if before.kind == "route":
+    change: dict[str, Any]
+    if before.is_distribution or after.is_distribution:
+        if not before.is_distribution or not after.is_distribution:
+            raise ValueError("Compare distributions with distributions, not single-time Results")
+        if before.percentiles != after.percentiles or before._payload["layout"] != after._payload["layout"]:
+            raise ValueError("Distributions must use the same percentiles and endpoint or grid layout")
+        if any(before.sampling.get(key) != after.sampling.get(key) for key in ("method", "quantileMethod", "unreachable")):
+            raise ValueError("Distributions must use the same sampling and quantile methods")
+        change = {"percentiles": [
+            {"percentile": percentile, **_comparison_counts(
+                ((a / 60 if a is not None else None, b / 60 if b is not None else None)
+                 for a, b in zip(left, right, strict=True)), "Cells")}
+            for percentile, left, right in zip(before.percentiles, before._payload["durationsSeconds"],
+                                               after._payload["durationsSeconds"], strict=True)
+        ], "interpretation": "Differences of marginal percentiles; not percentiles of paired changes."}
+    elif before.kind == "route":
         left = before.value or {}
         right = after.value or {}
         left_duration = (

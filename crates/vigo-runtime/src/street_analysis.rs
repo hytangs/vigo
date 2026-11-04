@@ -21,7 +21,7 @@ pub(super) struct SurfaceSnapCache {
     order: VecDeque<(u64, u64)>,
     snap_bytes: usize,
     // Public-only and terminal-aware displacement bounds; no per-node index.
-    extent_per_meter: [Option<[f64; 2]>; 2],
+    extent_per_meter: Option<Box<[Option<[f64; 2]>; 2]>>,
 }
 impl SurfaceSnapCache {
     fn attach(
@@ -54,13 +54,16 @@ impl SurfaceSnapCache {
     }
     #[cfg(feature = "standalone")]
     pub(super) fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.entries.is_empty() && self.extent_per_meter.is_none()
     }
     pub(super) fn byte_length(&self) -> usize {
-        self.entries.capacity()
-            * (std::mem::size_of::<(u64, u64)>()
-                + std::mem::size_of::<(Vec<Snap>, Option<ReciprocalEdgeSnap>)>()
-                + 1)
+        self.extent_per_meter
+            .as_ref()
+            .map_or(0, |_| std::mem::size_of::<[Option<[f64; 2]>; 2]>())
+            + self.entries.capacity()
+                * (std::mem::size_of::<(u64, u64)>()
+                    + std::mem::size_of::<(Vec<Snap>, Option<ReciprocalEdgeSnap>)>()
+                    + 1)
             + self.snap_bytes
             + self.order.capacity() * std::mem::size_of::<(u64, u64)>()
     }

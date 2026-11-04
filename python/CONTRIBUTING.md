@@ -54,7 +54,7 @@ cd python
 VIGO_TEST_INPUTS=/tmp/vigo-python-fixture VIGO_RUNTIME=../public/vigo.mjs python -m unittest tests.test_live_runtime -v
 ```
 
-`VIGO_RUNTIME` can also point to a complete packaged Studio directory or executable to verify the shipped runtime. This suite builds a City, compares Route and Matrix across all three modes, checks ordered arrive-by routing, runs depart-at and arrive-by Reach and Reach with a replacement Scenario, compares completed Results, and exports files. The CLI answers Reach with the `vigo` executable from `npm run build:standalone`. CI runs this fixture against installed headless platform wheels on macOS, Linux, and Windows; local unit tests skip it when no fixture is configured.
+`VIGO_RUNTIME` can also point to a complete packaged Studio directory or executable to verify the shipped runtime. This suite builds a City, compares Route and Matrix across all four modes, checks ordered arrive-by routing, runs depart-at and arrive-by Reach and Reach with a replacement Scenario, compares completed Results, and exports files. It also checks Bike preferences, Monte Carlo distributions, frequency sampling, planned services, accessibility, and ordinary-query isolation after simulations and errors. The CLI answers Reach with the `vigo` executable from `npm run build:standalone`. CI runs this fixture against installed headless platform wheels on macOS, Linux, and Windows; local unit tests skip it when no fixture is configured.
 
 A passing synthetic fixture establishes the exercised contracts and modeled behavior, not field prediction accuracy or compatibility with an untested platform. Report skipped integration checks explicitly.
 
