@@ -12,7 +12,7 @@ const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-all-day-'))
 const children = []
 function resident(city) {
   const child = spawn(standaloneBinary, ['stream', '--city', city], { cwd: root })
-  children.push(child)
+  children.push({ child, closed: new Promise(resolve => child.once('close', resolve)) })
   let stderr = ''; child.stderr.on('data', chunk => { stderr += chunk })
   const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]()
   return async request => {
@@ -79,7 +79,7 @@ try {
   const server = spawn(standaloneBinary, ['serve', '--city', city, '--port', '0'], {
     env: { ...process.env, VIGO_API_TOKEN: 'all-day-fixture-token' },
   })
-  children.push(server)
+  children.push({ child: server, closed: new Promise(resolve => server.once('close', resolve)) })
   const port = await new Promise((resolve, reject) => {
     let log = ''
     const timer = setTimeout(() => reject(new Error(`HTTP startup timeout: ${log}`)), 30000)
@@ -124,8 +124,12 @@ try {
   }
   const after = await aggregate({ ...q, timeMinutes: 480 })
   assert.equal(after.status, 'ok', 'Rejected batches must leave resident queries usable')
-  console.log('All-day Reach: 292 independent time samples, all raster counts and conditional means agree; validation and resident recovery passed.')
 } finally {
-  for (const child of children) child.kill()
+  // Windows retains mapped files until the native readers have closed.
+  await Promise.all(children.map(async ({ child, closed }) => {
+    if (child.exitCode === null && child.signalCode === null) child.kill()
+    await closed
+  }))
   fs.rmSync(temporary, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
+console.log('All-day Reach: 292 independent time samples, all raster counts and conditional means agree; validation and resident recovery passed.')

@@ -60,7 +60,7 @@ try {
       { cwd: root, stdio: 'pipe' }
     )
     const child = spawn(standaloneBinary, ['stream', '--city', city])
-    children.push(child)
+    children.push({ child, closed: new Promise(resolve => child.once('close', resolve)) })
     let stderr = ''
     child.stderr.on('data', (c) => (stderr += c))
     const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]()
@@ -213,8 +213,11 @@ try {
     console.log(`${variant}: Route, reverse Route, Matrix and Reach passed`)
     child.stdin.end()
   }
-  console.log('Scoped transfer and headway end-to-end checks passed')
 } finally {
-  for (const child of children) child.kill()
+  await Promise.all(children.map(async ({ child, closed }) => {
+    if (child.exitCode === null && child.signalCode === null) child.kill()
+    await closed
+  }))
   fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
+console.log('Scoped transfer and headway end-to-end checks passed')

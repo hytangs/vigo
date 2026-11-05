@@ -74,7 +74,7 @@ const feedServer = http.createServer((request, response) => {
   }
   response.writeHead(feed.status, { 'content-type': 'application/x-protobuf' }).end(feed.body)
 })
-let server
+let server, serverClosed
 try {
   const { gtfsPath, osmPath } = await writeCliFixtureInputs(directory)
   execFileSync(process.execPath, [path.join(root, 'public/vigo.mjs'), 'build', `--gtfs=${gtfsPath}`, `--osm=${osmPath}`, `--output=${city}`], { stdio: ['ignore', 'ignore', 'pipe'] })
@@ -106,6 +106,7 @@ try {
   }
 
   server = spawn(binary, ['serve', '--city', city, '--port', '0', '--realtime-poll', settings], { env: { PATH: '', VIGO_API_TOKEN: token, RAYON_NUM_THREADS: '2' } })
+  serverClosed = new Promise(resolve => server.once('close', resolve))
   const port = await new Promise((resolve, reject) => {
     let text = ''
     const timer = setTimeout(() => reject(new Error(`Server did not start: ${text}`)), 60_000)
@@ -204,9 +205,12 @@ try {
   assert.equal(retained.meta.realtime.coverage.complete, false); checks++
   assert(feedRequests >= 4)
 
-  console.log(`Realtime polling passed (${checks} checks: protobuf trip update and alert feeds, publication, idle warm-up, inline override, cancellation, live alerts, failure retention, redacted status).`)
 } finally {
-  server?.kill()
-  feedServer.close()
+  if (server) {
+    if (server.exitCode === null && server.signalCode === null) server.kill()
+    await serverClosed
+  }
+  await new Promise(resolve => feedServer.close(resolve))
   fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
+console.log(`Realtime polling passed (${checks} checks: protobuf trip update and alert feeds, publication, idle warm-up, inline override, cancellation, live alerts, failure retention, redacted status).`)

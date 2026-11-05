@@ -81,6 +81,13 @@ jobs:
       - name: Reuse this job's compiled runtime
         shell: bash
         run: echo "VIGO_USE_BUILT_RUNTIME=1" >> "$GITHUB_ENV"
+      # Catch Windows file-lifecycle and protocol failures before the longer
+      # engine/oracle checks. The same suite runs later on the other hosts.
+      - name: Check standalone early on Windows
+        if: runner.os == 'Windows'
+        run: npm run check:standalone
+        env:
+          GH_TOKEN: ${{ github.token }}
       - run: xvfb-run -a npm run check:release
         if: runner.os == 'Linux'
       - run: npm run check:release
@@ -93,6 +100,7 @@ jobs:
         if: matrix.os == 'ubuntu-24.04'
       - run: npm run check:corpus
       - run: npm run check:standalone
+        if: runner.os != 'Windows'
         env:
           GH_TOKEN: ${{ github.token }}
       - run: python test/check-package-publication.py
