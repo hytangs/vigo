@@ -726,6 +726,16 @@ export async function buildNationalOsmStore({
     db.close()
     invalidateStreetStore(outputPath)
     await fs.rename(tempPath, outputPath)
+    // A new compiler or access policy can change the graph even when the PBF
+    // fingerprint is unchanged. Replace its snapshots and CCH generations;
+    // runtime readers must continue to reject incompatible prepared indexes.
+    const snapshotNames = [streetAcceleratorSnapshotPath(outputPath), driveAcceleratorSnapshotPath(outputPath)].map(file => path.basename(file))
+    const directory = path.dirname(outputPath)
+    const artifacts = (await fs.readdir(directory, { withFileTypes: true })).filter(entry =>
+      (entry.isFile() || entry.isSymbolicLink()) && snapshotNames.some(name => entry.name === name
+        || (entry.name.startsWith(`${name}.street-cch-`) || entry.name.startsWith(`${name}.drive-cch-`))
+          && /\.(?:structure|metric|manifest\.json)$/.test(entry.name)))
+    await Promise.all(artifacts.map(entry => fs.rm(path.join(directory, entry.name), { force: true })))
     // An endpoint overlay belongs to its exact compiled public graph. A fresh
     // import starts with public permission; rebuild any selected overlay later.
     await fs.rm(`${outputPath}.terminal-access-v1.json`, { force: true })

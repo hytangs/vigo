@@ -49,6 +49,21 @@ try {
     assert.equal(imported.result.preload.engine, 'rust_frequency_timetable')
     assert.equal(imported.result.preload.nativeTimetableReady, false, 'Import does not claim activation before streets exist')
     await wait((await request(`${base}/national-osm-import`, 'POST', { sourcePath: inputs.osmPath }, 202)).job)
+    if (!mixed) {
+      // A prior compiler may produce a different graph from the same PBF.
+      // Runtime readers reject its incompatible indexes; an explicit reimport
+      // must replace them instead of attempting to reuse that generation.
+      const streetDirectory = path.join(directory, 'cities', project.id, '.vigo', 'osm')
+      const manifests = (await fs.readdir(streetDirectory)).filter(name => name.endsWith('.manifest.json'))
+      assert.equal(manifests.length, 2, 'Both walking and driving indexes were prepared')
+      for (const name of manifests) {
+        const file = path.join(streetDirectory, name)
+        const manifest = JSON.parse(await fs.readFile(file, 'utf8'))
+        manifest.nodeCount += 1
+        await fs.writeFile(file, JSON.stringify(manifest))
+      }
+      await wait((await request(`${base}/national-osm-import`, 'POST', { sourcePath: inputs.osmPath }, 202)).job)
+    }
     const catalog = (await request(`${base}?detail=catalog`)).project.feeds[0].mapPreview
     assert.deepEqual(catalog.stops.map(stop => stop.id).sort(), ['A', 'B', 'X'], 'Frequency stops must be selectable on the map')
     assert.equal(catalog.routes.length, 2)
