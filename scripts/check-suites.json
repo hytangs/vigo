@@ -30,6 +30,7 @@
   ],
   "check:security": [
     "test/check-local-http-security.mjs",
+    "test/check-public-routing-gateway.mjs",
     "test/check-realtime-url-security.mjs",
     "test/check-cch-manifest.mjs"
   ],

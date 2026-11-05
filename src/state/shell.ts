@@ -1,4 +1,5 @@
 import { apiJson } from '../app/api'
+import { publicRouting } from '../app/publicRouting'
 import { readNavigationMemory } from '../app/navigationMemory'
 import type { AppAccent, HealthResponse, ProjectDialogState, VigoRuntimeConfig } from '../app/runtimeConfig'
 import { createStore } from '../app/store'
@@ -31,6 +32,7 @@ export type ShellState = {
 export const routeToolStorageKey = 'vigo-agency-view'
 
 function savedRouteTool(): RouteToolKey {
+  if (publicRouting) return 'pathfinder'
   try {
     const saved = sessionStorage.getItem(routeToolStorageKey)
     return ['data', 'pathfinder', 'analyze', 'scenarios', 'agency'].includes(saved || '') ? saved as RouteToolKey : 'agency'
@@ -45,7 +47,7 @@ export const navigation = { memory: readNavigationMemory() }
 const initialShellState = (): ShellState => ({
   appearance: 'dark',
   accent: 'blue',
-  basemap: 'offline',
+  basemap: 'minimal',
   health: null,
   runtimeConfig: null,
   setupOpen: false,
@@ -72,7 +74,7 @@ export function resetShell() {
 
 export const setApiError = (apiError: string) => shell.set({ apiError })
 export const setQuery = (query: string) => shell.set({ query })
-export const setActiveRouteTool = (activeRouteTool: RouteToolKey) => shell.set({ activeRouteTool })
+export const setActiveRouteTool = (activeRouteTool: RouteToolKey) => shell.set({ activeRouteTool: publicRouting ? 'pathfinder' : activeRouteTool })
 export const setDataSection = (dataSection: DataSection) => shell.set({ dataSection })
 export const setBackgroundTasksOpen = (backgroundTasksOpen: boolean) => shell.set({ backgroundTasksOpen })
 
@@ -86,6 +88,7 @@ export function applyRuntimeConfig(config: VigoRuntimeConfig) {
 let preferenceSave: Promise<void> = Promise.resolve()
 
 async function persistRuntimePreferences(next: Partial<Pick<VigoRuntimeConfig, 'appearance' | 'basemap' | 'accent'>>) {
+  if (publicRouting) return
   if (!shell.get().runtimeConfig) return
   // Serialize partial changes so rapid theme/map choices cannot overwrite
   // each other or restore an earlier library folder.

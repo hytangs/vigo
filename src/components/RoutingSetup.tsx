@@ -4,6 +4,7 @@ import { Accessibility, ChevronDown, Clock3, SlidersHorizontal } from 'lucide-re
 import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { classNames } from '../domain'
 import { routingTimeOptions } from '../app/uiOptions'
+import { publicRouting } from '../app/publicRouting'
 import { formatScheduleClock } from '../scheduledVehicles'
 import type { SidebarPathfinderBoxProps } from './PathfinderPanel'
 
@@ -56,6 +57,7 @@ export function RoutingSetup(props: RoutingSetupProps) {
   const transferLimitUnavailable = routingWaypoints.length > 0
   const maxTransfers = transferLimitUnavailable ? undefined : routingMaxTransfers
   const buffer = transferLimitUnavailable ? 0 : routingMinimumTransferBufferMinutes
+  const maximumWalkKm = publicRouting ? 2.4 : 5
   const scenario = routingNetwork?.scenarios.find(item => item.id === routingNetwork.selectedId)
   const searchSummary = departNow || routingTimePreference === 'depart'
     ? routingDepartureWindowMinutes ? 'Later departures' : 'Exact time'
@@ -152,12 +154,12 @@ export function RoutingSetup(props: RoutingSetupProps) {
         <div className="routing-setup-columns">
           <label className="routing-setup-select" htmlFor="pathfinder-max-transfers"><span>Maximum transfers</span>
             <select id="pathfinder-max-transfers" value={maxTransfers ?? ''} disabled={transferLimitUnavailable} aria-describedby={transferLimitUnavailable ? 'pathfinder-transfer-limit-note' : undefined} onChange={event => onRoutingMaxTransfersChange(event.currentTarget.value === '' ? undefined : Number(event.currentTarget.value))}>
-              <option value="">Unlimited</option>{Array.from({ length: 32 }, (_, count) => <option key={count} value={count}>{count === 0 ? 'Direct only' : count}</option>)}
+              <option value="">Unlimited</option>{Array.from({ length: publicRouting ? 9 : 32 }, (_, count) => <option key={count} value={count}>{count === 0 ? 'Direct only' : count}</option>)}
             </select>
           </label>
           <label className="routing-setup-select" htmlFor="pathfinder-transfer-buffer"><span>Transfer buffer</span>
             <select id="pathfinder-transfer-buffer" value={buffer} disabled={transferLimitUnavailable} aria-label="Minimum transfer buffer" onChange={event => onRoutingMinimumTransferBufferChange(Number(event.currentTarget.value))}>
-              {[0, 1, 2, 3, 5, 10, 15, 20, 30, 60].map(minutes => <option key={minutes} value={minutes}>{minutes === 0 ? 'None' : `${minutes} min`}</option>)}
+              {[0, 1, 2, 3, 5, 10, 15, 20, 30, 60].filter(minutes => !publicRouting || minutes <= 15).map(minutes => <option key={minutes} value={minutes}>{minutes === 0 ? 'None' : `${minutes} min`}</option>)}
             </select>
           </label>
         </div>
@@ -168,13 +170,13 @@ export function RoutingSetup(props: RoutingSetupProps) {
       </div>
       <div className="routing-preference-section">
         <label className="routing-setup-range-label" htmlFor="pathfinder-walk-range"><span>Walk to / from transit</span><strong>{routingMaxWalkKm.toFixed(1)} <small>km</small></strong></label>
-        <input className="routing-setup-range" id="pathfinder-walk-range" type="range" min={0.2} max={5} step={0.1} value={routingMaxWalkKm}
-          style={{ '--range-progress': `${(routingMaxWalkKm - .2) / 4.8 * 100}%` } as CSSProperties}
+        <input className="routing-setup-range" id="pathfinder-walk-range" type="range" min={0.2} max={maximumWalkKm} step={0.1} value={routingMaxWalkKm}
+          style={{ '--range-progress': `${(routingMaxWalkKm - .2) / (maximumWalkKm - .2) * 100}%` } as CSSProperties}
           aria-valuetext={`${routingMaxWalkKm.toFixed(1)} kilometers`} onChange={event => onRoutingMaxWalkKmChange(Number(event.currentTarget.value))} />
-        <div className="routing-setup-range-scale" aria-hidden="true"><span>0.2 km</span><span>5 km</span></div>
-        <label className="routing-setup-toggle"><span><strong>Include longer walks</strong><small>Compare with a walk-only journey</small></span>
+        <div className="routing-setup-range-scale" aria-hidden="true"><span>0.2 km</span><span>{maximumWalkKm} km</span></div>
+        {publicRouting ? null : <label className="routing-setup-toggle"><span><strong>Include longer walks</strong><small>Compare with a walk-only journey</small></span>
           <input id="pathfinder-long-walk" type="checkbox" role="switch" aria-label="Allow longer end-to-end walks" checked={routingAllowLongWalk} onChange={event => onRoutingAllowLongWalkChange(event.currentTarget.checked)} />
-        </label>
+        </label>}
       </div>
     </div> : null}
     </div>

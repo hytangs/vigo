@@ -7,6 +7,7 @@ import { RoutingSetup } from './RoutingSetup'
 import { OperationProgress } from './OperationProgress'
 import { ResultExportActions } from './ResultExportActions'
 import { exportJourneys } from '../app/resultExports'
+import { publicRouting } from '../app/publicRouting'
 import {
   AlertTriangle,
   ArrowDown,
@@ -383,7 +384,8 @@ export function SidebarPathfinderBox({
 }: SidebarPathfinderBoxProps) {
   const points = [...(routingOrigin ? [routingOrigin] : []), ...routingWaypoints, ...(routingDestination ? [routingDestination] : [])]
   const pointRows = points.length < 2 ? [routingOrigin, null] : points
-  const mapPointLimitReached = points.length >= maxRoutingPointCount
+  const pointLimit = publicRouting ? 5 : maxRoutingPointCount
+  const mapPointLimitReached = points.length >= pointLimit
   const busy = routingActivity.kind === 'loading' || routingActivity.kind === 'preparing'
   const canRun = Boolean(routingOrigin && routingDestination) && !busy
   const pickLabel = routingPickIndex === null || routingPickIndex >= points.length
@@ -473,7 +475,7 @@ export function SidebarPathfinderBox({
               )
             })}
             <div className="pathfinder-stop-controls" role="group" aria-label="Add route points">
-              <button type="button" className="pathfinder-add-stop" onClick={() => onPickRoutingPoint(null)} disabled={mapPointLimitReached || routingEnabled} title={`${points.length} of ${maxRoutingPointCount} route points`}>
+              <button type="button" className="pathfinder-add-stop" onClick={() => onPickRoutingPoint(null)} disabled={mapPointLimitReached || routingEnabled} title={`${points.length} of ${pointLimit} route points`}>
                 <Plus size={14} aria-hidden="true" /><span>Add stop</span>
               </button>
               {routingEnabled ? <button type="button" className="pathfinder-map-pick" onClick={onToggleRouting}><CheckCircle2 size={14} aria-hidden="true" /><span>Done</span></button> : null}

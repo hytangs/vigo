@@ -1,4 +1,5 @@
 import { filterPreviewByStatus } from '../app/mapPresentation'
+import { publicRouting } from '../app/publicRouting'
 import { isActiveTask, isPreparationJob, preparationTasks, type PreparationTask } from '../app/preparation'
 import { bundleFeedId, emptyCityProject, hasOperationsData, scopedFeedAndPreview } from '../app/projectState'
 import { memoizeLast } from '../app/store'
@@ -97,6 +98,7 @@ export function isProjectEmpty() {
 }
 
 export function storageRecoveryRequired() {
+  if (publicRouting) return false
   const { runtimeConfig } = shell.get()
   return Boolean(runtimeConfig && !runtimeConfig.setupRequired && !runtimeConfig.offline.storageWritable)
 }

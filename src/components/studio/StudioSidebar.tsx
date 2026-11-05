@@ -1,4 +1,5 @@
 import { memo } from 'react'
+import { publicRouting } from '../../app/publicRouting'
 import { countRender } from '../../app/renderCounts'
 import { shallowEqual, useStore } from '../../app/store'
 import { classNames } from '../../domain'
@@ -71,7 +72,7 @@ export const VigoSidebar = memo(function VigoSidebar({ hasCityData }: { hasCityD
   const hasActiveData = useStudio(hasActiveOperationsData)
   return (
     <aside className="app-sidebar" aria-label="City navigation">
-      <StudioRail hasActiveData={hasCityData} />
+      {publicRouting ? null : <StudioRail hasActiveData={hasCityData} />}
       {activeRouteTool === 'data' || activeRouteTool === 'agency' ? null : <section className={classNames('sidebar-panel', `is-${activeRouteTool}`)} aria-label="City panel" data-map-occluder>
         {!hasActiveData ? (
           <div className="sidebar-empty-note">
@@ -133,7 +134,7 @@ function SidebarRouteBox() {
       routingBike={settings.routingBike}
       onRoutingBikeChange={changeRoutingBike}
       routingDataMode={settings.routingMode === 'transit' && routingNetworkState.selectedId ? 'scheduled' : settings.routingDataMode}
-      routingNetwork={routingNetworkState}
+      routingNetwork={publicRouting ? undefined : routingNetworkState}
       routingDepartureWindowMinutes={settings.routingDepartureWindowMinutes}
       routingMaxWalkKm={settings.routingMaxWalkKm}
       routingMaxTransfers={settings.routingMaxTransfers}
@@ -143,7 +144,7 @@ function SidebarRouteBox() {
       routingWheelchairAvailable={showWheelchair}
       routingWheelchairReason={settings.wheelchairReason}
       routingWheelchairPreparing={Boolean(settings.wheelchairBuildingKey)}
-      onPrepareWheelchair={settings.wheelchairPrepareKey === wheelchairSelectionKey() ? prepareRoutingWheelchair : undefined}
+      onPrepareWheelchair={!publicRouting && settings.wheelchairPrepareKey === wheelchairSelectionKey() ? prepareRoutingWheelchair : undefined}
       onRoutingWheelchairChange={setRoutingWheelchair}
       routingMinimumTransferBufferMinutes={settings.routingMinimumTransferBufferMinutes}
       routingActivity={activity}

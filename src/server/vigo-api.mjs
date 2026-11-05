@@ -105,7 +105,7 @@ let runtimeConfig = {
   storageRoot: envStorageRoot || defaultStorageRoot(),
   appearance: 'dark',
   accent: 'blue',
-  basemap: 'offline',
+  basemap: 'minimal',
   createdAt: '',
   updatedAt: '',
 }
@@ -233,7 +233,7 @@ function normalizeAccent(value) {
 }
 
 function normalizeBasemap(value) {
-  return ['none', 'offline', 'minimal', 'streets', 'dark', 'terrain'].includes(value) ? value : 'offline'
+  return ['none', 'offline', 'minimal', 'streets', 'dark', 'terrain'].includes(value) ? value : 'minimal'
 }
 
 async function loadRuntimeConfig() {

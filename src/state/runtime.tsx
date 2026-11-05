@@ -1,4 +1,5 @@
 import { wheelchairSelectionKey } from './route'
+import { publicRouting } from '../app/publicRouting'
 import { startTransition, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { apiJson } from '../app/api'
 import { subscribeDesktopCommands, syncDesktopChromeState } from '../app/desktopBridge'
@@ -57,7 +58,7 @@ export function StudioRuntime() {
     <>
       <ShellRuntime />
       <CityRuntime />
-      <ScenarioRuntime />
+      {publicRouting ? null : <ScenarioRuntime />}
       <NetworkRuntime />
       <RouteRuntime />
       <AnalyzeRuntime />

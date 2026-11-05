@@ -1,4 +1,5 @@
 import { ArrowLeft, XCircle } from 'lucide-react'
+import { publicRouting } from '../../app/publicRouting'
 import { memo, useDeferredValue, useMemo } from 'react'
 import type { PreparationTask } from '../../app/preparation'
 import { shallowEqual, useStore } from '../../app/store'
@@ -67,20 +68,20 @@ export const StudioTopbar = memo(function StudioTopbar() {
   return (
     <header className="topbar">
       <div className="topbar-brand" aria-label="City header">
-        <button type="button" className="topbar-mark-button" onClick={showProjects} title="Open Cities" aria-label="Open Cities">
+        {publicRouting ? <a href="https://vigo.city" className="topbar-mark-button" title="VIGO" aria-label="VIGO"><VigoBrandMark /></a> : <button type="button" className="topbar-mark-button" onClick={showProjects} title="Open Cities" aria-label="Open Cities">
           <VigoBrandMark />
-        </button>
+        </button>}
         <div className="topbar-brand-copy">
           <b>{title}</b>
           {page === 'project' && tool !== 'data' ? <span className="topbar-crumb">{tool === 'pathfinder' ? 'Route' : tool === 'analyze' ? 'Analyze' : tool === 'scenarios' ? 'Scenarios' : 'Network'}</span> : null}
         </div>
       </div>
 
-      <StudioSearch />
+      {publicRouting ? null : <StudioSearch />}
 
       <div className="topbar-actions">
-        {page === 'project' ? <StudioBackgroundTasks key={projectId} /> : null}
-        {page === 'project' ? (
+        {!publicRouting && page === 'project' ? <StudioBackgroundTasks key={projectId} /> : null}
+        {!publicRouting && page === 'project' ? (
           <button
             type="button"
             className="topbar-project-action surface-exit-action"

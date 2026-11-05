@@ -1,4 +1,5 @@
 import { apiJson } from '../app/api'
+import { publicRouting, publicRoutingCity } from '../app/publicRouting'
 import { requestDesktopHomeFolder } from '../app/desktopBridge'
 import { rememberProject, rememberSearchResult } from '../app/navigationMemory'
 import { bundleFeedId, hasOperationsData, mergeProjectLists, preferredProjectId } from '../app/projectState'
@@ -83,6 +84,10 @@ export async function loadProjects() {
     applyNetworkMapDefaults()
     setApiError('')
     if (nextSelectedId) city.set({ selectedProjectId: nextSelectedId })
+    if (publicRouting && nextProjects.some(project => project.id === publicRoutingCity)) {
+      openProject(publicRoutingCity)
+      openPathfinderView()
+    }
   } catch (error) {
     if (sequence !== projectsLoadSequence) return
     city.set({ projectsLoadState: 'failed' })
@@ -133,6 +138,7 @@ function closeCity() {
 }
 
 export function showProjects() {
+  if (publicRouting) return
   closeCity()
   shell.set({ page: 'projects' })
 }
@@ -149,11 +155,13 @@ export function openProject(projectId: string) {
 
 /** Open a City straight into its data sources from the City library. */
 export function openProjectData(projectId: string) {
+  if (publicRouting) return
   applyCitySelection(projectId)
   shell.set({ page: 'project', dataSection: 'feeds', activeRouteTool: 'data' })
 }
 
 export function openNetworkView() {
+  if (publicRouting) return
   const project = selectedProject()
   if (!hasOperationsData(project)) return
   city.set({ openedNetworkProjectId: project.id })
@@ -171,6 +179,7 @@ export function openPathfinderView() {
 }
 
 export function openAnalyzeView() {
+  if (publicRouting) return
   const project = selectedProject()
   if (!hasOperationsData(project)) return
   city.set({ openedNetworkProjectId: project.id })
@@ -181,6 +190,7 @@ export function openAnalyzeView() {
 
 /** Scenarios: draw and manage the networks Route and Reach can run on. */
 export function openScenariosView() {
+  if (publicRouting) return
   const project = selectedProject()
   if (!hasOperationsData(project)) return
   // Imported-feed and Network filters use local route IDs. Scenario changes
@@ -193,6 +203,7 @@ export function openScenariosView() {
 }
 
 export function openDataView() {
+  if (publicRouting) return
   // Opening City data retries a combined routing build that may have failed.
   routingMerge.requestKey = ''
   city.set(({ routingMergeRetryNonce }) => ({ routingMergeRetryNonce: routingMergeRetryNonce + 1 }))
@@ -200,6 +211,7 @@ export function openDataView() {
 }
 
 export function openSettingsView() {
+  if (publicRouting) return
   const { projects, selectedProjectId } = city.get()
   const nextProjectId = selectedProjectId || preferredProjectId(projects, navigation.memory.lastProjectId)
   if (nextProjectId && (shell.get().page !== 'project' || selectedProjectId !== nextProjectId)) {

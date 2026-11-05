@@ -5,6 +5,7 @@ import { ProjectDialog, RoutingDetail, RuntimeAlert, SetupDialog, StudioTopbar }
 import { VigoSidebar } from './components/studio/StudioSidebar'
 
 import './App.css'
+import { publicRouting } from './app/publicRouting'
 import { hasOperationsData } from './app/projectState'
 import { countRender } from './app/renderCounts'
 import { classNames } from './domain'
@@ -54,7 +55,7 @@ export default function App() {
 
         <div className="app-frame">
           {layout.storageRecovery && !settingsOpen ? <LibraryRecovery />
-            : page === 'projects' ? <CityLibraryPage />
+            : page === 'projects' ? publicRouting ? <p role="status">Opening routing…</p> : <CityLibraryPage />
               : tool === 'data' ? <CityWorkspace />
                 : !layout.cityData || !layout.networkOpened ? <CityStart /> : (
                   <div className="workbench project-workbench route-investigation-shell">
@@ -66,8 +67,7 @@ export default function App() {
         <RoutingDetail />
       </div>
 
-      <ProjectDialog />
-      <SetupDialog />
+      {publicRouting ? null : <><ProjectDialog /><SetupDialog /></>}
       {/* Background work runs after the panels' effects, as App's own effects did. */}
       <StudioRuntime />
     </main>
