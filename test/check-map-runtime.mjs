@@ -45,6 +45,7 @@ import { setMapSourceData, setStreetMapSourceData } from '../../src/app/mapSourc
 import { ensureVehicleDirectionSprite, vehicleHeadingLayer, vehicleMarkerLayer } from '../../src/app/mapDirections.ts';
 import { baseCanvasColor, ensureLocalBasemapLayers, syncBasemap, removeLocalBasemap, installLocalBasemap } from '../../src/map/basemaps.ts';
 import { applyLayerVisibility, ensureLayers } from '../../src/map/layers.ts';
+import { routingLineFeatures } from '../../src/map/journeyFeatures.ts';
 import { contextRouteFilter, contextRouteLayerId, installNetworkTiles, networkTileLayerId, removeNetworkTiles } from '../../src/map/networkTileSource.ts';
 window.checkMap = async () => {
   console.log('Map fixture: starting GeoJSON render');
@@ -122,6 +123,16 @@ window.checkMap = async () => {
   console.log('Map fixture: Rust vector tiles rendered and City replacement drew only the latest City');
   // The transit network: Rust tiles feed twins of the Studio's GeoJSON layers.
   ensureLayers(map);
+  const journeyLayers={routes:false,segments:false,stops:false,transfers:false,coverage:false,scenario:false,access:false};
+  const bikeFeatures=routingLineFeatures({legs:[{type:'bike',travelMode:'bike',durationMinutes:2,coordinates:[[-0.001,0],[0.001,0]]}]});
+  setMapSourceData(map.getSource('vigo-routing'),bikeFeatures);
+  applyLayerVisibility(map,journeyLayers,{routingVisible:true});
+  await waitForRender();
+  if(!map.getLayer('vigo-routing-bike') || !map.queryRenderedFeatures({layers:['vigo-routing-bike']}).length) throw Error('Calculated bicycle journey did not render');
+  applyLayerVisibility(map,journeyLayers,{routingVisible:false});
+  await waitForRender();
+  if(map.queryRenderedFeatures({layers:['vigo-routing-bike','vigo-routing-bike-casing']}).length) throw Error('Bicycle journey remained visible outside the routing workspace');
+  setMapSourceData(map.getSource('vigo-routing'),{type:'FeatureCollection',features:[]});
   installNetworkTiles(map,'fixture',{scope:'__bundle__',revision:'n1'});
   const networkLayers={routes:true,segments:false,stops:true,transfers:true,coverage:false,scenario:false,access:false};
   applyLayerVisibility(map,networkLayers,{networkTiles:'network'});

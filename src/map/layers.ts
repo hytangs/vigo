@@ -21,7 +21,7 @@ const accessLayerIds = ['vigo-access-outer', 'vigo-access-middle', 'vigo-access-
 
 const vehicleLayerIds = ['vigo-vehicle-pairs', 'vigo-vehicle-indicator-label', 'vigo-vehicle-halo', 'vigo-vehicles', 'vigo-vehicle-headings', 'vigo-vehicle-labels']
 
-const routingLayerIds = ['vigo-routing-walk-casing', 'vigo-routing-walk', 'vigo-routing-drive-casing', 'vigo-routing-drive', 'vigo-routing-ride-casing', 'vigo-routing-ride', 'vigo-routing-labels', 'vigo-routing-pin-halo', 'vigo-routing-pins']
+const routingLayerIds = ['vigo-routing-walk-casing', 'vigo-routing-walk', 'vigo-routing-drive-casing', 'vigo-routing-drive', 'vigo-routing-bike-casing', 'vigo-routing-bike', 'vigo-routing-ride-casing', 'vigo-routing-ride', 'vigo-routing-labels', 'vigo-routing-pin-halo', 'vigo-routing-pins']
 
 export const reachResultLayerIds = [
   'vigo-reach-bands',
@@ -544,6 +544,23 @@ export function ensureLayers(map: MapLibreMap) {
         'line-color': '#ffad4d',
         'line-width': ['interpolate', ['linear'], ['zoom'], 8, 4, 13, 8],
         'line-opacity': 1,
+      },
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+    })
+  }
+
+  for (const casing of [true, false]) {
+    const id = casing ? 'vigo-routing-bike-casing' : 'vigo-routing-bike'
+    if (map.getLayer(id)) continue
+    map.addLayer({
+      id,
+      type: 'line',
+      source: 'vigo-routing',
+      filter: ['all', ['==', ['get', 'featureKind'], 'line'], ['==', ['get', 'legType'], 'bike']],
+      paint: {
+        'line-color': casing ? '#073b36' : '#2dd4bf',
+        'line-width': ['interpolate', ['linear'], ['zoom'], 8, casing ? 6.6 : 4, 13, casing ? 11 : 8],
+        'line-opacity': casing ? 0.86 : 1,
       },
       layout: { 'line-cap': 'round', 'line-join': 'round' },
     })
