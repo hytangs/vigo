@@ -64,7 +64,7 @@ export function ReachSettings({ travelMode = 'transit', onTravelModeChange, bike
       ))}
     </div> : null}
     {travelMode === 'drive' ? <small>Road-speed estimates, without live traffic. Routes {arriveBy ? 'from' : 'to'} grid points within 40 km of the {arriveBy ? 'destination' : 'origin'}; areas beyond the map are not evaluated.</small> : null}
-    {travelMode === 'bike' ? <><BikeRoutingSettings value={bike} onChange={onBikeChange} arrive={arriveBy} /><small>Routes {arriveBy ? 'from' : 'to'} grid points within 8 km. Times include cycling, pushing and endpoint walks.</small></> : null}
+    {travelMode === 'bike' ? <><BikeRoutingSettings value={bike} onChange={onBikeChange} arrive={arriveBy} /><small>Routes {arriveBy ? 'from' : 'to'} grid points about 330 m apart within 8 km. Times include cycling, pushing and endpoint walks.</small></> : null}
     <div className="reach-time-budget">
       <AnalysisNumberField label="Time budget" value={cutoffMinutes} min={1} max={240} unit="min"
         onChange={value => { if (value !== undefined) onCutoffChange(value) }} />

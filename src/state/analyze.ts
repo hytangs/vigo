@@ -29,6 +29,9 @@ import { shell } from './shell'
 
 const desktopReachRasterSize = 128
 const desktopStreetReachRasterSize = 384
+// Bike cells require verified endpoint walks and occasional exact searches.
+// Keep the interactive preview bounded; callers can request finer API grids.
+const desktopBikeReachRasterSize = 48
 
 export type ReachInspection = ReturnType<typeof useReachInspection>
 
@@ -499,7 +502,7 @@ export async function runSurfaceAnalysis(includeStreetEdges = analyze.get().scen
           ...(settings.reachTravelMode === 'bike' ? {bike:settings.reachBike} : {}),
           surfaceSampling: settings.reachTravelMode !== 'transit' ? 'cell-center' : settings.reachSurfaceSampling,
           radiusKm: settings.reachTravelMode === 'drive' ? 40 : 8,
-          rasterSize: simulationEnabled(settings) ? 96 : settings.reachTravelMode === 'transit' && settings.reachSurfaceSampling === 'street' ? desktopStreetReachRasterSize : desktopReachRasterSize,
+          rasterSize: settings.reachTravelMode === 'bike' ? desktopBikeReachRasterSize : simulationEnabled(settings) ? 96 : settings.reachTravelMode === 'transit' && settings.reachSurfaceSampling === 'street' ? desktopStreetReachRasterSize : desktopReachRasterSize,
           cutoffsMinutes: reachTimeBands(settings.scenarioCutoffMinutes),
           // The final baseline surface is rendered after transit/routing
           // seeds are known. Avoid spending a second full OSM traversal on

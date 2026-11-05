@@ -37,7 +37,7 @@ async function check() {
   fill(field('Endpoint walk limit'), '0.35'); fill(field('Endpoint walking speed'), '4.65')
   const depart = await run()
   assert(depart.mode === 'bike' && depart.bike.profile === 'quiet' && depart.bike.speedKph === 23 && depart.bike.maxLts === 2, 'Bike settings missing')
-  assert(depart.surfaceSampling === 'cell-center' && depart.includeStreetEdges === false && depart.rasterSize === 128 && depart.radiusKm === 8, 'Bike grid settings incorrect')
+  assert(depart.surfaceSampling === 'cell-center' && depart.includeStreetEdges === false && depart.rasterSize === 48 && depart.radiusKm === 8, 'Bike grid settings incorrect')
   assert(depart.maxWalkKm === 0.35 && depart.walkSpeedKph === 4.65 && !depart.monteCarlo, 'Endpoint or simulation settings incorrect')
   const arriveButton = [...document.querySelectorAll<HTMLButtonElement>('.reach-time-preference button')].find(b => b.textContent === 'Arrive by')!
   assert(arriveButton, 'Missing arrive-by'); flushSync(() => arriveButton.click())
@@ -45,6 +45,7 @@ async function check() {
   assert(arrive.timePreference === 'arrive' && arrive.destination.coordinate.join() === '-77.05,38.9' && !arrive.origin, 'Arrive-by place incorrect')
   mode('Transit & walk'); const transit = await run()
   assert(!Object.hasOwn(transit, 'bike'), 'Bike settings leaked into transit')
+  assert(transit.rasterSize === 384, 'Bike preview resolution must not reduce transit resolution')
   mode('Bike'); select('Maximum bicycle traffic stress', ''); const cleared = await run()
   assert(cleared.bike.profile === 'quiet' && cleared.bike.speedKph === 23 && !Object.hasOwn(cleared.bike, 'maxLts'), 'Bike preferences were lost')
   return {status:'passed', requests, checks:['bike preferences','grid extent and resolution','endpoint settings','arrive-by','transit isolation','preserved choices','optional stress ceiling']}
