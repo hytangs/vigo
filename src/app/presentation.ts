@@ -6,6 +6,7 @@ export function shapedRideGeometry(source: string | undefined): boolean {
 }
 
 export function formatRoutingMinutes(minutes: number) {
+  if (minutes > 0 && minutes < 1) return '<1m'
   const rounded = Math.max(0, Math.round(minutes))
   if (rounded < 60) return `${rounded}m`
   const hours = Math.floor(rounded / 60)
@@ -57,7 +58,7 @@ export function routingLegPrimaryLabel(leg: RoutingPlan['legs'][number]) {
   if (leg.type === 'ride') return leg.routeShortName || leg.routeId || 'Transit'
   if (leg.type === 'drive') return 'Drive'
   if (leg.type === 'bike') return 'Bike'
-  if (leg.geometrySource === 'osm-dismount') return 'Walk bike'
+  if (['osm-dismount', 'osm-low-stress'].includes(leg.geometrySource ?? '')) return 'Walk bike'
   if (isSameStationTransfer(leg)) {
     if (leg.transferAction === 'same-route-change' && leg.connectingRouteShortName) {
       return `Change to another ${leg.connectingRouteShortName} at ${leg.toName}`

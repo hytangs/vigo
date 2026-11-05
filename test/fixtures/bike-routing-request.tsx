@@ -21,7 +21,7 @@ const until=async(read:()=>unknown)=>{const deadline=Date.now()+10000;while(Date
 const click=(selector:string)=>{const element=document.querySelector<HTMLButtonElement>(selector);assert(element,'Missing '+selector);flushSync(()=>element!.click())}
 const select=(label:string,value:string)=>{const element=document.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)!;assert(element,'Missing '+label);element.value=value;flushSync(()=>element.dispatchEvent(new Event('change',{bubbles:true})))}
 const input=(label:string,value:string)=>{const element=document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;assert(element,'Missing '+label);Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(element,value);flushSync(()=>element.dispatchEvent(new Event('input',{bubbles:true})))}
-const mode=(label:string)=>{const element=[...document.querySelectorAll<HTMLButtonElement>('.pathfinder-mode-switch button')].find(b=>b.textContent===label);assert(element,'Missing mode '+label);flushSync(()=>element!.click())}
+const mode=(label:string)=>{const element=[...document.querySelectorAll<HTMLButtonElement>('.pathfinder-mode-switch button')].find(b=>b.getAttribute('aria-label')===label);assert(element,'Missing mode '+label);flushSync(()=>element!.click())}
 async function check() {
   await until(()=>document.querySelector('.city-card-open'))
   click('.city-card-open')

@@ -1,5 +1,5 @@
 import { type CSSProperties, type FormEvent, memo, useEffect, useMemo } from 'react'
-import { ArrowRight, Grid2x2, LoaderCircle, Radar, RotateCcw, Waypoints, X } from 'lucide-react'
+import { ArrowRight, Bike, Car, Grid2x2, LoaderCircle, Radar, RotateCcw, TrainFront, Waypoints, X } from 'lucide-react'
 import type { ApiProgress } from '../app/api'
 import { countRender } from '../app/renderCounts'
 import { shallowEqual, useStore } from '../app/store'
@@ -411,8 +411,15 @@ export function AnalyzePanelView({
 
   return (
     <section className="reach-surface" aria-label="Reach analysis controls">
-      <header className="inspector-head reach-analysis-switch">
+      <header className="inspector-head is-compact reach-analysis-switch">
         <strong>Reach</strong>
+        {onTravelModeChange ? <div className="studio-tabs is-icon-only reach-travel-mode" role="group" aria-label="Travel mode">
+          {([['transit', 'Transit & walk', TrainFront], ['drive', 'Drive', Car], ['bike', 'Bike', Bike]] as const).map(([value, label, Icon]) => (
+            <button key={value} type="button" aria-label={label} title={label} aria-pressed={travelMode === value} onClick={() => onTravelModeChange(value)}>
+              <Icon size={18} aria-hidden="true" />
+            </button>
+          ))}
+        </div> : null}
         <button type="button" className="kit-icon-button reach-new" onClick={onClearOrigin} disabled={!origin} aria-label="New Reach" title={`Clear the ${place} and start a new Reach`}>
           <RotateCcw size={15} aria-hidden="true" />
         </button>
@@ -464,7 +471,7 @@ export function AnalyzePanelView({
           </div>
         </div>
 
-        <ReachSettings bike={bike} onBikeChange={onBikeChange} travelMode={travelMode} onTravelModeChange={onTravelModeChange} timePreference={timePreference} cutoffMinutes={cutoffMinutes} maxWalkKm={maxWalkKm} walkSpeedKph={walkSpeedKph}
+        <ReachSettings bike={bike} onBikeChange={onBikeChange} travelMode={travelMode} timePreference={timePreference} cutoffMinutes={cutoffMinutes} maxWalkKm={maxWalkKm} walkSpeedKph={walkSpeedKph}
           maxTransfers={maxTransfers} surfaceSampling={surfaceSampling} hasScenarioChanges={hasPolicyChanges}
           onCutoffChange={onCutoffChange} onMaxWalkKmChange={onMaxWalkKmChange} onWalkSpeedChange={onWalkSpeedChange}
           onMaxTransfersChange={onMaxTransfersChange} onSurfaceSamplingChange={onSurfaceSamplingChange} />

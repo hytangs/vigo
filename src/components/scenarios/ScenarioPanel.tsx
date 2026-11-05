@@ -1,5 +1,5 @@
 import { memo, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { Copy, Navigation2, Plus, Radar, Trash2, TriangleAlert, X } from 'lucide-react'
+import { Check, Copy, Navigation2, Plus, Radar, Trash2, TriangleAlert, X } from 'lucide-react'
 import { maximumScenarioChanges, maximumScenarios } from '../../app/scenarioLibrary'
 import { includeScenarioChange } from '../../state/scenarioEditor'
 import { countRender } from '../../app/renderCounts'
@@ -216,9 +216,9 @@ export const ScenarioPanel = memo(function ScenarioPanel() {
   const scenario = useStudio(activeScenario)
   const network = useStudio(routingNetwork)
   return <section className="scenario-workspace" aria-label="Scenarios">
-    <header className="inspector-head scenario-head">
+    <header className="inspector-head is-compact scenario-head">
       <strong>Scenarios</strong>
-      <span className="scenario-save-state" data-state={library.saveState} role="status">{saveLabels[library.saveState]}</span>
+      <span className="scenario-save-state" data-state={library.saveState} role="status" aria-label={saveLabels[library.saveState]} title={saveLabels[library.saveState]}>{library.saveState === 'saved' ? <Check size={16} aria-hidden="true" /> : saveLabels[library.saveState]}</span>
       {library.saveState === 'error' || library.saveState === 'unavailable' ? <button type="button" className="kit-text-button" onClick={library.retrySave}>Retry</button> : null}
     </header>
     <div className="scenario-body">

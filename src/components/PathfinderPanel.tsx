@@ -436,13 +436,13 @@ export function SidebarPathfinderBox({
   return (
     <section className="pathfinder-query" aria-label="Routing controls">
       <form className="pathfinder-composer" onSubmit={(event) => { event.preventDefault(); if (canRun) onRunRouting() }}>
-        <header className="inspector-head pathfinder-setup-head">
-          <div className="studio-tabs pathfinder-mode-switch" role="group" aria-label="Travel mode">
+        <header className="inspector-head is-compact pathfinder-setup-head">
+          <div className="studio-tabs is-icon-only pathfinder-mode-switch" role="group" aria-label="Travel mode">
             {travelModeChoices.map(([mode, label]) => {
               const Icon = travelModeIcons[mode]
               return (
-                <button key={mode} type="button" onClick={() => onRoutingModeChange(mode)} aria-pressed={routingMode === mode}>
-                  <Icon size={14} aria-hidden="true" /><span>{label}</span>
+                <button key={mode} type="button" onClick={() => onRoutingModeChange(mode)} aria-pressed={routingMode === mode} aria-label={label} title={label}>
+                  <Icon size={18} aria-hidden="true" />
                 </button>
               )
             })}

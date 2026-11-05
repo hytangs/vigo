@@ -1,6 +1,6 @@
 import { Bus, Bike, Car, ChevronRight, Footprints, Ship, TrainFront, TramFront } from 'lucide-react'
 import type { CSSProperties } from 'react'
-import { formatRoutingMinutes, isSameStationTransfer, routingLegColor, routingLegTextColor } from '../app/presentation'
+import { formatRoutingMinutes, isSameStationTransfer, routingLegColor, routingLegPrimaryLabel, routingLegTextColor } from '../app/presentation'
 import { classNames } from '../domain'
 import type { RoutingPlan } from '../routingModel'
 
@@ -28,6 +28,7 @@ export function JourneyLegStrip({ plan, showBar = true }: { plan: RoutingPlan; s
     ]
   })
   const steps = plan.legs.filter((leg) => leg.type === 'ride'
+    || ['osm-dismount', 'osm-low-stress'].includes(leg.geometrySource ?? '')
     || (leg.durationMinutes >= 1 && !isSameStationTransfer(leg)))
   const rides = steps.filter((leg) => leg.type === 'ride')
   // With three or more vehicles, walks keep only their icon so every line fits.
@@ -60,8 +61,9 @@ export function JourneyLegStrip({ plan, showBar = true }: { plan: RoutingPlan; s
                   {leg.routeShortName || leg.routeId || 'Ride'}
                 </span>
               ) : (
-                <span className="pathfinder-leg-walk" title={formatRoutingMinutes(leg.durationMinutes)}>
+                <span className="pathfinder-leg-walk" title={`${routingLegPrimaryLabel(leg)} · ${formatRoutingMinutes(leg.durationMinutes)}`}>
                   {leg.type === 'bike' ? <Bike size={12} /> : leg.type === 'drive' ? <Car size={12} /> : <Footprints size={12} />}
+                  {['osm-dismount', 'osm-low-stress'].includes(leg.geometrySource ?? '') ? 'Walk bike ' : null}
                   {compactWalks ? null : formatRoutingMinutes(leg.durationMinutes)}
                 </span>
               )}

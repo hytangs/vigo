@@ -7,6 +7,10 @@
  * follow with the legend that matches the map.
  */
 
+.reach-analysis-switch > strong { margin-right: auto; }
+.reach-analysis-switch > .reach-travel-mode { flex: 0 1 132px; }
+
+
 .reach-surface { display: flex; flex-direction: column; }
 .reach-form { display: grid; gap: 10px; min-width: 0; padding: 12px var(--panel-pad) 0; }
 .reach-section-kicker { color: var(--text-3); font-size: var(--type-xs); font-weight: 500; }

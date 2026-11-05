@@ -22,6 +22,7 @@
 }
 
 .inspector-head > .studio-tabs { flex: 1 1 auto; }
+.inspector-head.is-compact { min-height: 40px; padding-block: 4px; }
 
 /* Segmented control: workspace views, modes, filters and sort orders. */
 .studio-tabs {
@@ -55,6 +56,8 @@
 
 .studio-tabs > button > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .studio-tabs > button > svg { width: 14px; height: 14px; flex: none; stroke-width: 2; }
+.studio-tabs.is-icon-only > button { min-width: 32px; min-height: 28px; padding-inline: 8px; }
+.studio-tabs.is-icon-only > button > svg { width: 18px; height: 18px; }
 
 .studio-tabs > button:is([aria-selected="true"], [aria-pressed="true"], .is-active) {
   color: var(--text-1);

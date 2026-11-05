@@ -6,11 +6,16 @@ import {
   routingPlanTotalElapsedMinutes,
 } from '../src/app/routingPlan.ts'
 import {
+  formatRoutingMinutes,
   formatRoutingLegDuration,
   routingLegPrimaryLabel,
   routingPlanRouteSequence,
   routingDataModeLabel,
 } from '../src/app/presentation.ts'
+
+assert.equal(formatRoutingMinutes(0), '0m')
+assert.equal(formatRoutingMinutes(0.153), '<1m', 'A short dismount must not appear to take zero time')
+assert.equal(routingLegPrimaryLabel({ type: 'walk', geometrySource: 'osm-dismount' }), 'Walk bike')
 
 const point = (label) => ({ label, coordinate: [0, 0], source: 'stop' })
 const walk = ({

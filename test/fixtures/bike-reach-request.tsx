@@ -17,7 +17,7 @@ const click = (selector: string) => { const element = document.querySelector<HTM
 const fill = (element: HTMLInputElement | null, value: string) => { assert(element, 'Missing input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(element, value); flushSync(() => element!.dispatchEvent(new Event('input', {bubbles:true}))) }
 const field = (name: string) => [...document.querySelectorAll('label')].find(l => l.querySelector('span')?.textContent === name)?.querySelector('input') ?? null
 const select = (label: string, value: string) => { const element = document.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)!; assert(element, 'Missing ' + label); element.value = value; flushSync(() => element.dispatchEvent(new Event('change', {bubbles:true}))) }
-const mode = (label: string) => { const element = [...document.querySelectorAll<HTMLButtonElement>('.reach-travel-mode button')].find(b => b.textContent === label); assert(element, 'Missing mode ' + label); flushSync(() => element!.click()) }
+const mode = (label: string) => { const element = [...document.querySelectorAll<HTMLButtonElement>('.reach-travel-mode button')].find(b => b.getAttribute('aria-label') === label); assert(element, 'Missing mode ' + label); flushSync(() => element!.click()) }
 async function run() {
   const count = requests.length
   click('.reach-run')

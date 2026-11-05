@@ -1,6 +1,5 @@
 import { BikeRoutingSettings } from './BikeRoutingSettings'
 import type { RoutingBikeOptions } from '../routingModel'
-import { Bike, Car, TrainFront } from 'lucide-react'
 import { useId, useState, type CSSProperties } from 'react'
 import type { RoutingTimePreference } from '../routingModel'
 
@@ -42,9 +41,9 @@ export function AnalysisNumberField({ label, value, min, max, unit, integer = fa
 
 const reachBudgetPresets = [15, 30, 45, 60, 90, 120]
 
-export function ReachSettings({ travelMode = 'transit', onTravelModeChange, bike = {profile:'balanced',speedKph:18}, onBikeChange, timePreference = 'depart', cutoffMinutes, maxWalkKm, walkSpeedKph, maxTransfers, surfaceSampling, hasScenarioChanges,
+export function ReachSettings({ travelMode = 'transit', bike = {profile:'balanced',speedKph:18}, onBikeChange, timePreference = 'depart', cutoffMinutes, maxWalkKm, walkSpeedKph, maxTransfers, surfaceSampling, hasScenarioChanges,
   onCutoffChange, onMaxWalkKmChange, onWalkSpeedChange, onMaxTransfersChange, onSurfaceSamplingChange }: {
-  travelMode?: 'transit' | 'drive' | 'bike'; onTravelModeChange?: (value: 'transit' | 'drive' | 'bike') => void
+  travelMode?: 'transit' | 'drive' | 'bike'
   bike?: RoutingBikeOptions; onBikeChange?: (value: RoutingBikeOptions) => void
   timePreference?: RoutingTimePreference
   cutoffMinutes: number; maxWalkKm: number; walkSpeedKph: number; maxTransfers?: number
@@ -56,13 +55,6 @@ export function ReachSettings({ travelMode = 'transit', onTravelModeChange, bike
   // Arrive-by walks first to transit; depart-at walks last from it.
   const arriveBy = timePreference === 'arrive'
   return <section className="reach-settings-list" aria-label="Travel limits">
-    {onTravelModeChange ? <div className="studio-tabs reach-travel-mode" role="group" aria-label="Travel mode">
-      {([['transit', 'Transit & walk', TrainFront], ['drive', 'Drive', Car], ['bike', 'Bike', Bike]] as const).map(([value, label, Icon]) => (
-        <button key={value} type="button" aria-pressed={travelMode === value} onClick={() => onTravelModeChange(value)}>
-          <Icon size={13} aria-hidden="true" /><span>{label}</span>
-        </button>
-      ))}
-    </div> : null}
     {travelMode === 'drive' ? <small>Road-speed estimates, without live traffic. Routes {arriveBy ? 'from' : 'to'} grid points within 40 km of the {arriveBy ? 'destination' : 'origin'}; areas beyond the map are not evaluated.</small> : null}
     {travelMode === 'bike' ? <><BikeRoutingSettings value={bike} onChange={onBikeChange} arrive={arriveBy} /><small>Routes {arriveBy ? 'from' : 'to'} grid points about 330 m apart within 8 km. Times include cycling, pushing and endpoint walks.</small></> : null}
     <div className="reach-time-budget">

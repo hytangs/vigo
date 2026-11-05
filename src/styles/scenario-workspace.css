@@ -10,7 +10,7 @@
 .scenario-workspace { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
 .scenario-head { position: relative; flex: none; display: flex; align-items: center; gap: 8px; }
 .scenario-head > strong { color: var(--text-1); font: 600 var(--type-lg)/1.2 var(--font-ui); letter-spacing: -0.01em; }
-.scenario-save-state { margin-left: auto; color: var(--text-3); font-size: var(--type-xs); }
+.scenario-save-state { display: inline-flex; align-items: center; margin-left: auto; color: var(--text-3); font-size: var(--type-xs); }
 .scenario-save-state[data-state="error"],
 .scenario-save-state[data-state="unavailable"] { color: var(--alert); }
 
