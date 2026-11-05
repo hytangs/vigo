@@ -3562,6 +3562,22 @@ async function preloadNationalBuiltStore({
     requestedServiceDate,
     requestedServiceDay,
   )
+  if (Number(readNationalGtfsStoreMetadata(storePath).featureInventory?.inexactFrequencyCount ?? 0) > 0) {
+    // The legacy departure kernel excludes frequency templates. It cannot
+    // certify a frequency-only or mixed timetable. The import has validated
+    // its source tables; the native City activates these services once its
+    // streets are available, using the same timetable as Route and Reach.
+    await nationalRouteWorkerPool.retire(storePath, { idleOnly: true })
+    return {
+      serviceDate: context.serviceDate,
+      serviceDay: context.serviceDay,
+      requestedServiceDate: context.requestedServiceDate,
+      engine: 'rust_frequency_timetable',
+      nativeTimetableReady: false,
+      deferred: true,
+      reason: 'activate_with_native_city',
+    }
+  }
   for (let attempt = 0; attempt < 3; attempt += 1) {
     Object.assign(job, {
       phase: 'Preloading exact timetable kernel',

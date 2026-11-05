@@ -90,6 +90,7 @@
     "test/check-packaged-studio.mjs"
   ],
   "check:studio-runtime": [
+    "test/check-studio-frequency-import.mjs",
     "test/check-place-name-runtime.mjs",
     "test/check-journey-stops.mjs",
     "test/check-city-refresh.mjs",

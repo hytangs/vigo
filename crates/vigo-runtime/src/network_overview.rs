@@ -122,6 +122,24 @@ fn read(store: &str, scope: &str) -> Result<String, String> {
     db.busy_timeout(Duration::from_secs(5))
         .map_err(|e| e.to_string())?;
     db.execute_batch("BEGIN").map_err(|e| e.to_string())?;
+    // Older Cities may not contain frequency templates. They describe stop
+    // geometry, but their offset clocks are not published departures.
+    let has_headways = !rows(
+        &db,
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='headway_connections'",
+        [],
+    )?
+    .is_empty();
+    let headway_sql =
+        sql::CONNECTIONS.replace("FROM connections AS", "FROM headway_connections AS");
+    let trip_connections = |trip_id: &str| -> Result<(Vec<Value>, bool), String> {
+        let scheduled = rows(&db, sql::CONNECTIONS, [trip_id])?;
+        if scheduled.is_empty() && has_headways {
+            Ok((rows(&db, &headway_sql, [trip_id])?, true))
+        } else {
+            Ok((scheduled, false))
+        }
+    };
     let current = rows(
         &db,
         "SELECT value FROM metadata WHERE key='routeServiceCatalogVersion'",
@@ -162,20 +180,22 @@ fn read(store: &str, scope: &str) -> Result<String, String> {
         else {
             continue;
         };
-        let mut connections = rows(&db, sql::CONNECTIONS, [text(&trip, "trip_id")])?;
+        let (mut connections, mut frequency_template) = trip_connections(text(&trip, "trip_id"))?;
         let mut path_stops = path(&connections);
         if path_stops.len() < 2 {
             for candidate in rows(&db, sql::CANDIDATE_TRIPS, [id])? {
                 if candidate["trip_id"] == trip["trip_id"] {
                     continue;
                 }
-                let candidate_rows = rows(&db, sql::CONNECTIONS, [text(&candidate, "trip_id")])?;
+                let (candidate_rows, candidate_frequency) =
+                    trip_connections(text(&candidate, "trip_id"))?;
                 let candidate_stops = path(&candidate_rows);
                 if candidate_stops.len() < 2 {
                     continue;
                 }
                 trip = candidate;
                 connections = candidate_rows;
+                frequency_template = candidate_frequency;
                 path_stops = candidate_stops;
                 break;
             }
@@ -218,8 +238,16 @@ fn read(store: &str, scope: &str) -> Result<String, String> {
         let last = connections
             .last()
             .map_or(f64::NAN, |r| number(r, "arrival", f64::NAN));
-        let start = number(&stats, "first_departure", first);
-        let end = number(&stats, "last_arrival", last);
+        let start = if frequency_template && stats["first_departure"].is_null() {
+            f64::NAN
+        } else {
+            number(&stats, "first_departure", first)
+        };
+        let end = if frequency_template && stats["last_arrival"].is_null() {
+            f64::NAN
+        } else {
+            number(&stats, "last_arrival", last)
+        };
         let trip_count = number(service, "trip_count", 0.);
         let scheduled = number(&stats, "trip_count", trip_count).max(1.);
         let runtime = number(&stats, "runtime_seconds", 0.).max(0.);
