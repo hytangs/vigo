@@ -56,4 +56,4 @@ try {
     }
   }
   console.log(`Bicycle search matches exhaustive directed-graph optima (${checked} preference/distance-cap cases).`)
-} finally { fs.rmSync(directory,{recursive:true,force:true}) }
+} finally { fs.rmSync(directory,{recursive:true,force:true,maxRetries:20,retryDelay:50}) }

@@ -4,7 +4,6 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync, spawnSync, spawn } from 'node:child_process'
-import { once } from 'node:events'
 import { DatabaseSync } from 'node:sqlite'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 import { standaloneBinary as binary } from './helpers/standalone-runtime.mjs'
@@ -16,9 +15,15 @@ import { serviceEpochSeconds } from '../src/server/gtfs/service-clock.mjs'
 const root = path.resolve(import.meta.dirname, '..')
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-bike-'))
 const city = path.join(directory, 'city')
-const store = path.join(city, 'osm/street-index.sqlite')
+const stores = new Set()
+function streetStore(target) {
+  const file = path.join(target, 'osm/street-index.sqlite')
+  stores.add(file)
+  return file
+}
+const store = streetStore(city)
 const query = { mode: 'bike', origin: [-77.05,38.9], destination: [-77.03,38.91], time: '08:00', maxStreetKm: 10, maxWalkKm: 0.001 }
-let server
+let server, serverClosed
 function run(kind, request, targetCity = city) {
   const child = spawnSync(binary, [kind, '--city', targetCity, '--request', '-'], { input: JSON.stringify(request), encoding: 'utf8' })
   assert.equal(child.status, 0, child.stderr)
@@ -89,7 +94,7 @@ try {
         ...(direction==='backward'?{origin:query.destination,destination:query.origin}:{})}
       assert.equal(run('route',request,target).status,direction===lowDirection?'ok':'not_found',name+direction)
       assert.equal(run('route',{...request,bike:{}},target).status,'ok',name+direction+' access')
-      const node=routeNationalStreetStore(path.join(target,'osm/street-index.sqlite'),{...body,
+      const node=routeNationalStreetStore(streetStore(target),{...body,
         origin:{coordinate:request.origin},destination:{coordinate:request.destination},maxWalkKm:0,bike:request.bike})
       assert.equal(node.status==='ready',direction===lowDirection,name+direction+' Node LTS')
     }
@@ -119,7 +124,7 @@ try {
   const timed = await writeCliFixtureInputs(timedInputs,{bikeConditionalTurn:true})
   execFileSync(process.execPath,['public/vigo.mjs','build',`--gtfs=${timed.gtfsPath}`,`--osm=${timed.osmPath}`,
     '--street-modes=walk,bike',`--output=${timedCity}`],{cwd:root,stdio:['ignore','ignore','pipe']})
-  const timedStore = path.join(timedCity,'osm/street-index.sqlite')
+  const timedStore = streetStore(timedCity)
   const timedDb = new DatabaseSync(timedStore,{readOnly:true})
   assert.equal(timedDb.prepare('SELECT count(*) n FROM bike_turn_windows').get().n,5)
   timedDb.close()
@@ -184,7 +189,7 @@ try {
   const road=await writeCliFixtureInputs(roadInputs,{terminalWayTags:{10:{'bicycle:conditional':'no @ (Mo-Fr 08:00-09:00)'}}})
   execFileSync(process.execPath,['public/vigo.mjs','build',`--gtfs=${road.gtfsPath}`,`--osm=${road.osmPath}`,
     '--street-modes=walk,bike',`--output=${roadCity}`],{cwd:root,stdio:['ignore','ignore','pipe']})
-  const roadStore=path.join(roadCity,'osm/street-index.sqlite')
+  const roadStore=streetStore(roadCity)
   const roadDb=new DatabaseSync(roadStore,{readOnly:true})
   assert.equal(roadDb.prepare('SELECT count(*) n FROM bike_edges').get().n,0)
   assert.equal(roadDb.prepare('SELECT count(*) n FROM bike_timed_edges').get().n,4)
@@ -216,7 +221,7 @@ try {
   const viaFiles=await writeCliFixtureInputs(viaInputs,{bikeConditionalTurn:'via'})
   execFileSync(process.execPath,['public/vigo.mjs','build',`--gtfs=${viaFiles.gtfsPath}`,`--osm=${viaFiles.osmPath}`,
     '--street-modes=walk,bike',`--output=${viaCity}`],{cwd:root,stdio:['ignore','ignore','pipe']})
-  const viaStore=path.join(viaCity,'osm/street-index.sqlite')
+  const viaStore=streetStore(viaCity)
   const viaDb=new DatabaseSync(viaStore,{readOnly:true})
   assert.equal(viaDb.prepare('SELECT count(*) n FROM bike_way_turns').get().n,1)
   assert(viaDb.prepare('SELECT count(*) n FROM bike_turn_windows WHERE turn_table=1').get().n>0)
@@ -262,7 +267,7 @@ try {
   const stressFiles=await writeCliFixtureInputs(stressInputs,{terminalWayTags:{10:{lts:'4'}}})
   execFileSync(process.execPath,['public/vigo.mjs','build',`--gtfs=${stressFiles.gtfsPath}`,`--osm=${stressFiles.osmPath}`,
     '--street-modes=walk,bike',`--output=${stressCity}`],{cwd:root,stdio:['ignore','ignore','pipe']})
-  const stressStore=path.join(stressCity,'osm/street-index.sqlite')
+  const stressStore=streetStore(stressCity)
   const stressDb=new DatabaseSync(stressStore,{readOnly:true})
   assert.equal(stressDb.prepare("SELECT value FROM metadata WHERE key='bikeStressVersion'").get().value,'1')
   assert(stressDb.prepare('SELECT stress FROM bike_edges').all().every(row=>row.stress===12))
@@ -378,7 +383,7 @@ try {
   const detourBounds=[-77.051,38.899,-77.019,38.931]
   const detourCells=Array.from({length:256},(_,i)=>[detourBounds[0]+((i%16)+.5)/16*(detourBounds[2]-detourBounds[0]),
     detourBounds[3]-(Math.floor(i/16)+.5)/16*(detourBounds[3]-detourBounds[1])])
-  const detourStore=path.join(detourCity,'osm/street-index.sqlite')
+  const detourStore=streetStore(detourCity)
   for (const profile of ['quiet','balanced','fast']) for (const time of ['01:00','08:00']) {
     const preferences={mode:'bike',serviceDate:'2026-07-15',time,timePreference:'arrive_by',
       maxWalkKm:0,bike:{profile},destination:[-76.95,38.9]}
@@ -415,7 +420,7 @@ try {
       ...(timed?{'bicycle:conditional':'no @ (Mo-Fr 08:00-09:00)'}:{})}}})
     execFileSync(process.execPath,['public/vigo.mjs','build',`--gtfs=${files.gtfsPath}`,`--osm=${files.osmPath}`,
       '--street-modes=walk,drive,bike',`--output=${target}`],{cwd:root,stdio:['ignore','ignore','pipe']})
-    const targetStore=path.join(target,'osm/street-index.sqlite')
+    const targetStore=streetStore(target)
     const db=new DatabaseSync(targetStore,{readOnly:true})
     const edges=db.prepare(`SELECT * FROM ${timed?'bike_timed_edges':'bike_edges'} WHERE way_id=50`).all()
     assert.equal(edges.length,2)
@@ -446,6 +451,7 @@ try {
   }
   for(const [httpCity,expectedWait,maxLts] of [[timedCity,waiting.journey.waitingSeconds],[roadCity,roadWait.journey.waitingSeconds],[viaCity,viaWait.journey.waitingSeconds],[stressCity,0,1]]) {
   server=spawn(binary,['serve','--city',httpCity,'--port','0'],{env:{PATH:'',VIGO_API_TOKEN:'bike-fixture-token',RAYON_NUM_THREADS:'2'}})
+  serverClosed=new Promise(resolve=>server.once('close',resolve))
   const port=await new Promise((resolve,reject)=>{
     let text=''
     const timer=setTimeout(()=>reject(new Error('Bike HTTP startup timed out')),15000)
@@ -475,11 +481,13 @@ try {
       body:JSON.stringify({...query,bike:{maxLts:invalid}}),signal:AbortSignal.timeout(10000)})
     assert.equal(response.status,400,`Invalid bike.maxLts=${JSON.stringify(invalid)}`)
   }
-  server.kill();await once(server,'exit');server=undefined
+  server.kill();await serverClosed;server=undefined
   }
-  console.log('Bike import, compaction, native/Node/HTTP Route, Matrix and Reach, 5,888 grid/point comparisons including midnight/DST clocks and preference/cutoff trade-offs, ordered/arrive-by routes, lazy shared graph and validation passed.')
 } finally {
-  if(server?.exitCode===null){server.kill();await once(server,'exit')}
-  disposeNationalOsmStore(store)
-  fs.rmSync(directory,{recursive:true,force:true})
+  if(server){if(server.exitCode===null&&server.signalCode===null)server.kill();await serverClosed}
+  // Every fixture opened through the Node adapter owns a cached SQLite reader.
+  // Windows cannot remove the City until all readers have been disposed.
+  for(const file of stores)disposeNationalOsmStore(file)
+  fs.rmSync(directory,{recursive:true,force:true,maxRetries:20,retryDelay:50})
 }
+console.log('Bike import, compaction, native/Node/HTTP Route, Matrix and Reach, 5,888 grid/point comparisons including midnight/DST clocks and preference/cutoff trade-offs, ordered/arrive-by routes, lazy shared graph and validation passed.')

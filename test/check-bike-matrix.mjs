@@ -139,5 +139,5 @@ try {
   console.log(`Bike Matrix: ${pairs} independent Route pairs matched in native and Node time/distance; ${reachPairs} additional Reach cells matched point Route. Three profiles, both directions, timed turns, footpaths, restricted shortcuts and detours, distance caps, duplicates, blocked endpoints and resident graph size passed.`)
 } finally {
   for (const store of stores) disposeNationalOsmStore(store)
-  fs.rmSync(directory, { recursive: true, force: true })
+  fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

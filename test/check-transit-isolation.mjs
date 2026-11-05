@@ -91,5 +91,5 @@ try {
   }
   console.log('Transit isolation: 66 Route/Matrix/Reach/Monte Carlo results unchanged across walk/default/bike Cities; no bike/drive graph loaded; prepared files unchanged.')
 } finally {
-  fs.rmSync(directory, { recursive: true, force: true })
+  fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

@@ -83,4 +83,4 @@ try {
     disposeNationalOsmStore(store)
   }
   console.log('Bicycle pedestrian connectors: disconnected and coincident nodes, verified network geometry, budgets, native/Node Route and Matrix, depart-at and arrive-by passed.')
-} finally {for(const store of stores)disposeNationalOsmStore(store);fs.rmSync(directory,{recursive:true,force:true})}
+} finally {for(const store of stores)disposeNationalOsmStore(store);fs.rmSync(directory,{recursive:true,force:true,maxRetries:20,retryDelay:50})}
