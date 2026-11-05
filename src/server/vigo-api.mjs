@@ -2813,9 +2813,18 @@ async function startNationalOsmImport(projectId, body) {
           } })
         })
         if (job.cancelRequested) return
-        await Promise.all(projectNationalRoutingStorePaths(projectId, project).map((storePath) => (
-          retireRouting(storePath)
-        )))
+        await Promise.all(projectNationalRoutingStorePaths(projectId, project).map(async (storePath) => {
+          await retireRouting(storePath)
+          // Reimport can change the CCH even when the source PBF is unchanged.
+          // Retire its derived access profiles before opening the new streets.
+          const directory = path.dirname(storePath)
+          const prefix = `${path.basename(storePath)}.native-access-profile.`
+          for (const name of await fs.readdir(directory)) {
+            if (name.startsWith(prefix) && name.endsWith('.bin')) {
+              await fs.rm(path.join(directory, name), { force: true })
+            }
+          }
+        }))
         await removeUploadedSource()
         Object.assign(job, { status: 'complete', phase: 'Street index ready', progress: 1, detail: `${message.result.edgeCount.toLocaleString()} walk + ${message.result.driveEdgeCount.toLocaleString()} drive edges`, result: { ...message.result, sourceFile: sourceName }, finishedAt: now(), updatedAt: now() })
         // The import worker exits with its memory. Warm pedestrian access;

@@ -5,6 +5,8 @@ import path from 'node:path'
 import JSZip from 'jszip'
 import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
+import { disposeNationalGtfsStore, prepareNationalGtfsNativeCoordinateAccess } from '../src/server/national-gtfs-store.mjs'
+import { disposeNativeRoutingKernel } from '../src/server/native-routing-kernel.mjs'
 
 const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-studio-frequency-'))
 let runtime
@@ -54,6 +56,15 @@ try {
       // Runtime readers reject its incompatible indexes; an explicit reimport
       // must replace them instead of attempting to reuse that generation.
       const streetDirectory = path.join(directory, 'cities', project.id, '.vigo', 'osm')
+      const routingDirectory = path.join(directory, 'cities', project.id, '.vigo', 'routing')
+      const storePath = path.join(routingDirectory, (await fs.readdir(routingDirectory)).find(name => name.endsWith('.sqlite') && !name.endsWith('.static-topology.sqlite')))
+      const streetPath = path.join(streetDirectory, 'street-index.sqlite')
+      const access = prepareNationalGtfsNativeCoordinateAccess(storePath, streetPath)
+      const staleProfile = await fs.readFile(access.snapshotPath)
+      staleProfile.writeBigUInt64LE(staleProfile.readBigUInt64LE(24) ^ 1n, 24)
+      await fs.writeFile(access.snapshotPath, staleProfile)
+      disposeNationalGtfsStore(storePath)
+      disposeNativeRoutingKernel(streetPath)
       const manifests = (await fs.readdir(streetDirectory)).filter(name => name.endsWith('.manifest.json'))
       assert.equal(manifests.length, 2, 'Both walking and driving indexes were prepared')
       for (const name of manifests) {
@@ -63,6 +74,11 @@ try {
         await fs.writeFile(file, JSON.stringify(manifest))
       }
       await wait((await request(`${base}/national-osm-import`, 'POST', { sourcePath: inputs.osmPath }, 202)).job)
+      const retainedProfile = await fs.readFile(access.snapshotPath).catch(error => {
+        if (error.code !== 'ENOENT') throw error
+        return null
+      })
+      assert(!retainedProfile || !retainedProfile.equals(staleProfile), 'Street replacement must discard access profiles tied to the previous CCH')
     }
     const catalog = (await request(`${base}?detail=catalog`)).project.feeds[0].mapPreview
     assert.deepEqual(catalog.stops.map(stop => stop.id).sort(), ['A', 'B', 'X'], 'Frequency stops must be selectable on the map')
