@@ -30,6 +30,9 @@ try {
     }
   }
   if (!cloned) fs.cpSync(sourcePackage.directory, packaged.directory, { recursive: true, verbatimSymlinks: true, mode: fs.constants.COPYFILE_FICLONE })
+  const landingWordmark = path.join(path.dirname(packaged.program), 'vigo-landing-wordmark.png')
+  assert(fs.existsSync(landingWordmark), 'The empty City library must include its landing wordmark')
+  assert.equal(fs.readFileSync(landingWordmark).subarray(0, 8).toString('hex'), '89504e470d0a1a0a')
   const audit = await auditPackageFiles(path.dirname(path.dirname(packaged.program)), { forbiddenRoots: [root] })
   console.log(JSON.stringify({ packageAudit: audit }))
   const capabilities = JSON.parse(execFileSync(packaged.executable, [packaged.program, 'capabilities'], { env, cwd: isolated, encoding: 'utf8', timeout: 30_000 }))

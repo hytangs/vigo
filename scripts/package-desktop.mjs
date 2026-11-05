@@ -38,7 +38,7 @@ await rm(stagingRoot, { force: true, recursive: true })
 try {
   await mkdir(applicationRoot, { recursive: true })
   const publicFiles = ['index.html', 'main.mjs', 'engine-environment.mjs', 'preload.cjs', 'vigo.mjs', 'assets',
-    'favicon.png', 'vigo-mark-dark.png', 'vigo-mark-transparent.png', 'icons/VIGOIcon.png']
+    'favicon.png', 'vigo-mark-dark.png', 'vigo-mark-transparent.png', 'vigo-landing-wordmark.png', 'icons/VIGOIcon.png']
   const copies = await Promise.allSettled([
     ...publicFiles.map(async name => {
       const destination = path.join(applicationRoot, 'public', name)
