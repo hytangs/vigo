@@ -1633,23 +1633,45 @@ impl BikeKernel {
         continuation: Option<&BikeContinuation>,
         retain_continuation: bool,
     ) -> Result<BikeResult, String> {
-        let r = self.search(
-            origin,
-            destination,
-            opt,
-            starts,
-            ends,
-            max_distance,
-            false,
-            clock,
-            kind,
-            bounds,
-            continuation,
-            retain_continuation,
-        )?;
-        if r.legs.iter().map(|leg| leg.meters).sum::<f64>() <= max_distance {
-            return Ok(r);
-        }
+        // A straight line longer than the limit needs no unconstrained search.
+        let straight_line_over_limit = starts.candidates.len() <= 16
+            && ends.candidates.len() <= 16
+            && starts.candidates.iter().all(|a| {
+                ends.candidates.iter().all(|b| {
+                    let (x, y) = (self.point(a.node), self.point(b.node));
+                    a.walk_meters
+                        + b.walk_meters
+                        + crate::haversine_m(x[0], x[1], y[0], y[1])
+                            * self.minimum_length_ratio
+                            * (1. - 1e-9)
+                        > max_distance
+                })
+            });
+        let r = if straight_line_over_limit {
+            None
+        } else {
+            Some(self.search(
+                origin,
+                destination,
+                opt,
+                starts,
+                ends,
+                max_distance,
+                false,
+                clock,
+                kind,
+                bounds,
+                continuation,
+                retain_continuation,
+            )?)
+        };
+        let first_settled = match r {
+            Some(r) if r.legs.iter().map(|leg| leg.meters).sum::<f64>() <= max_distance => {
+                return Ok(r);
+            }
+            Some(r) => r.settled_labels,
+            None => 0,
+        };
         let mut constrained = self.search(
             origin,
             destination,
@@ -1664,8 +1686,46 @@ impl BikeKernel {
             continuation,
             retain_continuation,
         )?;
-        constrained.settled_labels += r.settled_labels;
+        constrained.settled_labels += first_settled;
         Ok(constrained)
+    }
+
+    /// Exact remaining metres to the destination, ignoring turns and access,
+    /// which can only lower them. A label beyond this bound cannot finish
+    /// within the distance limit.
+    fn meters_to(&self, ends: &Attachment, max_distance: f64) -> Vec<f64> {
+        let mut head = vec![u32::MAX; self.lons.len()];
+        let mut next = vec![u32::MAX; self.targets.len()];
+        for (edge, &node) in self.targets.iter().enumerate() {
+            next[edge] = head[node as usize];
+            head[node as usize] = edge as u32;
+        }
+        let mut meters = vec![f64::INFINITY; self.lons.len()];
+        let mut queue = BinaryHeap::new();
+        for i in 0..ends.candidates.len() {
+            let b = ends.candidate(&self.graph(), i);
+            let value = b.walk_meters + b.drive_meters;
+            if value <= max_distance && value < meters[b.node as usize] {
+                meters[b.node as usize] = value;
+                queue.push(Queue(value, b.node as usize));
+            }
+        }
+        while let Some(Queue(value, node)) = queue.pop() {
+            if value > meters[node] {
+                continue;
+            }
+            let mut edge = head[node];
+            while edge != u32::MAX {
+                let source = self.source(edge) as usize;
+                let candidate = value + self.distances[edge as usize] as f64 / 100.;
+                if candidate <= max_distance && candidate < meters[source] {
+                    meters[source] = candidate;
+                    queue.push(Queue(candidate, source));
+                }
+                edge = next[edge as usize];
+            }
+        }
+        meters
     }
 
     // A dated search may retain cost/time alternatives. An exact lower bound
@@ -1864,7 +1924,24 @@ impl BikeKernel {
         end_nodes.dedup();
         let bounds = (end_nodes.len() > 16)
             .then(|| TargetBounds::new(end_nodes.iter().map(|&node| self.point(node))));
-        let remaining_cost = timed.then(|| self.costs_to(ends, opt, false));
+        // Over the distance limit, cost and distance labels multiply across a
+        // City unless both are bounded. If no start can reach the destination
+        // within the limit, no route exists and no label search is needed.
+        let remaining_meters = constrained.then(|| self.meters_to(ends, max_distance));
+        let can_finish = |node: u32, meters: f64| {
+            remaining_meters
+                .as_ref()
+                .is_none_or(|bound| meters + bound[node as usize] * (1. - 1e-12) <= max_distance)
+        };
+        if winner.is_none()
+            && !starts.candidates.iter().enumerate().any(|(i, _)| {
+                let a = starts.candidate(&self.graph(), i);
+                can_finish(a.node, a.walk_meters + a.drive_meters)
+            })
+        {
+            return Ok(result);
+        }
+        let remaining_cost = (timed || constrained).then(|| self.costs_to(ends, opt, false));
         let remaining_excess =
             (timed && search_bounds.earliest_arrival > 0.).then(|| self.costs_to(ends, opt, true));
         let heuristic = |node: u32| {
@@ -2001,6 +2078,7 @@ impl BikeKernel {
                     a.walk_seconds + a.drive_meters * cost_per_meter
                 };
                 if meters <= max_distance
+                    && can_finish(a.node, meters)
                     && cost + if timed { wait_factor * elapsed } else { 0. } < best
                 {
                     insert(
@@ -2131,6 +2209,7 @@ impl BikeKernel {
                         }
                         >= best
                         || meters > max_distance
+                        || !can_finish(self.targets[edge as usize], meters)
                     {
                         continue;
                     }
