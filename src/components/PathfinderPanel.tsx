@@ -378,13 +378,15 @@ export function SidebarPathfinderBox({
   onClearRouting,
 }: SidebarPathfinderBoxProps) {
   const points = [...(routingOrigin ? [routingOrigin] : []), ...routingWaypoints, ...(routingDestination ? [routingDestination] : [])]
-  const pointRows = points.length < 2 ? [routingOrigin, null] : points
   const pointLimit = publicRouting ? 5 : maxRoutingPointCount
   const mapPointLimitReached = points.length >= pointLimit
+  // A new stop extends the journey: A to B becomes A, B, then C, with an open row for C.
+  const addingStop = routingEnabled && routingPickIndex === null && points.length >= 2 && !mapPointLimitReached
+  const pointRows = points.length < 2 ? [routingOrigin, null] : addingStop ? [...points, null] : points
   const busy = routingActivity.kind === 'loading' || routingActivity.kind === 'preparing'
   const canRun = Boolean(routingOrigin && routingDestination) && !busy
   const pickLabel = routingPickIndex === null || routingPickIndex >= points.length
-    ? points.length === 0 ? 'Pick origin' : points.length === 1 ? 'Pick destination' : 'Pick via point'
+    ? points.length === 0 ? 'Pick origin' : points.length === 1 ? 'Pick destination' : 'Pick next stop'
     : `Repick ${routingPointRoleLabel(routingPickIndex, pointRows.length).toLowerCase()}`
 
   function movePoint(index: number, offset: number) {
@@ -453,7 +455,7 @@ export function SidebarPathfinderBox({
           <div className="pathfinder-location-stack kit-group">
             {pointRows.map((point, index) => {
               const role = index === 0 ? 'From' : index === pointRows.length - 1 ? 'To' : `Via ${index}`
-              const selected = routingEnabled && (routingPickIndex === index || routingPickIndex === null && index === points.length && points.length < 2)
+              const selected = routingEnabled && (routingPickIndex === index || routingPickIndex === null && index === points.length)
               return (
                 <div className={classNames('pathfinder-location-field', selected && 'is-picking')} key={index}>
                   <span className={classNames('pathfinder-location-mark', index === 0 ? 'is-origin' : index === pointRows.length - 1 ? 'is-destination' : 'is-waypoint')} aria-hidden="true" />

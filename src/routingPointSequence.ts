@@ -40,8 +40,3 @@ export function appendRoutingPointSequence(points: RoutingPoint[], point: Routin
   return normalizeOrderedRoutingPoints([...points, point])
 }
 
-export function insertRoutingPointBeforeDestination(points: RoutingPoint[], point: RoutingPoint) {
-  if (points.length >= maxRoutingPointCount) return normalizeOrderedRoutingPoints(points)
-  if (points.length < 2) return appendRoutingPointSequence(points, point)
-  return normalizeOrderedRoutingPoints([...points.slice(0, -1), point, points.at(-1)!])
-}

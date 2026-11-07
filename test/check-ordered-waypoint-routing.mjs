@@ -4,7 +4,6 @@ import { composeOrderedRoutingPlans, validateOrderedRoutingPoints, routeOrderedR
 import { parseRoutingCommand } from '../src/routingCommand.ts'
 import {
   appendRoutingPointSequence,
-  insertRoutingPointBeforeDestination,
   maxRoutingPointCount,
   normalizeOrderedRoutingPoints,
   parseRoutingCoordinate,
@@ -31,15 +30,15 @@ assert.deepEqual(
 )
 assert.deepEqual(picked.map((entry) => entry.coordinate[0]), [-75, -74.9, -74.8, -74.7])
 
-const addedVia = insertRoutingPointBeforeDestination([a, d], c)
+const extended = appendRoutingPointSequence([a, b], c)
 assert.deepEqual(
-  addedVia.map((entry) => entry.label),
+  extended.map((entry) => entry.label),
   ['Starting point', 'Via stop 1', 'Destination'],
 )
 assert.deepEqual(
-  addedVia.map((entry) => entry.coordinate[0]),
-  [-75, -74.8, -74.7],
-  'Adding a map via point must preserve the existing destination as the destination.',
+  extended.map((entry) => entry.coordinate[0]),
+  [-75, -74.9, -74.8],
+  'Adding a stop to A to B must give A, B, C: the new stop becomes the destination.',
 )
 
 const reorderedPicked = normalizeOrderedRoutingPoints([picked[0], picked[2], picked[1], picked[3]])
@@ -70,7 +69,7 @@ for (const invalid of ['Harvard', '91, 0', '0, -181', 'Infinity, 0', '42.3 -71.1
   assert.equal(parseRoutingCoordinate(invalid), null, `Reject invalid coordinate input: ${invalid}`)
 }
 assert.deepEqual(
-  insertRoutingPointBeforeDestination(cappedPicked, a).map(entry => entry.coordinate),
+  appendRoutingPointSequence(cappedPicked, a).map(entry => entry.coordinate),
   cappedPicked.map(entry => entry.coordinate),
   'Adding at the eight-point limit must preserve every existing point.',
 )

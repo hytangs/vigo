@@ -6,6 +6,7 @@ import { emptyCityProject } from '../../src/app/projectState'
 import { city } from '../../src/state/city'
 import { shell, setQuery } from '../../src/state/shell'
 import { route, routingNetwork, routeScenario, clearRouting, selectRoutingPlan, routingPlan, wheelchairSelectionKey, wheelchairAvailable, setRoutingWheelchair } from '../../src/state/route'
+import { pickRoutingPoint, reorderRoutingPoints, routingPointFromMap } from '../../src/state/route'
 import { analyze, analysisPointFromMap, changeReachMaxWalkKm } from '../../src/state/analyze'
 import { scenarioLibrary } from '../../src/state/scenarios'
 import { openProject, openPathfinderView, openAnalyzeView, applyCitySelection } from '../../src/state/navigation'
@@ -135,6 +136,16 @@ window.checkStores = async () => {
   check(document.querySelector('.maplibregl-canvas') === canvas, 'Coordinate search remounted the map')
   window.coordinateSearchEvidence = { origin: [11, 41], destination: [11.01, 41.01], labels: ['New Street & Cross Street', 'Market Square'], center: liveMap.getCenter().toArray() }
   await new Promise(resolve => { window.coordinateSearchCaptured = resolve; window.coordinateSearchScreenshot = true })
+  // Adding a stop extends the journey: A to B becomes A, B, C, with an open row for C.
+  const [stopA, stopB] = [route.get().routingOrigin!, route.get().routingDestination!]
+  flushSync(() => pickRoutingPoint(null))
+  await until(() => document.querySelectorAll('.pathfinder-location-stack input').length === 3, 'Add stop did not open a row for the next stop')
+  const stopC = { coordinate: [11.02, 41.02] as [number, number], label: 'Map point', source: 'map' as const }
+  flushSync(() => routingPointFromMap(stopC))
+  check(route.get().routingOrigin?.coordinate === stopA.coordinate, 'A new stop moved the start')
+  check(route.get().routingWaypoints.length === 1 && route.get().routingWaypoints[0].coordinate === stopB.coordinate, 'The earlier destination should become the stop before the new one')
+  check(route.get().routingDestination?.coordinate === stopC.coordinate, 'A new stop should become the destination')
+  flushSync(() => { reorderRoutingPoints([stopA, stopB]) })
   const ride = { type:'ride', travelMode:'transit', fromName:'Science Park', toName:'Park St',
     fromStopId:'O', toStopId:'B', startMinutes:480, endMinutes:490, durationMinutes:10,
     distanceKm:1.4, stopCount:2, stopIds:['O','A','B'], intermediateStops:[{stopId:'A',name:'North Station'}], routeId:'F', routeShortName:'Green F',
