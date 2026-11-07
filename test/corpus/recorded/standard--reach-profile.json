@@ -197,8 +197,11 @@
         "timing.timetablePreparation.kernelUs": 0,
         "timing.timetablePreparation.linkedCandidatesUs": 0,
         "timing.timetablePreparation.linkedTripsUs": 0,
+        "timing.timetablePreparation.realtimeAlertsUs": 0,
+        "timing.timetablePreparation.realtimeOverlayUs": 0,
         "timing.timetablePreparation.setupUs": 0,
         "timing.timetablePreparation.sourceAndRealtimeUs": 0,
+        "timing.timetablePreparation.sourceReadUs": 0,
         "timing.totalUs": 0
       }
     },

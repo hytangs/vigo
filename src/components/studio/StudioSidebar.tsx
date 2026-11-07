@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { lazy, memo, Suspense, useLayoutEffect, useRef } from 'react'
 import { publicRouting } from '../../app/publicRouting'
 import { countRender } from '../../app/renderCounts'
 import { shallowEqual, useStore } from '../../app/store'
@@ -27,6 +27,7 @@ import {
   route,
   routingActivity,
   routingPlan,
+  routingDetailOpen,
   routingDisplayPoints,
   routingNetwork,
   selectRoutingPlan,
@@ -42,10 +43,12 @@ import {
 } from '../../state/route'
 import { hasActiveOperationsData, routingScope } from '../../state/scope'
 import { shell } from '../../state/shell'
-import { AnalyzePanel } from '../AnalyzePanel'
 import { SidebarPathfinderBox } from '../PathfinderPanel'
 import { PrimaryNav } from '../PrimaryNav'
-import { ScenarioPanel } from '../scenarios/ScenarioPanel'
+
+// Analysis tools load on first use; the public planner needs neither.
+const AnalyzePanel = lazy(() => import('../AnalyzePanel').then(module => ({ default: module.AnalyzePanel })))
+const ScenarioPanel = lazy(() => import('../scenarios/ScenarioPanel').then(module => ({ default: module.ScenarioPanel })))
 
 /** The workspace rail; `hasActiveData` enables Network, Route and Analyze. */
 export const StudioRail = memo(function StudioRail({ hasActiveData }: { hasActiveData: boolean }) {
@@ -70,16 +73,32 @@ export const VigoSidebar = memo(function VigoSidebar({ hasCityData }: { hasCityD
   countRender('VigoSidebar')
   const activeRouteTool = useStore(shell, (state) => state.activeRouteTool)
   const hasActiveData = useStudio(hasActiveOperationsData)
+  const expanded = true
+  const detailsOpen = useStudio(routingDetailOpen)
+  const detailsWereOpen = useRef(detailsOpen)
+  const panelRef = useRef<HTMLElement>(null)
+  useLayoutEffect(() => {
+    const returningToRoutes = detailsWereOpen.current && !detailsOpen
+    detailsWereOpen.current = detailsOpen
+    if (!publicRouting || !expanded || detailsOpen) return
+    const scroller = panelRef.current?.querySelector<HTMLElement>('.pathfinder-query')
+    const results = scroller?.querySelector<HTMLElement>('.pathfinder-outcome')
+    if (!scroller) return
+    const top = returningToRoutes && results
+      ? scroller.scrollTop + results.getBoundingClientRect().top - scroller.getBoundingClientRect().top
+      : 0
+    scroller.scrollTo({ top })
+  }, [expanded, detailsOpen])
   return (
     <aside className="app-sidebar" aria-label="City navigation">
       {publicRouting ? null : <StudioRail hasActiveData={hasCityData} />}
-      {activeRouteTool === 'data' || activeRouteTool === 'agency' ? null : <section className={classNames('sidebar-panel', `is-${activeRouteTool}`)} aria-label="City panel" data-map-occluder>
+      {activeRouteTool === 'data' || activeRouteTool === 'agency' ? null : <section ref={panelRef} className={classNames('sidebar-panel', `is-${activeRouteTool}`)} aria-label="City panel" id="route-controls" data-map-occluder data-mobile-expanded={publicRouting ? expanded : undefined}>
         {!hasActiveData ? (
           <div className="sidebar-empty-note">
             <strong>No routes indexed</strong>
             <span>Load a GTFS ZIP to create route patterns, stops, schedules, and the network map.</span>
           </div>
-        ) : activeRouteTool === 'analyze' ? <AnalyzePanel /> : activeRouteTool === 'scenarios' ? <ScenarioPanel /> : <SidebarRouteBox />}
+        ) : activeRouteTool === 'analyze' ? <Suspense fallback={null}><AnalyzePanel /></Suspense> : activeRouteTool === 'scenarios' ? <Suspense fallback={null}><ScenarioPanel /></Suspense> : <SidebarRouteBox />}
       </section>}
     </aside>
   )

@@ -10,6 +10,7 @@ import type { Appearance, Basemap } from '../domain'
 /** Shell and navigation: preferences, the active page and workspace, search, dialogs. */
 export type ShellState = {
   appearance: Appearance
+  publicPanelExpanded: boolean
   accent: AppAccent
   basemap: Basemap
   health: HealthResponse | null
@@ -46,8 +47,9 @@ export const navigation = { memory: readNavigationMemory() }
 
 const initialShellState = (): ShellState => ({
   appearance: 'dark',
+  publicPanelExpanded: publicRouting,
   accent: 'blue',
-  basemap: 'minimal',
+  basemap: publicRouting ? 'minimal' : 'offline',
   health: null,
   runtimeConfig: null,
   setupOpen: false,
@@ -88,7 +90,10 @@ export function applyRuntimeConfig(config: VigoRuntimeConfig) {
 let preferenceSave: Promise<void> = Promise.resolve()
 
 async function persistRuntimePreferences(next: Partial<Pick<VigoRuntimeConfig, 'appearance' | 'basemap' | 'accent'>>) {
-  if (publicRouting) return
+  if (publicRouting) {
+    try { localStorage.setItem('vigo-public-appearance', shell.get().appearance) } catch {}
+    return
+  }
   if (!shell.get().runtimeConfig) return
   // Serialize partial changes so rapid theme/map choices cannot overwrite
   // each other or restore an earlier library folder.
@@ -106,7 +111,7 @@ async function persistRuntimePreferences(next: Partial<Pick<VigoRuntimeConfig, '
 }
 
 export function changeAppearance(appearance: Appearance) {
-  shell.set({ appearance })
+  shell.set({ appearance, ...(publicRouting ? { basemap: appearance === 'dark' ? 'dark' : 'minimal' } : {}) })
   void persistRuntimePreferences({ appearance })
 }
 

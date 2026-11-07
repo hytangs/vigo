@@ -22,6 +22,29 @@ mod many_to;
 mod matrix;
 #[path = "bike_walk.rs"]
 mod walk;
+
+/// OSM node identifiers come from a prepared City and are looked up millions of
+/// times while opening it; a multiplicative hash replaces SipHash for just this.
+#[derive(Default)]
+pub(crate) struct OsmNodeHasher(u64);
+impl std::hash::Hasher for OsmNodeHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.write_u64(u64::from(byte));
+        }
+    }
+    fn write_u64(&mut self, value: u64) {
+        let mixed = (self.0 ^ value).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        self.0 = mixed ^ (mixed >> 29);
+    }
+    fn write_i64(&mut self, value: i64) {
+        self.write_u64(value as u64);
+    }
+}
+pub(crate) type OsmNodeIds = HashMap<i64, u32, std::hash::BuildHasherDefault<OsmNodeHasher>>;
 // Runtime-only flags in spare attribute bits; never written into City tables.
 const TIMED_EDGE: u32 = 1 << 31;
 const NODE_TURN: u32 = 1 << 30;
@@ -325,7 +348,12 @@ impl BikeKernel {
         Self::read(path).map_err(|e| format!("Cannot open bicycle graph: {e}"))
     }
     fn read(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        // Only this call reads the connection, so SQLite need not lock every
+        // column read of a few million rows.
+        let db = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
         let version: String = db.query_row("SELECT value FROM metadata WHERE key='bikeProfileVersion'", [], |r| r.get(0))
             .map_err(|_| "Bike is not prepared in this City; build with --street-modes=walk,bike or walk,drive,bike")?;
         if version != "1" {
@@ -338,7 +366,7 @@ impl BikeKernel {
         })? as usize;
         let mut lons = Vec::with_capacity(node_count);
         let mut lats = Vec::with_capacity(node_count);
-        let mut ids = HashMap::with_capacity(node_count);
+        let mut ids = OsmNodeIds::with_capacity_and_hasher(node_count, Default::default());
         for row in db
             .prepare("SELECT node_id,lon_e7,lat_e7 FROM bike_nodes ORDER BY node_id")?
             .query_map([], |r| {
@@ -375,10 +403,10 @@ impl BikeKernel {
             })?
             .checked_add(timed_count)
             .ok_or("Too many bicycle edges")? as usize;
-        let mut targets = Vec::with_capacity(edge_count);
-        let mut distances = Vec::with_capacity(edge_count);
-        let mut attributes = Vec::with_capacity(edge_count);
-        let mut ways = Vec::with_capacity(edge_count);
+        let mut targets = vec![0u32; edge_count];
+        let mut distances = vec![0u32; edge_count];
+        let mut attributes = vec![0u32; edge_count];
+        let mut ways = vec![0i64; edge_count];
         let mut edge_windows = HashMap::with_capacity(timed_count as usize);
         let stress_version = match db.query_row(
             "SELECT value FROM metadata WHERE key='bikeStressVersion'",
@@ -394,62 +422,78 @@ impl BikeKernel {
         }
         let stress_prepared = stress_version.is_some();
         let stress = if stress_prepared { "stress" } else { "0" };
-        let sql = if edge_ids.is_empty() {
-            format!(
-                "SELECT from_node,to_node,distance_cm,way_id,attributes,0,{stress} FROM bike_edges ORDER BY from_node,rowid"
-            )
-        } else {
-            format!("SELECT from_node,to_node,distance_cm,way_id,attributes,window_id,stress FROM (
-                SELECT from_node,to_node,distance_cm,way_id,attributes,0 AS window_id,{stress} AS stress,0 AS source,rowid AS sequence FROM bike_edges
-                UNION ALL SELECT from_node,to_node,distance_cm,way_id,attributes,window_id,{stress} AS stress,1 AS source,rowid AS sequence FROM bike_timed_edges
-            ) ORDER BY from_node,source,sequence")
-        };
-        for row in db.prepare(&sql)?.query_map([], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, i64>(1)?,
-                r.get::<_, u32>(2)?,
-                r.get::<_, i64>(3)?,
-                r.get::<_, u32>(4)?,
-                r.get::<_, i64>(5)?,
-                r.get::<_, u8>(6)?,
-            ))
-        })? {
-            let (from, to, distance, way, mut attr, window, stress) = row?;
-            let (&from, &to) = (
-                ids.get(&from).ok_or("Missing bicycle edge source")?,
-                ids.get(&to).ok_or("Missing bicycle edge target")?,
-            );
-            if distance == 0 || attr >> 23 != 0 || ((attr >> 8) & 63) > 60 {
-                return Err("Invalid bicycle edge attributes".into());
+        // Sorting every edge would spill to temporary files. Rowid scans give
+        // the same order within a node: size each node's run, then fill it.
+        let mut sources = vec![format!(
+            "SELECT from_node,to_node,distance_cm,way_id,attributes,0,{stress} FROM bike_edges ORDER BY rowid"
+        )];
+        if !edge_ids.is_empty() {
+            sources.push(format!(
+                "SELECT from_node,to_node,distance_cm,way_id,attributes,window_id,{stress} FROM bike_timed_edges ORDER BY rowid"
+            ));
+        }
+        for sql in &sources {
+            for from in db.prepare(sql)?.query_map([], |r| r.get::<_, i64>(0))? {
+                let from = *ids.get(&from?).ok_or("Missing bicycle edge source")?;
+                offsets[from as usize + 1] = offsets[from as usize + 1]
+                    .checked_add(1)
+                    .ok_or("Too many bicycle edges")?;
             }
-            if stress_prepared {
-                if stress & !15 != 0 || !(1..=4).contains(&(stress & 7)) {
-                    return Err("Invalid bicycle traffic-stress attributes".into());
-                }
-                // Optional prepared data uses spare runtime bits in the existing
-                // edge word. No stress array or per-profile graph is retained.
-                attr |= u32::from(stress) << STRESS_SHIFT;
-            }
-            offsets[from as usize + 1] = offsets[from as usize + 1]
-                .checked_add(1)
-                .ok_or("Too many bicycle edges")?;
-            if window != 0 {
-                edge_windows.insert(
-                    u32::try_from(targets.len())?,
-                    *edge_ids.get(&window).ok_or("Unknown bicycle edge window")?,
-                );
-                attr |= TIMED_EDGE;
-            }
-            targets.push(to);
-            distances.push(distance);
-            attributes.push(attr);
-            ways.push(way);
         }
         for i in 1..offsets.len() {
             offsets[i] = offsets[i]
                 .checked_add(offsets[i - 1])
                 .ok_or("Too many bicycle edges")?;
+        }
+        if offsets[lons.len()] as usize != edge_count {
+            return Err("Inconsistent bicycle edge count".into());
+        }
+        let mut next = offsets.clone();
+        for sql in &sources {
+            for row in db.prepare(sql)?.query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, u32>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, u32>(4)?,
+                    r.get::<_, i64>(5)?,
+                    r.get::<_, u8>(6)?,
+                ))
+            })? {
+                let (from, to, distance, way, mut attr, window, stress) = row?;
+                let (&from, &to) = (
+                    ids.get(&from).ok_or("Missing bicycle edge source")?,
+                    ids.get(&to).ok_or("Missing bicycle edge target")?,
+                );
+                if distance == 0 || attr >> 23 != 0 || ((attr >> 8) & 63) > 60 {
+                    return Err("Invalid bicycle edge attributes".into());
+                }
+                if stress_prepared {
+                    if stress & !15 != 0 || !(1..=4).contains(&(stress & 7)) {
+                        return Err("Invalid bicycle traffic-stress attributes".into());
+                    }
+                    // Optional prepared data uses spare runtime bits in the existing
+                    // edge word. No stress array or per-profile graph is retained.
+                    attr |= u32::from(stress) << STRESS_SHIFT;
+                }
+                let slot = next[from as usize] as usize;
+                if slot >= offsets[from as usize + 1] as usize {
+                    return Err("Inconsistent bicycle edge count".into());
+                }
+                next[from as usize] += 1;
+                if window != 0 {
+                    edge_windows.insert(
+                        u32::try_from(slot)?,
+                        *edge_ids.get(&window).ok_or("Unknown bicycle edge window")?,
+                    );
+                    attr |= TIMED_EDGE;
+                }
+                targets[slot] = to;
+                distances[slot] = distance;
+                attributes[slot] = attr;
+                ways[slot] = way;
+            }
         }
         let mut timed_node_turns = false;
         let mut turns: HashMap<(u32, i64), Vec<NodeTurn>> = HashMap::new();

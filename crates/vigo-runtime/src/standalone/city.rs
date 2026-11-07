@@ -1181,7 +1181,7 @@ impl City {
             let realtime_key = format!(
                 "{:x}",
                 Sha256::digest(serde_json::to_vec(&(
-                    inline,
+                    realtime::routing_identity(inline),
                     live_id,
                     validity,
                     &start_date
@@ -1272,6 +1272,9 @@ impl City {
         let calendar_ms = started.elapsed().as_secs_f64() * 1000.;
         let source_started = std::time::Instant::now();
         let mut source_reused = false;
+        let mut source_read_ms = 0.;
+        let mut realtime_overlay_ms = 0.;
+        let mut realtime_alerts_ms = 0.;
         let mut realtime_trips: Arc<[u32]> = Arc::new([]);
         let mut alerts = None;
         let (mut source, mut names, realtime) = if let Some(source_key) = source_key {
@@ -1291,6 +1294,8 @@ impl City {
                     base
                 }
             };
+            source_read_ms = source_started.elapsed().as_secs_f64() * 1000.;
+            let overlay_started = std::time::Instant::now();
             let input = realtime::Input {
                 snapshot: snapshot.ok_or("Realtime view requires a snapshot")?,
                 start_date: start_date.as_deref(),
@@ -1303,6 +1308,7 @@ impl City {
                 .collect::<std::result::Result<_, _>>()?;
             let overlay =
                 realtime::apply_with_headways(&base.schedule(), &input, clock, now, &headways)?;
+            realtime_overlay_ms = overlay_started.elapsed().as_secs_f64() * 1000.;
             let mut diagnostics = realtime_diagnostics(&overlay, input.snapshot);
             if let Some(live) = live
                 .as_deref()
@@ -1331,6 +1337,7 @@ impl City {
                 }
             }
 
+            let alerts_started = std::time::Instant::now();
             if input.snapshot.get("alerts").is_some() {
                 let parents = &self.transfers_for(&base.names.stop_ids).parents;
                 alerts = realtime::apply_alerts(
@@ -1345,6 +1352,7 @@ impl City {
                 )?
                 .map(Arc::new);
             }
+            realtime_alerts_ms = alerts_started.elapsed().as_secs_f64() * 1000.;
             realtime_trips = compiled.realtime_trip_indices.to_vec().into();
             let arrays = realtime_arrays(compiled, base.arrays.stop_count);
             (arrays, base.names.clone(), diagnostics)
@@ -1465,6 +1473,7 @@ impl City {
             kernel.set_service_semantics(semantics)?;
         }
         self.timetable_preparation_profile = json!({"setupMs":calendar_ms,"sourceAndRealtimeMs":source_ms,"sourceReused":source_reused,
+            "sourceReadMs":source_read_ms,"realtimeOverlayMs":realtime_overlay_ms,"realtimeAlertsMs":realtime_alerts_ms,
             "linkedCandidatesReused":linked_candidates_reused,"linkedCandidatesMs":linked_candidates_ms,"linkedTripsMs":linked_ms,
             "indexMs":index_ms,"kernelMs":kernel_started.elapsed().as_secs_f64()*1000.});
         self.timetable = Some(Timetable {

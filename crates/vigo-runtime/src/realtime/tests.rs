@@ -983,3 +983,48 @@ fn vehicle_prediction_does_not_retime_an_entire_headway_template() {
         assert_eq!(overlay.view.arrival_seconds.to_vec(), vec![200]);
     }
 }
+
+#[cfg(feature = "standalone")]
+#[test]
+fn routing_identity_ignores_display_data_but_tracks_routing_inputs() {
+    let snapshot = json!({"tripUpdates":[],"alerts":[],"feedTimestamp":1000,
+        "incrementality":"FULL_DATASET","timezone":"America/New_York","failedFeeds":0});
+    let identity = |s: &Value| serde_json::to_vec(&super::routing_identity(s)).unwrap();
+    let expected = identity(&snapshot);
+    let mut display = snapshot.clone();
+    display["fetchedAt"] = json!("2026-11-06T00:00:00Z");
+    display["vehicles"] = json!([{"id":"bus","latitude":42.3}]);
+    display["freshness"] = json!({"ageSeconds":10});
+    display["feeds"] = json!([{"fetchedAt":"2026-11-06T00:00:00Z"}]);
+    assert_eq!(expected, identity(&display));
+    for (field, value) in [
+        ("tripUpdates", json!([{"tripId":"t","timestamp":1001}])),
+        ("alerts", json!([{"effect":"NO_SERVICE"}])),
+        ("feedTimestamp", json!(1001)),
+        ("incrementality", json!("DIFFERENTIAL")),
+        ("timezone", json!("UTC")),
+        ("failedFeeds", json!(1)),
+    ] {
+        let mut changed = snapshot.clone();
+        changed[field] = value;
+        assert_ne!(expected, identity(&changed), "{field}");
+    }
+    for invalid in [Value::Null, json!([]), json!(42), json!("invalid")] {
+        assert_ne!(expected, identity(&invalid));
+    }
+}
+
+#[cfg(feature = "standalone")]
+#[test]
+fn routing_identity_keeps_absent_and_invalid_null_fields_distinct() {
+    let snapshot = json!({"tripUpdates":[]});
+    let expected = serde_json::to_vec(&super::routing_identity(&snapshot)).unwrap();
+    for field in ["alerts", "incrementality"] {
+        let mut invalid = snapshot.clone();
+        invalid[field] = Value::Null;
+        assert_ne!(
+            expected,
+            serde_json::to_vec(&super::routing_identity(&invalid)).unwrap()
+        );
+    }
+}

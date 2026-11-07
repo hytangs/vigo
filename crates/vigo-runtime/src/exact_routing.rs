@@ -1140,12 +1140,103 @@ impl DriveKernel {
         Ok((best, candidate_queries))
     }
 
+    /// Exact remaining time and distance from every node to the nearest
+    /// target, within the bounds a useful label can still spend. Together they
+    /// are admissible and consistent bounds for the constrained search.
+    fn remaining_bounds(
+        &self,
+        input: &DriveQueryInput,
+        maximum_time_units: f64,
+        maximum_distance_units: f64,
+    ) -> napi::Result<(Vec<f64>, Vec<f64>)> {
+        let times = self.active_edge_time_units();
+        let mut offsets = vec![0_u32; self.node_count + 1];
+        for edge in 0..self.edge_targets.len() {
+            if times[edge] != cch::INF_WEIGHT {
+                offsets[self.edge_targets[edge] as usize + 1] += 1;
+            }
+        }
+        for node in 0..self.node_count {
+            offsets[node + 1] += offsets[node];
+        }
+        let mut next = offsets.clone();
+        let mut sources = vec![0_u32; offsets[self.node_count] as usize];
+        let mut edges = vec![0_u32; sources.len()];
+        for node in 0..self.node_count {
+            for edge in self.edge_offsets[node] as usize..self.edge_offsets[node + 1] as usize {
+                if times[edge] != cch::INF_WEIGHT {
+                    let slot = &mut next[self.edge_targets[edge] as usize];
+                    sources[*slot as usize] = node as u32;
+                    edges[*slot as usize] = edge as u32;
+                    *slot += 1;
+                }
+            }
+        }
+        let search = |seeds: Vec<(u32, f64)>, limit: f64, weight: &dyn Fn(usize) -> f64| {
+            let mut best = vec![f64::INFINITY; self.node_count];
+            let mut queue = BinaryHeap::new();
+            for (node, value) in seeds {
+                if value <= limit + EPSILON && value < best[node as usize] {
+                    best[node as usize] = value;
+                    queue.push(MinEntry {
+                        key: value,
+                        item: node,
+                    });
+                }
+            }
+            while let Some(MinEntry { key, item }) = queue.pop() {
+                let node = item as usize;
+                if key > best[node] {
+                    continue;
+                }
+                for slot in offsets[node] as usize..offsets[node + 1] as usize {
+                    let value = key + weight(edges[slot] as usize);
+                    let source = sources[slot] as usize;
+                    if value <= limit + EPSILON && value < best[source] {
+                        best[source] = value;
+                        queue.push(MinEntry {
+                            key: value,
+                            item: source as u32,
+                        });
+                    }
+                }
+            }
+            best
+        };
+        let mut time_seeds = Vec::with_capacity(input.target_nodes.len());
+        let mut distance_seeds = Vec::with_capacity(input.target_nodes.len());
+        for (index, (&node, &snap)) in input
+            .target_nodes
+            .iter()
+            .zip(&input.target_snap_meters)
+            .enumerate()
+        {
+            let (distance, time) = snap_units(
+                snap,
+                input.target_snap_seconds.as_ref().map(|s| s[index]),
+                "Drive target snap",
+            )?;
+            time_seeds.push((node, time));
+            distance_seeds.push((node, distance));
+        }
+        Ok((
+            search(time_seeds, maximum_time_units, &|edge| {
+                f64::from(times[edge])
+            }),
+            search(distance_seeds, maximum_distance_units, &|edge| {
+                f64::from(self.edge_distance_units[edge])
+            }),
+        ))
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn offer_label(
         &mut self,
         generation: u32,
         node: usize,
         time: f64,
         distance: f64,
+        key: f64,
         predecessor: i32,
         dominated_labels: &mut u32,
     ) -> napi::Result<Option<u32>> {
@@ -1198,10 +1289,7 @@ impl DriveKernel {
             active: true,
         });
         self.node_head[node] = index as i32;
-        self.queue.push(MinEntry {
-            key: time,
-            item: index,
-        });
+        self.queue.push(MinEntry { key, item: index });
         Ok(Some(index))
     }
 }
@@ -1582,6 +1670,12 @@ impl DriveKernel {
                 self.target_snap_time_units[node] = snap_time_units;
             }
         }
+        // The shortest path is already a feasible answer, so the search only
+        // has to find a faster one. Ordering by time plus remaining time and
+        // discarding labels that cannot beat it or reach the target within the
+        // distance limit keeps the result exact and the search small.
+        let (remaining_time, remaining_distance) =
+            self.remaining_bounds(&input, shortest.time_units, maximum_distance_units)?;
         let mut dominated_labels = 0_u32;
         let mut label_budget_exceeded = false;
         for (index, (&node, &snap)) in input
@@ -1595,7 +1689,11 @@ impl DriveKernel {
                 input.origin_snap_seconds.as_ref().map(|s| s[index]),
                 "Drive origin snap",
             )?;
-            if snap_distance_units > maximum_distance_units + EPSILON {
+            let key = snap_time_units + remaining_time[node as usize];
+            if snap_distance_units + remaining_distance[node as usize]
+                > maximum_distance_units + EPSILON
+                || key > shortest.time_units + EPSILON
+            {
                 continue;
             }
             if self
@@ -1604,6 +1702,7 @@ impl DriveKernel {
                     node as usize,
                     snap_time_units,
                     snap_distance_units,
+                    key,
                     NO_INDEX,
                     &mut dominated_labels,
                 )
@@ -1617,8 +1716,8 @@ impl DriveKernel {
         let mut settled_labels = 0_u32;
         let mut relaxed_edges = 0_u32;
         let mut best_label = NO_INDEX;
-        let mut best_time = f64::INFINITY;
-        let mut best_distance = f64::INFINITY;
+        let mut best_time = shortest.time_units;
+        let mut best_distance = shortest.distance_units;
         let mut best_target_snap = 0.0;
         'fallback_search: while !label_budget_exceeded {
             let Some(entry) = self.queue.pop() else {
@@ -1626,10 +1725,10 @@ impl DriveKernel {
             };
             let label_index = entry.item as usize;
             let label = self.labels[label_index];
-            if !label.active || entry.key.to_bits() != label.time.to_bits() {
+            if !label.active {
                 continue;
             }
-            if label.time > best_time + EPSILON {
+            if entry.key > best_time + EPSILON {
                 break;
             }
             settled_labels = settled_labels.saturating_add(1);
@@ -1657,20 +1756,23 @@ impl DriveKernel {
                 if edge_time_units == cch::INF_WEIGHT {
                     continue;
                 }
+                let target = self.edge_targets[edge] as usize;
                 let distance = label.distance + f64::from(self.edge_distance_units[edge]);
-                if distance > maximum_distance_units + EPSILON {
+                if distance + remaining_distance[target] > maximum_distance_units + EPSILON {
                     continue;
                 }
                 let time = label.time + f64::from(edge_time_units);
-                if time > best_time + EPSILON {
+                let key = time + remaining_time[target];
+                if key > best_time + EPSILON {
                     continue;
                 }
                 if self
                     .offer_label(
                         generation,
-                        self.edge_targets[edge] as usize,
+                        target,
                         time,
                         distance,
+                        key,
                         label_index as i32,
                         &mut dominated_labels,
                     )
@@ -1684,30 +1786,28 @@ impl DriveKernel {
 
         let fallback_query_ns = fallback_started.elapsed().as_nanos() as f64;
         let generated_labels = self.labels.len() as u32;
-        if label_budget_exceeded {
-            self.release_fallback_workspace();
-            return Ok(blocked_drive_result(
-                &started,
-                "exact_drive_label_budget_exceeded",
-                settled_labels,
-                relaxed_edges,
-                generated_labels,
-                dominated_labels,
-                fast_path_query_ns,
-                distance_path_query_ns,
-                fallback_query_ns,
-                true,
-                cch_candidate_queries,
-                &cch_source,
-                &traffic,
-                "rust_cch_candidate_exact_resource_constrained_fallback",
-            ));
-        }
+        // Exhausting the budget leaves the best journey found, which respects
+        // the distance limit but is not proven fastest. The algorithm says so.
+        let algorithm = if label_budget_exceeded {
+            "rust_cch_resource_constrained_budget_incumbent"
+        } else {
+            "rust_cch_candidate_exact_resource_constrained_fallback"
+        };
         if best_label < 0 {
             self.release_fallback_workspace();
-            return Ok(blocked_drive_result(
-                &started,
-                "no_path",
+            return Ok(DriveQueryResult {
+                supported: true,
+                status: "ready".to_owned(),
+                reason: None,
+                distance_meters: Some(shortest.distance_units / DRIVE_DISTANCE_UNITS_PER_METER),
+                duration_seconds: Some(shortest.time_units / DRIVE_TIME_UNITS_PER_SECOND),
+                origin_snap_meters: Some(
+                    shortest.origin_snap_units / DRIVE_DISTANCE_UNITS_PER_METER,
+                ),
+                target_snap_meters: Some(
+                    shortest.target_snap_units / DRIVE_DISTANCE_UNITS_PER_METER,
+                ),
+                node_indices: shortest.nodes,
                 settled_labels,
                 relaxed_edges,
                 generated_labels,
@@ -1715,12 +1815,18 @@ impl DriveKernel {
                 fast_path_query_ns,
                 distance_path_query_ns,
                 fallback_query_ns,
-                true,
+                fallback_used: true,
+                cch_accelerated: true,
                 cch_candidate_queries,
-                &cch_source,
-                &traffic,
-                "rust_cch_candidate_exact_resource_constrained_fallback",
-            ));
+                cch_source,
+                traffic_applied: traffic.applied,
+                traffic_snapshot_key: traffic.snapshot_key,
+                traffic_updated_edges: traffic.updated_edges,
+                traffic_customization_ns: traffic.customization_ns,
+                traffic_metric_reused: traffic.metric_reused,
+                query_ns: started.elapsed().as_nanos() as f64,
+                algorithm: algorithm.to_owned(),
+            });
         }
         let mut node_indices = Vec::new();
         let mut cursor = best_label;
@@ -1762,7 +1868,7 @@ impl DriveKernel {
             traffic_customization_ns: traffic.customization_ns,
             traffic_metric_reused: traffic.metric_reused,
             query_ns: started.elapsed().as_nanos() as f64,
-            algorithm: "rust_cch_candidate_exact_resource_constrained_fallback".to_owned(),
+            algorithm: algorithm.to_owned(),
         })
     }
 

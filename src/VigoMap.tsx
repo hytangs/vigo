@@ -1,3 +1,4 @@
+import { publicRouting } from './app/publicRouting'
 import {
   baseCanvasColor,
   ensureLocalBasemapLayers,
@@ -1682,7 +1683,7 @@ export function VigoMap({
             <small>{mapFailure}</small>
           </span>
         </div>
-      ) : routingFocus && routingPlan?.status !== 'ready' ? (
+      ) : !publicRouting && routingFocus && routingPlan?.status !== 'ready' ? (
         <div className="map-empty" role="status" aria-live="polite">
           {routingPlan?.status === 'blocked' ? (
             <>

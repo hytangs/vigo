@@ -405,12 +405,15 @@ impl City {
             value["distanceMeters"] = json!(distance);
         }
         if geometry && value.get("coordinates").is_none() {
-            value["coordinates"] = json!(
-                coordinates
-                    .iter()
-                    .filter(|c| c.iter().all(|v| v.is_finite()))
-                    .collect::<Vec<_>>()
-            );
+            // An unlocated station endpoint makes the whole source edge
+            // unlocated. Filtering it out leaves a misleading one-point path
+            // in detailed results; the known endpoint remains in `from`/`to`.
+            value["coordinates"] = if coordinates.iter().flatten().all(|v| v.is_finite()) {
+                json!(coordinates)
+            } else {
+                value["stationGeometryStatus"] = json!("incomplete");
+                json!([])
+            };
             if value.get("geometrySource").is_none() {
                 value["geometrySource"] = json!("unverified_transfer");
             }

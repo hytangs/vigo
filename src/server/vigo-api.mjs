@@ -1,3 +1,4 @@
+import { searchAddresses } from './address-search.mjs'
 import { studioWheelchairAccessibility, studioWheelchairAvailability, studioWheelchairSelection } from './studio-wheelchair.mjs'
 import { buildStudioWheelchair, wheelchairBuildSources } from './studio-wheelchair-build.mjs'
 import { routingResultStatus } from './gtfs/route-results.mjs'
@@ -105,7 +106,7 @@ let runtimeConfig = {
   storageRoot: envStorageRoot || defaultStorageRoot(),
   appearance: 'dark',
   accent: 'blue',
-  basemap: 'minimal',
+  basemap: 'offline',
   createdAt: '',
   updatedAt: '',
 }
@@ -233,7 +234,7 @@ function normalizeAccent(value) {
 }
 
 function normalizeBasemap(value) {
-  return ['none', 'offline', 'minimal', 'streets', 'dark', 'terrain'].includes(value) ? value : 'minimal'
+  return ['none', 'offline', 'minimal', 'streets', 'dark', 'terrain'].includes(value) ? value : 'offline'
 }
 
 async function loadRuntimeConfig() {
@@ -4499,6 +4500,14 @@ async function route(request, response) {
           sendJson(response, 409, { error: error.message, library: error.library, revision: error.revision })
         }
       } else sendJson(response, 405, { error: 'Method not allowed.' })
+      return true
+    }
+
+    if (request.method === 'POST' && action === 'address-search') {
+      await readProject(projectId)
+      const body = await readBody(request)
+      // Typing a place contacts a geocoder only once online maps are chosen.
+      sendJson(response, 200, await searchAddresses(body.query, undefined, { remote: !['offline', 'none'].includes(runtimeConfig.basemap) }))
       return true
     }
 

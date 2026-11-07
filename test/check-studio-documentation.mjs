@@ -34,7 +34,7 @@ await until(() => evaluate('Boolean(document.querySelector("#settings-tab-docume
 await evaluate('document.querySelector("#settings-tab-documentation").click()');
 await until(() => evaluate('Boolean(document.querySelector("iframe")?.contentDocument?.querySelector("#chapters"))')).catch(async error => { throw Error(error.message + await evaluate('document.body.innerText + document.querySelector("iframe")?.src')) });
 const guide = await evaluate('document.querySelector("iframe").src');
-assert.match(guide, /^vigo:\\/\\/studio\\/assets\\/guide\\.html/);
+assert.match(guide, /^vigo:\\/\\/studio\\/assets\\/guide-[^.]+\\.html/);
 assert.equal(new URL(guide).searchParams.get('embedded'), '1');
 // One bundled guide covers Studio, the engine reference, and the HTTP API.
 await evaluate('document.querySelector("iframe").contentDocument.querySelector("[data-nav=http-api]").click()');

@@ -116,6 +116,8 @@ From a source checkout, point them at `target/release/vigo` and `public/vigo.mjs
 
 **VIGO Studio** is the desktop workspace. It imports GTFS and OSM into its own project library and opens this guide offline under **Settings → Documentation**. See the [Studio guide](#vigo-studio-desktop-guide).
 
+macOS Studio builds are ad hoc signed, not notarized. If macOS blocks the first launch, verify the download's checksum, then choose **Open Anyway** under **System Settings → Privacy & Security**.
+
 **VIGO Python** is versioned separately. Install the wheel for your platform, then follow [your first Python query](../python/docs/guide.md#your-first-python-query).
 
 ### Supported platforms
@@ -1024,7 +1026,7 @@ Route clocks and leg durations still describe the chosen timetable journey, and 
 
 GTFS-realtime `StopTimeEvent.uncertainty` has no defined statistical meaning, and an omitted value means unknown. It must not become a standard deviation or a 90% interval without a validated, provider-specific model. See the [GTFS realtime reference](https://gtfs.org/documentation/realtime/reference/#message-stoptimeevent).
 
-For a Boston calibration study, start with the [MBTA LAMP exports and their data dictionary](https://github.com/mbta/lamp/blob/main/Data_Dictionary.md) and [TransitMatters Gobble](https://github.com/transitmatters/gobble). These are potential inputs; VIGO does not download or fit them. A credible next stage would retain historical forecasts and outcomes, match the exact feed revision and trip instance, estimate errors by route, direction, time of day, and lead time, and validate on later dates with coverage reporting. Same-vehicle and shared-corridor delays are correlated, so multiplying marginal transfer probabilities is not a journey probability. Probability-driven routing would need its own search and calibration contract.
+For a Boston calibration study, start with the [MBTA LAMP exports and their data dictionary](https://github.com/mbta/lamp/blob/main/Data_Dictionary.md). This is a potential input; VIGO does not download or fit it. A credible next stage would retain historical forecasts and outcomes, match the exact feed revision and trip instance, estimate errors by route, direction, time of day, and lead time, and validate on later dates with coverage reporting. Same-vehicle and shared-corridor delays are correlated, so multiplying marginal transfer probabilities is not a journey probability. Probability-driven routing would need its own search and calibration contract.
 
 ### Reproduce the implemented contract
 
@@ -1251,7 +1253,7 @@ Trips declared by GTFS-RT `ADDED` or `NEW` appear in the line view and the **Tri
 
 #### Verification and references
 
-`test/check-agency-route-line.mjs` and `test/check-added-service-display.mjs` run with `npm run check:agency`. They cover both directions, branches, repeated and terminal stops, conflicting sequences, stale and future positions, skipped and no-data predictions, and added trips; they verify fixture behavior, not field accuracy. The interaction design drew on [TransitMatters Train Tracker](https://traintracker.transitmatters.org/) and [Swiftly's Live Operations overview](https://swiftly.zendesk.com/hc/en-us/articles/360043691571-Live-Operations-Overview); no implementation or assets were copied. Matching follows the [GTFS Realtime reference](https://gtfs.org/documentation/realtime/reference/).
+`test/check-agency-route-line.mjs` and `test/check-added-service-display.mjs` run with `npm run check:agency`. They cover both directions, branches, repeated and terminal stops, conflicting sequences, stale and future positions, skipped and no-data predictions, and added trips; they verify fixture behavior, not field accuracy. The interaction design drew on [Swiftly's Live Operations overview](https://swiftly.zendesk.com/hc/en-us/articles/360043691571-Live-Operations-Overview); no implementation or assets were copied. Matching follows the [GTFS Realtime reference](https://gtfs.org/documentation/realtime/reference/).
 
 ### Evidence limits
 

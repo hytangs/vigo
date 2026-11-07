@@ -129,6 +129,7 @@ One searchable, offline guide, [`docs/guide.html`](docs/guide.html): the page th
 - [Read a Result](docs/reference/results.md) and [walking evidence](docs/reference/walking-evidence.md): what each answer establishes.
 - [VIGO Python](python/README.md), with a [walkthrough notebook](python/examples/walkthrough.ipynb).
 - [Developer resources](docs/developer.md#developer-resources): architecture, performance measurement and routing accuracy.
+- [Public route planner](docs/guides/public-routing.md): serve routing-only access to prepared Cities through a restricted gateway.
 
 ## VIGO 1.0.0-rc.4
 

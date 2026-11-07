@@ -11,7 +11,7 @@
 use super::{Result, TimetableNames, fail, local_id, same_id};
 use serde_json::{Map, Value, json};
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 const MAXIMUM_ALERTS: usize = 10_000;
 const MAXIMUM_ENTITIES: usize = 10_000;
@@ -39,6 +39,48 @@ struct Selector {
     direction: Option<String>,
     trips: Option<Vec<u32>>,
     stops: Option<Vec<u32>>,
+}
+
+/// Resolve station descendants once per snapshot instead of scanning every
+/// City stop for each informed entity. Entries retain ascending stop order.
+struct StopIndex<'a> {
+    names: HashMap<&'a str, Vec<u32>>,
+}
+impl<'a> StopIndex<'a> {
+    fn new(names: &'a TimetableNames, parents: &[u32]) -> Self {
+        let mut index: HashMap<&str, Vec<u32>> = HashMap::new();
+        for child in 0..names.stop_ids.len() {
+            let mut current = child;
+            for _ in 0..4 {
+                let name = names.stop_ids[current].as_str();
+                index.entry(name).or_default().push(child as u32);
+                if name.contains('\u{1f}') {
+                    index.entry(local_id(name)).or_default().push(child as u32);
+                }
+                match parents.get(current) {
+                    Some(&parent) if parent != u32::MAX => current = parent as usize,
+                    _ => break,
+                }
+            }
+        }
+        for children in index.values_mut() {
+            children.dedup();
+        }
+        Self { names: index }
+    }
+    fn select(&self, stop: &str, scope: Option<&str>, names: &TimetableNames) -> Vec<u32> {
+        self.names
+            .get(stop)
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|&child| {
+                scope.is_none_or(|scope| {
+                    names.stop_ids[child as usize].split('\u{1f}').next() == Some(scope)
+                })
+            })
+            .collect()
+    }
 }
 
 /// The compiled view's mutable service and the arrays that locate it.
@@ -133,6 +175,7 @@ impl Alerts {
             return fail(format!("Realtime snapshot exceeds {MAXIMUM_ALERTS} alerts"));
         }
         let mut alerts = vec![];
+        let stop_index = OnceLock::new();
         let (mut stale, mut unsupported, mut entities) = (0, 0, 0);
         for record in records {
             if !record.is_object() {
@@ -163,7 +206,7 @@ impl Alerts {
                         "Realtime alerts exceed {MAXIMUM_ENTITIES} informed entities"
                     ));
                 }
-                match Self::selector(entity, record, names, parents) {
+                match Self::selector(entity, record, names, parents, &stop_index) {
                     Some(selector) => selectors.push(selector),
                     None => unsupported += 1,
                 }
@@ -193,11 +236,12 @@ impl Alerts {
         })
     }
 
-    fn selector(
+    fn selector<'a>(
         entity: &Value,
         record: &Value,
-        names: &TimetableNames,
+        names: &'a TimetableNames,
         parents: &[u32],
+        stop_index: &OnceLock<StopIndex<'a>>,
     ) -> Option<Selector> {
         let mut selector = Selector {
             scope: text(&record["sourceScope"]),
@@ -217,30 +261,12 @@ impl Alerts {
             selector.trips = Some(trips);
         }
         if let Some(stop) = text(&entity["stopId"]) {
-            // A station selects its own platforms, entrances and nodes, within
-            // the alert's static feed when it names one.
-            let scope = selector.scope.as_deref();
-            let selected = |index: usize| {
-                if scope.is_some_and(|s| names.stop_ids[index].split('\u{1f}').next() != Some(s)) {
-                    return false;
-                }
-                let mut current = index;
-                for _ in 0..4 {
-                    if same_id(&stop, &names.stop_ids[current]) {
-                        return true;
-                    }
-                    match parents.get(current) {
-                        Some(&parent) if parent != u32::MAX => current = parent as usize,
-                        _ => return false,
-                    }
-                }
-                false
-            };
+            // Scope still selects the child's feed, including unscoped and
+            // qualified identifiers and the same four-level parent limit.
             selector.stops = Some(
-                (0..names.stop_ids.len())
-                    .filter(|&i| selected(i))
-                    .map(|i| i as u32)
-                    .collect(),
+                stop_index
+                    .get_or_init(|| StopIndex::new(names, parents))
+                    .select(&stop, selector.scope.as_deref(), names),
             );
         }
         // A direction only qualifies a route, and an agency is not resolvable.
@@ -410,6 +436,58 @@ mod tests {
             &mut json!({"alerts":{}}),
         );
         (board, alight)
+    }
+
+    #[test]
+    fn indexed_stop_selectors_match_bounded_parent_walks() {
+        let names = names();
+        let n = names.stop_ids.len();
+        let mut keys = names
+            .stop_ids
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        keys.extend(["P", "S1", "S2", "missing"]);
+        // Exhaust every parent assignment, including cycles, self parents,
+        // cross-feed parents and chains beyond the four-level bound.
+        for mut code in 0..(n + 1).pow(n as u32) {
+            let parents = (0..n)
+                .map(|_| {
+                    let parent = code % (n + 1);
+                    code /= n + 1;
+                    if parent == n { u32::MAX } else { parent as u32 }
+                })
+                .collect::<Vec<_>>();
+            let index = StopIndex::new(&names, &parents);
+            for stop in &keys {
+                for scope in [None, Some("a"), Some("b"), Some("missing")] {
+                    let expected = (0..n)
+                        .filter(|&child| {
+                            if scope.is_some_and(|s| {
+                                names.stop_ids[child].split('\u{1f}').next() != Some(s)
+                            }) {
+                                return false;
+                            }
+                            let mut current = child;
+                            for _ in 0..4 {
+                                if same_id(stop, &names.stop_ids[current]) {
+                                    return true;
+                                }
+                                match parents.get(current) {
+                                    Some(&parent) if parent != u32::MAX => {
+                                        current = parent as usize
+                                    }
+                                    _ => break,
+                                }
+                            }
+                            false
+                        })
+                        .map(|i| i as u32)
+                        .collect::<Vec<_>>();
+                    assert_eq!(index.select(stop, scope, &names), expected);
+                }
+            }
+        }
     }
 
     #[test]

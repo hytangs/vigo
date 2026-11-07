@@ -26,6 +26,12 @@ export class ApiRequestError extends Error {
 }
 
 async function throwApiError(response: Response): Promise<never> {
+  if (response.headers.get('X-Vigo-Offline') === '1'
+    && typeof document !== 'undefined' && document.documentElement.dataset.vigoPublicCity) {
+    // The edge serves this page even when the routing host is unreachable.
+    // Do not redirect for request limits, a geocoder failure, or Studio errors.
+    window.location.replace('/offline')
+  }
   const body = await response.json().catch(() => null) as {
     error?: string
     status?: ApiRoutingStatus

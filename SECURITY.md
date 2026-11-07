@@ -1,13 +1,14 @@
 # Security policy
 
-VIGO is pre-release software and does not yet publish a supported-version
-window. The project is designed for local analysis on data the operator is
-authorized to use; it is not a hosted service or a hardened multi-tenant
-deployment.
+Security fixes go to the latest VIGO release; update to it before reporting.
+VIGO is designed for analysis on data the operator is authorized to use. It is
+not a hardened multi-tenant service. The optional
+[public route planner](docs/guides/public-routing.md) exposes routing only,
+through a restricted gateway.
 
 ## Safe operating boundary
 
-- Keep the local HTTP API on its loopback bind address. Do not expose it to an
+- Keep the Studio API on its loopback bind address. Do not expose it to an
   untrusted network.
 - Treat GTFS, OSM, GTFS-Realtime URLs, release archives, and generated stores as
   input data, not as trusted code.
@@ -17,9 +18,11 @@ deployment.
   code owns that boundary; those limits do not make arbitrary source files or
   third-party feeds trustworthy.
 
-The executable rejects non-loopback binding unless the explicit development
-escape hatch `VIGO_UNSAFE_ALLOW_NON_LOOPBACK=1` is set. That flag is not a
-deployment recommendation. GTFS-Realtime retrieval applies URL and response
+`vigo serve` rejects a non-loopback bind without a `VIGO_API_TOKEN` of at least
+16 characters. The Studio API has no remote authentication and rejects
+non-loopback binding unless the explicit development escape hatch
+`VIGO_UNSAFE_ALLOW_NON_LOOPBACK=1` is set; that flag is not a deployment
+recommendation. GTFS-Realtime retrieval applies URL and response
 size/address checks; `VIGO_UNSAFE_ALLOW_PRIVATE_REALTIME=1` is likewise a
 local-development escape hatch.
 

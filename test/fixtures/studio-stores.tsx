@@ -119,12 +119,14 @@ window.checkStores = async () => {
   const namedFits = cameraFits
   const rawOrigin = route.get().routingOrigin
   placeRequests[1].reply(['New Street & Cross Street', 'Market Square'])
-  await until(() => document.querySelector('.pathfinder-location-stack')?.textContent.includes('New Street & Cross Street'), 'Coordinate labels did not resolve in the real sidebar')
-  check(document.body.textContent.includes('Market Square'), 'Destination name missing')
+  // Chosen places are shown in the address inputs, whose values are not text content.
+  const locationText = () => [...document.querySelectorAll<HTMLInputElement>('.pathfinder-location-stack input')].map(input => input.value).join(' ')
+  await until(() => locationText().includes('New Street & Cross Street'), 'Coordinate labels did not resolve in the real sidebar')
+  check(locationText().includes('Market Square'), 'Destination name missing')
   check(route.get().routingOrigin === rawOrigin, 'Naming replaced the engine input')
   firstNames.reply(['Old Street', 'Old destination'])
   await pause(100)
-  check(!document.body.textContent.includes('Old Street'), 'An older search replaced the displayed location')
+  check(!locationText().includes('Old Street'), 'An older search replaced the displayed location')
   check(cameraFits === namedFits, 'A label-only response moved the camera again')
   search('41,11 to 41.01,11.01')
   await until(() => cameraFits > namedFits, 'Resubmitting a journey did not focus already-visible endpoints')

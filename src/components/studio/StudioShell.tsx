@@ -1,4 +1,4 @@
-import { ArrowLeft, XCircle } from 'lucide-react'
+import { ArrowLeft, XCircle, Moon, Sun, ExternalLink } from 'lucide-react'
 import { publicRouting } from '../../app/publicRouting'
 import { memo, useDeferredValue, useMemo } from 'react'
 import type { PreparationTask } from '../../app/preparation'
@@ -15,13 +15,14 @@ import {
   openDataView,
   runCommandCenter,
   showProjects,
+  openProject,
   submitProjectDialog,
   submitSetup,
 } from '../../state/navigation'
 import { reconnectPreparation } from '../../state/preparation'
 import { closeRoutingDetails, routingDetailOpen, routingPlan } from '../../state/route'
 import { preview, selectedProject, storageRecoveryRequired, visiblePreparationTasks } from '../../state/scope'
-import { setApiError, setBackgroundTasksOpen, setQuery, shell } from '../../state/shell'
+import { setApiError, setBackgroundTasksOpen, setQuery, shell, changeAppearance } from '../../state/shell'
 import { BackgroundTasks } from '../BackgroundTasks'
 import { RoutingDetailPanel } from '../PathfinderPanel'
 import { FirstRunSetupDialog, ProjectEditorDialog } from '../ProjectDialogs'
@@ -57,6 +58,8 @@ const StudioBackgroundTasks = memo(function StudioBackgroundTasks() {
 
 export const StudioTopbar = memo(function StudioTopbar() {
   const page = useStore(shell, (state) => state.page)
+  const appearance = useStore(shell, state => state.appearance)
+  const projects = useStore(city, state => state.projects)
   const projectId = useStudio(() => selectedProject().id)
   const tool = useStore(shell, state => state.activeRouteTool)
   const title = useStudio(() => {
@@ -72,7 +75,12 @@ export const StudioTopbar = memo(function StudioTopbar() {
           <VigoBrandMark />
         </button>}
         <div className="topbar-brand-copy">
-          <b>{title}</b>
+          {publicRouting && projects.length ? <label className="public-city-picker">
+            <select aria-label="City" value={projectId} onChange={event => {
+              openProject(event.target.value)
+              const url = new URL(location.href); url.searchParams.set('city', event.target.value); history.replaceState(null, '', url)
+            }}>{projects.map(project => <option key={project.id} value={project.id}>{quietMapLabel(project.name)}</option>)}</select>
+          </label> : <b>{title}</b>}
           {page === 'project' && tool !== 'data' ? <span className="topbar-crumb">{tool === 'pathfinder' ? 'Route' : tool === 'analyze' ? 'Analyze' : tool === 'scenarios' ? 'Scenarios' : 'Network'}</span> : null}
         </div>
       </div>
@@ -80,6 +88,11 @@ export const StudioTopbar = memo(function StudioTopbar() {
       {publicRouting ? null : <StudioSearch />}
 
       <div className="topbar-actions">
+        {publicRouting ? <button type="button" className="public-theme-toggle" aria-label={appearance === 'dark' ? 'Switch to day mode' : 'Switch to night mode'}
+          aria-pressed={appearance === 'dark'} onClick={() => changeAppearance(appearance === 'dark' ? 'light' : 'dark')}>
+          {appearance === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+        </button> : null}
+        {publicRouting ? <a className="public-site-link" href="https://vigo.city" aria-label="VIGO website" title="VIGO website"><ExternalLink size={18} /></a> : null}
         {!publicRouting && page === 'project' ? <StudioBackgroundTasks key={projectId} /> : null}
         {!publicRouting && page === 'project' ? (
           <button

@@ -1,3 +1,4 @@
+import { publicRouting } from '../app/publicRouting'
 import { caseFeedSelection } from '../app/cityDataGroups'
 import type { RouteScenarioRequest } from '../app/useNationalRouting'
 import type { ScenarioDraft } from '../reach'
@@ -352,6 +353,7 @@ function refreshPointNames() {
 }
 
 export function pickRoutingPoint(index: number | null) {
+  if (publicRouting) shell.set({ publicPanelExpanded: true })
   if (index === null && routingPoints().length >= maxRoutingPointCount) return
   route.set({ routingPickIndex: index, routingPointError: '', routingEnabled: true })
   setActiveRouteTool('pathfinder')
