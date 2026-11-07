@@ -54,6 +54,7 @@ impl ReverseEdges {
             edges,
         }
     }
+    #[cfg(all(feature = "standalone", not(feature = "node")))]
     fn heap_bytes(&self) -> usize {
         (self.offsets.capacity() + self.sources.capacity() + self.edges.capacity())
             * std::mem::size_of::<u32>()

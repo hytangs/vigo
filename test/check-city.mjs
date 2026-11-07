@@ -89,7 +89,9 @@ try {
     const result = spawnSync(process.execPath, [
       path.join(import.meta.dirname, 'helpers/city-publish-crash.mjs'), template, output, marker, crashAt,
     ], { encoding: 'utf8' })
-    assert.equal(result.signal, 'SIGKILL', result.stderr)
+    // Windows reports no signal; the process still ends without finishing publication.
+    if (process.platform === 'win32') assert.notEqual(result.status, 0, result.stderr)
+    else assert.equal(result.signal, 'SIGKILL', result.stderr)
   }
 
   // A crash between the two renames loses the path but neither City.
@@ -178,7 +180,8 @@ try {
   }
   try {
     const first = createCityStagingDirectory(nestedOutput)
-    for (const directory of [path.dirname(nestedOutput), path.join(root, 'new-parent'), root]) {
+    // Windows has no flushable directory handle, so only files are flushed there.
+    for (const directory of process.platform === 'win32' ? [] : [path.dirname(nestedOutput), path.join(root, 'new-parent'), root]) {
       assert(steps.some(([kind, target]) => kind === 'flush' && target === directory), `New ancestor not flushed: ${directory}`)
     }
     writePackage(first, 'first')
@@ -195,7 +198,7 @@ try {
   const [, , publishedTo] = steps[firstRename + 1]
   assert.equal(publishedTo, nestedOutput)
   const flushedBeforeRename = steps.slice(0, firstRename).map(([, target]) => path.basename(target))
-  for (const name of ['project.sqlite', 'street-index.sqlite', 'routing', 'osm']) assert(flushedBeforeRename.includes(name), `${name} not flushed before publication`)
+  for (const name of ['project.sqlite', 'street-index.sqlite', ...(process.platform === 'win32' ? [] : ['routing', 'osm'])]) assert(flushedBeforeRename.includes(name), `${name} not flushed before publication`)
   assert.equal(
     flushedBeforeRename.filter(name => name === 'network.json' || name === 'network-link.json').length,
     1,
@@ -203,7 +206,7 @@ try {
   )
   const removal = steps.findIndex(([kind, target]) => kind === 'remove' && target.includes('.vigo-removing-'))
   const parentFlush = steps.findIndex(([kind, target], index) => index > firstRename + 1 && kind === 'flush' && target === path.dirname(nestedOutput))
-  assert(parentFlush !== -1 && parentFlush < removal, 'The new path must be on disk before the old City is removed.')
+  if (process.platform !== 'win32') assert(parentFlush !== -1 && parentFlush < removal, 'The new path must be on disk before the old City is removed.')
 
   console.log('Atomic City publication passed.')
 } finally {
