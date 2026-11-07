@@ -933,6 +933,7 @@ pub fn format_owned(kind: &str, request: &Value, mut raw: Value) -> Value {
             let selected: Vec<bool> = choices
                 .as_array()
                 .map_or(vec![], |items| items.iter().map(|c| c == &*plan).collect());
+            let best_found = plan["diagnostics"]["distanceLimitSearch"] == "best_found";
             out["journey"] = route_journey(plan, &endpoints, geometry);
             if out["journey"].is_null() {
                 out["status"] = json!("not_found");
@@ -948,6 +949,13 @@ pub fn format_owned(kind: &str, request: &Value, mut raw: Value) -> Value {
                     .any(|l| l["quality"]["stationPath"] == "inferred");
                 if inferred {
                     out["warnings"] = json!([{"code":"station_path_inferred","message":"Part of this journey uses inferred station access; physical passage is not fully verified."}]);
+                }
+                if best_found {
+                    let warning = json!({"code":"distance_limit_shortest_route","message":"This route fits the distance limit but may not be the best one for this preference; raise the limit for a full comparison."});
+                    match out["warnings"].as_array_mut() {
+                        Some(warnings) => warnings.push(warning),
+                        None => out["warnings"] = json!([warning]),
+                    }
                 }
             }
             if let Some(window) = window {

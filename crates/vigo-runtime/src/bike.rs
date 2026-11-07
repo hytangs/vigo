@@ -45,6 +45,10 @@ impl std::hash::Hasher for OsmNodeHasher {
     }
 }
 pub(crate) type OsmNodeIds = HashMap<i64, u32, std::hash::BuildHasherDefault<OsmNodeHasher>>;
+// Above every edge's time cost, so the search's lower bounds stay admissible.
+const SHORTEST_COST_PER_METER: f64 = 1.;
+// Bounded by remaining distance and cost; a search this large rarely finishes.
+const MAX_CONSTRAINED_LABELS: usize = 500_000;
 // Runtime-only flags in spare attribute bits; never written into City tables.
 const TIMED_EDGE: u32 = 1 << 31;
 const NODE_TURN: u32 = 1 << 30;
@@ -59,6 +63,10 @@ pub(crate) enum Profile {
     Balanced,
     Fast,
     Quiet,
+    // Internal: prefers the fewest metres when a distance limit is too tight to
+    // search every trade-off. Requests cannot select it.
+    #[serde(skip)]
+    Shortest,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -240,6 +248,8 @@ pub(crate) struct BikeResult {
     pub destination_road_meters: Option<f64>,
     pub unsupported_restrictions: u64,
     pub timing_policy: &'static str,
+    #[serde(skip)]
+    pub distance_limit_best_found: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_lts: Option<u8>,
     #[serde(skip)]
@@ -1099,6 +1109,9 @@ impl BikeKernel {
     fn metric(&self, edge: u32, opt: BikeOptions) -> (f64, f64) {
         let a = self.attributes[edge as usize];
         if self.dismount(edge, opt) {
+            if matches!(opt.profile, Profile::Shortest) {
+                return (3.6 / 4.0, SHORTEST_COST_PER_METER);
+            }
             return (
                 3.6 / 4.0,
                 3.6 / 4.0
@@ -1129,6 +1142,7 @@ impl BikeKernel {
             Profile::Fast => 1.,
             Profile::Balanced => 0.8 + stress + surface as f64 * 0.08,
             Profile::Quiet => 0.8 + stress * 2.5 + surface as f64 * 0.12,
+            Profile::Shortest => return (3.6 / speed, SHORTEST_COST_PER_METER),
         };
         let seconds = 3.6 / speed;
         (seconds, seconds * factor)
@@ -1672,7 +1686,7 @@ impl BikeKernel {
             Some(r) => r.settled_labels,
             None => 0,
         };
-        let mut constrained = self.search(
+        let mut constrained = match self.search(
             origin,
             destination,
             opt,
@@ -1685,7 +1699,38 @@ impl BikeKernel {
             bounds,
             continuation,
             retain_continuation,
-        )?;
+        ) {
+            Ok(result) => result,
+            // Too many trade-offs to prove the best route: a route within the
+            // limit still answers the request, and reports what it is.
+            Err(error) if error.contains("work limit") => {
+                let mut shortest = self.search(
+                    origin,
+                    destination,
+                    BikeOptions {
+                        profile: Profile::Shortest,
+                        ..opt
+                    },
+                    starts,
+                    ends,
+                    max_distance,
+                    false,
+                    clock,
+                    kind,
+                    bounds,
+                    continuation,
+                    retain_continuation,
+                )?;
+                if shortest.status != "ready"
+                    || shortest.legs.iter().map(|leg| leg.meters).sum::<f64>() > max_distance
+                {
+                    return Err(error);
+                }
+                shortest.distance_limit_best_found = true;
+                shortest
+            }
+            Err(error) => return Err(error),
+        };
         constrained.settled_labels += first_settled;
         Ok(constrained)
     }
@@ -1854,6 +1899,7 @@ impl BikeKernel {
             temporal_valid: true,
             continuation: None,
             max_lts: opt.max_lts,
+            distance_limit_best_found: false,
         };
         if starts.candidates.is_empty() || ends.candidates.is_empty() {
             result.reason = Some("no_bike_attachment");
@@ -2116,7 +2162,15 @@ impl BikeKernel {
                 continue;
             }
             result.settled_labels += 1;
-            if labels.len() > if timed { 262_144 } else { 2_000_000 } {
+            if labels.len()
+                > if timed {
+                    262_144
+                } else if constrained {
+                    MAX_CONSTRAINED_LABELS
+                } else {
+                    2_000_000
+                }
+            {
                 return Err(if timed {
                     "Dated bicycle search exceeded its 262144-label work limit; shorten the route or distance limit"
                 } else {
@@ -2720,6 +2774,14 @@ mod tests {
 
     const STRESS_COLUMNS: &str = "INSERT INTO metadata VALUES('bikeStressVersion','1');
         ALTER TABLE bike_edges ADD COLUMN stress INTEGER NOT NULL DEFAULT 9;";
+
+    #[test]
+    fn requests_cannot_select_the_internal_shortest_profile() {
+        for profile in ["fast", "balanced", "quiet"] {
+            assert!(serde_json::from_value::<Profile>(serde_json::json!(profile)).is_ok());
+        }
+        assert!(serde_json::from_value::<Profile>(serde_json::json!("shortest")).is_err());
+    }
 
     #[test]
     fn stress_ceiling_selects_legal_cycling_detours_or_pushing_without_changing_default() {
@@ -4385,6 +4447,7 @@ mod tests {
                                         Profile::Fast => 1.,
                                         Profile::Balanced => 0.8 + stress,
                                         Profile::Quiet => 0.8 + 2.5 * stress,
+                                        Profile::Shortest => unreachable!(),
                                     };
                                     time += seconds;
                                     cost += seconds * factor;
@@ -4450,6 +4513,7 @@ mod tests {
                                         Profile::Fast => 1.,
                                         Profile::Balanced => 0.8 + stress,
                                         Profile::Quiet => 0.8 + 2.5 * stress,
+                                        Profile::Shortest => unreachable!(),
                                     };
                                     time -= seconds;
                                     cost += seconds * factor;

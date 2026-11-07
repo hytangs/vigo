@@ -2070,6 +2070,10 @@ impl City {
             "unsupportedRestrictions":r.unsupported_restrictions, "elevationModel":"osm_incline_only",
             "timingPolicy":r.timing_policy});
         let mut diagnostics = diagnostics;
+        if r.distance_limit_best_found {
+            diagnostics["distanceLimitSearch"] = json!("best_found");
+            diagnostics["preferenceCost"] = Value::Null;
+        }
         if let Some(limit) = r.max_lts {
             diagnostics["trafficStress"] = json!({"model":"osm_estimated_lts_v1",
                 "maximumCyclingLevel":limit,"aboveLimit":"walk_if_permitted"});

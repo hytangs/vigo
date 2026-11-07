@@ -39,6 +39,8 @@ flushSync(() => root.render(<App />))
 const assert = (condition, message) => { if (!condition) throw Error(message) }
 const until = async read => { const deadline = Date.now() + 5000; while (Date.now() < deadline) { if (read()) return; await new Promise(resolve => setTimeout(resolve, 20)) } throw Error('Fixture timed out') }
 window.checkAppSettings = async () => {
+  // The library view loads on first use; the held project read keeps it in this state.
+  await until(() => document.querySelector('.city-library-loading'))
   assert(document.querySelector('.city-library-loading')?.textContent.includes('Loading Cities'), 'Initial City loading state is missing')
   assert(!document.querySelector('.city-library-empty'), 'Unread library shown as empty')
   releaseProjectRead()
