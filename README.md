@@ -131,13 +131,13 @@ One searchable, offline guide, [`docs/guide.html`](docs/guide.html): the page th
 - [Developer resources](docs/developer.md#developer-resources): architecture, performance measurement and routing accuracy.
 - [Public route planner](docs/guides/public-routing.md): serve routing-only access to prepared Cities through a restricted gateway.
 
-## VIGO 1.0.0-rc.4
+## VIGO 1.0.0-rc.5
 
 **A faster engine. From build to route.**
 
 VIGO's next chapter brings City compilation, scenario computation and routing into one shared Rust-native engine, built for faster network preparation, larger analyses and the applications you want to create. Follow it at [vigo.city](https://vigo.city/).
 
-Compatible prepared Cities remain readable in V1 without rebuilding; API 1.0, City format 1, and Result schema 1 are unchanged. [Release notes](docs/releases/1.0.0-rc.4.md) · [Changelog](CHANGELOG.md) · [Prepared-data contract](docs/reference/city-format.md)
+Compatible prepared Cities remain readable in V1 without rebuilding; API 1.0, City format 1, and Result schema 1 are unchanged. [Release notes](docs/releases/1.0.0-rc.5.md) · [Changelog](CHANGELOG.md) · [Prepared-data contract](docs/reference/city-format.md)
 
 ## Contribute
 

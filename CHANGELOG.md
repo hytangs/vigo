@@ -1,5 +1,17 @@
 # Version history
 
+## 1.0.0-rc.5
+
+- Answer bicycle routes when a tight distance limit leaves too many trade-offs to prove the preferred route: return the shortest route within the limit with a `distance_limit_shortest_route` warning instead of an error. Report no route at once when no start can finish within the limit.
+- Start constrained drives from the feasible shortest path with exact remaining bounds. Long limits no longer search for seconds and report a false `not_found`; short limits keep their earlier speed.
+- Load the bicycle graph without an on-disk sort, about halving cold load time with identical answers.
+- Add a new stop to the end of a journey (A, B, then C) instead of before the destination.
+- Flush a finished City before publishing it and keep the old City until the new one is on disk. The next build or Node CLI query restores or finishes an interrupted replacement; signals remove unpublished builds.
+- Run only the head query against a City's process, so a cancelled queued query never runs.
+- Public route planner: local SQLite address index on a worker thread, an offline edge page, immutable hashed assets with ETag revalidation, a security-policy header and per-IP read limits.
+- Studio restores the offline default basemap, contacts a geocoder only once online maps are chosen, and loads secondary views on first use.
+- API 1.0, City format 1 and Result schema 1 are unchanged.
+
 ## 1.0.0-rc.4
 
 - Add optional bicycle Route and Matrix, with balanced, quiet and fast preferences, separate preference cost and ETA, bicycle access/contraflow, surfaces, mapped incline, dismount legs, and node/via-way turn restrictions.

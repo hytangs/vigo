@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.0rc5
+
+- Publish Python metadata as `1.0.0rc5` (PEP 440), corresponding to Engine `1.0.0-rc.5`. Bundled wheels include the engine's faster bounded bicycle and driving searches and crash-safe City replacement.
+- The Python API and defaults are unchanged.
+
 ## 1.0.0rc4
 
 - Add opt-in Bike Route, Matrix and Reach, with profile, speed and stress options, and bike-enabled City builds. Existing build defaults stay unchanged.

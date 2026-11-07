@@ -1,7 +1,7 @@
 {
   "name": "vigo",
   "private": true,
-  "version": "1.0.0-rc.4",
+  "version": "1.0.0-rc.5",
   "description": "Build, inspect, and query city transport networks from GTFS, GTFS-RT, and OSM.",
   "license": "Apache-2.0",
   "repository": {
