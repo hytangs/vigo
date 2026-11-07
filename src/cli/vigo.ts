@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { performance } from 'node:perf_hooks'
 import { once } from 'node:events'
 import { createInterface } from 'node:readline'
@@ -30,6 +30,9 @@ import {
 import {
   createCityStagingDirectory,
   publishCity,
+  recoverCityPublication,
+  syncDirectory,
+  syncDirectoryTree,
   validateCityDirectory,
 } from '../city.mjs'
 import {
@@ -300,13 +303,19 @@ async function routeOne(
     profileSampleCount: trace.window?.sampleCount ?? 0, openMs, elapsedMs: performance.now() - startedAt }
 }
 
+// Only a City missing from its path can need repair, so ordinary queries never write.
+function openCity(cityPath: string) {
+  if (!fs.existsSync(cityPath)) recoverCityPublication(cityPath)
+  return validateCityDirectory(cityPath)
+}
+
 function resolveRuntimePaths(args: CliArguments) {
   const cityValue = value(args, 'city')
   if (!cityValue) throw new Error('a query requires --city')
   const cityPath = path.resolve(cityValue)
   const storePath = path.join(cityPath, 'routing', 'project.sqlite')
   const streetCandidate = path.join(cityPath, 'osm', 'street-index.sqlite')
-  const manifest = validateCityDirectory(cityPath) as Record<string, unknown>
+  const manifest = openCity(cityPath) as Record<string, unknown>
   if (!fs.existsSync(storePath)) throw new Error(`City timetable is missing: ${storePath}`)
   return {
     storePath,
@@ -1325,6 +1334,33 @@ function rawCompilerConcurrency(gtfsBytes: number, osmBytes: number) {
   }
 }
 
+const runningCompilers = new Set<ChildProcess>()
+
+// Signals and early exits skip `finally`, so remove unpublished work here. The
+// next build sweeps whatever SIGKILL or a crash leaves (recoverCityPublication).
+function removeOnTermination(directory: string) {
+  const remove = () => {
+    for (const child of runningCompilers) child.kill()
+    try {
+      fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
+    } catch { /* Swept by the next build. */ }
+  }
+  const signalHandlers = (['SIGINT', 'SIGTERM', 'SIGHUP'] as const).map((signal) => {
+    const handler = () => {
+      remove()
+      // The handler is gone, so this ends the process with its usual signal status.
+      process.kill(process.pid, signal)
+    }
+    process.once(signal, handler)
+    return [signal, handler] as const
+  })
+  process.once('exit', remove)
+  return () => {
+    process.removeListener('exit', remove)
+    for (const [signal, handler] of signalHandlers) process.removeListener(signal, handler)
+  }
+}
+
 function startJsonCompiler(command: string, compilerArguments: string[], label: string) {
   const startedAt = performance.now()
   const cliPath = path.resolve(process.argv[1])
@@ -1335,9 +1371,13 @@ function startJsonCompiler(command: string, compilerArguments: string[], label: 
   ], {
     stdio: ['ignore', 'pipe', 'inherit', 'ipc'],
   })
+  runningCompilers.add(child)
   const stopChild = () => { child.kill() }
   process.once('exit', stopChild)
-  child.once('close', () => process.removeListener('exit', stopChild))
+  child.once('close', () => {
+    runningCompilers.delete(child)
+    process.removeListener('exit', stopChild)
+  })
   let stdout = ''
   let settled = false
   child.stdout!.setEncoding('utf8')
@@ -1476,6 +1516,7 @@ async function runBuildScenarios(args: CliArguments) {
   const outputValue = value(args, 'output')
   if (!outputValue.trim()) throw new Error('build-scenarios requires --output')
   const output = path.resolve(outputValue)
+  recoverCityPublication(output)
   if (fs.existsSync(output)) throw new Error('Scenario collection already exists; build to a new directory.')
   if (spec.schemaVersion !== 'vigo.scenarios.source.v1' || !Array.isArray(spec.scenarios)
       || spec.scenarios.length < 1 || spec.scenarios.length > 128) throw new Error('Expected vigo.scenarios.source.v1 with 1 to 128 scenarios.')
@@ -1517,6 +1558,7 @@ async function runBuildScenarios(args: CliArguments) {
   const defaultScenario = String(spec.defaultScenario ?? scenarios[0].id)
   if (!seen.has(defaultScenario)) throw new Error('Unknown defaultScenario.')
   const staged = createCityStagingDirectory(output)
+  const stopWatchingStaged = removeOnTermination(staged)
   try {
     fs.mkdirSync(path.join(staged, 'cities'))
     let firstCity = ''
@@ -1533,7 +1575,8 @@ async function runBuildScenarios(args: CliArguments) {
       ], `Scenario ${scenario.id}`)
       const result = await compiler.outcome
       if ('error' in result) throw result.error
-      publishCity(compilerStage, cityPath)
+      // The whole collection is flushed once, before it is published.
+      publishCity(compilerStage, cityPath, { durable: false })
       if (!firstCity) {
         const shared = path.join(staged, 'streets', osm.sha256)
         const local = path.join(cityPath, 'osm')
@@ -1576,9 +1619,14 @@ async function runBuildScenarios(args: CliArguments) {
     }
     await inventory(staged)
     fs.writeFileSync(path.join(staged, 'checksums.json'), JSON.stringify({ schemaVersion: 'vigo.checksums.v1', algorithm: 'sha256', files }, null, 2) + '\n')
+    syncDirectoryTree(staged)
     fs.renameSync(staged, output)
+    syncDirectory(path.dirname(output))
     process.stdout.write(JSON.stringify({ ...manifest, storageBytes: [...physicalFiles.values()].reduce((sum, file) => sum + file.bytes, 0), sharedStreetCopies: 1 }, null, 2) + '\n')
-  } finally { fs.rmSync(staged, { recursive: true, force: true }) }
+  } finally {
+    stopWatchingStaged()
+    fs.rmSync(staged, { recursive: true, force: true })
+  }
 }
 
 async function runBuildCity(args: CliArguments) {
@@ -1588,11 +1636,13 @@ async function runBuildCity(args: CliArguments) {
   if (outputDirectory === path.parse(outputDirectory).root) {
     throw new Error('City output cannot be a filesystem root')
   }
+  recoverCityPublication(outputDirectory)
   const replaceExisting = enabled(args, 'replace')
   if (fs.existsSync(outputDirectory) && !replaceExisting) {
     throw new Error(`City already exists; pass --replace to replace it: ${outputDirectory}`)
   }
   const stagingDirectory = createCityStagingDirectory(outputDirectory)
+  const stopWatchingStaging = removeOnTermination(stagingDirectory)
   try {
     // Native memory mappings outlive JavaScript cache eviction. Compile in a
     // child and wait for its close event before renaming the directory so all
@@ -1616,6 +1666,7 @@ async function runBuildCity(args: CliArguments) {
     publishCity(stagingDirectory, outputDirectory, { replace: replaceExisting })
     process.stdout.write(`${JSON.stringify(outcome.result, null, 2)}\n`)
   } finally {
+    stopWatchingStaging()
     fs.rmSync(stagingDirectory, { recursive: true, force: true })
   }
 }
@@ -1960,7 +2011,7 @@ function runInspect(args: CliArguments) {
   const cityValue = value(args, 'city')
   if (!cityValue) throw new Error('inspect requires --city; use vigo capabilities for runtime support')
   const cityPath = path.resolve(cityValue)
-  const city = validateCityDirectory(cityPath) as Record<string, any>
+  const city = openCity(cityPath) as Record<string, any>
   writeJsonResult(formatPublicResult('info', {}, {
     datasetLimitations: readNationalGtfsStoreMetadata(path.join(cityPath, 'routing', 'project.sqlite')).routingLimitations ?? [],
     schemaVersion: 'vigo.city.inspect.v1',
