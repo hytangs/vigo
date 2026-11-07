@@ -4504,7 +4504,7 @@ async function route(request, response) {
     }
 
     if (request.method === 'POST' && action === 'address-search') {
-      await readProject(projectId)
+      await readProjectMetadata(projectId)
       const body = await readBody(request)
       // Typing a place contacts a geocoder only once online maps are chosen.
       sendJson(response, 200, await searchAddresses(body.query, undefined, { remote: !['offline', 'none'].includes(runtimeConfig.basemap) }))

@@ -18,8 +18,47 @@ const EPSILON: f64 = 1e-9;
 const NO_INDEX: i32 = -1;
 const MAX_DRIVE_LABELS: usize = 8_000_000;
 const RETAINED_DRIVE_LABEL_CAPACITY: usize = 262_144;
+// A small search settles most nearby answers before preparing bounds.
+const FALLBACK_PROBE_LABELS: usize = 8_192;
 const DRIVE_TIME_UNITS_PER_SECOND: f64 = 100.0;
 const DRIVE_DISTANCE_UNITS_PER_METER: f64 = 100.0;
+
+struct ReverseEdges {
+    offsets: Vec<u32>,
+    sources: Vec<u32>,
+    edges: Vec<u32>,
+}
+impl ReverseEdges {
+    fn new(node_count: usize, edge_offsets: &[u32], edge_targets: &[u32]) -> Self {
+        let mut offsets = vec![0_u32; node_count + 1];
+        for &target in edge_targets {
+            offsets[target as usize + 1] += 1;
+        }
+        for node in 0..node_count {
+            offsets[node + 1] += offsets[node];
+        }
+        let mut next = offsets.clone();
+        let mut sources = vec![0_u32; edge_targets.len()];
+        let mut edges = vec![0_u32; edge_targets.len()];
+        for node in 0..node_count {
+            for edge in edge_offsets[node] as usize..edge_offsets[node + 1] as usize {
+                let slot = &mut next[edge_targets[edge] as usize];
+                sources[*slot as usize] = node as u32;
+                edges[*slot as usize] = edge as u32;
+                *slot += 1;
+            }
+        }
+        Self {
+            offsets,
+            sources,
+            edges,
+        }
+    }
+    fn heap_bytes(&self) -> usize {
+        (self.offsets.capacity() + self.sources.capacity() + self.edges.capacity())
+            * std::mem::size_of::<u32>()
+    }
+}
 
 #[derive(Clone, Copy)]
 struct MinEntry {
@@ -761,6 +800,8 @@ pub struct DriveKernel {
     generation: u32,
     labels: Vec<DriveLabel>,
     queue: BinaryHeap<MinEntry>,
+    // Incoming edges, built by the first constrained search that needs bounds.
+    reverse_edges: Option<ReverseEdges>,
 }
 
 impl DriveKernel {
@@ -833,7 +874,11 @@ impl DriveKernel {
             + (self.target_snap_distance_units.capacity() + self.target_snap_time_units.capacity())
                 * 8
             + self.labels.capacity() * std::mem::size_of::<DriveLabel>()
-            + self.queue.capacity() * std::mem::size_of::<MinEntry>();
+            + self.queue.capacity() * std::mem::size_of::<MinEntry>()
+            + self
+                .reverse_edges
+                .as_ref()
+                .map_or(0, ReverseEdges::heap_bytes);
         let mut traffic = self.traffic_edge_time_units.capacity() * 4;
         let mapped = match &self.cch {
             DriveCch::Persisted(c) => {
@@ -1144,34 +1189,24 @@ impl DriveKernel {
     /// target, within the bounds a useful label can still spend. Together they
     /// are admissible and consistent bounds for the constrained search.
     fn remaining_bounds(
-        &self,
+        &mut self,
         input: &DriveQueryInput,
         maximum_time_units: f64,
         maximum_distance_units: f64,
     ) -> napi::Result<(Vec<f64>, Vec<f64>)> {
+        if self.reverse_edges.is_none() {
+            self.reverse_edges = Some(ReverseEdges::new(
+                self.node_count,
+                &self.edge_offsets,
+                &self.edge_targets,
+            ));
+        }
         let times = self.active_edge_time_units();
-        let mut offsets = vec![0_u32; self.node_count + 1];
-        for edge in 0..self.edge_targets.len() {
-            if times[edge] != cch::INF_WEIGHT {
-                offsets[self.edge_targets[edge] as usize + 1] += 1;
-            }
-        }
-        for node in 0..self.node_count {
-            offsets[node + 1] += offsets[node];
-        }
-        let mut next = offsets.clone();
-        let mut sources = vec![0_u32; offsets[self.node_count] as usize];
-        let mut edges = vec![0_u32; sources.len()];
-        for node in 0..self.node_count {
-            for edge in self.edge_offsets[node] as usize..self.edge_offsets[node + 1] as usize {
-                if times[edge] != cch::INF_WEIGHT {
-                    let slot = &mut next[self.edge_targets[edge] as usize];
-                    sources[*slot as usize] = node as u32;
-                    edges[*slot as usize] = edge as u32;
-                    *slot += 1;
-                }
-            }
-        }
+        let ReverseEdges {
+            offsets,
+            sources,
+            edges,
+        } = self.reverse_edges.as_ref().unwrap();
         let search = |seeds: Vec<(u32, f64)>, limit: f64, weight: &dyn Fn(usize) -> f64| {
             let mut best = vec![f64::INFINITY; self.node_count];
             let mut queue = BinaryHeap::new();
@@ -1190,7 +1225,11 @@ impl DriveKernel {
                     continue;
                 }
                 for slot in offsets[node] as usize..offsets[node + 1] as usize {
-                    let value = key + weight(edges[slot] as usize);
+                    let edge = edges[slot] as usize;
+                    if times[edge] == cch::INF_WEIGHT {
+                        continue;
+                    }
+                    let value = key + weight(edge);
                     let source = sources[slot] as usize;
                     if value <= limit + EPSILON && value < best[source] {
                         best[source] = value;
@@ -1423,6 +1462,7 @@ impl DriveKernel {
             generation: 0,
             labels: Vec::new(),
             queue: BinaryHeap::new(),
+            reverse_edges: None,
         })
     }
 
@@ -1640,148 +1680,179 @@ impl DriveKernel {
             ));
         }
 
-        let generation = self.next_generation();
+        // The shortest path is already a feasible answer, so the search only has
+        // to find a faster one. A nearby answer is settled by a small search.
+        // Otherwise, ordering by time plus remaining time and discarding labels
+        // that cannot beat it or reach the target within the distance limit
+        // keeps the result exact and the search small.
         let fallback_started = Instant::now();
-        for (index, (&node, &snap)) in input
-            .target_nodes
-            .iter()
-            .zip(&input.target_snap_meters)
-            .enumerate()
-        {
-            let (snap_distance_units, snap_time_units) = snap_units(
-                snap,
-                input.target_snap_seconds.as_ref().map(|s| s[index]),
-                "Drive target snap",
-            )?;
-            if snap_distance_units > maximum_distance_units + EPSILON {
-                continue;
-            }
-            let node = node as usize;
-            if self.target_generation[node] != generation
-                || drive_value_better(
-                    snap_time_units,
-                    snap_distance_units,
-                    self.target_snap_time_units[node],
-                    self.target_snap_distance_units[node],
-                )
+        let mut bounds: Option<(Vec<f64>, Vec<f64>)> = None;
+        let mut dominated_labels: u32;
+        let mut label_budget_exceeded;
+        let mut settled_labels: u32;
+        let mut relaxed_edges: u32;
+        let mut best_label;
+        let mut best_time;
+        let mut best_distance;
+        let mut best_target_snap;
+        loop {
+            let generation = self.next_generation();
+            for (index, (&node, &snap)) in input
+                .target_nodes
+                .iter()
+                .zip(&input.target_snap_meters)
+                .enumerate()
             {
-                self.target_generation[node] = generation;
-                self.target_snap_distance_units[node] = snap_distance_units;
-                self.target_snap_time_units[node] = snap_time_units;
-            }
-        }
-        // The shortest path is already a feasible answer, so the search only
-        // has to find a faster one. Ordering by time plus remaining time and
-        // discarding labels that cannot beat it or reach the target within the
-        // distance limit keeps the result exact and the search small.
-        let (remaining_time, remaining_distance) =
-            self.remaining_bounds(&input, shortest.time_units, maximum_distance_units)?;
-        let mut dominated_labels = 0_u32;
-        let mut label_budget_exceeded = false;
-        for (index, (&node, &snap)) in input
-            .origin_nodes
-            .iter()
-            .zip(&input.origin_snap_meters)
-            .enumerate()
-        {
-            let (snap_distance_units, snap_time_units) = snap_units(
-                snap,
-                input.origin_snap_seconds.as_ref().map(|s| s[index]),
-                "Drive origin snap",
-            )?;
-            let key = snap_time_units + remaining_time[node as usize];
-            if snap_distance_units + remaining_distance[node as usize]
-                > maximum_distance_units + EPSILON
-                || key > shortest.time_units + EPSILON
-            {
-                continue;
-            }
-            if self
-                .offer_label(
-                    generation,
-                    node as usize,
-                    snap_time_units,
-                    snap_distance_units,
-                    key,
-                    NO_INDEX,
-                    &mut dominated_labels,
-                )
-                .is_err()
-            {
-                label_budget_exceeded = true;
-                break;
-            }
-        }
-
-        let mut settled_labels = 0_u32;
-        let mut relaxed_edges = 0_u32;
-        let mut best_label = NO_INDEX;
-        let mut best_time = shortest.time_units;
-        let mut best_distance = shortest.distance_units;
-        let mut best_target_snap = 0.0;
-        'fallback_search: while !label_budget_exceeded {
-            let Some(entry) = self.queue.pop() else {
-                break;
-            };
-            let label_index = entry.item as usize;
-            let label = self.labels[label_index];
-            if !label.active {
-                continue;
-            }
-            if entry.key > best_time + EPSILON {
-                break;
-            }
-            settled_labels = settled_labels.saturating_add(1);
-            let node = label.node as usize;
-            if self.target_generation[node] == generation {
-                let target_snap_distance = self.target_snap_distance_units[node];
-                let total_distance = label.distance + target_snap_distance;
-                let total_time = label.time + self.target_snap_time_units[node];
-                if total_distance <= maximum_distance_units + EPSILON
-                    && (total_time < best_time - EPSILON
-                        || ((total_time - best_time).abs() <= EPSILON
-                            && total_distance < best_distance))
+                let (snap_distance_units, snap_time_units) = snap_units(
+                    snap,
+                    input.target_snap_seconds.as_ref().map(|s| s[index]),
+                    "Drive target snap",
+                )?;
+                if snap_distance_units > maximum_distance_units + EPSILON {
+                    continue;
+                }
+                let node = node as usize;
+                if self.target_generation[node] != generation
+                    || drive_value_better(
+                        snap_time_units,
+                        snap_distance_units,
+                        self.target_snap_time_units[node],
+                        self.target_snap_distance_units[node],
+                    )
                 {
-                    best_label = label_index as i32;
-                    best_time = total_time;
-                    best_distance = total_distance;
-                    best_target_snap = target_snap_distance;
+                    self.target_generation[node] = generation;
+                    self.target_snap_distance_units[node] = snap_distance_units;
+                    self.target_snap_time_units[node] = snap_time_units;
                 }
             }
-            let start = self.edge_offsets[node] as usize;
-            let end = self.edge_offsets[node + 1] as usize;
-            for edge in start..end {
-                relaxed_edges = relaxed_edges.saturating_add(1);
-                let edge_time_units = self.active_edge_time_units()[edge];
-                if edge_time_units == cch::INF_WEIGHT {
-                    continue;
-                }
-                let target = self.edge_targets[edge] as usize;
-                let distance = label.distance + f64::from(self.edge_distance_units[edge]);
-                if distance + remaining_distance[target] > maximum_distance_units + EPSILON {
-                    continue;
-                }
-                let time = label.time + f64::from(edge_time_units);
-                let key = time + remaining_time[target];
-                if key > best_time + EPSILON {
+            let remaining_time = |node: usize| {
+                bounds
+                    .as_ref()
+                    .map_or(0.0, |b: &(Vec<f64>, Vec<f64>)| b.0[node])
+            };
+            let remaining_distance = |node: usize| {
+                bounds
+                    .as_ref()
+                    .map_or(0.0, |b: &(Vec<f64>, Vec<f64>)| b.1[node])
+            };
+            dominated_labels = 0;
+            label_budget_exceeded = false;
+            for (index, (&node, &snap)) in input
+                .origin_nodes
+                .iter()
+                .zip(&input.origin_snap_meters)
+                .enumerate()
+            {
+                let (snap_distance_units, snap_time_units) = snap_units(
+                    snap,
+                    input.origin_snap_seconds.as_ref().map(|s| s[index]),
+                    "Drive origin snap",
+                )?;
+                let key = snap_time_units + remaining_time(node as usize);
+                if snap_distance_units + remaining_distance(node as usize)
+                    > maximum_distance_units + EPSILON
+                    || key > shortest.time_units + EPSILON
+                {
                     continue;
                 }
                 if self
                     .offer_label(
                         generation,
-                        target,
-                        time,
-                        distance,
+                        node as usize,
+                        snap_time_units,
+                        snap_distance_units,
                         key,
-                        label_index as i32,
+                        NO_INDEX,
                         &mut dominated_labels,
                     )
                     .is_err()
                 {
                     label_budget_exceeded = true;
-                    break 'fallback_search;
+                    break;
                 }
             }
+
+            settled_labels = 0;
+            relaxed_edges = 0;
+            best_label = NO_INDEX;
+            best_time = shortest.time_units;
+            best_distance = shortest.distance_units;
+            best_target_snap = 0.0;
+            let mut probe_exhausted = false;
+            'fallback_search: while !label_budget_exceeded {
+                let Some(entry) = self.queue.pop() else {
+                    break;
+                };
+                let label_index = entry.item as usize;
+                let label = self.labels[label_index];
+                if !label.active {
+                    continue;
+                }
+                if entry.key > best_time + EPSILON {
+                    break;
+                }
+                if bounds.is_none() && self.labels.len() >= FALLBACK_PROBE_LABELS {
+                    probe_exhausted = true;
+                    break;
+                }
+                settled_labels = settled_labels.saturating_add(1);
+                let node = label.node as usize;
+                if self.target_generation[node] == generation {
+                    let target_snap_distance = self.target_snap_distance_units[node];
+                    let total_distance = label.distance + target_snap_distance;
+                    let total_time = label.time + self.target_snap_time_units[node];
+                    if total_distance <= maximum_distance_units + EPSILON
+                        && (total_time < best_time - EPSILON
+                            || ((total_time - best_time).abs() <= EPSILON
+                                && total_distance < best_distance))
+                    {
+                        best_label = label_index as i32;
+                        best_time = total_time;
+                        best_distance = total_distance;
+                        best_target_snap = target_snap_distance;
+                    }
+                }
+                let start = self.edge_offsets[node] as usize;
+                let end = self.edge_offsets[node + 1] as usize;
+                for edge in start..end {
+                    relaxed_edges = relaxed_edges.saturating_add(1);
+                    let edge_time_units = self.active_edge_time_units()[edge];
+                    if edge_time_units == cch::INF_WEIGHT {
+                        continue;
+                    }
+                    let target = self.edge_targets[edge] as usize;
+                    let distance = label.distance + f64::from(self.edge_distance_units[edge]);
+                    if distance + remaining_distance(target) > maximum_distance_units + EPSILON {
+                        continue;
+                    }
+                    let time = label.time + f64::from(edge_time_units);
+                    let key = time + remaining_time(target);
+                    if key > best_time + EPSILON {
+                        continue;
+                    }
+                    if self
+                        .offer_label(
+                            generation,
+                            target,
+                            time,
+                            distance,
+                            key,
+                            label_index as i32,
+                            &mut dominated_labels,
+                        )
+                        .is_err()
+                    {
+                        label_budget_exceeded = true;
+                        break 'fallback_search;
+                    }
+                }
+            }
+            if !probe_exhausted {
+                break;
+            }
+            self.release_fallback_workspace();
+            bounds =
+                Some(self.remaining_bounds(&input, shortest.time_units, maximum_distance_units)?);
         }
 
         let fallback_query_ns = fallback_started.elapsed().as_nanos() as f64;

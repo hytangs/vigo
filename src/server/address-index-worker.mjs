@@ -46,6 +46,8 @@ export function openAddressIndexWorker(filename, options = {}, { deadlineMs = de
     worker.on('error', failCurrent)
     worker.on('exit', failCurrent)
   }
+  // The first visitor's search should not pay to start a thread and open the index.
+  start()
   function next() {
     if (closed || current) return
     const entry = waiting.shift()
