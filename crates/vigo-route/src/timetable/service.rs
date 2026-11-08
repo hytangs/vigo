@@ -1385,9 +1385,6 @@ impl TimetableKernel {
         s.simulation.get_mut().unwrap().phases = phases;
         Ok(())
     }
-    pub fn has_frequency_service(&self) -> bool {
-        self.service.as_ref().is_some_and(|s| !s.windows.is_empty())
-    }
     /// Frequency templates outside the query's possible boarding interval
     /// cannot contribute schedule uncertainty, even in a wider resident view.
     pub fn has_frequency_service_between(&self, start: f64, end: f64) -> bool {
@@ -2332,7 +2329,7 @@ mod tests {
             }
         }
         k.set_frequency_sample(None);
-        assert!(k.has_frequency_service());
+        assert!(k.service.as_ref().is_some_and(|s| !s.windows.is_empty()));
         assert_eq!(
             k.service
                 .as_ref()
