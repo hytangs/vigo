@@ -10,7 +10,7 @@ publish.workspace = true
 [dependencies]
 serde.workspace = true
 vigo-route = { path = "../vigo-route" }
-rusqlite = { version = "0.37.0", features = ["bundled"] }
+rusqlite = { version = "0.41.1", features = ["bundled"] }
 
 [dev-dependencies]
 serde_json.workspace = true

@@ -33,7 +33,7 @@ memmap2 = "0.9"
 napi = { version = "3.14.2", features = ["napi10"], optional = true }
 napi-derive = { version = "3.6.12", optional = true }
 rayon = "1"
-rusqlite = { version = "0.37.0", features = ["bundled"] }
+rusqlite = { version = "0.41.1", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip", "raw_value"] }
 ureq = { version = "3.4", default-features = false, features = ["rustls"], optional = true }
