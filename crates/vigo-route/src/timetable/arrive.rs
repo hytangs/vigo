@@ -207,6 +207,7 @@ impl TimetableKernel {
                     profile_workspace: _,
                     journey_workspace: _,
                     capped_guard: _,
+                    terminals: _,
                 },
         } = self;
         let forbidden_same_stop = forbidden_same_stop.as_ref();

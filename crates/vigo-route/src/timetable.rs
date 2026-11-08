@@ -3325,6 +3325,7 @@ pub struct TimetableQueryWorkspace {
     profile_workspace: ProfileWorkspace,
     journey_workspace: Option<journeys::JourneyWorkspace>,
     capped_guard: CappedGuard,
+    terminals: many::Terminals,
 }
 
 /// Lends the ordinary-service guard events to a capped scalar search, which
@@ -3343,6 +3344,7 @@ impl TimetableQueryWorkspace {
             profile_workspace: ProfileWorkspace::new(stops * STATE_STRIDE, runs),
             journey_workspace: None,
             capped_guard: CappedGuard::default(),
+            terminals: many::Terminals::default(),
         }
     }
     pub fn byte_length(&self) -> usize {
@@ -3350,6 +3352,7 @@ impl TimetableQueryWorkspace {
             + self.many_workspace.byte_length()
             + self.forward_workspace.byte_length()
             + self.profile_workspace.byte_length()
+            + self.terminals.byte_length()
             + self
                 .journey_workspace
                 .as_ref()
@@ -3382,6 +3385,7 @@ impl TimetableQueryWorkspace {
         w.frontier_head.resize(states, NO_STATE);
         w.run_generation.resize(runs.max(w.run_generation.len()), 0);
         w.epoch = u32::MAX;
+        self.terminals.rebind();
         let w = &mut self.forward_workspace;
         for layer in &mut w.run_layers {
             layer.resize(runs, 0);

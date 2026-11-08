@@ -210,6 +210,7 @@ impl TimetableKernel {
                     profile_workspace,
                     journey_workspace: _,
                     capped_guard: _,
+                    terminals: _,
                 },
         } = self;
         let departure_seconds = &departure_seconds.view();

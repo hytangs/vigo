@@ -10,6 +10,7 @@
 - A kept trip in `scheduledTrips` can name its service day with `serviceDayOffset`. Studio and the compiler now also keep the previous day's trips that run past midnight when a branch is edited with its departures kept; previously the edit removed that branch's after-midnight service from early-morning queries.
 - Studio: when a branch that keeps its departures is extended past its last stop or before its first, riders can board or alight at the former terminus. Previously the extension could not be reached from it.
 - Scenario exclusions are resolved in one pass over the timetable rather than once per excluded ID; arrive-by Reach now rejects a non-array exclusion as depart-at Reach does. Deriving a scenario timetable reads each trip's canceled spans directly instead of scanning every span for every trip.
+- Transit matrices with many destinations from one origin, or many origins to one arrive-by destination, look up their endpoints through a per-stop index and update the scan's stopping time only when the latest endpoint improves. Answers are unchanged; such matrices compute faster.
 - `scheduledTrips` entries reject unknown fields, as every other scenario object does, so a misspelled field no longer runs a trip on the wrong day.
 - Studio: an edit that keeps a branch's departures divides each trip's running time between kept stops along the published shape or traced road path, as its supplied runtimes describe, rather than by straight-line distance.
 
