@@ -70,7 +70,6 @@ import {
   type ScenarioRenderMode,
   type ScenarioStopDraft,
   type ScenarioView,
-  type ServiceEdgeDecomposition,
 } from '../../reach'
 import { type RoutingPlan, type RoutingPoint } from '../../routingModel'
 import {
@@ -195,7 +194,6 @@ export function RouteSurfaceView({
   analysisInspector,
   onInspectReachPoint,
   reachResult,
-  serviceDecomposition,
   scenarioView,
   scenarioRenderMode,
   scenarioCutoffMinutes,
@@ -257,7 +255,6 @@ export function RouteSurfaceView({
   analysisInspector?: ReactNode
   onInspectReachPoint?: (point: RoutingPoint) => void
   reachResult: ReachResult | null
-  serviceDecomposition: ServiceEdgeDecomposition | null
   scenarioView: ScenarioView
   scenarioRenderMode: ScenarioRenderMode
   scenarioCutoffMinutes: number
@@ -442,7 +439,6 @@ export function RouteSurfaceView({
           routingDestination={routingDestination}
           routingPlan={routingPlan}
           reachResult={reachResult}
-          serviceDecomposition={serviceDecomposition}
           scenarioView={scenarioView}
           scenarioRenderMode={scenarioRenderMode}
           scenarioCutoffMinutes={scenarioCutoffMinutes}
@@ -605,7 +601,6 @@ export const RouteSurface = memo(function RouteSurface() {
     analysisOrigin: state.analysisOrigin,
     reachTimePreference: state.reachTimePreference,
     reachResult: state.reachResult,
-    serviceDecomposition: state.serviceDecomposition,
     scenarioView: state.scenarioView,
     scenarioRenderMode: state.scenarioRenderMode,
     scenarioCutoffMinutes: state.scenarioCutoffMinutes,
@@ -667,7 +662,6 @@ export const RouteSurface = memo(function RouteSurface() {
       analysisInspector={reachFocus ? <ReachInspectorOverlay /> : designFocus ? placing ? <ScenarioDrawingBar /> : <ScenarioLineCard /> : undefined}
       onInspectReachPoint={reachFocus ? inspectReachPoint : undefined}
       reachResult={reachFocus ? reach.reachResult : null}
-      serviceDecomposition={reachFocus ? reach.serviceDecomposition : null}
       scenarioView={reach.scenarioView}
       scenarioRenderMode={reach.scenarioRenderMode}
       scenarioCutoffMinutes={reach.scenarioCutoffMinutes}

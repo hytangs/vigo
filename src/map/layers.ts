@@ -26,7 +26,6 @@ const routingLayerIds = ['vigo-routing-walk-casing', 'vigo-routing-walk', 'vigo-
 export const reachResultLayerIds = [
   'vigo-reach-bands',
   'vigo-scenario-area',
-  'vigo-service-edges',
   'vigo-scenario-contours',
   'vigo-scenario-access-edges',
   'vigo-reach-route',
@@ -107,9 +106,6 @@ export function ensureLayers(map: MapLibreMap) {
   if (!map.getSource('vigo-scenario-access-edges')) {
     map.addSource('vigo-scenario-access-edges', { type: 'geojson', data: emptyCollection })
   }
-  if (!map.getSource('vigo-service-edges')) {
-    map.addSource('vigo-service-edges', { type: 'geojson', data: emptyCollection })
-  }
   if (!map.getSource('vigo-scenario-contours')) {
     map.addSource('vigo-scenario-contours', { type: 'geojson', data: emptyCollection })
   }
@@ -144,26 +140,6 @@ export function ensureLayers(map: MapLibreMap) {
         'line-color': ['get', 'color'] as ExpressionSpecification,
         'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.75, 12, 1.45, 16, 2.8] as ExpressionSpecification,
         'line-opacity': 0.9,
-      },
-      layout: { 'line-cap': 'round', 'line-join': 'round' },
-    })
-  }
-  if (!map.getLayer('vigo-service-edges')) {
-    map.addLayer({
-      id: 'vigo-service-edges',
-      type: 'line',
-      source: 'vigo-service-edges',
-      paint: {
-        'line-color': [
-          'match',
-          ['get', 'serviceIndicator'],
-          0, '#ff6757',
-          1, '#35d0a1',
-          2, '#6da8ff',
-          '#a6b4bf',
-        ] as ExpressionSpecification,
-        'line-width': ['interpolate', ['linear'], ['zoom'], 8, 2.1, 12, 3.8, 16, 6] as ExpressionSpecification,
-        'line-opacity': 0.92,
       },
       layout: { 'line-cap': 'round', 'line-join': 'round' },
     })

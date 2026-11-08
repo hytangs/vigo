@@ -67,7 +67,6 @@
     "test/check-scenario-branches.mjs",
     "test/check-scenario-schedules.mjs",
     "test/check-street-network-surface.mjs",
-    "test/check-service-edge-decomposition.mjs",
     "test/check-analysis-cutoff-presentation.mjs",
     "test/check-reach-comparison.mjs",
     "test/check-reach-geometry.mjs"

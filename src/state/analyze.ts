@@ -1,4 +1,4 @@
-import { apiJson, apiProgressJson, type ApiProgress } from '../app/api'
+import { apiProgressJson, type ApiProgress } from '../app/api'
 import { createStore, memoizeLast } from '../app/store'
 import { caseFeedSelection, type CityDataGroups } from '../app/cityDataGroups'
 import { baselineGroupId, scenarioNetworkDiffers } from '../app/scenarioLibrary'
@@ -16,7 +16,6 @@ import {
   type ScenarioDraft,
   type ScenarioRenderMode,
   type ScenarioView,
-  type ServiceEdgeDecomposition,
 } from '../reach'
 import type { RoutingBikeOptions, RoutingPoint, RoutingTimePreference } from '../routingModel'
 import { buildRoutingPointFromMap } from '../routingUi'
@@ -46,9 +45,6 @@ export type AnalyzeState = {
   comparisonRun: ComparisonRun | null
   compareReferenceId: string
   compareScenarioSelection: string[] | null
-  serviceDecomposition: ServiceEdgeDecomposition | null
-  serviceDecompositionLoading: boolean
-  serviceDecompositionError: string
   scenarioLoading: boolean
   scenarioProgress: ApiProgress | null
   scenarioError: string
@@ -79,9 +75,6 @@ const initialAnalyzeState = (): AnalyzeState => ({
   comparisonRun: null,
   compareReferenceId: 'group:baseline',
   compareScenarioSelection: null,
-  serviceDecomposition: null,
-  serviceDecompositionLoading: false,
-  serviceDecompositionError: '',
   scenarioLoading: false,
   scenarioProgress: null,
   scenarioError: '',
@@ -143,20 +136,14 @@ export function reachInputIdentity() {
 }
 
 let analysisAbort: AbortController | null = null
-let serviceDecompositionAbort: AbortController | null = null
 let comparisonFeedsInitialized = false
 
 export function invalidateAnalyzeResult() {
   analysisAbort?.abort()
   analysisAbort = null
-  serviceDecompositionAbort?.abort()
-  serviceDecompositionAbort = null
   analyze.set({
     reachResult: null,
     comparisonRun: null,
-    serviceDecomposition: null,
-    serviceDecompositionLoading: false,
-    serviceDecompositionError: '',
     scenarioError: '',
     scenarioLoading: false,
     scenarioProgress: null,
@@ -165,8 +152,7 @@ export function invalidateAnalyzeResult() {
 
 export function resetAnalyze() {
   analysisAbort?.abort()
-  serviceDecompositionAbort?.abort()
-  analysisAbort = serviceDecompositionAbort = null
+  analysisAbort = null
   comparisonFeedsInitialized = false
   analyze.set(initialAnalyzeState())
 }
@@ -400,53 +386,6 @@ export function compareVariantSelection() {
     }
   }
   return { variants, errors }
-}
-
-export async function runServiceDecomposition() {
-  const { comparisonFeedIds } = analyze.get()
-  if (comparisonFeedIds.length !== 2) {
-    analyze.set({ serviceDecompositionError: 'Select exactly two GTFS feeds for street-service comparison.' })
-    return
-  }
-  const [baselineFeedId, comparisonFeedId] = comparisonFeedIds
-  const project = selectedProject()
-  const selectedFeeds = comparisonFeedIds.map((feedId) => project.feeds.find((feed) => feed.id === feedId))
-  if (selectedFeeds.some((feed) => !feed || feed.routingStore?.status !== 'ready')) {
-    analyze.set({ serviceDecompositionError: 'Both selected GTFS feeds need ready SQLite routing stores.' })
-    return
-  }
-  if (project.osmStreetIndex?.status !== 'ready') {
-    analyze.set({ serviceDecompositionError: 'Build the local OSM street index before comparing service edges.' })
-    return
-  }
-
-  serviceDecompositionAbort?.abort()
-  const controller = new AbortController()
-  serviceDecompositionAbort = controller
-  analyze.set({ serviceDecompositionLoading: true, serviceDecompositionError: '' })
-  try {
-    const result = await apiJson<{ decomposition: ServiceEdgeDecomposition }>(
-      `/api/projects/${encodeURIComponent(project.id)}/service-edge-decomposition`,
-      {
-        method: 'POST',
-        signal: controller.signal,
-        body: JSON.stringify({ baselineFeedId, comparisonFeedId }),
-      },
-    )
-    if (controller.signal.aborted) return
-    analyze.set({ serviceDecomposition: result.decomposition })
-  } catch (error) {
-    if (controller.signal.aborted) return
-    analyze.set({
-      serviceDecomposition: null,
-      serviceDecompositionError: error instanceof Error ? error.message : 'Street-service comparison failed.',
-    })
-  } finally {
-    if (serviceDecompositionAbort === controller) {
-      serviceDecompositionAbort = null
-      analyze.set({ serviceDecompositionLoading: false })
-    }
-  }
 }
 
 export async function runSurfaceAnalysis(includeStreetEdges = analyze.get().scenarioRenderMode === 'streets') {
