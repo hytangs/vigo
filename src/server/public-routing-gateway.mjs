@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url'
 
 const pick = (value, keys) => Object.fromEntries(keys.filter(key => value?.[key] !== undefined).map(key => [key, value[key]]))
 const reject = (message, status = 400) => Object.assign(new Error(message), { status })
-const newLimits = () => ({ active: 0, buckets: new Map(), searchActive: 0, searchBuckets: new Map(), readActive: 0, readBuckets: new Map() })
+const newLimits = () => ({ minutes: {}, active: 0, buckets: new Map(), searchActive: 0, searchBuckets: new Map(), readActive: 0, readBuckets: new Map() })
 const maxConnections = 1024
 // Sent as a header so it can name the public app's only other origins: the
 // default basemap and the analytics beacon Cloudflare injects at the edge.
@@ -259,9 +259,9 @@ function createCityGateway({ upstream, publicOrigin, cityId, staticRoot, maxActi
     const meter = meters[kind], buckets = limits[meter.buckets]
     const ip = String(req.headers['cf-connecting-ip'] ?? req.socket.remoteAddress)
     const minute = Math.floor(Date.now() / 60000)
-    if (meter.minute !== minute) {
+    if (limits.minutes[kind] !== minute) {
       buckets.clear()
-      meter.minute = minute
+      limits.minutes[kind] = minute
     }
     const bucket = buckets.get(ip) ?? { minute, count: 0 }
     if (bucket.count >= meter.perMinute || !buckets.has(ip) && buckets.size >= 10000 || limits[meter.active] >= meter.concurrent) {
