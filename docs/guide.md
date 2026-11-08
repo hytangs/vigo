@@ -1087,6 +1087,7 @@ VIGO models the City revision and query it is given. It does not certify real-wo
 - Pedestrian attachment searches vertices within 160 m and projects onto reciprocal edges within 80 m. A missing attachment is not proof that no physical path exists.
 - Platform polygons describe an area, not a walking line. Street-store schema v6 excludes their outlines from the walking graph; routing across polygon interiors is not modeled, and older Cities need a source rebuild.
 - An anonymous endpoint on an unanchored fragment can recover to the nearest transit-connected component within 80 m, including the full connector cost. This adds no graph links and proves nothing about buildings, fences, water, or levels in between. See [coordinate attachment](#coordinate-network-attachment).
+- Otherwise a free coordinate keeps its nearest attachment even when that street connects poorly, such as a highway ramp or bridge above the point. Attaching to several nearby streets would let a connector cross a road, kerb, river or other barrier that walking cannot. Place endpoints on the street or path the traveller will use.
 - [Authorized endpoint access](#authorized-endpoint-access) is an opt-in build model; it does not establish individual permissions, gate hours, or missing connections.
 - Drive does not yet model every turn restriction, signal, or intersection delay. Traffic must be supplied by the caller.
 

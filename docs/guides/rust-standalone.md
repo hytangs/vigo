@@ -1962,7 +1962,9 @@ mountain trail grades and paths, tracks or bridleways without a mapped paved
 surface are excluded. An explicit `wheelchair=yes` overrides those surface and
 trail filters. Both policies require ordinary pedestrian permission and exclude steps, escalators, mapped
 inaccessible or limited nodes, raised kerbs and conditional accessibility.
-Published widths below 0.9 m and inclines above 8.3% are excluded. A mapped
+Published widths below 0.9 m and inclines above 8.3% are excluded. An
+`incline` of `up`, `down` or `yes` gives no grade, so the way needs
+`wheelchair=yes`; other inclines that are not percentages are excluded. A mapped
 kerb must be lowered or flush. Inferred evidence passes unlocked gates and
 bollards; other barriers need `wheelchair=yes`. Untagged shape vertices inherit
 the way's accessibility. These are fixed profile limits, not a personalized
@@ -1978,8 +1980,11 @@ slope at most 0.083 in magnitude and a traversal cost. Elevator paths do not
 require slope. Explicit stairs and escalators remain excluded even if a
 contradictory wheelchair time is present. Direction is preserved. Missing paths
 do not generate parent-station shortcuts. Generic transfer recommendations do
-not establish accessible paths. For transit access, station platforms are reached from declared
-accessible entrances and paths, rather than snapped directly from the street.
+not establish accessible paths. A station that declares entrances is reached only
+through its accessible entrances and paths, never by snapping directly to a platform.
+A platform of a station without declared entrances is reached from the street when
+its own or inherited `wheelchair_boarding` is 1. GTFS defines that value as an
+accessible path from outside the station to the platform.
 
 Every successful or no-route response carries `accessibility`, including the
 profile, its street evidence and its limitations. Coordinate-to-network attachments are geometric;

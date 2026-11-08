@@ -1,5 +1,10 @@
 # Version history
 
+## Unreleased
+
+- Wheelchair Cities reach accessible platforms of stations without declared entrances from the street. Their platforms' own or inherited `wheelchair_boarding=1` is GTFS evidence of an accessible path from outside. Previously every platform with a parent station needed a declared entrance, which cut off accessible stations in feeds that publish no entrances for them, such as many MBTA commuter rail stations and surface Green Line stops. Stations that declare entrances still use only accessible entrances and paths. The City format and access policy identity are unchanged; prepare wheelchair Cities again to apply this.
+- Wheelchair streets keep ways tagged `wheelchair=yes` whose `incline` is `up`, `down` or `yes`, such as mapped ramps and accessible footbridges. These values give a direction without a grade, and the explicit tag vouches for the slope; previously such ways were dropped, which could force long detours. Without `wheelchair=yes` they remain excluded, as do steep or malformed inclines and inclines above 8.3%. Prepare wheelchair Cities again to apply this.
+
 ## 1.0.0-rc.5
 
 - Answer bicycle routes when a tight distance limit leaves too many trade-offs to prove the preferred route: return the shortest route within the limit with a `distance_limit_shortest_route` warning instead of an error. Report no route at once when no start can finish within the limit.
