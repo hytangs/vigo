@@ -900,17 +900,19 @@ A supplied `cityRevision` must match the loaded City. Choose either nonempty `se
 | `scheduleMode` | `frequency` for add/augment; `preserve-trips` for replace |
 | `sourceRouteId` | Required for route-wide frequency replacement when explicit trip IDs are absent |
 | `bidirectional` | true for frequency; false for preserved trips, where true is rejected |
-| `startMinutes`, `endMinutes` | 300 and 1500; 0–4319; end must not precede start |
+| `startMinutes`, `endMinutes` | 300 and 1500; 0–4319; end must be later than start. The window includes its end unless `exactTimes` is true; `timetables` rows exclude it |
 | `headwayMinutes` | 12; 0.1–1440 |
 | `timeModel` | `estimate-distance`, `preserve-scheduled`, or `infer-road` |
 | `averageSpeedKph` | 22; 1–300 |
-| `dwellMinutes` | 0.35; 0–60, used with distance estimates |
+| `dwellMinutes` | 0.35; 0–60, used with distance estimates; spent after arriving at each intermediate stop |
 | `segmentRuntimeMinutes` | One nonnegative number per consecutive stop pair |
 | `segmentDistancesKm` | One nonnegative number per consecutive stop pair |
 | `addedStopDwellMinutes` | 0; 0–10, applies to inserted/added destination stops with supplied runtimes |
-| `scheduledTrips` | Explicit trip list for preserve-trips mode |
+| `scheduledTrips` | Explicit trip list for preserve-trips mode; a trip's `serviceDayOffset` (-3–3, default 0) names the service day it runs on |
 
 At most 128 services and one million planned stop events are accepted. The default `estimate-distance` model uses projected stop distance, speed, and dwell; merely supplying runtime arrays does not select them. `preserve-scheduled` uses supplied runtimes, falling back to distance estimates where no runtime array exists. `infer-road` consumes supplied distances/runtimes; the standalone service does not infer them from a road route. Use a documented preparation method for those inputs.
+
+Frequency windows are whole seconds, and every run arrives, dwells, then departs: riders alight on arrival, and a run does not dwell at its first or last stop. A frequency service runs on every service day. The previous days' runs that are still running after midnight and the next days' first runs join the query's timetable wherever its clock reaches them, placed by the City's time zone as scheduled service is. A run that started before midnight keeps only its calls after it, and adjacent days never run one departure twice.
 
 `augment` retains existing service. Frequency replacement uses `operation: "replace"`, `scheduleMode: "frequency"`, and `sourceRouteId`; matching active trips are removed. If `scheduledTrips` is provided on a replacement service, its original trip IDs define the removal set. Added service can operate on a date with no active baseline service.
 
@@ -943,7 +945,7 @@ At most 128 services and one million planned stop events are accepted. The defau
 }
 ```
 
-Offsets are **seconds** relative to that run's `departureSeconds`; every array matches the stop count. Permissions are zero/one; omitted permission arrays default to all allowed. Times must preserve chronological arrivals/departures. Replacement `tripId` must be active. Preserve-trips mode does not manufacture reverse runs or automatically recover the original timetable.
+Offsets are **seconds** relative to that run's `departureSeconds`; every array matches the stop count. Permissions are zero/one; omitted permission arrays default to all allowed. Unknown trip fields are rejected. Times must preserve chronological arrivals/departures. Replacement `tripId` must be active on its service day. A trip with `serviceDayOffset: -1` belongs to the previous service day: its `departureSeconds` is on that day's clock, it is placed by the City's time zone, and only its calls after the query date's midnight remain. A replacement removes every instance of its original trip from the query's timetable, so include the previous day's trips that run past midnight; Studio and the compiler do. Preserve-trips mode does not manufacture reverse runs or automatically recover the original timetable.
 
 ### Compiled overlays
 

@@ -302,12 +302,15 @@ impl City {
                 .collect();
             view.kernel.add_frequency_windows(windows)?;
             let services = scenario["services"].as_array().cloned().unwrap_or_default();
+            // Phasing relates a service's runs on the service date; its runs
+            // on adjacent service days keep independent phases.
             let run_for = |service: usize| -> Result<usize> {
                 let runs: Vec<_> = planned
                     .run_services
                     .iter()
+                    .zip(&planned.run_days)
                     .enumerate()
-                    .filter(|(_, owner)| **owner == service)
+                    .filter(|(_, (owner, day))| **owner == service && **day == 0)
                     .map(|(run, _)| run)
                     .collect();
                 if runs.len() != 1 || !planned.random[runs[0]] {

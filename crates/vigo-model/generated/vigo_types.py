@@ -577,6 +577,10 @@ ScheduledTrip = TypedDict(
         "canBoard": NotRequired[list[int]],
         "departureOffsetsSeconds": list[float],
         "departureSeconds": float,
+        # Days from the query's service date to the service date this trip runs
+        # on; -1 keeps the previous day's trips that run past midnight.
+        # `departureSeconds` is on that day's clock. Omitted means 0.
+        "serviceDayOffset": NotRequired[int],
         "tripId": NotRequired[str],
     },
 )

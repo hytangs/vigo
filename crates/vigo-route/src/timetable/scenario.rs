@@ -250,6 +250,19 @@ pub fn compile_scenario_timetable(
     let mut run_count = 0_u32;
     let mut canceled_trip_count = 0_u32;
 
+    // Canceled sequence spans by trip, read once rather than once per trip.
+    let mut spans_by_trip = std::collections::HashMap::<usize, Vec<(u32, u32)>>::new();
+    for span in input
+        .canceled_spans
+        .as_deref()
+        .unwrap_or(&[])
+        .chunks_exact(3)
+    {
+        spans_by_trip
+            .entry(span[0] as usize)
+            .or_default()
+            .push((span[1], span[2]));
+    }
     for trip in 0..base_trips {
         trip_start.push(departure.len() as u32);
         if input.canceled[trip] != 0 {
@@ -258,18 +271,12 @@ pub fn compile_scenario_timetable(
         }
         let start = input.trip_start[trip] as usize;
         let end = input.trip_start[trip + 1] as usize;
-        let spans: Vec<_> = input
-            .canceled_spans
-            .as_deref()
-            .unwrap_or(&[])
-            .chunks_exact(3)
-            .filter(|s| s[0] as usize == trip)
-            .collect();
+        let spans = spans_by_trip.get(&trip).map_or(&[][..], Vec::as_slice);
         let mut previous = None;
         for index in start..end {
             if spans
                 .iter()
-                .any(|s| (s[1]..=s[2]).contains(&input.sequence[index]))
+                .any(|&(first, last)| (first..=last).contains(&input.sequence[index]))
             {
                 continue;
             }
@@ -601,6 +608,21 @@ mod tests {
         let offsets = result.departure_offset.to_vec();
         let order = result.departure_order.to_vec();
         assert_eq!(&order[offsets[2] as usize..offsets[3] as usize], &[2, 3, 4]);
+    }
+
+    #[test]
+    fn cancels_each_span_only_on_its_own_trip() {
+        let mut spanned = input();
+        spanned.canceled = u8s(&[0, 0]);
+        // Out of trip order: trip 1 loses its second call, trip 0 its first.
+        spanned.canceled_spans = Some(u32s(&[1, 2, 2, 0, 1, 1]));
+        let result = compile_scenario_timetable(spanned).unwrap();
+        assert_eq!(
+            result.departure_seconds.to_vec(),
+            vec![200, 1_000, 600, 1_200, 1_800]
+        );
+        assert_eq!(result.trip_start.to_vec(), vec![0, 1, 2, 3, 4, 5]);
+        assert_eq!(result.canceled_trip_count, 0);
     }
 
     #[test]

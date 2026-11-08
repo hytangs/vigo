@@ -541,27 +541,7 @@ impl City {
             let t = self.timetable.as_ref().unwrap();
             let n = t.stop_ids.len();
             let scenario = source_scenario.filter(|_| !linked_view);
-            let mut excluded = HashSet::new();
-            if let Some(s) = scenario {
-                for (field, ids) in [
-                    ("excludedTripIds", &t.trip_ids),
-                    ("excludedRouteIds", &t.route_ids),
-                ] {
-                    if let Some(values) = s.get(field) {
-                        for id in values
-                            .as_array()
-                            .ok_or("Scenario exclusions must be arrays")?
-                        {
-                            let id = id.as_str().ok_or("Scenario IDs must be strings")?;
-                            for (i, tid) in ids.iter().enumerate() {
-                                if tid == id {
-                                    excluded.insert(i as u32);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            let excluded = scenario_exclusions(scenario, t)?;
             let excluded_count = excluded.len();
             let input = TimetableManyQueryInput {
                 origin_stops: a.stops,
@@ -569,7 +549,7 @@ impl City {
                 destination_offsets: (0..=n as u32).collect(),
                 destination_stops: (0..n as u32).collect(),
                 destination_walk_seconds: vec![0.; n],
-                excluded_trips: excluded.into_iter().collect(),
+                excluded_trips: excluded,
                 departure: opt.time,
                 horizon: opt.time + maximum * 60.,
                 allow_pre_ride_transfers: a.terminal_transfers,
@@ -1063,25 +1043,8 @@ impl City {
         let b = self.candidates(destination, "destination", opt)?;
         let t = self.timetable.as_ref().unwrap();
         let n = t.stop_ids.len();
-        let mut excluded = HashSet::new();
-        if let Some(s) = scenario {
-            for (field, ids) in [
-                ("excludedTripIds", &t.trip_ids),
-                ("excludedRouteIds", &t.route_ids),
-            ] {
-                for id in s.get(field).and_then(Value::as_array).into_iter().flatten() {
-                    let id = id.as_str().ok_or("Scenario IDs must be strings")?;
-                    excluded.extend(
-                        ids.iter()
-                            .enumerate()
-                            .filter(|(_, other)| *other == id)
-                            .map(|(i, _)| i as u32),
-                    );
-                }
-            }
-        }
+        let excluded = scenario_exclusions(scenario, t)?;
         let excluded_count = excluded.len();
-        let excluded: Vec<u32> = excluded.into_iter().collect();
         if b.stops.is_empty() {
             return Ok((
                 vec![f64::NEG_INFINITY; n],
@@ -1436,6 +1399,40 @@ fn contours(values: &[f64], w: usize, h: usize, b: &[f64], cutoffs: &[f64]) -> V
         }
     }
     json!({"type":"FeatureCollection","features":features})
+}
+
+/// The timetable trips a scenario's `excludedTripIds` and `excludedRouteIds`
+/// cancel, in trip order, found in one pass over the timetable's trips.
+fn scenario_exclusions(scenario: Option<&Value>, t: &super::city::Timetable) -> Result<Vec<u32>> {
+    let Some(s) = scenario else {
+        return Ok(vec![]);
+    };
+    let ids = |field: &str| -> Result<HashSet<&str>> {
+        s.get(field).map_or(Ok(HashSet::new()), |values| {
+            values
+                .as_array()
+                .ok_or("Scenario exclusions must be arrays")?
+                .iter()
+                .map(|id| {
+                    id.as_str()
+                        .ok_or_else(|| "Scenario IDs must be strings".into())
+                })
+                .collect()
+        })
+    };
+    let (trips, routes) = (ids("excludedTripIds")?, ids("excludedRouteIds")?);
+    if trips.is_empty() && routes.is_empty() {
+        return Ok(vec![]);
+    }
+    Ok(t.trip_ids
+        .iter()
+        .zip(t.route_ids.iter())
+        .enumerate()
+        .filter(|(_, (trip, route))| {
+            trips.contains(trip.as_str()) || routes.contains(route.as_str())
+        })
+        .map(|(index, _)| index as u32)
+        .collect())
 }
 
 #[cfg(test)]

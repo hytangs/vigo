@@ -76,7 +76,10 @@ function retimeTrip(service, rows, coordinates) {
       })
     if (!untouched && service.timeModel === 'estimate-distance') continue
     const seconds = running.slice(left.index, right.index).reduce((sum, value) => sum + value, 0)
-    const weights = distances.slice(left.position, right.position)
+    // Each trip keeps its own running time between kept stops. Supplied
+    // runtimes already split a published span along its shape or road path;
+    // without them the split follows the segment distances.
+    const weights = (service.segmentRuntimeMinutes ? runtimes : distances).slice(left.position, right.position)
     const total = weights.reduce((sum, value) => sum + value, 0)
     for (let position = left.position; position < right.position; position += 1) {
       runtimes[position] = seconds * (total > 0 ? weights[position - left.position] / total : 1 / weights.length)
@@ -94,17 +97,37 @@ function retimeTrip(service, rows, coordinates) {
   const first = anchors[0]
   const departureSeconds = departures[first.index] - departureOffsetsSeconds[first.position]
   if (departureSeconds < 0) throw invalid('This extension would depart before the start of the service date. Adjust its timing or use an explicit frequency schedule.')
+  // Each kept stop keeps its published pickup and drop-off. GTFS publishes
+  // no pickup at a last stop or drop-off at a first stop, so a former
+  // terminus inside an extended trip serves riders as the added stops do.
   return {
     tripId: rows[0].trip_id,
     departureSeconds,
     departureOffsetsSeconds,
     arrivalOffsetsSeconds,
-    canBoard: indexes.map((index, position) => position === indexes.length - 1 ? 0 : index === undefined ? 1 : rows[index]?.can_board ?? 0),
-    canAlight: indexes.map((index, position) => position === 0 ? 0 : index === undefined ? 1 : rows[index - 1]?.can_alight ?? 0),
+    canBoard: indexes.map((index, position) => position === indexes.length - 1 ? 0
+      : index === undefined || index === rows.length ? 1 : rows[index].can_board),
+    canAlight: indexes.map((index, position) => position === 0 ? 0
+      : index === undefined || index === 0 ? 1 : rows[index - 1].can_alight),
   }
 }
 
-/** Expand only actual active GTFS trips. Equal start/end times emit one native run. */
+// The previous service day's trips matter on the query date when they still
+// run after its midnight. A 23-hour DST day starts an hour early, so trips
+// whose last departure is from 23:00 on are kept; the native compiler places
+// each by the City's time zone and drops the calls before midnight.
+const overnightSeconds = 23 * 3600
+
+function previousServiceDate(serviceDate) {
+  const day = new Date(`${serviceDate}T12:00:00Z`)
+  day.setUTCDate(day.getUTCDate() - 1)
+  return day.toISOString().slice(0, 10)
+}
+
+/**
+ * Expand only actual active GTFS trips: the query date's, and the previous
+ * service day's that run past midnight. Equal start/end times emit one native run.
+ */
 export function hydrateScheduledScenarioService(storePath, service, tripIds, request) {
   resolveServiceDay(request.serviceDate, request.serviceDay)
   if (tripIds.length > 50_000) throw invalid('A scheduled replacement is limited to 50000 trips.')
@@ -115,6 +138,7 @@ export function hydrateScheduledScenarioService(storePath, service, tripIds, req
   try {
     const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((row) => row.name))
     const services = activeServiceIds(db, request.serviceDate)
+    const previous = activeServiceIds(db, previousServiceDate(request.serviceDate))
     const permissions = tables.has('connection_permissions')
     const lookup = db.prepare(`SELECT connection.*,
       ${permissions ? 'COALESCE(permission.can_board, 1)' : '1'} AS can_board,
@@ -128,13 +152,18 @@ export function hydrateScheduledScenarioService(storePath, service, tripIds, req
     const scheduledTrips = []
     for (const tripId of tripIds) {
       const rows = lookup.all(tripId)
-      if (!rows.length || !services.has(rows[0].service_id)) continue
+      if (!rows.length) continue
+      const today = services.has(rows[0].service_id)
+      const overnight = previous.has(rows[0].service_id) && rows.at(-1).departure >= overnightSeconds
+      if (!today && !overnight) continue
       for (const stopId of [rows[0].from_stop_id, ...rows.map((row) => row.to_stop_id)]) {
         if (coordinates.has(stopId)) continue
         const stop = stopLookup.get(stopId)
         if (stop) coordinates.set(stopId, [stop.lon, stop.lat])
       }
-      scheduledTrips.push(retimeTrip(service, rows, coordinates))
+      const trip = retimeTrip(service, rows, coordinates)
+      if (today) scheduledTrips.push(trip)
+      if (overnight) scheduledTrips.push({ ...trip, serviceDayOffset: -1 })
       if (scheduledTrips.length * service.stops.length > 1_000_000) {
         throw invalid('The scheduled replacement exceeds one million stop events. Select fewer branches.')
       }

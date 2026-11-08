@@ -211,6 +211,46 @@ try {
   assert(noBaseService.stops.some(stop => stop.stopId === 'B' && stop.durationMinutes <= 5))
   const preserved = run('reach', { ...reachQuery, scenario: { services: [{ operation: 'replace', scheduleMode: 'preserve-trips', stops: [{ stopId: 'X' }, { stopId: 'B' }], scheduledTrips: [{ tripId: 'T2', departureSeconds: 495 * 60, arrivalOffsetsSeconds: [0, 600], departureOffsetsSeconds: [0, 600], canBoard: [1, 0], canAlight: [0, 1] }] }] } })
   assert(preserved.stops.some(stop => stop.stopId === 'B' && stop.durationMinutes <= 30))
+  // Generated trips arrive, dwell, then depart, and never dwell at the terminus.
+  const line = (dwellMinutes) => ({ id: 'line', name: 'Line', services: [{ id: 'line', name: 'Line', operation: 'add', scheduleMode: 'frequency',
+    bidirectional: false, stops: [{ stopId: 'A' }, { stopId: 'X' }, { stopId: 'B' }], startMinutes: 475, endMinutes: 600, headwayMinutes: 10, dwellMinutes }] })
+  const ride = (dwellMinutes, stopId) => run('route', { ...base, destination: { stopId }, scenario: line(dwellMinutes) }).arrivalMinutes
+  assert.equal(ride(5, 'X'), ride(0, 'X'), 'Riders alight before the dwell')
+  assert(Math.abs(ride(5, 'B') - ride(0, 'B') - 5) < 1e-9, 'One intermediate dwell and none at the terminus')
+  // Frequency service runs on every service day, as scheduled service does:
+  // the previous day's 05:00–25:00 runs continue after midnight, and the
+  // next day's runs begin at its midnight.
+  const daily = (startMinutes, endMinutes) => ({ id: 'daily', name: 'Daily', services: [{ id: 'daily', name: 'Daily', operation: 'add',
+    scheduleMode: 'frequency', bidirectional: false, timeModel: 'preserve-scheduled', stops: [{ stopId: 'A' }, { stopId: 'B' }],
+    startMinutes, endMinutes, headwayMinutes: 10, segmentRuntimeMinutes: [5] }] })
+  const tail = run('route', { ...base, serviceDate: '2026-07-16', time: '00:20', scenario: daily(300, 1500) })
+  assert.equal(tail.arrivalMinutes, 25, 'The previous service day’s 24:20 run')
+  assert.equal(run('route', { ...base, time: '23:55', scenario: daily(0, 360) }).arrivalMinutes, 1445, 'The next service day’s 00:00 run')
+  const night = run('reach', { ...reachQuery, serviceDate: '2026-07-16', time: '00:20', scenario: daily(300, 1500) })
+  assert(night.stops.some(stop => stop.stopId === 'B' && stop.durationMinutes <= 15), 'Reach reaches the overnight tail too')
+  // A kept trip of the previous service day runs on that day's clock and is
+  // boarded on the query date after midnight; its calls before it are gone.
+  const kept = (stops, trip) => ({ id: 'kept', name: 'Kept', services: [{ id: 'kept', name: 'Kept', operation: 'add',
+    scheduleMode: 'preserve-trips', stops: stops.map(stopId => ({ stopId })), scheduledTrips: [{ serviceDayOffset: -1, ...trip }] }] })
+  assert.equal(run('route', { ...base, serviceDate: '2026-07-16', time: '00:20', scenario: kept(['A', 'B'],
+    { departureSeconds: 88_200, departureOffsetsSeconds: [0, 600], arrivalOffsetsSeconds: [0, 600] }) }).arrivalMinutes, 40,
+  'The previous day’s 24:30 trip')
+  const straddling = kept(['A', 'X', 'B'], { departureSeconds: 85_800, departureOffsetsSeconds: [0, 1_200, 2_400], arrivalOffsetsSeconds: [0, 1_200, 2_400] })
+  assert.equal(run('route', { ...base, serviceDate: '2026-07-16', time: '00:05', origin: { stopId: 'X' }, scenario: straddling }).arrivalMinutes, 30,
+    'A trip that left at 23:50 is boarded after midnight')
+  assert.equal(run('route', { ...base, serviceDate: '2026-07-16', time: '00:00', destination: { stopId: 'X' }, scenario: straddling }).status, 'blocked',
+    'Its calls before midnight are not offered')
+  rejects('route', { ...base, scenario: kept(['A', 'B'], { departureSeconds: 0, departureOffsetsSeconds: [0, 60], arrivalOffsetsSeconds: [0, 60], serviceDayOffset: 4 }) },
+    /serviceDayOffset must be an integer from -3 through 3/)
+  rejects('route', { ...base, scenario: kept(['A', 'B'], { departureSeconds: 0, departureOffsetsSeconds: [0, 60], arrivalOffsetsSeconds: [0, 60], serviceDayOfset: -1 }) },
+    /Unknown scheduledTrip field: serviceDayOfset/)
+  const replacement = { operation: 'replace', scheduleMode: 'preserve-trips', stops: [{ stopId: 'X' }, { stopId: 'B' }],
+    scheduledTrips: [{ tripId: 'T2', departureSeconds: 495 * 60, arrivalOffsetsSeconds: [0, 600], departureOffsetsSeconds: [0, 600] }] }
+  rejects('reach', { ...reachQuery, scenario: { services: [replacement, replacement] } }, /T2 is replaced by more than one planned service/)
+  rejects('reach', { ...reachQuery, serviceDate: '2026-07-19', scenario: { services: [replacement] } }, /T2 is not active on the service date/)
+  // The fixture has no service after midnight, so no timetable holds the previous day's T2.
+  rejects('reach', { ...reachQuery, serviceDate: '2026-07-16', scenario: { services: [{ ...replacement,
+    scheduledTrips: replacement.scheduledTrips.map(trip => ({ ...trip, serviceDayOffset: -1 })) }] } }, /T2 is not active on 2026-07-15/)
   const places = run('native', { operation: 'places.describe', input: { longitudes: [-77.05, 0], latitudes: [38.9, 0] } }).result
   assert.deepEqual(places, { labels: ['Near Alpha', null], kinds: ['stop', null] })
   rejects('native', { operation: 'places.describe', input: { longitudes: [181], latitudes: [0] } }, /finite longitude/)

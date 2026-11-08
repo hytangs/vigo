@@ -930,7 +930,7 @@ pub struct ServiceTiming {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ScheduledTrip {
     #[serde(
         default,
@@ -959,6 +959,16 @@ pub struct ScheduledTrip {
     )]
     #[schemars(inner(range(min = 0, max = 1)))]
     pub can_alight: Option<Vec<u8>>,
+    /// Days from the query's service date to the service date this trip runs
+    /// on; -1 keeps the previous day's trips that run past midnight.
+    /// `departureSeconds` is on that day's clock. Omitted means 0.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    #[schemars(range(min = -3, max = 3))]
+    pub service_day_offset: Option<i8>,
 }
 
 /// A GTFS-Realtime enumeration, by name or by numeric code.

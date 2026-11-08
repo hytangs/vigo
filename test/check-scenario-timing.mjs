@@ -27,12 +27,16 @@ const service = {
   stops, timeModel: 'infer-road', segmentDistancesKm: [1, 3], segmentRuntimeMinutes: runtimes,
   addedStopDwellMinutes: 0.35, averageSpeedKph: 30, dwellMinutes: 0.5,
 }
-function offsets(value) {
-  return compileReachScenario({ services: [value] }).overlay.directionStopOffsetsSeconds.map((number) => Math.round(number * 1e6) / 1e6)
+function offsets(value, field = 'directionStopOffsetsSeconds') {
+  return compileReachScenario({ services: [value] }).overlay[field].map((number) => Math.round(number * 1e6) / 1e6)
 }
 assert.deepEqual(offsets(service), [0, 171, 621, 0, 471, 621], 'Inserted dwell belongs to the inserted stop in both directions.')
-assert.deepEqual(offsets({ ...service, segmentRuntimeMinutes: undefined, addedStopDwellMinutes: 0, segmentDistancesKm: [2, 3] }),
-  [0, 270, 660, 0, 390, 660], 'New line timing must use road distances, including the reverse direction.')
+assert.deepEqual(offsets(service, 'directionArrivalOffsetsSeconds'), [0, 150, 621, 0, 450, 621],
+  'Riders alight at the inserted stop before its dwell.')
+const roadLine = { ...service, segmentRuntimeMinutes: undefined, addedStopDwellMinutes: 0, segmentDistancesKm: [2, 3] }
+assert.deepEqual(offsets(roadLine), [0, 270, 630, 0, 390, 630], 'New line timing must use road distances, including the reverse direction.')
+assert.deepEqual(offsets(roadLine, 'directionArrivalOffsetsSeconds'), [0, 240, 630, 0, 360, 630],
+  'A vehicle dwells after arriving and not at the terminus.')
 assert.throws(() => offsets({ ...service, segmentRuntimeMinutes: [10] }), /one value per stop pair/)
 assert.throws(() => offsets({ ...service, segmentDistancesKm: [null, 3] }), /finite number/)
 assert.throws(() => compileReachScenario({ services: 'invalid' }), /must be an array/)

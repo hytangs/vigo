@@ -166,11 +166,16 @@ function normalizedService(value, index) {
         }
         return [...trip[field]]
       }
+      const serviceDayOffset = trip.serviceDayOffset ?? 0
+      if (!Number.isInteger(serviceDayOffset) || serviceDayOffset < -3 || serviceDayOffset > 3) {
+        throw badRequest(`${label}.serviceDayOffset must be an integer from -3 through 3.`)
+      }
       return {
         tripId: compactText(trip.tripId, '', 240),
         departureSeconds: boundedNumber(trip.departureSeconds, `${label}.departureSeconds`, 0, 0xffff_ffff),
         departureOffsetsSeconds, arrivalOffsetsSeconds,
         canBoard: flags('canBoard'), canAlight: flags('canAlight'),
+        ...(serviceDayOffset ? { serviceDayOffset } : {}),
       }
     })
   }
@@ -312,11 +317,15 @@ function serviceDirections(service, indexes) {
   return directions
 }
 
+// Departure and arrival minutes after a run's first departure, as the native
+// compiler times frequency service: a vehicle arrives after running, dwells,
+// then departs, and does not dwell at its first or last stop.
 function directionOffsets(direction, service) {
   const projection = localProjection(
     direction.stops.reduce((sum, stop) => sum + stop.coordinate[1], 0) / direction.stops.length,
   )
-  const offsets = [0]
+  const departures = [0]
+  const arrivals = [0]
   for (let index = 1; index < direction.stops.length; index += 1) {
     const inferredDistance = direction.segmentDistancesKm?.[index - 1]
       ?? service.segmentDistancesKm?.[index - 1]
@@ -332,16 +341,39 @@ function directionOffsets(direction, service) {
     const addedDwell = ['inserted', 'added'].includes(direction.stops[index].editStatus)
       ? service.addedStopDwellMinutes
       : 0
-    const segmentMinutes = ['preserve-scheduled', 'infer-road'].includes(service.timeModel)
+    const timed = ['preserve-scheduled', 'infer-road'].includes(service.timeModel)
       && Number.isFinite(scheduledRuntime)
-      ? scheduledRuntime + addedDwell
-      : service.dwellMinutes + distanceKm / service.averageSpeedKph * 60
-    offsets.push(
-      offsets[index - 1]
-      + segmentMinutes,
-    )
+    const arrival = departures[index - 1]
+      + (timed ? scheduledRuntime : distanceKm / service.averageSpeedKph * 60)
+    arrivals.push(arrival)
+    departures.push(index === direction.stops.length - 1
+      ? arrival
+      : arrival + (timed ? addedDwell : service.dwellMinutes))
   }
-  return offsets
+  return { departures, arrivals }
+}
+
+// A kept trip on the query date's clock. A trip of another service day moves
+// by whole days (the native compiler also follows the City's time zone), and
+// its calls before midnight, where no query on that date boards, are left out.
+function placedTrip(trip, indexes) {
+  const start = trip.departureSeconds + (trip.serviceDayOffset ?? 0) * 86_400
+  const first = trip.departureOffsetsSeconds.findIndex((offset) => start + offset >= 0)
+  if (first < 0 || first + 1 >= indexes.length) return null
+  const base = trip.departureOffsetsSeconds[first]
+  const after = (values) => values.slice(first)
+  return {
+    indexes: after(indexes),
+    start: start + base,
+    end: start + base,
+    trip: {
+      ...trip,
+      departureOffsetsSeconds: after(trip.departureOffsetsSeconds).map((offset) => offset - base),
+      arrivalOffsetsSeconds: after(trip.arrivalOffsetsSeconds).map((offset) => Math.max(0, offset - base)),
+      canBoard: after(trip.canBoard),
+      canAlight: after(trip.canAlight),
+    },
+  }
 }
 
 function compileScenarioOverlay({
@@ -363,16 +395,18 @@ function compileScenarioOverlay({
   const arrivalOffsets = []
   const canBoard = [], canAlight = []
   const runs = directions.flatMap((direction) => direction.service.scheduleMode === 'preserve-trips'
-    ? direction.service.scheduledTrips.map((trip) => ({
-        ...direction, trip: adjustScheduledTrip(trip, direction.service.timing), start: trip.departureSeconds, end: trip.departureSeconds, headway: 1,
-      }))
+    ? direction.service.scheduledTrips.flatMap((trip) => {
+        const placed = placedTrip(adjustScheduledTrip(trip, direction.service.timing), direction.indexes)
+        return placed ? [{ ...direction, ...placed, headway: 1 }] : []
+      })
     : activeTimetables(direction.service, serviceDate).map(row => ({ ...direction, start: row.startMinutes * 60,
         end: row.endMinutes * 60 - (row.endExclusive ? 1 : 0), headway: row.headwayMinutes * 60 })))
   for (const direction of runs) {
     directionStops.push(...direction.indexes)
-    const offsets = direction.trip?.departureOffsetsSeconds ?? direction.offsets.map((minutes) => minutes * 60)
-    stopOffsets.push(...offsets)
-    arrivalOffsets.push(...(direction.trip?.arrivalOffsetsSeconds ?? offsets))
+    stopOffsets.push(...(direction.trip?.departureOffsetsSeconds
+      ?? direction.offsets.departures.map((minutes) => minutes * 60)))
+    arrivalOffsets.push(...(direction.trip?.arrivalOffsetsSeconds
+      ?? direction.offsets.arrivals.map((minutes) => minutes * 60)))
     canBoard.push(...(direction.trip?.canBoard ?? direction.indexes.map(() => 1)))
     canAlight.push(...(direction.trip?.canAlight ?? direction.indexes.map(() => 1)))
     directionStarts.push(directionStops.length)
@@ -1004,7 +1038,9 @@ export function compileReachScenario(value, serviceDate) {
 /**
  * The plan point-to-point routing applies to the timetable: the same compiled
  * runs as Reach, the trips and routes they remove, and per-direction labels
- * and geometry so journeys can describe planned service.
+ * and geometry so journeys can describe planned service. Studio and the CLI
+ * route scenarios natively; this JavaScript plan mirrors the native compiler
+ * for frequency windows on the service date only, not adjacent service days.
  */
 export function compileRouteScenario(value, serviceDate) {
   const { scenario, overlay, directions, runDirections } = compileReachScenario(value, serviceDate)
