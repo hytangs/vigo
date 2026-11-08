@@ -8,7 +8,6 @@ compile_error!(
 mod basemap_tiles;
 mod bike;
 mod bike_time;
-pub mod compiler;
 #[cfg(any(feature = "node", test))]
 mod decimal_rounding;
 mod drive_attachment;
