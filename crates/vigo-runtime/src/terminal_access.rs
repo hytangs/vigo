@@ -362,10 +362,8 @@ impl TerminalAccessGraph {
                 if let Some(nodes) = self.cells.get(&(y, x)) {
                     for &local in nodes {
                         let distance = haversine_m(
-                            lon,
-                            lat,
-                            self.lons[local as usize],
-                            self.lats[local as usize],
+                            [lon, lat],
+                            [self.lons[local as usize], self.lats[local as usize]],
                         );
                         if distance <= RECOVERY_SNAP_RADIUS_M {
                             nearby.insert(local);

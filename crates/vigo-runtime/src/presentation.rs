@@ -299,7 +299,7 @@ fn leg(v: &mut Value, geometry: bool) -> Value {
         let (a, b) = (point(&points[0]), point(&points[1]));
         if (a[0] - b[0]).abs() >= 1e-10 || (a[1] - b[1]).abs() >= 1e-10 {
             let mut connector = json!({"source":"coordinate-snap","streetPathVerified":false,
-                "distanceKm":crate::route_materialization::haversine_km(a, b)});
+                "distanceKm":vigo_route::geo::haversine_km(a, b)});
             if geometry {
                 connector["coordinates"] = json!([a, b]);
             }

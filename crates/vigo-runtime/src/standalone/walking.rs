@@ -1,9 +1,10 @@
 //! Materialize the selected access witness, not a new walk to a platform.
-use super::query::{Candidates, Options, Point, haversine};
+use super::query::{Candidates, Options, Point};
 use super::{City, Result};
 use crate::{CoordinateKernel, MaterializePathInput, StreetPathInput, TimetableMatrixLeg};
 use serde_json::{Value, json};
 use std::collections::HashSet;
+use vigo_route::geo::haversine_m;
 
 /// Vertices closer than this are one public vertex (about 10 micrometers).
 fn same_point(a: [f64; 2], b: [f64; 2]) -> bool {
@@ -156,7 +157,7 @@ impl City {
                 value["distanceMeters"] = json!(if path.found {
                     path.distance_m
                 } else {
-                    haversine(from, to)
+                    haversine_m(from, to)
                 });
                 if geometry {
                     value["coordinates"] = if path.found {
@@ -282,7 +283,7 @@ impl City {
                     }
                     distance = Some(transfer.path_distance_m.unwrap_or_else(|| {
                         if located {
-                            haversine(coordinates[0], coordinates[1])
+                            haversine_m(coordinates[0], coordinates[1])
                         } else {
                             0.
                         }

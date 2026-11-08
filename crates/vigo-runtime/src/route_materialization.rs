@@ -7,8 +7,8 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use rusqlite::{Connection, OpenFlags, types::ValueRef};
 use std::collections::{HashMap, VecDeque};
+use vigo_route::geo::{EARTH_RADIUS_KM, haversine_km};
 
-const RADIUS_KM: f64 = 6371.0088;
 const CANDIDATE_LIMIT: usize = 16;
 
 fn unit_position(point: [f64; 2]) -> [f64; 3] {
@@ -77,15 +77,6 @@ fn shape_nodes(points: &[[f64; 2]]) -> Vec<ShapeNode> {
         build(points, &mut nodes, 0, points.len());
     }
     nodes
-}
-
-pub(crate) fn haversine_km(a: [f64; 2], b: [f64; 2]) -> f64 {
-    let radians = |v: f64| v * std::f64::consts::PI / 180.0;
-    let dlat = radians(b[1] - a[1]);
-    let dlon = radians(b[0] - a[0]);
-    let value = (dlat / 2.0).sin().powi(2)
-        + radians(a[1]).cos() * radians(b[1]).cos() * (dlon / 2.0).sin().powi(2);
-    RADIUS_KM * 2.0 * value.sqrt().atan2((1.0 - value).sqrt())
 }
 
 fn coordinates(values: &[f64]) -> Result<Vec<[f64; 2]>> {
@@ -343,7 +334,7 @@ impl ShapeGeometry {
     fn candidates(&self, stop: [f64; 2]) -> Vec<Candidate> {
         let mut nearest: Vec<Candidate> = Vec::with_capacity(CANDIDATE_LIMIT);
         if !self.nodes.is_empty() {
-            let mut radius_squared = (2.0 * (0.5 / RADIUS_KM).sin()).powi(2);
+            let mut radius_squared = (2.0 * (0.5 / EARTH_RADIUS_KM).sin()).powi(2);
             self.visit_candidates(
                 0,
                 unit_position(stop),
@@ -383,7 +374,7 @@ impl ShapeGeometry {
             self.visit_candidates(second, position, stop, nearest, radius_squared);
             return;
         }
-        let latitude_delta = 180.0 / (std::f64::consts::PI * RADIUS_KM) + 1e-12;
+        let latitude_delta = 180.0 / (std::f64::consts::PI * EARTH_RADIUS_KM) + 1e-12;
         for index in node.start as usize..node.end as usize {
             if (self.points[index][1] - stop[1]).abs() > latitude_delta {
                 continue;
@@ -406,7 +397,7 @@ impl ShapeGeometry {
             nearest.insert(position, candidate);
             if nearest.len() == CANDIDATE_LIMIT {
                 *radius_squared = (2.0
-                    * (nearest[CANDIDATE_LIMIT - 1].distance / (2.0 * RADIUS_KM)).sin())
+                    * (nearest[CANDIDATE_LIMIT - 1].distance / (2.0 * EARTH_RADIUS_KM)).sin())
                 .powi(2);
             }
         }

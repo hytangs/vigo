@@ -58,6 +58,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 use std::time::SystemTime;
+use vigo_route::geo::{EARTH_RADIUS_M, haversine_m};
 
 /// Vertex cap for public walking geometry, shared by every runtime so the same
 /// witness produces the same line.
@@ -140,7 +141,6 @@ use street_snapshot::Snapshot;
 const SNAP_RADIUS_M: f64 = 80.0;
 const RECOVERY_SNAP_RADIUS_M: f64 = 160.0;
 const ACCESS_GRID_DEGREES: f64 = 0.002;
-const EARTH_RADIUS_M: f64 = 6_371_008.8;
 const NO_PREDECESSOR: u32 = u32::MAX;
 const NO_PROFILE_KEY: u32 = u32::MAX;
 // A whole Matrix group may reuse its endpoint preparation for direct walking.
@@ -2199,10 +2199,14 @@ fn reduce_access_frontier(
                         link.path_distance_m
                     } else {
                         haversine_m(
-                            profile.stop_lons[source_stop_key as usize],
-                            profile.stop_lats[source_stop_key as usize],
-                            profile.stop_lons[link.to_stop_key as usize],
-                            profile.stop_lats[link.to_stop_key as usize],
+                            [
+                                profile.stop_lons[source_stop_key as usize],
+                                profile.stop_lats[source_stop_key as usize],
+                            ],
+                            [
+                                profile.stop_lons[link.to_stop_key as usize],
+                                profile.stop_lats[link.to_stop_key as usize],
+                            ],
                         )
                     };
                 let distance_m = source.distance_m + transfer_distance_m;
@@ -4299,10 +4303,8 @@ impl CoordinateKernel {
                 .map_or(3.8, |profile| profile.walking_speed_kph)
         });
         let crow_flight_m = haversine_m(
-            input.origin_lon,
-            input.origin_lat,
-            input.destination_lon,
-            input.destination_lat,
+            [input.origin_lon, input.origin_lat],
+            [input.destination_lon, input.destination_lat],
         );
         let physical_walk_lower_bound_seconds =
             crow_flight_m / 1_000.0 / walking_speed_kph * 3_600.0;
@@ -5109,10 +5111,14 @@ impl CoordinateKernel {
                         link.path_distance_m
                     } else {
                         haversine_m(
-                            profile.stop_lons[key as usize],
-                            profile.stop_lats[key as usize],
-                            profile.stop_lons[link.to_stop_key as usize],
-                            profile.stop_lats[link.to_stop_key as usize],
+                            [
+                                profile.stop_lons[key as usize],
+                                profile.stop_lats[key as usize],
+                            ],
+                            [
+                                profile.stop_lons[link.to_stop_key as usize],
+                                profile.stop_lats[link.to_stop_key as usize],
+                            ],
                         )
                     };
                     for &anchor in anchors {
@@ -6136,10 +6142,11 @@ impl AccessProfile {
                 for &anchor in self.anchors_in_cell(latitude_cell, longitude_cell) {
                     let anchor_index = anchor as usize;
                     if haversine_m(
-                        longitude,
-                        latitude,
-                        self.anchor_lons[anchor_index],
-                        self.anchor_lats[anchor_index],
+                        [longitude, latitude],
+                        [
+                            self.anchor_lons[anchor_index],
+                            self.anchor_lats[anchor_index],
+                        ],
                     ) > maximum_distance_m
                     {
                         continue;
@@ -6523,16 +6530,6 @@ pub fn defer_drop(value: serde_json::Value) {
     }
 }
 
-fn haversine_m(left_lon: f64, left_lat: f64, right_lon: f64, right_lat: f64) -> f64 {
-    let latitude_delta = (right_lat - left_lat).to_radians();
-    let longitude_delta = (right_lon - left_lon).to_radians();
-    let left_latitude = left_lat.to_radians();
-    let right_latitude = right_lat.to_radians();
-    let value = (latitude_delta / 2.0).sin().powi(2)
-        + left_latitude.cos() * right_latitude.cos() * (longitude_delta / 2.0).sin().powi(2);
-    EARTH_RADIUS_M * 2.0 * value.sqrt().atan2((1.0 - value).sqrt())
-}
-
 fn spatial_tile_ranges(
     snapshot: &Snapshot,
     longitude: f64,
@@ -6683,7 +6680,8 @@ fn nodes_in_radius(
                 if lower_bound_squared_m > maximum_distance_squared_m {
                     continue;
                 }
-                let distance_m = haversine_m(longitude, latitude, node_longitude, node_latitude);
+                let distance_m =
+                    haversine_m([longitude, latitude], [node_longitude, node_latitude]);
                 if distance_m <= maximum_distance_m {
                     candidates.push(Snap {
                         node: node as u32,
@@ -6858,10 +6856,8 @@ fn street_attachment_in_components(
             ordered.push(Snap {
                 node,
                 distance_m: haversine_m(
-                    longitude,
-                    latitude,
-                    lons[node as usize],
-                    lats[node as usize],
+                    [longitude, latitude],
+                    [lons[node as usize], lats[node as usize]],
                 ),
             });
         }

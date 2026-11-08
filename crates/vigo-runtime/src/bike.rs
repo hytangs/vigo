@@ -634,7 +634,8 @@ impl BikeKernel {
         for from in 0..lons.len() {
             for edge in offsets[from] as usize..offsets[from + 1] as usize {
                 let to = targets[edge] as usize;
-                let geometric = crate::haversine_m(lons[from], lats[from], lons[to], lats[to]);
+                let geometric =
+                    vigo_route::geo::haversine_m([lons[from], lats[from]], [lons[to], lats[to]]);
                 if geometric > 0. {
                     minimum_length_ratio =
                         minimum_length_ratio.min(distances[edge] as f64 / 100. / geometric);
@@ -1655,7 +1656,7 @@ impl BikeKernel {
                     let (x, y) = (self.point(a.node), self.point(b.node));
                     a.walk_meters
                         + b.walk_meters
-                        + crate::haversine_m(x[0], x[1], y[0], y[1])
+                        + vigo_route::geo::haversine_m([x[0], x[1]], [y[0], y[1]])
                             * self.minimum_length_ratio
                             * (1. - 1e-9)
                         > max_distance
@@ -1999,11 +2000,9 @@ impl BikeKernel {
                     end_nodes
                         .iter()
                         .map(|&end| {
-                            crate::haversine_m(
-                                self.lons[node as usize],
-                                self.lats[node as usize],
-                                self.lons[end as usize],
-                                self.lats[end as usize],
+                            vigo_route::geo::haversine_m(
+                                [self.lons[node as usize], self.lats[node as usize]],
+                                [self.lons[end as usize], self.lats[end as usize]],
                             )
                         })
                         .fold(f64::INFINITY, f64::min)
@@ -5425,7 +5424,7 @@ mod tests {
             {
                 let nearest = points
                     .iter()
-                    .map(|p| crate::haversine_m(point[0], point[1], p[0], p[1]))
+                    .map(|p| vigo_route::geo::haversine_m([point[0], point[1]], [p[0], p[1]]))
                     .fold(f64::INFINITY, f64::min);
                 assert!(bounds.meters(point) <= nearest + 1e-7);
             }

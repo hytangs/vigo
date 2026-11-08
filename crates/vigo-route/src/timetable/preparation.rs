@@ -57,10 +57,7 @@ fn fallback_seconds(coordinates: &[f64], from: usize, to: usize, speed: f64) -> 
     );
     // Match the shared JS station fallback's order of arithmetic, including its
     // 120-second floor. Invalid source coordinates previously normalized to zero.
-    let radians = |value: f64| value * std::f64::consts::PI / 180.0;
-    let value = (radians(lat2 - lat1) / 2.0).sin().powi(2)
-        + radians(lat1).cos() * radians(lat2).cos() * (radians(lon2 - lon1) / 2.0).sin().powi(2);
-    let km = 6371.0088 * 2.0 * value.sqrt().atan2((1.0 - value).sqrt());
+    let km = crate::geo::haversine_km([lon1, lat1], [lon2, lat2]);
     let seconds = (km / speed * 3600.0).ceil();
     if seconds.is_finite() {
         seconds.max(120.0)

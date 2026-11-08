@@ -774,7 +774,7 @@ impl City {
             .iter()
             .map(|&position| &self.stops[position as usize])
             .filter(|stop| (stop.lat.to_radians() - latitude).abs() <= band)
-            .map(|stop| (stop, haversine(point.coordinate, [stop.lon, stop.lat])))
+            .map(|stop| (stop, haversine_m(point.coordinate, [stop.lon, stop.lat])))
             .filter(|(_, meters)| *meters <= radius)
             .min_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.id.cmp(&b.0.id)))
     }
@@ -1206,11 +1206,10 @@ impl City {
         // walk cannot win and, unless choices are collected, is not searched.
         let walk_cannot_win =
             !collect && output["status"] == "ready" && output["mode"] == "transit" && {
-                let bound = crate::route_materialization::haversine_km(
-                    origin.coordinate,
-                    destination.coordinate,
-                ) / opt.walk_speed.unwrap_or(self.speed)
-                    * 60.;
+                let bound =
+                    vigo_route::geo::haversine_km(origin.coordinate, destination.coordinate)
+                        / opt.walk_speed.unwrap_or(self.speed)
+                        * 60.;
                 let transit = if opt.arrive {
                     opt.time / 60.
                         - output["departureMinutes"]
@@ -1619,7 +1618,7 @@ impl City {
             (0..points.len())
                 .filter(|&i| {
                     others.iter().any(|other| {
-                        haversine(points[i].coordinate, other.coordinate) <= limit * 1.01 + 1.
+                        haversine_m(points[i].coordinate, other.coordinate) <= limit * 1.01 + 1.
                     })
                 })
                 .collect()
@@ -2395,13 +2394,6 @@ impl super::city::Drive {
         admission.as_object_mut().unwrap().remove("cacheKey");
         Ok((input, admission))
     }
-}
-pub(crate) fn haversine(a: [f64; 2], b: [f64; 2]) -> f64 {
-    let v = ((b[1] - a[1]).to_radians() / 2.).sin().powi(2)
-        + a[1].to_radians().cos()
-            * b[1].to_radians().cos()
-            * ((b[0] - a[0]).to_radians() / 2.).sin().powi(2);
-    6371008.8 * 2. * v.sqrt().atan2((1. - v).max(0.).sqrt())
 }
 // Reserve time at the final destination without modifying vehicle events or
 // moving the query's earliest departure. This is deliberately not a calibrated
