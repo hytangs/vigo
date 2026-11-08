@@ -108,7 +108,7 @@
     "build:studio-assets": "tsc --noEmit && vite build"
   },
   "dependencies": {
-    "jszip": "^3.10.1",
+    "jszip": "^3.10.2",
     "lucide-react": "^0.468.0",
     "maplibre-gl": "6.4.1",
     "papaparse": "^5.4.1",
