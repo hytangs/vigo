@@ -169,7 +169,6 @@ import {
   routeNativeTimetableMatrix,
   routeNativeTimetableOverlayMany,
   routeNativeTimetablePareto,
-  routeNativeTimetableAlternatives,
   routeNativeTimetableScalar,
 } from './native-routing-kernel.mjs'
 import { integralNumber, numeric, timingMilliseconds } from './number-utils.mjs'
@@ -233,7 +232,6 @@ const preparedNativeCoordinateAccessPair = Symbol(
 )
 const departureWindowAlternativePlans = Symbol('vigo.internal.departure-window-alternative-plans')
 const alternativeArrivalSlackSeconds = 15 * 60
-const routeAlternativeCollector = Symbol('vigo.internal.route-alternatives')
 const staticTopologyMinimumFreeBytes = 2 * 1024 * 1024 * 1024
 const staticTopologyReserveFloorBytes = 128 * 1024 * 1024
 const staticTopologyTransientWorkspaceBytes = 64 * 1024 * 1024
@@ -8175,8 +8173,7 @@ export function routeNationalGtfsStore(storePath, request) {
           // JS certifiers and alternative collection still need all candidates.
           retainFullFrontier: request.maxTransfers === undefined
             || request.routingPreference === 'balanced'
-            || Array.isArray(request[departureWindowAlternativePlans])
-            || Boolean(request[routeAlternativeCollector]),
+            || Array.isArray(request[departureWindowAlternativePlans]),
           enableDirectWalkDominance: !transitRideRequired(request),
           disableCache: request.__disableNativeStreetPathCache === true,
         },
@@ -8429,58 +8426,6 @@ export function routeNationalGtfsStore(storePath, request) {
           nativeCoordinateAccess,
           realtimeTimetable,
         })
-        // Opt-in alternatives send the standalone runtime's kernel request:
-        // every endpoint candidate, the final transit witness, and the shared
-        // ranking. Each returned chain becomes an ordinary plan.
-        const collectRouteAlternatives = () => {
-          const collector = request[routeAlternativeCollector]
-          if (!collector || selectedKernelSearch.status !== 'ready') return
-          let candidateOrigins = originStops
-          let candidateDestinations = destinationStops
-          if (fusedCoordinateTimetable && !paretoSearch) {
-            candidateOrigins = materializeNativeCoordinateEndpointCandidates(
-              request.streetStorePath, fusedCoordinateTimetable.endpoints, 'origin',
-            )
-            candidateDestinations = materializeNativeCoordinateEndpointCandidates(
-              request.streetStorePath, fusedCoordinateTimetable.endpoints, 'destination',
-            )
-          }
-          const { arrivalSlackSeconds, ranking, limit } = collector.alternatives
-          const raw = routeNativeTimetableAlternatives(activeKernel, {
-            originSeeds: activeServiceKernelAccessSeeds(activeKernel, candidateOrigins),
-            destinationSeeds: activeServiceKernelAccessSeeds(activeKernel, candidateDestinations),
-            allowPreRideTransfers,
-            allowPostRideTransfers: allowsTerminalTransfers(candidateDestinations),
-            maxTransfers: request.maxTransfers,
-            departure,
-            horizon,
-            earliestArrival: selectedKernelSearch.bestArrival,
-            arrivalSlackSeconds,
-            bestBoardings: selectedKernelSearch.chain.filter((step) => step.kind === 'ride').length,
-            ranking,
-            limit,
-          })
-          collector.search = raw.supported
-            ? { status: 'complete' }
-            : { status: 'unavailable', reason: raw.reason ?? '' }
-          const context = {
-            ...materializationContext(),
-            originStops: candidateOrigins,
-            destinationStops: candidateDestinations,
-          }
-          for (const alternative of raw.alternatives ?? []) {
-            const plan = materializeActiveServiceKernelPlan(store, activeKernel, {
-              ...selectedKernelSearch,
-              bestArrival: alternative.bestArrival,
-              bestBoardings: alternative.bestBoardings,
-              bestDestinationIndex: alternative.bestDestinationIndex,
-              chain: nativeTimetableChain(activeKernel, alternative),
-            }, context)
-            if (!plan) throw new Error('Rust alternative timetable result could not be materialized.')
-            collector.plans.push(decorateResult(withReturnedStationAdvisory(store, plan)))
-          }
-        }
-
         // Scalar arrival dominance can discard a later stop label with less
         // walking that still catches the same vehicle. Exact Pareto rounds
         // certify secondary objectives even for one- and two-boarding paths.
@@ -8666,7 +8611,6 @@ export function routeNationalGtfsStore(storePath, request) {
                 Math.min(selectedKernelSearch.bestArrival, horizon) / 60
                 - earlyDirectComparison.diagnostics.directWalkDistanceKm / walkingSpeedKph * 60
             }
-            collectRouteAlternatives()
             return decorateResult(earlyDirectComparison)
           }
         }
@@ -8786,7 +8730,6 @@ export function routeNationalGtfsStore(storePath, request) {
           }
         }
         const visiblePlan = withReturnedStationAdvisory(store, kernelPlan)
-        collectRouteAlternatives()
         return decorateResult(visiblePlan)
       } catch (error) {
         store.activeServiceKernelStatus = {
@@ -8838,17 +8781,6 @@ export function routeNationalGtfsStore(storePath, request) {
   } finally {
     // Routing is resident-only; the persisted store stays open in the project cache.
   }
-}
-
-// Opt-in point alternatives: the primary plan, the transit alternatives the
-// shared kernel returns for it, and the search status for the public result.
-export function routeNationalGtfsStoreWithAlternatives(storePath, request, alternatives) {
-  const run = (scoped) => {
-    const collector = { alternatives, plans: [], search: null }
-    const plan = routeNationalGtfsStore(storePath, { ...scoped, [routeAlternativeCollector]: collector })
-    return { plan, choices: collector.plans, alternativeSearch: collector.search }
-  }
-  return request?.scenarioPlan && !request[scenarioQueryContext] ? withRouteScenario(storePath, request, run) : run(request)
 }
 
 function routeNationalGtfsParetoAlternatives(storePath, request, centerMinutes, requestedCount = 5) {
