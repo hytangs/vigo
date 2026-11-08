@@ -1,5 +1,5 @@
 import { MapPin, X } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { apiJson } from '../app/api'
 import { useStore } from '../app/store'
 import { city } from '../state/city'
@@ -15,8 +15,9 @@ function cachedSuggestions(key: string) {
 }
 
 /** Suggest places after a short typing pause; edits cancel obsolete lookups. */
-export function RouteAddressInput({ point, label, disabled, onChoose, onPick, onRemove }: {
+export function RouteAddressInput({ point, label, disabled, onChoose, onPick, onRemove, actions }: {
   point: RoutingPoint | null; label: string; disabled?: boolean
+  actions?: ReactNode
   onChoose: (point: RoutingPoint) => void; onPick: () => void; onRemove?: () => void
 }) {
   const projectId = useStore(city, s => s.selectedProjectId)
@@ -83,7 +84,7 @@ export function RouteAddressInput({ point, label, disabled, onChoose, onPick, on
     onChoose({ coordinate: result.coordinate, label: result.label, source: 'map', named: true })
   }
   return <div className="route-address">
-    <label htmlFor={id}>{label}</label>
+    <div className="route-address-heading"><label htmlFor={id}>{label}</label>{actions}</div>
     <div className="route-address-entry">
       <input id={id} value={query} placeholder="Address or place" disabled={disabled} autoComplete="off" enterKeyHint="search" maxLength={160}
         role="combobox" aria-autocomplete="list" aria-busy={busy} aria-expanded={results.length > 0} aria-controls={results.length ? `${id}-results` : undefined}

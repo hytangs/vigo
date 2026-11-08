@@ -63,7 +63,7 @@
 .pathfinder-location-field {
   position: relative;
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
+  grid-template-columns: 24px minmax(0, 1fr);
   align-items: center;
   min-height: 44px;
   padding: 0 8px 0 6px;
@@ -93,10 +93,7 @@
 .pathfinder-location-mark.is-waypoint { background: var(--watch); }
 .pathfinder-location-field.is-picking { background: var(--signal-soft); }
 .pathfinder-location-stack > .pathfinder-location-field:first-child { border-radius: var(--group-radius) var(--group-radius) 0 0; }
-.pathfinder-location-pin { color: var(--text-4); }
-
-.pathfinder-location-actions { display: flex; gap: 1px; opacity: 0; transition: opacity var(--duration-base) var(--ease-standard); }
-.pathfinder-location-field:is(:hover, :focus-within) .pathfinder-location-actions { opacity: 1; }
+.pathfinder-location-actions { display: flex; gap: 1px; margin-left: auto; }
 
 .pathfinder-location-actions button {
   display: grid;
@@ -525,13 +522,11 @@
 
 @media (max-width: 760px) {
   .routing-detail-panel { top: 8px; right: 8px; bottom: 8px; width: min(360px, calc(100% - 72px)); }
-  .pathfinder-location-actions { opacity: 1; }
   .pathfinder-location-field { min-height: 52px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .routing-setup-fold > svg,
-  .pathfinder-location-actions { transition: none; }
+  .routing-setup-fold > svg { transition: none; }
 }
 
 .journey-departure-times { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 8px 0 4px; color: var(--text-2); font-variant-numeric: tabular-nums; }
