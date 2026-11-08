@@ -108,7 +108,8 @@ weekday and exact-departure controls. The native contract accepts the same
 
 Rows replace the top-level frequency window. ISO weekdays use 1 for Monday
 through 7 for Sunday; omitting them means every day. Times after midnight remain
-on the selected service date. Every row is end-exclusive. Overlapping rows add
+on their own service date, so a weekday row's runs after midnight continue into
+the next day's clock, as scheduled service does. Every row is end-exclusive. Overlapping rows add
 independent service, with independent random phases in simulation. IDs must be
 unique within a service; a service accepts at most 32 rows. A missing row-level
 `exactTimes` inherits the service's setting. Rows cannot be combined with
@@ -131,6 +132,8 @@ frequency service; cyclic dependencies, exact services, ambiguous bidirectional
 services, multiple active timetable rows and invalid stop indexes are rejected.
 Phasing is available in native
 Monte Carlo requests; Studio currently exposes the exact-times switch.
+Phasing relates runs on the service date; a service's runs on adjacent service
+days keep independent phases.
 Unequal headways align only when their cycles coincide; phasing does not change
 headways or guarantee every vehicle a transfer. Transfer buffers still apply.
 

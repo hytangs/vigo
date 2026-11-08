@@ -8,7 +8,6 @@ compile_error!(
 mod basemap_tiles;
 mod bike;
 mod bike_time;
-pub mod compiler;
 #[cfg(any(feature = "node", test))]
 mod decimal_rounding;
 mod drive_attachment;
@@ -59,6 +58,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 use std::time::SystemTime;
+use vigo_route::geo::{EARTH_RADIUS_M, haversine_m};
 
 /// Vertex cap for public walking geometry, shared by every runtime so the same
 /// witness produces the same line.
@@ -141,7 +141,6 @@ use street_snapshot::Snapshot;
 const SNAP_RADIUS_M: f64 = 80.0;
 const RECOVERY_SNAP_RADIUS_M: f64 = 160.0;
 const ACCESS_GRID_DEGREES: f64 = 0.002;
-const EARTH_RADIUS_M: f64 = 6_371_008.8;
 const NO_PREDECESSOR: u32 = u32::MAX;
 const NO_PROFILE_KEY: u32 = u32::MAX;
 // A whole Matrix group may reuse its endpoint preparation for direct walking.
@@ -2200,10 +2199,14 @@ fn reduce_access_frontier(
                         link.path_distance_m
                     } else {
                         haversine_m(
-                            profile.stop_lons[source_stop_key as usize],
-                            profile.stop_lats[source_stop_key as usize],
-                            profile.stop_lons[link.to_stop_key as usize],
-                            profile.stop_lats[link.to_stop_key as usize],
+                            [
+                                profile.stop_lons[source_stop_key as usize],
+                                profile.stop_lats[source_stop_key as usize],
+                            ],
+                            [
+                                profile.stop_lons[link.to_stop_key as usize],
+                                profile.stop_lats[link.to_stop_key as usize],
+                            ],
                         )
                     };
                 let distance_m = source.distance_m + transfer_distance_m;
@@ -3162,11 +3165,16 @@ pub struct CoordinateKernel {
     destination_cache_bytes: usize,
     /// Recent `route_path` answers by exact input, newest first.
     path_memo: VecDeque<([u64; 6], StreetPathResult)>,
+    /// Stop-to-stop transfer walks by exact input. A journey's transfers
+    /// recur across requests, and the street graph is fixed between clears.
+    stop_path_memo: HashMap<[u64; 6], StreetPathResult>,
 }
 
 /// A departure window asks for the same walk at every sampled minute.
 #[cfg(feature = "standalone")]
 const PATH_MEMO_ENTRIES: usize = 16;
+#[cfg(feature = "standalone")]
+const STOP_PATH_MEMO_ENTRIES: usize = 4096;
 
 impl CoordinateKernel {
     /// `route_path`, answering a repeated input from the last few searches.
@@ -3198,6 +3206,38 @@ impl CoordinateKernel {
             self.path_memo.push_front((key, path.clone()));
             self.path_memo.truncate(PATH_MEMO_ENTRIES);
         }
+        Ok(path)
+    }
+
+    /// `route_stop_transfer_path`, answered from the memo when `reuse` allows.
+    #[cfg(feature = "standalone")]
+    pub(crate) fn route_stop_transfer_path_reusing(
+        &mut self,
+        input: StreetPathInput,
+        reuse: bool,
+    ) -> napi::Result<StreetPathResult> {
+        if !reuse {
+            return self.route_stop_transfer_path(input);
+        }
+        let key = [
+            input.origin_lon.to_bits(),
+            input.origin_lat.to_bits(),
+            input.destination_lon.to_bits(),
+            input.destination_lat.to_bits(),
+            input.maximum_distance_m.to_bits(),
+            u64::from(input.maximum_points),
+        ];
+        let started = Instant::now();
+        if let Some(saved) = self.stop_path_memo.get(&key) {
+            let mut path = saved.clone();
+            path.query_ns = started.elapsed().as_nanos() as f64;
+            return Ok(path);
+        }
+        let path = self.route_stop_transfer_path(input)?;
+        if self.stop_path_memo.len() >= STOP_PATH_MEMO_ENTRIES {
+            self.stop_path_memo.clear();
+        }
+        self.stop_path_memo.insert(key, path.clone());
         Ok(path)
     }
 
@@ -3634,6 +3674,7 @@ impl CoordinateKernel {
             public_components: HashSet::new(),
         });
         self.path_memo.clear();
+        self.stop_path_memo.clear();
         self.profile
             .as_mut()
             .expect("installed profile")
@@ -3801,6 +3842,7 @@ impl CoordinateKernel {
         profile.index_public_components(&self.snapshot)?;
         self.profile = Some(profile);
         self.path_memo.clear();
+        self.stop_path_memo.clear();
         self.last_origin_frontier = None;
         self.last_destination_frontier = None;
         self.origin_cache.clear();
@@ -4261,10 +4303,8 @@ impl CoordinateKernel {
                 .map_or(3.8, |profile| profile.walking_speed_kph)
         });
         let crow_flight_m = haversine_m(
-            input.origin_lon,
-            input.origin_lat,
-            input.destination_lon,
-            input.destination_lat,
+            [input.origin_lon, input.origin_lat],
+            [input.destination_lon, input.destination_lat],
         );
         let physical_walk_lower_bound_seconds =
             crow_flight_m / 1_000.0 / walking_speed_kph * 3_600.0;
@@ -4722,6 +4762,7 @@ impl CoordinateKernel {
         self.last_origin_frontier = None;
         self.last_destination_frontier = None;
         self.path_memo.clear();
+        self.stop_path_memo.clear();
         self.query_token = self.query_token.wrapping_add(1).max(1);
     }
 
@@ -5070,10 +5111,14 @@ impl CoordinateKernel {
                         link.path_distance_m
                     } else {
                         haversine_m(
-                            profile.stop_lons[key as usize],
-                            profile.stop_lats[key as usize],
-                            profile.stop_lons[link.to_stop_key as usize],
-                            profile.stop_lats[link.to_stop_key as usize],
+                            [
+                                profile.stop_lons[key as usize],
+                                profile.stop_lats[key as usize],
+                            ],
+                            [
+                                profile.stop_lons[link.to_stop_key as usize],
+                                profile.stop_lats[link.to_stop_key as usize],
+                            ],
                         )
                     };
                     for &anchor in anchors {
@@ -6097,10 +6142,11 @@ impl AccessProfile {
                 for &anchor in self.anchors_in_cell(latitude_cell, longitude_cell) {
                     let anchor_index = anchor as usize;
                     if haversine_m(
-                        longitude,
-                        latitude,
-                        self.anchor_lons[anchor_index],
-                        self.anchor_lats[anchor_index],
+                        [longitude, latitude],
+                        [
+                            self.anchor_lons[anchor_index],
+                            self.anchor_lats[anchor_index],
+                        ],
                     ) > maximum_distance_m
                     {
                         continue;
@@ -6456,14 +6502,32 @@ fn access_cell_key(latitude_cell: i32, longitude_cell: i32) -> u64 {
     ((latitude_cell as u32 as u64) << 32) | longitude_cell as u32 as u64
 }
 
-fn haversine_m(left_lon: f64, left_lat: f64, right_lon: f64, right_lat: f64) -> f64 {
-    let latitude_delta = (right_lat - left_lat).to_radians();
-    let longitude_delta = (right_lon - left_lon).to_radians();
-    let left_latitude = left_lat.to_radians();
-    let right_latitude = right_lat.to_radians();
-    let value = (latitude_delta / 2.0).sin().powi(2)
-        + left_latitude.cos() * right_latitude.cos() * (longitude_delta / 2.0).sin().powi(2);
-    EARTH_RADIUS_M * 2.0 * value.sqrt().atan2((1.0 - value).sqrt())
+/// Frees a large result tree on a background thread. Responses are fully
+/// written before their trees are dropped, so freeing thousands of small JSON
+/// nodes need not delay the next request. Falls back to an inline drop.
+pub fn defer_drop(value: serde_json::Value) {
+    use std::sync::{Mutex, OnceLock, mpsc};
+    if !matches!(
+        value,
+        serde_json::Value::Object(_) | serde_json::Value::Array(_)
+    ) {
+        return;
+    }
+    static GRAVEYARD: OnceLock<Option<Mutex<mpsc::Sender<serde_json::Value>>>> = OnceLock::new();
+    let sender = GRAVEYARD.get_or_init(|| {
+        let (sender, receiver) = mpsc::channel::<serde_json::Value>();
+        std::thread::Builder::new()
+            .name("vigo-drop".into())
+            .spawn(move || receiver.into_iter().for_each(drop))
+            .ok()
+            .map(|_| Mutex::new(sender))
+    });
+    if let Some(sender) = sender
+        && let Ok(sender) = sender.lock()
+    {
+        // A closed channel hands the value back; it is then dropped here.
+        let _ = sender.send(value);
+    }
 }
 
 fn spatial_tile_ranges(
@@ -6616,7 +6680,8 @@ fn nodes_in_radius(
                 if lower_bound_squared_m > maximum_distance_squared_m {
                     continue;
                 }
-                let distance_m = haversine_m(longitude, latitude, node_longitude, node_latitude);
+                let distance_m =
+                    haversine_m([longitude, latitude], [node_longitude, node_latitude]);
                 if distance_m <= maximum_distance_m {
                     candidates.push(Snap {
                         node: node as u32,
@@ -6791,10 +6856,8 @@ fn street_attachment_in_components(
             ordered.push(Snap {
                 node,
                 distance_m: haversine_m(
-                    longitude,
-                    latitude,
-                    lons[node as usize],
-                    lats[node as usize],
+                    [longitude, latitude],
+                    [lons[node as usize], lats[node as usize]],
                 ),
             });
         }

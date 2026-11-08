@@ -1,6 +1,6 @@
 # VIGO Rust standalone manual
 
-VIGO 1.0.0-rc.4 · CLI and HTTP reference · Prepared City format 1
+VIGO 1.0.0-rc.5 · CLI and HTTP reference · Prepared City format 1
 
 VIGO runs routing and isochrone queries from a single Rust executable. The executable contains the routing kernels, City loader, JSON interface, and HTTP server. It needs no Node, Python, browser, external routing service, or internet connection at query time. SQLite is compiled in. City data is supplied separately and opened read-only.
 
@@ -285,7 +285,7 @@ vigo-build route --city ./boston --service-date 2026-10-05 \
 
 Choose a date covered by your downloaded feed. Copy the complete City after this step. Rust reports `timing.timetableSource: "prepared_snapshot"` when it can reuse the matching timetable; otherwise it prepares from SQLite for that process and reports `"source"`. Both paths use the same source schedule. A resident `stream` or `serve` process retains its active timetable. Compare startup only with identical date-specific prepared files; repeated Node invocations can write a missing snapshot, while Rust keeps the City read-only.
 
-An existing output is rejected unless you explicitly pass `--replace`. Keep the completed `boston/` directory beside your Rust executable, or pass its absolute path with `--city`. Continue with [Harvard Square to South Station](#1-quickstart). No Node, Python, Osmium, or internet connection is needed for those Rust queries.
+An existing output is rejected unless you explicitly pass `--replace`. A replacement builds and flushes the new City first, then swaps it in. If a crash interrupts the swap, the next `vigo build` or Node CLI query of that path restores the old City or finishes the swap. The Rust executable only reads, so until then it reports the City as missing. Keep the completed `boston/` directory beside your Rust executable, or pass its absolute path with `--city`. Continue with [Harvard Square to South Station](#1-quickstart). No Node, Python, Osmium, or internet connection is needed for those Rust queries.
 
 Build the City with VIGO V1; the runtime requires VIGORS02 snapshots and access-context v2. See [walking evidence](../reference/walking-evidence.md) for missing station costs, conservative access exclusions, and distance lower bounds. Preserve the runtime version and package checksum with the data.
 
@@ -900,17 +900,19 @@ A supplied `cityRevision` must match the loaded City. Choose either nonempty `se
 | `scheduleMode` | `frequency` for add/augment; `preserve-trips` for replace |
 | `sourceRouteId` | Required for route-wide frequency replacement when explicit trip IDs are absent |
 | `bidirectional` | true for frequency; false for preserved trips, where true is rejected |
-| `startMinutes`, `endMinutes` | 300 and 1500; 0–4319; end must not precede start |
+| `startMinutes`, `endMinutes` | 300 and 1500; 0–4319; end must be later than start. The window includes its end unless `exactTimes` is true; `timetables` rows exclude it |
 | `headwayMinutes` | 12; 0.1–1440 |
 | `timeModel` | `estimate-distance`, `preserve-scheduled`, or `infer-road` |
 | `averageSpeedKph` | 22; 1–300 |
-| `dwellMinutes` | 0.35; 0–60, used with distance estimates |
+| `dwellMinutes` | 0.35; 0–60, used with distance estimates; spent after arriving at each intermediate stop |
 | `segmentRuntimeMinutes` | One nonnegative number per consecutive stop pair |
 | `segmentDistancesKm` | One nonnegative number per consecutive stop pair |
 | `addedStopDwellMinutes` | 0; 0–10, applies to inserted/added destination stops with supplied runtimes |
-| `scheduledTrips` | Explicit trip list for preserve-trips mode |
+| `scheduledTrips` | Explicit trip list for preserve-trips mode; a trip's `serviceDayOffset` (-3–3, default 0) names the service day it runs on |
 
 At most 128 services and one million planned stop events are accepted. The default `estimate-distance` model uses projected stop distance, speed, and dwell; merely supplying runtime arrays does not select them. `preserve-scheduled` uses supplied runtimes, falling back to distance estimates where no runtime array exists. `infer-road` consumes supplied distances/runtimes; the standalone service does not infer them from a road route. Use a documented preparation method for those inputs.
+
+Frequency windows are whole seconds, and every run arrives, dwells, then departs: riders alight on arrival, and a run does not dwell at its first or last stop. A frequency service runs on every service day. The previous days' runs that are still running after midnight and the next days' first runs join the query's timetable wherever its clock reaches them, placed by the City's time zone as scheduled service is. A run that started before midnight keeps only its calls after it, and adjacent days never run one departure twice.
 
 `augment` retains existing service. Frequency replacement uses `operation: "replace"`, `scheduleMode: "frequency"`, and `sourceRouteId`; matching active trips are removed. If `scheduledTrips` is provided on a replacement service, its original trip IDs define the removal set. Added service can operate on a date with no active baseline service.
 
@@ -943,7 +945,7 @@ At most 128 services and one million planned stop events are accepted. The defau
 }
 ```
 
-Offsets are **seconds** relative to that run's `departureSeconds`; every array matches the stop count. Permissions are zero/one; omitted permission arrays default to all allowed. Times must preserve chronological arrivals/departures. Replacement `tripId` must be active. Preserve-trips mode does not manufacture reverse runs or automatically recover the original timetable.
+Offsets are **seconds** relative to that run's `departureSeconds`; every array matches the stop count. Permissions are zero/one; omitted permission arrays default to all allowed. Unknown trip fields are rejected. Times must preserve chronological arrivals/departures. Replacement `tripId` must be active on its service day. A trip with `serviceDayOffset: -1` belongs to the previous service day: its `departureSeconds` is on that day's clock, it is placed by the City's time zone, and only its calls after the query date's midnight remain. A replacement removes every instance of its original trip from the query's timetable, so include the previous day's trips that run past midnight; Studio and the compiler do. Preserve-trips mode does not manufacture reverse runs or automatically recover the original timetable.
 
 ### Compiled overlays
 
@@ -1720,8 +1722,8 @@ Terminate HTTPS at a reverse proxy or hosting platform. Give its upstream timeou
 Build the native service image from the repository root:
 
 ```sh
-docker build -f deploy/Dockerfile -t vigo:1.0.0-rc.4 .
-export VIGO_IMAGE=vigo:1.0.0-rc.4
+docker build -f deploy/Dockerfile -t vigo:1.0.0-rc.5 .
+export VIGO_IMAGE=vigo:1.0.0-rc.5
 export VIGO_CITY=/absolute/path/to/prepared-city
 # Set VIGO_API_TOKEN through your deployment secret store.
 docker compose -f deploy/compose.yml up -d --wait
@@ -1962,7 +1964,9 @@ mountain trail grades and paths, tracks or bridleways without a mapped paved
 surface are excluded. An explicit `wheelchair=yes` overrides those surface and
 trail filters. Both policies require ordinary pedestrian permission and exclude steps, escalators, mapped
 inaccessible or limited nodes, raised kerbs and conditional accessibility.
-Published widths below 0.9 m and inclines above 8.3% are excluded. A mapped
+Published widths below 0.9 m and inclines above 8.3% are excluded. An
+`incline` of `up`, `down` or `yes` gives no grade, so the way needs
+`wheelchair=yes`; other inclines that are not percentages are excluded. A mapped
 kerb must be lowered or flush. Inferred evidence passes unlocked gates and
 bollards; other barriers need `wheelchair=yes`. Untagged shape vertices inherit
 the way's accessibility. These are fixed profile limits, not a personalized
@@ -1978,8 +1982,11 @@ slope at most 0.083 in magnitude and a traversal cost. Elevator paths do not
 require slope. Explicit stairs and escalators remain excluded even if a
 contradictory wheelchair time is present. Direction is preserved. Missing paths
 do not generate parent-station shortcuts. Generic transfer recommendations do
-not establish accessible paths. For transit access, station platforms are reached from declared
-accessible entrances and paths, rather than snapped directly from the street.
+not establish accessible paths. A station that declares entrances is reached only
+through its accessible entrances and paths, never by snapping directly to a platform.
+A platform of a station without declared entrances is reached from the street when
+its own or inherited `wheelchair_boarding` is 1. GTFS defines that value as an
+accessible path from outside the station to the platform.
 
 Every successful or no-route response carries `accessibility`, including the
 profile, its street evidence and its limitations. Coordinate-to-network attachments are geometric;

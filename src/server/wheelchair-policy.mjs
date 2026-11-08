@@ -35,8 +35,6 @@ export function wheelchairDescriptionFor(streets = 'inferred') {
     ]),
   })
 }
-export const wheelchairDescription = wheelchairDescriptionFor('inferred')
-export const wheelchairLimitations = wheelchairDescription.limitations
 const tag = value => String(value ?? '').trim().toLowerCase()
 const suppliedNumber = value => tag(value) !== '' && Number.isFinite(Number(value)) ? Number(value) : null
 
@@ -162,7 +160,11 @@ export function wheelchairNodeAllowed(tags, streets = 'inferred') {
   const width = metricLength(tags.width)
   if (tag(tags.width) && (width == null || width < 0.9)) return false
   const incline = tag(tags.incline)
-  if (incline && incline !== '0' && incline !== '0%') {
+  // up, down and yes say a way slopes without saying how much. An explicit
+  // wheelchair=yes vouches for that grade; otherwise the slope is unproved.
+  const gradeFree = ['up', 'down', 'yes'].includes(incline)
+  if (gradeFree && tag(tags.wheelchair) !== 'yes') return false
+  if (incline && !gradeFree && incline !== '0' && incline !== '0%') {
     const percent = Number(incline.slice(0, -1))
     if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)%$/.test(incline)
       || !Number.isFinite(percent) || Math.abs(percent) > 8.3) return false

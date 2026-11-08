@@ -39,7 +39,7 @@ export function RoutingSetup(props: RoutingSetupProps) {
   } = props
   const id = useId()
   const [tab, setTab] = useState<'when' | 'preferences'>('when')
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(publicRouting)
   const resultsWereShown = useRef(resultsShown)
   useEffect(() => {
     if (resultsShown && !resultsWereShown.current) setCollapsed(true)
@@ -47,6 +47,7 @@ export function RoutingSetup(props: RoutingSetupProps) {
   }, [resultsShown])
   const transit = routingMode === 'transit'
   const bike = routingMode === 'bike'
+  const showDate = transit || (bike && !publicRouting)
   const activeTab = transit ? tab : 'when'
   const departNow = transit && routingDataMode === 'realtime'
   const realtimeAvailable = !routingNetwork?.selectedId
@@ -66,7 +67,7 @@ export function RoutingSetup(props: RoutingSetupProps) {
     maxTransfers === undefined ? '' : `≤${maxTransfers} transfers`,
     routingAllowStreetTransfers === false ? 'No street transfers' : '', buffer > 0 ? `${buffer} min buffer` : ''].filter(Boolean).join(' · ')
   const whenSummary = departNow ? 'Depart now'
-    : `${(transit || bike) && routingTimePreference === 'arrive' ? 'Arrive by' : 'Depart at'} ${formatScheduleClock(scheduleTimeMinutes)}${transit || bike ? ` · ${routingServiceDate}` : ''}`
+    : `${showDate && routingTimePreference === 'arrive' ? 'Arrive by' : 'Depart at'} ${formatScheduleClock(scheduleTimeMinutes)}${showDate ? ` · ${routingServiceDate}` : ''}`
 
   function changeTime(value: string) {
     const match = /^(\d{1,2}):(\d{2})$/.exec(value)
@@ -83,8 +84,8 @@ export function RoutingSetup(props: RoutingSetupProps) {
 
   return <section className="routing-setup" aria-label="Journey settings">
     <header className="routing-setup-header">
-    <span className="routing-setup-title"><SlidersHorizontal size={14} aria-hidden="true" />Journey settings</span>
-      {onRoutingWheelchairChange ? <button type="button" className="kit-icon-button routing-wheelchair" aria-pressed={routingWheelchair}
+    <span className="routing-setup-title">{publicRouting ? whenSummary : <><SlidersHorizontal size={14} aria-hidden="true" />Journey settings</>}</span>
+      {!publicRouting && onRoutingWheelchairChange ? <button type="button" className="kit-icon-button routing-wheelchair" aria-pressed={routingWheelchair}
         disabled={routingWheelchairPreparing || (Boolean(wheelchairReason) && !onPrepareWheelchair)}
         aria-label={routingWheelchairPreparing ? 'Preparing wheelchair routing' : !routingWheelchairAvailable && onPrepareWheelchair ? 'Prepare wheelchair routing' : 'Wheelchair routing'}
         title={!routingWheelchairAvailable && onPrepareWheelchair ? 'Prepare accessible streets and transit from this City’s source files' : wheelchairReason || 'Wheelchair routing'}
@@ -120,20 +121,20 @@ export function RoutingSetup(props: RoutingSetupProps) {
         setTab('when')
         requestAnimationFrame(() => input.reportValidity())
       }}>
-      {transit || bike ? <div className="studio-tabs routing-setup-time" role="group" aria-label="Departure time" aria-describedby={transit ? "pathfinder-data-mode-help" : undefined}>
+      {showDate ? <div className="studio-tabs routing-setup-time" role="group" aria-label="Departure time" aria-describedby={transit ? "pathfinder-data-mode-help" : undefined}>
         {transit ? <button type="button" aria-pressed={departNow} disabled={!realtimeAvailable} title={realtimeUnavailableReason}
           onClick={() => { if (routingWheelchair) onRoutingWheelchairChange?.(false); onRoutingTimePreferenceChange('depart'); onRoutingDataModeChange('realtime') }}>Now</button> : null}
         {routingTimeOptions.map(option => <button key={option.value} type="button" aria-pressed={!departNow && routingTimePreference === option.value}
           onClick={() => { onRoutingTimePreferenceChange(option.value); if (departNow) onRoutingDataModeChange('scheduled') }}>{option.value === 'arrive' ? 'Arrive by' : 'Depart at'}</button>)}
       </div> : <span className="routing-setup-label">Depart at</span>}
       {!departNow ? <div className="routing-setup-datetime">
-        {transit || bike ? <label className={classNames('routing-setup-input', transit && routingServiceDateAvailability === 'outside' && 'is-outside')}>
+        {showDate ? <label className={classNames('routing-setup-input', transit && routingServiceDateAvailability === 'outside' && 'is-outside')}>
           <span>Date</span><input type="date" value={routingServiceDate} min={transit ? routingServiceCoverage?.completeStartDate : undefined} max={transit ? routingServiceCoverage?.completeEndDate : undefined} onChange={event => onRoutingServiceDateChange(event.currentTarget.value)} aria-label="Routing service date" />
         </label> : null}
         <label className="routing-setup-input"><span>Time</span><input type="time" value={formatScheduleClock(scheduleTimeMinutes)} onChange={event => changeTime(event.currentTarget.value)} aria-label="Routing time" /></label>
       </div> : null}
-      {bike ? <BikeRoutingSettings value={routingBike} onChange={onRoutingBikeChange} arrive={routingTimePreference === 'arrive'} /> : null}
-      {transit ? <p className="routing-setup-note" id="pathfinder-data-mode-help">{departNow ? 'Departs when you run the route, with live updates where available.' : 'Published timetable for this date and time.'}</p> : null}
+      {bike ? <BikeRoutingSettings value={routingBike} onChange={onRoutingBikeChange} arrive={showDate && routingTimePreference === 'arrive'} /> : null}
+      {transit ? <p className="routing-setup-note" id="pathfinder-data-mode-help">{departNow ? publicRouting ? 'Departs now using the published timetable.' : 'Departs when you run the route, with live updates where available.' : 'Published timetable for this date and time.'}</p> : null}
     </div>
 
     {transit ? <div className="routing-setup-panel" id={`${id}-preferences-panel`} role="tabpanel" aria-labelledby={`${id}-preferences-tab`} hidden={activeTab !== 'preferences'}>
@@ -181,6 +182,6 @@ export function RoutingSetup(props: RoutingSetupProps) {
     </div> : null}
     </div>
     {transit && routingNetwork?.error ? <p className="routing-setup-note" role="alert">{routingNetwork.error}</p> : null}
-    {transit || collapsed ? <footer className="routing-setup-summary">{collapsed ? <strong>{whenSummary}</strong> : null}{transit ? <span>{summary}</span> : bike ? <span>{routingBike.profile} · {routingBike.speedKph} km/h{routingBike.maxLts ? ` · LTS ≤${routingBike.maxLts}` : ''}</span> : null}</footer> : null}
+    {!publicRouting && (transit || collapsed) ? <footer className="routing-setup-summary">{collapsed ? <strong>{whenSummary}</strong> : null}{transit ? <span>{summary}</span> : bike ? <span>{routingBike.profile} · {routingBike.speedKph} km/h{routingBike.maxLts ? ` · LTS ≤${routingBike.maxLts}` : ''}</span> : null}</footer> : null}
   </section>
 }

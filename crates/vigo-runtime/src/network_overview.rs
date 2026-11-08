@@ -99,15 +99,7 @@ fn valid(p: &[f64; 2]) -> bool {
 }
 fn distance(line: &[[f64; 2]]) -> f64 {
     line.windows(2)
-        .map(|pair| {
-            let (a, b) = (pair[0], pair[1]);
-            let radians = |v: f64| v * std::f64::consts::PI / 180.;
-            let value = (radians(b[1] - a[1]) / 2.).sin().powi(2)
-                + radians(a[1]).cos()
-                    * radians(b[1]).cos()
-                    * (radians(b[0] - a[0]) / 2.).sin().powi(2);
-            6371.0088 * 2. * value.sqrt().atan2((1. - value).sqrt())
-        })
+        .map(|pair| vigo_route::geo::haversine_km(pair[0], pair[1]))
         .fold(0., |total, value| total + value)
 }
 fn read(store: &str, scope: &str) -> Result<String, String> {

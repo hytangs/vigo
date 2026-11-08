@@ -64,6 +64,11 @@ export async function loadProjects() {
     shell.set({ health: healthResult, runtimeConfig: config })
 
     if (config) shell.set({ appearance: config.appearance, accent: config.accent, basemap: config.basemap })
+    if (publicRouting) {
+      let appearance: 'light' | 'dark' = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+      try { const saved = localStorage.getItem('vigo-public-appearance'); if (saved === 'dark' || saved === 'light') appearance = saved } catch {}
+      shell.set({ appearance, basemap: appearance === 'dark' ? 'dark' : 'minimal' })
+    }
 
     if (config?.setupRequired) {
       city.set({ projects: [], selectedProjectId: '' })
@@ -85,7 +90,8 @@ export async function loadProjects() {
     setApiError('')
     if (nextSelectedId) city.set({ selectedProjectId: nextSelectedId })
     if (publicRouting && nextProjects.some(project => project.id === publicRoutingCity)) {
-      openProject(publicRoutingCity)
+      const requested = new URLSearchParams(location.search).get('city')
+      openProject(nextProjects.some(p => p.id === requested) ? requested! : nextProjects.some(p => p.id === rememberedProjectId) ? rememberedProjectId : publicRoutingCity)
       openPathfinderView()
     }
   } catch (error) {
@@ -133,7 +139,7 @@ function closeCity() {
   clearRealtimeConnection()
   route.set({ routingResidencyCoverage: null })
   city.set({ osmStreetMessage: '', statusFilter: 'all' })
-  shell.set({ query: '', activeRouteTool: 'agency' })
+  shell.set({ query: '', activeRouteTool: publicRouting ? 'pathfinder' : 'agency', publicPanelExpanded: publicRouting })
   applyNetworkMapDefaults()
 }
 
@@ -149,7 +155,7 @@ export function openProject(projectId: string) {
   city.set({ openedNetworkProjectId: project && hasOperationsData(project) ? projectId : '' })
   if (selectedProjectId && selectedProjectId !== projectId) clearRealtimeConnection()
   beginCitySelection(projectId)
-  shell.set({ page: 'project', activeRouteTool: 'agency' })
+  shell.set({ page: 'project', activeRouteTool: publicRouting ? 'pathfinder' : 'agency', publicPanelExpanded: publicRouting })
   applyNetworkMapDefaults()
 }
 

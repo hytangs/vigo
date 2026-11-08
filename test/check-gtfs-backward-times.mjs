@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite'
 import JSZip from 'jszip'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 import { buildNationalGtfsStore, routeNationalGtfsStore, disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
-// Regression for https://github.com/transitmatters/futures-explorer/issues/295.
+// Regression for a City whose stop_times run backward within a trip.
 // OVERLAP reproduces the published timing example without copying the source feed.
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-time-repair-'))
 try {

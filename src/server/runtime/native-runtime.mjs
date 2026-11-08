@@ -18,10 +18,13 @@ const queryTimeoutMs = boundedInteger(process.env.VIGO_NATIVE_QUERY_TIMEOUT_MS, 
 // A cancelled query normally finishes within milliseconds; its answer is then
 // discarded. Long analyses are stopped instead of holding the City.
 const cancelGraceMs = boundedInteger(process.env.VIGO_NATIVE_CANCEL_GRACE_MS, 1500, 0, 600_000)
+// A City that keeps stopping must not spend its time reloading.
+const rewarmSpacingMs = 30_000
 const maxResponseBytes = 256 * 1024 * 1024
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url))
 const preparationRequest = request => request?.kind === 'info'
   || request?.kind === 'native' && request.operation === 'timetable.prepare'
+const routeMode = request => request?.kind === 'route' ? request.mode ?? 'transit' : null
 const executableName = process.platform === 'win32' ? 'vigo.exe' : 'vigo'
 
 export function makeAbortError(message = 'The request was cancelled.') {
@@ -98,6 +101,7 @@ class StreamProcess {
     this.closed = false
     this.stopping = false
     this.answered = false
+    this.routeModes = new Set()
     this.stderr = ''
     this.chunks = []
     this.bufferedBytes = 0
@@ -164,6 +168,7 @@ class StreamProcess {
     if (!entry) return
     entry.cleanup()
     this.lastUsed = Date.now()
+    this.writeNext()
     if (entry.discarded) return
     if (response?.status === 'error') {
       const message = String(response.error?.message ?? 'The VIGO runtime rejected the request.')
@@ -203,15 +208,23 @@ class StreamProcess {
     if (signal?.aborted) return Promise.reject(makeAbortError())
     this.lastUsed = Date.now()
     return new Promise((resolve, reject) => {
-      const entry = { resolve, reject, discarded: false, started: performance.now(), preparing: preparationRequest(request) }
-      // Answers arrive in request order. A cancelled caller returns at once;
-      // a query still running after the grace period stops the process.
+      const entry = { resolve, reject, discarded: false, started: performance.now(), preparing: preparationRequest(request),
+        line: `${JSON.stringify(request)}\n`, sent: false }
+      // Answers arrive in request order, so only the oldest query is written.
+      // A cancelled caller returns at once: a query still waiting here never
+      // reaches the engine, and one still running after the grace period
+      // stops the process.
       let grace = null
       const abort = () => {
         entry.discarded = true
         reject(makeAbortError())
-        if (this.pending[0] === entry) {
+        if (!entry.sent) {
+          const index = this.pending.indexOf(entry)
+          if (index >= 0) this.pending.splice(index, 1)
+          entry.cleanup()
+        } else if (this.pending[0] === entry) {
           grace = setTimeout(() => {
+            this.replaceWhenStopped = true
             if (this.pending.includes(entry)) this.stop(new NativeCityUnavailableError('A cancelled query was stopped.'), entry)
           }, cancelGraceMs)
           grace.unref?.()
@@ -228,8 +241,16 @@ class StreamProcess {
       }
       signal?.addEventListener('abort', abort, { once: true })
       this.pending.push(entry)
-      this.child.stdin.write(`${JSON.stringify(request)}\n`)
+      this.writeNext()
     })
+  }
+
+  writeNext() {
+    const next = this.pending[0]
+    if (!next || next.sent) return
+    next.sent = true
+    this.child.stdin.write(next.line)
+    next.line = ''
   }
 
   /** Reject every waiting request; those queued behind `culprit` can be retried. */
@@ -289,6 +310,8 @@ export class NativeRuntime {
     spawnProcess = spawn,
   } = {}) {
     this.executable = executable
+    this.warmRoutes = new Map()
+    this.lastRewarm = new Map()
     this.maxCities = maxCities
     this.maxProcesses = maxProcesses
     this.idleMs = idleMs
@@ -313,7 +336,19 @@ export class NativeRuntime {
     }
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await this.#stream(layout, request).query(request, signal)
+        const stream = this.#stream(layout, request)
+        const result = await stream.query(request, signal)
+        const mode = routeMode(request)
+        if (mode) {
+          stream.routeModes.add(mode)
+          // What a replacement process replays to load this mode's network.
+          if (this.leases.has(layout.key) && !request.scenario && !request.realtimeSnapshot) {
+            const known = this.warmRoutes.get(layout.key) ?? new Map()
+            known.set(mode, request)
+            this.warmRoutes.set(layout.key, known)
+          }
+        }
+        return result
       } catch (error) {
         if (attempt || !error?.retryable || signal?.aborted) throw error
       }
@@ -337,7 +372,7 @@ export class NativeRuntime {
     return city
   }
 
-  #start(city, warm) {
+  #start(city, warm, request) {
     const stream = new StreamProcess({
       executable: this.executable,
       layout: city.layout,
@@ -346,12 +381,25 @@ export class NativeRuntime {
         city.processes = city.processes.filter(other => other !== exited)
         if (city.baseline === exited) city.baseline = null
         if (!city.processes.length && this.cities.get(city.layout.key) === city) this.cities.delete(city.layout.key)
+        // A kept City that lost a working process prepares its replacement now,
+        // so the next visitor does not pay to load each mode's network again.
+        if ((exited.replaceWhenStopped || (!exited.stopping && exited.answered)) && !city.processes.length) this.#rewarm(city.layout)
       },
     })
     // An added stream takes requests once it has opened the City.
     stream.ready = !warm
     if (warm) {
-      stream.query({ kind: 'info' }).then(() => { stream.ready = true }, () => {})
+      void (async () => {
+        await stream.query({ kind: 'info' })
+        // Opening metadata does not load the mode's lazy network. Keep this
+        // extra process out of dispatch until a real route has loaded it.
+        const mode = routeMode(request)
+        if (mode) {
+          await stream.query(request)
+          stream.routeModes.add(mode)
+        }
+        stream.ready = true
+      })().catch(error => stream.stop(error))
     }
     city.processes.push(stream)
     return stream
@@ -362,15 +410,32 @@ export class NativeRuntime {
     const city = this.#city(layout, true)
     if (request?.surfaceReuse === 'scenario' && city.baseline && !city.baseline.closed) return city.baseline
     const ready = city.processes.filter(stream => stream.ready && !stream.closed)
-    const candidates = ready.length ? ready : city.processes
+    // A process ready for one mode may still be cold for another. Queue on
+    // an already loaded network instead of charging a visitor its load time.
+    const mode = routeMode(request)
+    const loaded = mode ? ready.filter(stream => stream.routeModes.has(mode)) : []
+    const candidates = loaded.length ? loaded : ready.length ? ready : city.processes
     const chosen = candidates.reduce((best, stream) => stream.pending.length < best.pending.length ? stream : best)
     if (!preparationRequest(request) && chosen.pending.some(entry => !entry.preparing)
       && city.processes.length < this.maxProcesses
       && city.processes.every(stream => stream.ready && stream.answered)) {
-      this.#start(city, true)
+      this.#start(city, true, request)
     }
     if (request?.surfaceReuse === 'baseline') city.baseline = chosen
     return chosen
+  }
+
+  #rewarm(layout) {
+    const routes = this.warmRoutes.get(layout.key)
+    const now = Date.now()
+    if (!routes?.size || !this.leases.has(layout.key) || now - (this.lastRewarm.get(layout.key) ?? 0) < rewarmSpacingMs) return
+    this.lastRewarm.set(layout.key, now)
+    void (async () => {
+      for (const request of routes.values()) {
+        if (!this.leases.has(layout.key)) return
+        await this.query(layout, request)
+      }
+    })().catch(() => {})
   }
 
   /** Keep `layout` resident while any lease holds it, as the open Route tool does. */
@@ -379,7 +444,10 @@ export class NativeRuntime {
     if (resident) leases.add(leaseId)
     else leases.delete(leaseId)
     if (leases.size) this.leases.set(layout.key, leases)
-    else this.leases.delete(layout.key)
+    else {
+      this.leases.delete(layout.key)
+      this.warmRoutes.delete(layout.key)
+    }
     return { resident: leases.size > 0, leases: leases.size, open: this.cities.has(layout.key) }
   }
 
@@ -391,7 +459,8 @@ export class NativeRuntime {
     idle[0]?.stop()
   }
 
-  // Idle processes stop; a leased City keeps its most recently used one.
+  // Keep the most fully prepared process for a leased City. A recently
+  // added bike-only worker must not replace startup's all-mode preparation.
   scheduleIdle() {
     if (this.idleTimer) return
     this.idleTimer = setTimeout(() => {
@@ -399,7 +468,9 @@ export class NativeRuntime {
       const now = Date.now()
       for (const city of [...this.cities.values()]) {
         const keep = this.leases.has(city.layout.key)
-          ? city.processes.reduce((latest, stream) => (!latest || stream.lastUsed > latest.lastUsed ? stream : latest), null)
+          ? city.processes.reduce((best, stream) => (!best
+            || stream.routeModes.size > best.routeModes.size
+            || stream.routeModes.size === best.routeModes.size && stream.lastUsed > best.lastUsed ? stream : best), null)
           : null
         for (const stream of [...city.processes]) {
           if (stream !== keep && !stream.pending.length && now - stream.lastUsed >= this.idleMs) stream.stop()
@@ -441,5 +512,6 @@ export class NativeRuntime {
     for (const city of [...this.cities.values()]) city.stop()
     this.cities.clear()
     this.leases.clear()
+    this.warmRoutes.clear()
   }
 }

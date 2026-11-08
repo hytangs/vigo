@@ -52,6 +52,7 @@ try {
   trip('irregular', 'peak', 29220, [600, 660])
   trip('irregular', 'late', 33900)
   trip('irregular', 'night', 90000)
+  trip('owl', 'owl-trip', 86100)
   trip('loop', 'loop-trip', 28800, [60, 120, 180, 600, 300], ['A', 'B', 'C', 'A', 'B', 'C'])
   db.prepare('INSERT INTO connection_permissions VALUES(?,?,?,?)').run('early', 2, 0, 1)
 
@@ -91,9 +92,14 @@ try {
   assert.deepEqual(changed.overlay.directionStopOffsetsSeconds, [0, 96, 381, 861])
   assert.deepEqual(changed.overlay.directionArrivalOffsetsSeconds, [0, 75, 321, 861], 'Original dwell and inserted dwell stay separate from arrival times.')
   assert.deepEqual(compile(edit, '2026-07-21').overlay.serviceStartSeconds, [36000], 'Calendar additions and removals use the query date.')
+  const curved = compile({ ...edit, segmentRuntimeMinutes: [3.75, 1.25, 5], segmentDistancesKm: undefined })
+  assert.deepEqual(curved.overlay.directionArrivalOffsetsSeconds, [0, 225, 321, 861],
+    'A published shape’s runtime split, not the straight-line one, divides each trip’s running time.')
   assert.equal(compile(edit, '2026-08-01').overlay, null, 'No active trips means no invented departures.')
   const irregular = compile(service('irregular')).scenario.services[0].scheduledTrips
-  assert.deepEqual(irregular.map((run) => run.departureSeconds).sort((a, b) => a - b), [28800, 29220, 33900, 90000])
+  assert.deepEqual(irregular.map((run) => run.departureSeconds).sort((a, b) => a - b), [28800, 29220, 33900, 90000, 90000])
+  assert.deepEqual(irregular.filter((run) => run.serviceDayOffset === -1).map((run) => run.tripId), ['night'],
+    'The previous service day’s 25:00 trip is kept for the hours after midnight.')
   assert.deepEqual(irregular.find((run) => run.tripId === 'peak').departureOffsetsSeconds, [0, 660, 1320], 'Each trip retains its own running times.')
   assert.deepEqual(irregular.find((run) => run.tripId === 'early').canBoard, [1, 0, 0], 'No-pickup permissions are preserved.')
   const loop = service('loop')
@@ -113,6 +119,13 @@ try {
   const extension = { ...original, stops: [{ id: 'extension', coordinate: [7.99, 47], editStatus: 'added' }, ...original.stops],
     segmentRuntimeMinutes: [1, 5, 5] }
   assert.deepEqual(compile(extension).overlay.serviceStartSeconds, [28740], 'A preceding extension anchors to the original first departure.')
+  assert.deepEqual(compile(extension).scenario.services[0].scheduledTrips[0].canAlight, [0, 1, 1, 1],
+    'Riders from the extension may alight at the former first stop.')
+  const extendedEnd = { ...original, stops: [...original.stops, { id: 'beyond', coordinate: [8.03, 47], editStatus: 'added' }],
+    segmentRuntimeMinutes: [5, 8, 1] }
+  const beyond = compile(extendedEnd)
+  assert.deepEqual(beyond.scenario.services[0].scheduledTrips[0].canBoard, [1, 1, 1, 0],
+    'Riders may board at the former terminus to reach the extension.')
   assert.throws(() => compile({ ...extension, segmentRuntimeMinutes: [1000, 5, 5] }), /before the start of the service date/)
   assert.throws(() => compile({ ...edit, stops: [...edit.stops].reverse() }), /occurrence order/)
   assert.throws(() => compile({ ...original, routeScope: 'route' }), /selected-branch scope/)
@@ -148,6 +161,13 @@ try {
   assert.equal(route(changed.overlay, 28801).timetable.bestArrivals[0], Infinity, 'Missing the bus cannot expose a fictitious 10-minute service.')
   assert.equal(route(changed.overlay, 28890, 1).timetable.bestArrivals[0], 29661, 'An existing run can still be boarded downstream.')
   assert.equal(route(unchanged.overlay, 28800, 0, 1).timetable.bestArrivals[0], 29100, 'Alighting uses arrival, not the later departure after dwell.')
+  assert.equal(route(beyond.overlay, 29640, 2, 3).timetable.bestArrivals[0], 29700, 'The former terminus boards the extended trip.')
+  assert.equal(route(compile(service('irregular')).overlay, 3500, 0, 1).timetable.bestArrivals[0], 3900,
+    'The previous day’s 25:00 trip departs at 01:00 on the query date.')
+  const owl = compile(service('owl'))
+  assert.deepEqual(owl.scenario.services[0].scheduledTrips.map((run) => run.serviceDayOffset ?? 0), [0, -1])
+  assert.equal(route(owl.overlay, 0, 1, 2).timetable.bestArrivals[0], 540,
+    'A trip that left at 23:55 is boarded after midnight at its next stop.')
   assert.equal(route(compile(service('irregular')).overlay, 29150, 1).timetable.bestArrivals[0], 30540,
     'No-pickup blocks the early trip; the next permitted trip retains its own timetable.')
   console.log('Scheduled scenario edits preserve individual trips, calendars, irregular/overnight departures, dwell, permissions and loop occurrences; the native scanner invents no next bus.')

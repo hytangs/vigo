@@ -78,7 +78,7 @@ function Fixture() {
           localBasemapAvailable={false} selectedRouteId="" selectedStopId="" realtimeSnapshot={null}
           vehicleMode="schedule" scheduleTimeMinutes={480} scheduleServiceDate="2026-07-20" routingEnabled={!analysisFocus}
           routingOrigin={showOrigin ? origin : null} routingWaypoints={[]} routingDestination={inspection.point ?? journey?.destination} routingPlan={inspection.plan ?? journey}
-          routingFocus={!analysisFocus} agencyFocus={false} analysisFocus={analysisFocus} reachResult={analysis} serviceDecomposition={null}
+          routingFocus={!analysisFocus} agencyFocus={false} analysisFocus={analysisFocus} reachResult={analysis}
           scenarioView="baseline" scenarioRenderMode="area" scenarioCutoffMinutes={37.25} scenarioSketchStops={[]} scenarioSketchGeometry={[]}
           scenarioPointPicking={false} cityPreviewLoading={false} routingActivity={{ kind: 'idle', title: '', detail: '' }}
           onInspectReachPoint={inspection.inspect} analysisInspector={<ReachPointInspector inspection={inspection} />}

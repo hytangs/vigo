@@ -438,6 +438,7 @@ export type ArtifactRecord = {
 }
 
 export type VigoProject = {
+  publicRouting?: { coverage: string; coverageUrl?: string; realtime: boolean; bounds: [number, number, number, number] }
   /** Default routing source when this City contains alternative networks. */
   defaultRoutingFeedId?: string
   schemaVersion: string

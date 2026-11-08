@@ -85,6 +85,21 @@ for (const incline of ['.%', '1.2.3%', '+.%', '--2%', 'NaN%', 'Infinity%']) {
 for (const incline of ['0', '0%', '+8.3%', '-8.3%', '.5%']) {
   assert.equal(wheelchairWayAllowed({ highway: 'footway', wheelchair: 'yes', incline }), true, incline)
 }
+// up, down and yes give a slope without a grade. wheelchair=yes vouches for
+// it; on a way of unknown accessibility the slope stays unproved.
+for (const incline of ['up', 'down', 'yes', 'UP']) {
+  for (const streets of ['inferred', 'verified']) {
+    assert.equal(wheelchairWayAllowed({ highway: 'footway', wheelchair: 'yes', incline }, streets), true, `${incline}/${streets}`)
+  }
+  assert.equal(wheelchairWayAllowed({ highway: 'footway', incline }), false, incline)
+  assert.equal(wheelchairWayAllowed({ highway: 'footway', wheelchair: 'limited', incline }), false, incline)
+  assert.equal(wheelchairNodeAllowed({ incline }), false, incline)
+}
+for (const incline of ['steep', '5°', '12%', '-9%']) {
+  assert.equal(wheelchairWayAllowed({ highway: 'footway', wheelchair: 'yes', incline }), false, incline)
+}
+assert.equal(wheelchairWayAllowed({ highway: 'steps', wheelchair: 'yes', incline: 'up' }), false)
+assert.equal(wheelchairWayAllowed({ highway: 'footway', wheelchair: 'yes', incline: 'up', width: '0.6' }), false)
 assert.equal(wheelchairNodeAllowed({}), true)
 assert.equal(wheelchairNodeAllowed({ barrier: 'gate', wheelchair: 'yes' }), true)
 
@@ -291,6 +306,12 @@ try {
       assert.equal(result.accessibility.profile, 'wheelchair-strict-v1')
       assert(result.journey.legs.filter(l => l.type === 'transit').every(l => ['T1', 'T2'].includes(l.trip.id)))
     }
+    // Station S declares no entrances, so there is no interior to bypass. Its
+    // platform A inherits wheelchair_boarding=1 and is reached from the street.
+    const fromStreet = run(accessible, 'route', { ...base, origin: { coordinate: [-77.05, 38.9] }, wheelchair: true }, native)
+    assert.equal(fromStreet.status, 'ok', `Accessible platform without entrances: ${JSON.stringify(fromStreet).slice(0, 500)}`)
+    assert.equal(fromStreet.journey.arrivalTime, '08:30:00')
+    assert.equal(fromStreet.journey.legs.find(l => l.type === 'transit').from.stop.id, 'A')
     const arrive = run(accessible, 'route', { ...base, wheelchair: true, time: '08:30', timePreference: 'arrive_by' }, native)
     assert.equal(arrive.journey.departureTime, '08:00:00')
     const matrix = run(accessible, 'matrix', { ...base, origin: undefined, destination: undefined, origins: [base.origin], destinations: [base.destination], wheelchair: true }, native)
@@ -467,7 +488,23 @@ try {
   }
   assert.throws(() => build(untagged.gtfsPath, untagged.osmPath, path.join(folder, 'untagged-verified'), ['--wheelchair', '--wheelchair-streets', 'verified']), /Command failed/)
   assert.throws(() => build(untagged.gtfsPath, untagged.osmPath, path.join(folder, 'untagged-bad'), ['--wheelchair', '--wheelchair-streets', 'assumed']), /Command failed/)
-  console.log('Wheelchair routing passed: inferred and verified street evidence, inheritance, barriers, accessible alternatives, CLI/native/HTTP/Studio, reverse, Matrix, Reach, transfer reserve, profile attachment and invalid requests.')
+  // A mapped ramp: incline=up without a grade. wheelchair=yes makes it a street
+  // under either evidence policy; without it the City has no street to use.
+  for (const [variant, tags, ready] of [['ramp', { wheelchair: true }, true], ['untagged-ramp', {}, false]]) {
+    fs.mkdirSync(path.join(folder, variant))
+    const inputs = await writeCliFixtureInputs(path.join(folder, variant), { ...tags, terminalWayTags: { 10: { incline: 'up' } } })
+    const city = path.join(folder, `${variant}-city`)
+    if (!ready) {
+      assert.throws(() => build(inputs.gtfsPath, inputs.osmPath, city, ['--wheelchair']), /Command failed/, 'A grade-free incline is not evidence of a usable slope')
+      continue
+    }
+    build(inputs.gtfsPath, inputs.osmPath, city, ['--wheelchair', '--wheelchair-streets', 'verified'])
+    for (const native of [false, true]) {
+      const walk = run(city, 'route', { ...base, origin: { coordinate: [-77.05, 38.9] }, destination: { coordinate: [-77.04, 38.905] }, mode: 'walk', wheelchair: true, requireTransitRide: false }, native)
+      assert.equal(walk.status, 'ok', `wheelchair=yes ramp with incline=up: ${JSON.stringify(walk).slice(0, 500)}`)
+    }
+  }
+  console.log('Wheelchair routing passed: inferred and verified street evidence, inheritance, barriers, mapped ramps, accessible alternatives, CLI/native/HTTP/Studio, reverse, Matrix, Reach, transfer reserve, profile attachment and invalid requests.')
 } finally {
   if (server) { server.kill(); await once(server, 'exit') }
   if (process.env.VIGO_KEEP_TEST_FIXTURES) console.log(folder)

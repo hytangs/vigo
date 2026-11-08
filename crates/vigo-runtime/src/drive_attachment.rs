@@ -6,8 +6,9 @@
 //! road is a walk. Entering the road mid-segment costs the remaining part of
 //! that segment, in the segment's own direction.
 
+use vigo_route::geo::EARTH_RADIUS_M;
+
 const CELL_DEGREES: f64 = 0.004;
-const EARTH_RADIUS_M: f64 = 6_371_008.8;
 /// Roads this much farther than the nearest one remain alternatives, so a
 /// point between a divided road's carriageways can use either direction.
 pub(crate) const ALTERNATIVE_TOLERANCE_M: f64 = 25.0;

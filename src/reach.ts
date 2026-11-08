@@ -778,31 +778,6 @@ export type ReachResult = {
   }
 }
 
-export type ServiceEdgeDecomposition = {
-  schemaVersion: 'vigo.service-edge-decomposition.v1'
-  baselineFeedId: string
-  comparisonFeedId: string
-  representation: 'directed_osm_drive_edge'
-  featureCollection: FeatureCollection<Geometry, GeoJsonProperties>
-  diagnostics: {
-    patterns?: {
-      baseline: number
-      comparison: number
-    }
-    matching?: {
-      baseline?: { matched?: number; partial?: number; unmatched?: number; noEdges?: number }
-      comparison?: { matched?: number; partial?: number; unmatched?: number; noEdges?: number }
-    }
-    edgesRepresented?: number
-    edgeFeaturesTruncated?: boolean
-    matchedOnly?: boolean
-    routeIdentifierIndependent?: boolean
-    geometrySource?: string
-    stopSplit?: boolean
-    [key: string]: unknown
-  }
-}
-
 function decodeScenarioRaster(base64: string) {
   const binary = atob(base64)
   const values = new Uint16Array(binary.length / 2)

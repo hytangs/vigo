@@ -18,6 +18,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::sync::{Arc, LazyLock, Mutex};
+use vigo_route::geo::EARTH_RADIUS_KM;
 
 const GEOMETRY_POINT: u32 = 1;
 /// MapLibre's GeoJSON source simplifies with 0.375 px of a 512 px tile, which
@@ -29,7 +30,6 @@ const MAX_ROUTE_VERTICES: usize = 400_000;
 /// The Studio's network preview never drew more stops than this.
 const MAX_STOPS: usize = 16_000;
 const REGISTERED_NETWORKS: usize = 16;
-const EARTH_RADIUS_KM: f64 = 6371.0088;
 const MAX_TRUSTED_SHAPE_JUMP_KM: f64 = 18.0;
 const MIN_INFERRED_JUMP_KM: f64 = 4.5;
 

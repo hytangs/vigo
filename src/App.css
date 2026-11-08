@@ -22,3 +22,5 @@
 @import "./styles/route-workspace.css";
 @import "./styles/reach-workspace.css";
 @import "./styles/scenario-workspace.css";
+
+@import "./styles/public-app.css";

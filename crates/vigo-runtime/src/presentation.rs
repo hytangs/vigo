@@ -22,6 +22,25 @@ fn seconds(v: &Value, sec: &[&str], min: &[&str]) -> Value {
 }
 fn clock(seconds: &Value) -> Value {
     seconds.as_i64().map_or(Value::Null, |s| {
+        // Service days stay below 100 hours; write their digits directly.
+        if (0..100 * 3600).contains(&s) {
+            let digits = [
+                s / 36000,
+                s / 3600 % 10,
+                s % 3600 / 600,
+                s % 600 / 60,
+                s % 60 / 10,
+                s % 10,
+            ];
+            let mut text = String::with_capacity(8);
+            for (index, digit) in digits.into_iter().enumerate() {
+                if index == 2 || index == 4 {
+                    text.push(':');
+                }
+                text.push(char::from(b'0' + digit as u8));
+            }
+            return Value::String(text);
+        }
         json!(format!(
             "{:02}:{:02}:{:02}",
             s / 3600,
@@ -86,8 +105,35 @@ fn point(v: &Value) -> Value {
     }
     p
 }
-fn endpoint(leg: &Value, side: &str) -> Value {
-    let mut p = point(&leg[side]);
+/// `point` for a raw value the caller owns and no longer reads: the stop,
+/// name and coordinate move out instead of being copied.
+fn point_take(v: &mut Value) -> Value {
+    if !v.is_object() {
+        return point(v);
+    }
+    let mut p = json!({});
+    if let Some(stop) = v.get_mut("stop").filter(|stop| stop.is_object()) {
+        p["stop"] = stop.take();
+    }
+    if let Some(s) = v.get("stopId") {
+        p["stop"] = identifier(s);
+    }
+    for key in ["name", "label"] {
+        if let Some(name) = v.get_mut(key).filter(|x| !x.is_null()) {
+            p["name"] = name.take();
+            break;
+        }
+    }
+    if coordinate(&v["coordinate"]) {
+        p["coordinate"] = v["coordinate"].take();
+    }
+    p
+}
+fn endpoint(leg: &mut Value, side: &str) -> Value {
+    let mut p = match leg.get_mut(side) {
+        Some(value) => point_take(value),
+        None => point(&Value::Null),
+    };
     let id = &leg[format!("{side}StopId")];
     if !id.is_null() {
         p["stop"] = identifier(id);
@@ -100,13 +146,16 @@ fn endpoint(leg: &Value, side: &str) -> Value {
 fn leg(v: &mut Value, geometry: bool) -> Value {
     let raw_kind = pick(v, &["kind", "type"]).as_str().unwrap_or("walk");
     let kind = if raw_kind == "ride" {
-        "transit"
+        "transit".to_owned()
     } else {
-        raw_kind
+        raw_kind.to_owned()
     };
+    let kind = kind.as_str();
     let departure = seconds(v, &["departure"], &["departureMinutes", "startMinutes"]);
     let arrival = seconds(v, &["arrival"], &["arrivalMinutes", "endMinutes"]);
-    let mut out = json!({"type":kind,"from":endpoint(v,"from"),"to":endpoint(v,"to"),
+    let from = endpoint(v, "from");
+    let to = endpoint(v, "to");
+    let mut out = json!({"type":kind,"from":from,"to":to,
         "departureTime":clock(&departure),"arrivalTime":clock(&arrival),
         "durationSeconds":seconds(v,&[],&["durationMinutes"])});
     if let (Some(a), Some(b)) = (departure.as_i64(), arrival.as_i64()) {
@@ -118,7 +167,8 @@ fn leg(v: &mut Value, geometry: bool) -> Value {
     {
         out["distanceMeters"] = json!(d.round() as i64);
     }
-    let source = v["geometrySource"].as_str().unwrap_or("unknown");
+    let source = v["geometrySource"].as_str().unwrap_or("unknown").to_owned();
+    let source = source.as_str();
     let street = if v["streetSegmentVerified"] == true || v["streetPathVerified"] == true {
         "verified"
     } else {
@@ -151,12 +201,12 @@ fn leg(v: &mut Value, geometry: bool) -> Value {
         out["tripShortName"] = v["tripShortName"].clone();
         out["route"]["shortName"] = pick(&v["route"], &["shortName"]).clone();
         out["route"]["longName"] = pick(&v["route"], &["longName"]).clone();
-        if let Some(stops) = v["intermediateStops"].as_array() {
+        if let Some(stops) = v.get_mut("intermediateStops").and_then(Value::as_array_mut) {
             out["intermediateStops"] = Value::Array(
                 stops
-                    .iter()
+                    .iter_mut()
                     .map(|s| {
-                        let mut stop = point(s);
+                        let mut stop = point_take(s);
                         stop["arrivalTime"] = clock(&integer(&s["arrival"]));
                         stop["departureTime"] = clock(&integer(&s["departure"]));
                         stop
@@ -249,7 +299,7 @@ fn leg(v: &mut Value, geometry: bool) -> Value {
         let (a, b) = (point(&points[0]), point(&points[1]));
         if (a[0] - b[0]).abs() >= 1e-10 || (a[1] - b[1]).abs() >= 1e-10 {
             let mut connector = json!({"source":"coordinate-snap","streetPathVerified":false,
-                "distanceKm":crate::route_materialization::haversine_km(a, b)});
+                "distanceKm":vigo_route::geo::haversine_km(a, b)});
             if geometry {
                 connector["coordinates"] = json!([a, b]);
             }
@@ -933,6 +983,7 @@ pub fn format_owned(kind: &str, request: &Value, mut raw: Value) -> Value {
             let selected: Vec<bool> = choices
                 .as_array()
                 .map_or(vec![], |items| items.iter().map(|c| c == &*plan).collect());
+            let best_found = plan["diagnostics"]["distanceLimitSearch"] == "best_found";
             out["journey"] = route_journey(plan, &endpoints, geometry);
             if out["journey"].is_null() {
                 out["status"] = json!("not_found");
@@ -948,6 +999,13 @@ pub fn format_owned(kind: &str, request: &Value, mut raw: Value) -> Value {
                     .any(|l| l["quality"]["stationPath"] == "inferred");
                 if inferred {
                     out["warnings"] = json!([{"code":"station_path_inferred","message":"Part of this journey uses inferred station access; physical passage is not fully verified."}]);
+                }
+                if best_found {
+                    let warning = json!({"code":"distance_limit_shortest_route","message":"This route fits the distance limit but may not be the best one for this preference; raise the limit for a full comparison."});
+                    match out["warnings"].as_array_mut() {
+                        Some(warnings) => warnings.push(warning),
+                        None => out["warnings"] = json!([warning]),
+                    }
                 }
             }
             if let Some(window) = window {
@@ -1183,6 +1241,8 @@ pub fn format_owned(kind: &str, request: &Value, mut raw: Value) -> Value {
             }
         }
     }
+    // What remains of the raw tree is freed off the request's critical path.
+    crate::defer_drop(raw);
     out
 }
 

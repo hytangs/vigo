@@ -1196,25 +1196,6 @@ export function routeNativeTimetablePareto(kernel, request) {
   }
 }
 
-// One alternatives request for both runtimes: the kernel sets the boarding
-// bound and ranking, and falls back from corridor pruning itself.
-export function routeNativeTimetableAlternatives(kernel, request) {
-  const record = prepareNativeTimetableKernel(kernel)
-  const { maximumBoardings, ...endpoints } = timetableEndpointQuery(request)
-  const result = record.kernel.routeAlternativeCandidatesCsa({
-    ...endpoints,
-    departure: request.departure,
-    horizon: request.horizon,
-    earliestArrival: request.earliestArrival,
-    arrivalSlackSeconds: request.arrivalSlackSeconds,
-    bestBoardings: request.bestBoardings,
-    ...(maximumBoardings === undefined ? {} : { maximumBoardings }),
-    ranking: request.ranking,
-    ...(request.limit === undefined || request.limit === null ? {} : { limit: request.limit }),
-  })
-  return { ...result, queryMs: normalizeNativeMilliseconds(result.queryNs) }
-}
-
 // Validates the shared alternatives contract; null when alternatives are off.
 export function routeAlternativeRequest(request) {
   return loadNativeBinding().routeAlternativeRequest(JSON.stringify(request)) ?? null

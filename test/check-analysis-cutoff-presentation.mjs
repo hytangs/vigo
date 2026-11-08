@@ -85,9 +85,9 @@ try {
   assert.match(notice(arrivingZero), /0 transit stops reach the destination within the selected 45-minute cutoff/)
   assert.match(notice(arrivingZero), /6,928 stops reach it within the full 90-minute computed window/)
   const timed = (timePreference) => renderToStaticMarkup(createElement(AnalyzePanelView, {
-    mode: 'single', origin: { coordinate: [-71.06, 42.36], label: 'Downtown', source: 'map' }, serviceDate: '2026-07-20', departMinutes: 510,
+    origin: { coordinate: [-71.06, 42.36], label: 'Downtown', source: 'map' }, serviceDate: '2026-07-20', departMinutes: 510,
     timePreference, onTimePreferenceChange: () => {}, maxWalkKm: 1.2, walkSpeedKph: 4.8, cutoffMinutes: 45, renderMode: 'area',
-    cases: [], routes: [], stops: [], feeds: [], comparisonFeedIds: [], preparationTasks: [], loading: false,
+    cases: [], routes: [], stops: [], preparationTasks: [], loading: false,
     routingStoreAvailable: true, streetGraphAvailable: true, onSetOrigin: () => {},
   }))
   const departPanel = timed('depart'), arrivePanel = timed('arrive')

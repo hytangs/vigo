@@ -63,6 +63,7 @@ impl TimetableKernel {
                 maximum_boardings: None,
                 ..input.clone()
             })?;
+            self.certify_capped_guard(input, &unrestricted, maximum);
             if unrestricted.status == "blocked" {
                 return Ok(TimetableQueryResult {
                     query_ns: started.elapsed().as_nanos() as f64,
@@ -217,6 +218,8 @@ impl TimetableKernel {
                     forward_workspace,
                     profile_workspace: _,
                     journey_workspace: _,
+                    capped_guard: _,
+                    terminals: _,
                 },
         } = self;
         let forbidden_same_stop = forbidden_same_stop.as_ref();

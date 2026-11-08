@@ -1,0 +1,88 @@
+/* Public routing: one header row and a compact sheet below the map. */
+.public-app { --topbar-height: 48px; }
+.app-shell.public-app.page-project .topbar { height: 48px; min-height: 48px; padding: 2px max(12px, env(safe-area-inset-left)); grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.public-app .topbar-crumb { display: none; }
+.public-app .topbar-brand { width: auto; min-width: 0; gap: 8px; }
+.public-app .topbar-brand-copy { display: block; min-width: 0; flex: 1; }
+.public-app .topbar-mark-button { width: 32px; min-width: 32px; height: 44px; }
+.public-app .topbar-actions { display: flex; gap: 0; }
+.public-city-picker { display: block; min-width: 0; }
+.public-city-picker select { width: 100%; max-width: 260px; min-width: 0; height: 44px; border: 0; padding: 0 20px 0 0; background: transparent; color: var(--text-1); font: 600 14px/1.3 var(--font-ui); cursor: pointer; }
+.public-theme-toggle, .public-site-link { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-2); cursor: pointer; }
+.public-app .app-sidebar { grid-template-columns: minmax(0, 1fr); }
+.route-address { flex: 1; min-width: 0; padding-block: 6px; }
+.route-address > label { color: var(--text-3); font-size: 11px; }
+.route-address-entry { display: flex; align-items: center; min-width: 0; }
+.route-address-entry input { width: 100%; min-width: 0; padding: 8px 0; border: 0; outline-offset: 2px; border-radius: 3px; background: transparent; color: var(--text-1); font-size: 14px; }
+.route-address-entry button { display: grid; place-items: center; flex: 0 0 32px; min-height: 40px; border: 0; border-radius: 6px; background: transparent; color: var(--text-2); cursor: pointer; }
+.route-address-entry button:disabled { opacity: .4; cursor: default; }
+.route-address > small { display: block; padding: 4px 0; font-size: 12px; }
+.route-address ul { margin: 6px 0 0; padding: 0; list-style: none; border: 1px solid var(--line-2); border-radius: 6px; overflow: hidden; }
+.route-address li button { width: 100%; min-height: 48px; display: grid; gap: 4px; padding: 10px; border: 0; border-bottom: 1px solid var(--line-1); text-align: left; color: var(--text-1); background: var(--ink-2); cursor: pointer; }
+.route-address li[aria-selected="true"] button, .route-address li button:hover { background: var(--signal-soft); }
+.route-address li small { color: var(--text-3); font-size: 12px; }
+.address-attribution { padding: 6px 10px; color: var(--text-3); font-size: 10px; }
+.public-app .route-address { display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: center; padding-block: 0; }
+.public-app .route-address > small, .public-app .route-address > ul { grid-column: 1 / -1; }
+.public-app .pathfinder-location-field { grid-template-columns: minmax(0, 1fr); padding: 0 10px; min-height: 44px; }
+.public-app .pathfinder-location-mark { display: none; }
+.public-app .pathfinder-setup-head { position: static; min-height: 44px; padding: 0 12px; border: 0; }
+.public-app .pathfinder-mode-switch { flex: 1; gap: 2px; border: 0; background: transparent; }
+.public-app .pathfinder-mode-switch button { flex: 1; min-width: 0; min-height: 40px; border-radius: 6px; font-size: 13px; }
+.public-app .pathfinder-body { gap: 8px; padding: 6px 12px 10px; }
+.public-app .routing-setup { border: 0; border-radius: 0; background: transparent; }
+.public-app .routing-setup-header { min-height: 36px; padding: 0; }
+.public-app .routing-setup-title { font-size: 12px; font-weight: 500; }
+.public-app .pathfinder-directions-button { min-height: 40px; background: var(--text-1); color: var(--ink-1); border-color: var(--text-1); border-radius: 6px; }
+.public-app .pathfinder-notice { padding: 8px 12px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.public-app .pathfinder-notice strong { font-size: 13px; }
+.public-app .pathfinder-notice small { font-size: 12px; line-height: 1.4; }
+@media (max-width: 960px) {
+  .public-app { height: 100dvh; min-height: 0; --mobile-nav-height: 0px; --public-panel-height: min(36dvh, 310px); }
+  .public-app.page-project:not(.project-empty):not(.view-data) .shell-body,
+  .public-app.page-project.routing-detail-open:not(.project-empty):not(.view-data) .shell-body {
+    position: relative; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; padding: 0; gap: 0;
+  }
+  .public-app.page-project:not(.project-empty) .app-frame { grid-column: 1; grid-row: 1; min-height: 0; }
+  .public-app .route-investigation-shell { display: grid; grid-template-rows: minmax(0, 1fr); padding: 0; gap: 0; overflow: hidden; min-height: 0; }
+  .public-app .route-surface { display: flex; flex-direction: column; flex: 1; height: 100%; min-height: 0; border: 0; border-radius: 0; }
+  .public-app .route-map-shell { flex: 1; min-height: 0; height: 100%; border-radius: 0; }
+  .public-app.page-project:not(.project-empty):not(.view-data) .app-sidebar,
+  .public-app.page-project:not(.project-empty):not(.view-data) .app-sidebar:has(.sidebar-panel.is-pathfinder) {
+    position: relative; inset: auto; grid-column: 1; grid-row: 2; z-index: 40; display: flex; flex-direction: column; width: 100%; height: auto; max-height: var(--public-panel-height); align-self: end;
+    border: 0; border-top: 1px solid var(--line-2); border-radius: 0; background: var(--ink-2); padding-bottom: env(safe-area-inset-bottom, 0px); overflow: hidden;
+  }
+  .public-app .sidebar-panel[data-mobile-expanded="true"] { flex: 1; height: auto; min-height: 0; border: 0; }
+  .public-app.routing-detail-open .app-sidebar { display: none !important; }
+  .public-app .routing-detail-panel { position: relative; inset: auto; grid-column: 1; grid-row: 2; width: 100%; height: min(32dvh, 280px); border-radius: 0; padding-bottom: env(safe-area-inset-bottom, 0px); animation: none; }
+  .public-app .pathfinder-query { padding-bottom: 6px; }
+  .public-app .pathfinder-query[data-has-results="true"] .pathfinder-composer { display: contents; }
+  .public-app .pathfinder-query[data-has-results="true"] .pathfinder-setup-head { order: 0; }
+  .public-app .pathfinder-query[data-has-results="true"] .pathfinder-outcome { order: 1; padding: 4px 10px; gap: 4px; }
+  .public-app .pathfinder-query[data-has-results="true"] .pathfinder-body { order: 2; }
+  .public-app .pathfinder-route-card { padding: 8px 10px; gap: 4px; }
+  .public-app .pathfinder-results { gap: 6px; }
+  .public-app .pathfinder-choice-sort button { min-height: 36px; padding: 4px 8px; }
+  .public-app .routing-detail-head { padding: 6px 12px; gap: 4px 8px; }
+  .public-app .routing-detail-head > .pathfinder-leg-strip { display: none; }
+  .public-app .routing-detail-scroll { padding: 8px 12px 12px; gap: 6px; }
+  .public-app .journey-itinerary { gap: 6px; }
+  .public-app .journey-leg, .public-app .journey-finish { --rail-center: 50px; grid-template-columns: 34px 16px minmax(0, 1fr); column-gap: 8px; }
+  .public-app .journey-leg .journey-leg-body { padding: 3px 0 8px; gap: 3px; }
+  .public-app .journey-ride { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+  .public-app .journey-leg-evidence > summary { min-height: 28px; }
+  .public-app .journey-start-wait { margin-left: 0; }
+  .public-app .journey-leg.is-via::after { left: 66px; }
+  .public-app .routing-detail-time { flex-wrap: nowrap; gap: 8px; }
+  .public-app .routing-detail-head h2 { font-size: 20px; white-space: nowrap; }
+  .public-app .routing-detail-head h2 small { font-size: 13px; }
+  .public-app .journey-time-range { font-size: 12px; white-space: nowrap; }
+  .public-app .journey-overview { font-size: 12px; }
+  .public-app .route-address-entry input { font-size: 16px; }
+  .public-app .route-address-entry button { min-height: 44px; }
+  .public-app .routing-setup input, .public-app .routing-setup select { font-size: 16px; }
+  .public-app .route-map-shell .maplibregl-ctrl-bottom-right { bottom: 4px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .public-app *, .public-app *::before, .public-app *::after { scroll-behavior: auto; animation-duration: .01ms; transition-duration: .01ms; }
+}

@@ -1,10 +1,10 @@
-# VIGO 1.0.0-rc.4 guide
+# VIGO 1.0.0-rc.5 guide
 
 The canonical source for the [VIGO guide](guide.html), a single offline page that also includes the [engine reference](guides/rust-standalone.md), [Results](reference/results.md), [VIGO Python](../python/docs/guide.md), and [developer resources](developer.md#developer-resources). Edit a chapter here, then run `npm run docs:build`.
 
 ## Build a network. Answer a transport question.
 
-VIGO 1.0.0-rc.4 turns GTFS timetables and OpenStreetMap streets into a reusable City, then answers three questions about it: how to make a journey, how long every trip takes, and how far people can get. It runs on your own machine, explains each answer, and never needs an internet connection to route.
+VIGO 1.0.0-rc.5 turns GTFS timetables and OpenStreetMap streets into a reusable City, then answers three questions about it: how to make a journey, how long every trip takes, and how far people can get. It runs on your own machine, explains each answer, and never needs an internet connection to route.
 
 ### Start here
 
@@ -43,9 +43,11 @@ Every answer carries its evidence. A Route Result says whether each walk follows
 - **Stable results.** The public `vigo.route.v1`, `vigo.matrix.v1`, and `vigo.reach.v1` schemas only gain optional fields. See [Read a Result](reference/results.md).
 - **Offline by default.** Queries never fetch anything. This guide works offline too: press `/` to search, and open saved Results in the [Result viewer](#inspect-a-saved-result).
 
-### What's new in 1.0.0-rc.4
+### What's new in 1.0.0-rc.5
 
-Bike Route and Matrix use bicycle access, contraflow, surfaces, mapped incline and turn restrictions. Choose balanced, quiet or fast preferences; travel-time estimates remain separate from preference penalties. Bike data is optional in CLI builds and loads only on demand. Studio includes Bike and prepares bicycle streets on new OSM imports. Read the [release notes](releases/1.0.0-rc.4.md) and the [changelog](../CHANGELOG.md).
+Tight bicycle and driving distance limits now return a route or a clean no-route answer quickly instead of an error. Adding a stop extends a journey to A, B, then C. An interrupted `vigo build --replace` keeps or restores the published City. The public route planner gains a local address index, an offline page and stricter limits. Read the [release notes](releases/1.0.0-rc.5.md).
+
+RC.4 added Bike Route and Matrix. They use bicycle access, contraflow, surfaces, mapped incline and turn restrictions. Choose balanced, quiet or fast preferences; travel-time estimates remain separate from preference penalties. Bike data is optional in CLI builds and loads only on demand. Studio includes Bike and prepares bicycle streets on new OSM imports. See the [RC.4 release notes](releases/1.0.0-rc.4.md) and the [changelog](../CHANGELOG.md).
 
 ## Install VIGO
 
@@ -115,6 +117,8 @@ From a source checkout, point them at `target/release/vigo` and `public/vigo.mjs
 ### Studio and Python
 
 **VIGO Studio** is the desktop workspace. It imports GTFS and OSM into its own project library and opens this guide offline under **Settings → Documentation**. See the [Studio guide](#vigo-studio-desktop-guide).
+
+macOS Studio builds are ad hoc signed, not notarized. If macOS blocks the first launch, verify the download's checksum, then choose **Open Anyway** under **System Settings → Privacy & Security**.
 
 **VIGO Python** is versioned separately. Install the wheel for your platform, then follow [your first Python query](../python/docs/guide.md#your-first-python-query).
 
@@ -791,7 +795,7 @@ A Scenario is an immutable set of changes tied to exactly one City revision. It 
 
 Scenarios never edit the imported GTFS or OSM, and a complete alternative feed is another City revision. Drawing geometry in an editor creates no computational change until it is attached to a valid service edit. Several nonconflicting planned changes may coexist; conflicts need an explicit resolution. A Scenario never moves to another City revision, and expired live state cannot be queried.
 
-In VIGO 1.0.0-rc.4, planned service changes apply to Reach, supplied traffic to Drive Route and Drive Matrix, and supplied realtime predictions to transit Route. Transit Matrix and Reach remain scheduled. Studio can also route transit journeys on a saved scenario, on the scheduled timetable. Unsupported combinations are rejected with an explanation. The [Scenario request reference](guides/rust-standalone.md#10-scenarios) lists every field.
+In VIGO 1.0.0-rc.5, planned service changes apply to Reach, supplied traffic to Drive Route and Drive Matrix, and supplied realtime predictions to transit Route. Transit Matrix and Reach remain scheduled. Studio can also route transit journeys on a saved scenario, on the scheduled timetable. Unsupported combinations are rejected with an explanation. The [Scenario request reference](guides/rust-standalone.md#10-scenarios) lists every field.
 
 ### Planned service
 
@@ -826,13 +830,13 @@ A planned service change states what changes and supplies enough to run it: orde
 
 ### Replace a branch and keep its trips
 
-`replace` defaults to `scheduleMode: "preserve-trips"` and needs `sourceRouteId`, `sourcePatternId`, and selected-branch scope (`routeScope: "pattern"`, or omitted when a pattern is supplied). Studio and the compiler load the trips active on the query's service date, including calendar exceptions and departures after midnight. Each affected trip produces exactly one replacement, keeping irregular gaps, per-trip running times, dwell, and pickup and drop-off restrictions. Editing stops never adds departures or reverse service. Older replacement requests use the same default: headway and hour fields are ignored unless frequency mode is selected explicitly.
+`replace` defaults to `scheduleMode: "preserve-trips"` and needs `sourceRouteId`, `sourcePatternId`, and selected-branch scope (`routeScope: "pattern"`, or omitted when a pattern is supplied). Studio and the compiler load the trips active on the query's service date, including calendar exceptions and departures after midnight, and the previous service day's trips that are still running after midnight. Each affected trip produces exactly one replacement, keeping irregular gaps, per-trip running times, dwell, and pickup and drop-off restrictions. Editing stops never adds departures or reverse service. Older replacement requests use the same default: headway and hour fields are ignored unless frequency mode is selected explicitly.
 
 For a branch that keeps its trips, road geometry distributes each trip's original A → B running time among the edited gaps. Original dwell remains at retained stops, and `addedStopDwellMinutes` (default 0.35) adds dwell at inserted stops; removing an intermediate stop removes its dwell. The first retained GTFS stop anchors departure timing: a preceding extension departs earlier, and later edits shift downstream times. At least one original stop must remain, with `baselineStopId` or `baselineStopIndex` identifying moved stops and repeated visits. An extension requiring a departure before the service date is rejected. These are modeled timing changes, not a vehicle or crew scheduling check.
 
 ### Set a frequency instead
 
-To change the timetable deliberately, use `scheduleMode: "frequency"` with `headwayMinutes`, `startMinutes`, and `endMinutes`; Studio calls this **Departures → Set frequency and hours**. This mode can replace a whole route, and `add` and `augment` use it by default. New lines use `segmentDistancesKm` and `averageSpeedKph` for road timing, plus `dwellMinutes`; segment arrays have one value per stop pair. Reverse service is an explicit choice in frequency mode and is never inferred from a shared route name.
+To change the timetable deliberately, use `scheduleMode: "frequency"` with `headwayMinutes`, `startMinutes`, and `endMinutes`; Studio calls this **Departures → Set frequency and hours**. This mode can replace a whole route, and `add` and `augment` use it by default. New lines use `segmentDistancesKm` and `averageSpeedKph` for road timing, plus `dwellMinutes`; segment arrays have one value per stop pair. Reverse service is an explicit choice in frequency mode and is never inferred from a shared route name. Generated trips arrive at each stop, dwell, then depart, so riders alight before the dwell; vehicles do not dwell at either end of the line. A frequency service runs on every service day: like scheduled service, the previous day's runs that are still running after midnight and the next day's first runs apply wherever the query's clock reaches them.
 
 ### Edit a shared edge in Studio
 
@@ -1024,7 +1028,7 @@ Route clocks and leg durations still describe the chosen timetable journey, and 
 
 GTFS-realtime `StopTimeEvent.uncertainty` has no defined statistical meaning, and an omitted value means unknown. It must not become a standard deviation or a 90% interval without a validated, provider-specific model. See the [GTFS realtime reference](https://gtfs.org/documentation/realtime/reference/#message-stoptimeevent).
 
-For a Boston calibration study, start with the [MBTA LAMP exports and their data dictionary](https://github.com/mbta/lamp/blob/main/Data_Dictionary.md) and [TransitMatters Gobble](https://github.com/transitmatters/gobble). These are potential inputs; VIGO does not download or fit them. A credible next stage would retain historical forecasts and outcomes, match the exact feed revision and trip instance, estimate errors by route, direction, time of day, and lead time, and validate on later dates with coverage reporting. Same-vehicle and shared-corridor delays are correlated, so multiplying marginal transfer probabilities is not a journey probability. Probability-driven routing would need its own search and calibration contract.
+For a Boston calibration study, start with the [MBTA LAMP exports and their data dictionary](https://github.com/mbta/lamp/blob/main/Data_Dictionary.md). This is a potential input; VIGO does not download or fit it. A credible next stage would retain historical forecasts and outcomes, match the exact feed revision and trip instance, estimate errors by route, direction, time of day, and lead time, and validate on later dates with coverage reporting. Same-vehicle and shared-corridor delays are correlated, so multiplying marginal transfer probabilities is not a journey probability. Probability-driven routing would need its own search and calibration contract.
 
 ### Reproduce the implemented contract
 
@@ -1083,6 +1087,7 @@ VIGO models the City revision and query it is given. It does not certify real-wo
 - Pedestrian attachment searches vertices within 160 m and projects onto reciprocal edges within 80 m. A missing attachment is not proof that no physical path exists.
 - Platform polygons describe an area, not a walking line. Street-store schema v6 excludes their outlines from the walking graph; routing across polygon interiors is not modeled, and older Cities need a source rebuild.
 - An anonymous endpoint on an unanchored fragment can recover to the nearest transit-connected component within 80 m, including the full connector cost. This adds no graph links and proves nothing about buildings, fences, water, or levels in between. See [coordinate attachment](#coordinate-network-attachment).
+- Otherwise a free coordinate keeps its nearest attachment even when that street connects poorly, such as a highway ramp or bridge above the point. Attaching to several nearby streets would let a connector cross a road, kerb, river or other barrier that walking cannot. Place endpoints on the street or path the traveller will use.
 - [Authorized endpoint access](#authorized-endpoint-access) is an opt-in build model; it does not establish individual permissions, gate hours, or missing connections.
 - Drive does not yet model every turn restriction, signal, or intersection delay. Traffic must be supplied by the caller.
 
@@ -1150,13 +1155,9 @@ Reopen recent Route Results for the current City revision. Each keeps its normal
 
 Choose an origin on the map, or use **Choose origin** to search imported stops by name or ID or enter coordinates. Run Reach, then switch between **Reachable area**, **Reached streets**, and cutoffs; changing the displayed cutoff reuses the retained result. See [Reach](#reach-and-isochrones) for limits and bounds.
 
-Choose **Arrive by** to map where a destination can be reached from by a deadline. The chosen point becomes the destination and the clock its **Deadline**; each place shows how many minutes before the deadline a traveler must leave it, and the walking limit applies to the first walk. Compare runs the same arrive-by question for every variant.
+Choose **Arrive by** to map where a destination can be reached from by a deadline. The chosen point becomes the destination and the clock its **Deadline**; each place shows how many minutes before the deadline a traveler must leave it, and the walking limit applies to the first walk.
 
-#### Compare
-
-**Compare** measures saved scenarios, timetable groups, or single timetables against one reference, by default the City's **Baseline** group, from the same origin and departure. Every variant is computed on the reference's grid, and the reference surface is computed once and reused. Variants are ranked by reached area gained at the time budget; each row also counts newly reached and no-longer-reached cells, the mean minutes saved over cells both networks reach, and the change in reached stops. Choose a variant to map its travel-time change from the reference. Cell counts are never subtracted across independent grids. To compare completed Results without rerunning them, use the compiler's `compare`.
-
-Use **Save** beside Reach or comparison results for the full JSON, the selected cutoff's area geometry, or a CSV summary; Compare saves its ranking as CSV, the run with the mapped variant as JSON, and the mapped pair's areas as GeoJSON. `total_processing_ms` measures complete analysis processing, separate from native query timings; `area_source` distinguishes an exact-cutoff area metric from a display-raster calculation; `reference_surface` and `reference_feed_id` identify the baseline. Saving becomes available when the computation finishes.
+Use **Save** beside Reach results for the full JSON, the selected cutoff's area geometry, or a CSV summary. `total_processing_ms` measures complete analysis processing, separate from native query timings; `area_source` distinguishes an exact-cutoff area metric from a display-raster calculation; `reference_surface` and `reference_feed_id` identify the baseline. Saving becomes available when the computation finishes.
 
 Studio saves scenarios and timetable groups in the City folder, in `.vigo/scenarios.json`, shortly after each edit. They survive restarts and reimports and travel with the City directory; a scenario that names a route a reimport removed reports it when you run it. A copy saved from another window is never overwritten: Studio shows the newer copy instead. Drafts that earlier versions kept in the browser profile move into the City folder the first time you open it. For a stop inserted on an A → B edge shared by several branches, the road path applies to each affected branch, and each branch keeps its own untouched shape and runtime. Use the engine, the compiler, or Python for Matrix queries.
 
@@ -1251,7 +1252,7 @@ Trips declared by GTFS-RT `ADDED` or `NEW` appear in the line view and the **Tri
 
 #### Verification and references
 
-`test/check-agency-route-line.mjs` and `test/check-added-service-display.mjs` run with `npm run check:agency`. They cover both directions, branches, repeated and terminal stops, conflicting sequences, stale and future positions, skipped and no-data predictions, and added trips; they verify fixture behavior, not field accuracy. The interaction design drew on [TransitMatters Train Tracker](https://traintracker.transitmatters.org/) and [Swiftly's Live Operations overview](https://swiftly.zendesk.com/hc/en-us/articles/360043691571-Live-Operations-Overview); no implementation or assets were copied. Matching follows the [GTFS Realtime reference](https://gtfs.org/documentation/realtime/reference/).
+`test/check-agency-route-line.mjs` and `test/check-added-service-display.mjs` run with `npm run check:agency`. They cover both directions, branches, repeated and terminal stops, conflicting sequences, stale and future positions, skipped and no-data predictions, and added trips; they verify fixture behavior, not field accuracy. The interaction design drew on [Swiftly's Live Operations overview](https://swiftly.zendesk.com/hc/en-us/articles/360043691571-Live-Operations-Overview); no implementation or assets were copied. Matching follows the [GTFS Realtime reference](https://gtfs.org/documentation/realtime/reference/).
 
 ### Evidence limits
 
@@ -1333,7 +1334,7 @@ Run the engine executable as the HTTP service. It opens a prepared City or scena
 From the repository root with Docker installed:
 
 ```sh
-docker build -f deploy/Dockerfile -t vigo:1.0.0-rc.4 .
+docker build -f deploy/Dockerfile -t vigo:1.0.0-rc.5 .
 ```
 
 The image contains the engine with this guide embedded, license notices, and a Debian glibc runtime, and runs as UID/GID 65532. Its compiler matches `rust-toolchain.toml`; City data, JavaScript dependencies, desktop bundles, and build caches are excluded from the build context. Check the image before using it:
@@ -1341,7 +1342,7 @@ The image contains the engine with this guide embedded, license notices, and a D
 ```sh
 npm ci
 npm run build:cli-runtime
-npm run check:deployment -- --image vigo:1.0.0-rc.4
+npm run check:deployment -- --image vigo:1.0.0-rc.5
 ```
 
 The check builds public synthetic inputs and exercises the real Compose service: a read-only City, authentication, Route, Matrix, Reach, scenario switching, readiness, restart, and resource limits, and it confirms that queries never change City files. CI runs it on Linux x64 and ARM64. Measure your own City and request mix before choosing production limits; the small fixture is not a metropolitan memory or latency result.
@@ -1351,7 +1352,7 @@ The check builds public synthetic inputs and exercises the real Compose service:
 Make the City directory and its files readable by UID 65532, and keep every referenced directory inside the mounted City or collection.
 
 ```sh
-export VIGO_IMAGE=vigo:1.0.0-rc.4
+export VIGO_IMAGE=vigo:1.0.0-rc.5
 export VIGO_CITY=/absolute/path/to/prepared-city
 # Set VIGO_API_TOKEN through your shell or deployment secret store (16+ characters).
 docker compose -f deploy/compose.yml up -d --wait

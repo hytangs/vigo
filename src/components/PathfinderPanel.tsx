@@ -1,3 +1,4 @@
+import { RouteAddressInput } from './RouteAddressInput'
 import type { RoutingBikeOptions } from '../routingModel'
 export { RoutingDetailPanel } from './JourneyItinerary'
 import { JourneyDuration } from './JourneyItinerary'
@@ -51,12 +52,6 @@ import type  {
 } from '../routingModel'
 import { maxRoutingPointCount, routingPointRoleLabel } from '../routingPointSequence'
 import { formatScheduleClock } from '../scheduledVehicles'
-
-/** Stops keep their names; a point dropped on the map has no name of its own. */
-function routingPointName(point: RoutingPoint) {
-  const label = point.label.trim()
-  return (point.source === 'map' && !point.named) || !label || /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/u.test(label) ? 'Dropped pin' : label
-}
 
 export type RoutingScopeStatus = 'ready' | 'building' | 'failed' | 'missing'
 
@@ -383,13 +378,15 @@ export function SidebarPathfinderBox({
   onClearRouting,
 }: SidebarPathfinderBoxProps) {
   const points = [...(routingOrigin ? [routingOrigin] : []), ...routingWaypoints, ...(routingDestination ? [routingDestination] : [])]
-  const pointRows = points.length < 2 ? [routingOrigin, null] : points
   const pointLimit = publicRouting ? 5 : maxRoutingPointCount
   const mapPointLimitReached = points.length >= pointLimit
+  // A new stop extends the journey: A to B becomes A, B, then C, with an open row for C.
+  const addingStop = routingEnabled && routingPickIndex === null && points.length >= 2 && !mapPointLimitReached
+  const pointRows = points.length < 2 ? [routingOrigin, null] : addingStop ? [...points, null] : points
   const busy = routingActivity.kind === 'loading' || routingActivity.kind === 'preparing'
   const canRun = Boolean(routingOrigin && routingDestination) && !busy
   const pickLabel = routingPickIndex === null || routingPickIndex >= points.length
-    ? points.length === 0 ? 'Pick origin' : points.length === 1 ? 'Pick destination' : 'Pick via point'
+    ? points.length === 0 ? 'Pick origin' : points.length === 1 ? 'Pick destination' : 'Pick next stop'
     : `Repick ${routingPointRoleLabel(routingPickIndex, pointRows.length).toLowerCase()}`
 
   function movePoint(index: number, offset: number) {
@@ -436,10 +433,10 @@ export function SidebarPathfinderBox({
       : []
 
   return (
-    <section className="pathfinder-query" aria-label="Routing controls">
+    <section className="pathfinder-query" data-has-results={resultPlans.length > 0} aria-label="Routing controls">
       <form className="pathfinder-composer" onSubmit={(event) => { event.preventDefault(); if (canRun) onRunRouting() }}>
         <header className="inspector-head is-compact pathfinder-setup-head">
-          <div className="studio-tabs is-icon-only pathfinder-mode-switch" role="group" aria-label="Travel mode">
+          <div className="studio-tabs pathfinder-mode-switch is-icon-only" role="group" aria-label="Travel mode">
             {travelModeChoices.map(([mode, label]) => {
               const Icon = travelModeIcons[mode]
               return (
@@ -458,19 +455,20 @@ export function SidebarPathfinderBox({
           <div className="pathfinder-location-stack kit-group">
             {pointRows.map((point, index) => {
               const role = index === 0 ? 'From' : index === pointRows.length - 1 ? 'To' : `Via ${index}`
-              const selected = routingEnabled && (routingPickIndex === index || routingPickIndex === null && index === points.length && points.length < 2)
+              const selected = routingEnabled && (routingPickIndex === index || routingPickIndex === null && index === points.length)
               return (
                 <div className={classNames('pathfinder-location-field', selected && 'is-picking')} key={index}>
                   <span className={classNames('pathfinder-location-mark', index === 0 ? 'is-origin' : index === pointRows.length - 1 ? 'is-destination' : 'is-waypoint')} aria-hidden="true" />
-                  <button type="button" className="pathfinder-coordinate-point" aria-label={`${point ? 'Repick' : 'Pick'} ${role.toLowerCase()} on map`} aria-pressed={selected} onClick={() => onPickRoutingPoint(index)} disabled={index > points.length}>
-                    <small>{role}{point ? <span className="pathfinder-coordinate-value">{point.coordinate[1].toFixed(5)}, {point.coordinate[0].toFixed(5)}</span> : null}</small>
-                    <strong className={classNames(!point && 'is-empty')}>{point ? routingPointName(point) : selected ? 'Click the map…' : 'Choose on map'}</strong>
-                  </button>
-                  {point ? <span className="pathfinder-location-actions">
+                  <RouteAddressInput point={point} label={role} disabled={index > points.length}
+                    onRemove={publicRouting && point ? () => onReorderRoutingPoints(points.filter((_, current) => current !== index)) : undefined}
+                    onPick={() => onPickRoutingPoint(index)} onChoose={chosen => {
+                      const next = [...points]; next[index] = chosen; onReorderRoutingPoints(next)
+                    }} />
+                  {!publicRouting && (point ? <span className="pathfinder-location-actions">
                     <button type="button" onClick={() => movePoint(index, -1)} disabled={index === 0} aria-label={`Move ${role.toLowerCase()} earlier`}><ArrowUp size={13} /></button>
                     <button type="button" onClick={() => movePoint(index, 1)} disabled={index === points.length - 1} aria-label={`Move ${role.toLowerCase()} later`}><ArrowDown size={13} /></button>
                     <button type="button" onClick={() => onReorderRoutingPoints(points.filter((_, current) => current !== index))} aria-label={`Remove ${role.toLowerCase()}`}><X size={13} /></button>
-                  </span> : <MapPin className="pathfinder-location-pin" size={14} aria-hidden="true" />}
+                  </span> : <MapPin className="pathfinder-location-pin" size={14} aria-hidden="true" />)}
                 </div>
               )
             })}
@@ -499,8 +497,8 @@ export function SidebarPathfinderBox({
           }} resultsShown={resultPlans.length > 0} />
 
           <button type="submit" className="kit-button is-primary is-block pathfinder-directions-button" disabled={!canRun}>
-            {busy ? <LoaderCircle className="is-spinning" size={15} aria-hidden="true" /> : <Navigation2 size={15} aria-hidden="true" />}
-            <span>{busy ? 'Routing…' : routingPlan ? 'Rerun route' : 'Run route'}</span>
+            {busy ? <LoaderCircle className="is-spinning" size={15} aria-hidden="true" /> : publicRouting ? null : <Navigation2 size={15} aria-hidden="true" />}
+            <span>{busy ? 'Routing…' : publicRouting ? 'Directions' : routingPlan ? 'Rerun route' : 'Run route'}</span>
           </button>
         </div>
       </form>
@@ -572,13 +570,13 @@ export function SidebarPathfinderBox({
       ) : showRoutingActivity ? (
         <div className="kit-notice is-loading pathfinder-notice" role="status" aria-live="polite">
           <LoaderCircle className="is-spinning" size={15} />
-          <span><strong>{routingActivity.title}</strong><small>{routingActivity.detail}</small><OperationProgress phase={routingActivity.title} compact /></span>
+          <span><strong>{publicRouting ? 'Finding your route…' : routingActivity.title}</strong>{publicRouting ? null : <small>{routingActivity.detail}</small>}<OperationProgress phase={publicRouting ? 'Finding route' : routingActivity.title} compact /></span>
         </div>
       ) : showRoutingBlock ? (
         <div className="kit-notice is-error pathfinder-notice" role="alert">
           <AlertTriangle size={15} />
-          <span><strong>{routingPlan.title}</strong><small>{routingPlan.detail}</small></span>
-          {routingAccessHints(routingPlan).map((hint) => (
+          <span><strong>{publicRouting ? 'No route found' : routingPlan.title}</strong><small>{publicRouting ? 'Try a nearby street or search a different address.' : routingPlan.detail}</small></span>
+          {!publicRouting && routingAccessHints(routingPlan).map((hint) => (
             <span className="pathfinder-access-reason" key={hint.role}>
               <small>{routingAccessHintText(hint)}</small>
             </span>
@@ -591,7 +589,7 @@ export function SidebarPathfinderBox({
               0,
             )
             return suggestedMaxWalkKm > routingMaxWalkKm + 0.05 ? (
-              <button type="button" onClick={() => onRoutingMaxWalkKmChange(Math.min(5, suggestedMaxWalkKm))}>
+              <button type="button" onClick={() => onRoutingMaxWalkKmChange(Math.min(publicRouting ? 2.4 : 5, suggestedMaxWalkKm))}>
                 Try {suggestedMaxWalkKm.toFixed(1)} km access
               </button>
             ) : null

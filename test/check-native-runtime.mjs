@@ -92,6 +92,74 @@ function fakeSpawn(_executable, args) {
 }
 
 const runtime = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fakeSpawn, maxProcesses: 2, idleMs: 60_000 })
+// A kept City replaces a process stopped by a cancelled query and reloads its modes.
+{
+  const pool = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fakeSpawn, maxProcesses: 1 })
+  const layout = nativeLayout('/cities/rewarm')
+  try {
+    pool.setResidency(layout, true, 'visitor')
+    await pool.query(layout, { kind: 'route', mode: 'bike', id: 'bike-load' })
+    const first = pool.cities.get(layout.key).processes[0].child
+    const controller = new AbortController()
+    const overrun = pool.query(layout, { kind: 'route', mode: 'walk', scenario: { id: 'x' }, id: 'overrun', delayMs: 500 }, controller.signal)
+    controller.abort()
+    await assert.rejects(overrun, { name: 'AbortError' })
+    await new Promise(resolve => setTimeout(resolve, 80))
+    const replacement = pool.cities.get(layout.key).processes[0]
+    assert.notEqual(replacement.child, first)
+    assert.deepEqual(replacement.child.served, ['bike-load'], 'Only reusable modes are replayed')
+    assert(replacement.routeModes.has('bike'))
+    pool.setResidency(layout, false, 'visitor')
+    assert.equal(pool.warmRoutes.has(layout.key), false)
+  } finally { pool.closeAll() }
+}
+// A cancelled query still waiting its turn never reaches the engine.
+{
+  const pool = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fakeSpawn, maxProcesses: 1 })
+  const layout = nativeLayout('/cities/cancelled-queue')
+  try {
+    const running = pool.query(layout, { id: 'running', delayMs: 30 })
+    const controller = new AbortController()
+    const waiting = pool.query(layout, { id: 'waiting', delayMs: 2000 }, controller.signal)
+    const after = pool.query(layout, { id: 'after' })
+    controller.abort()
+    await assert.rejects(waiting, { name: 'AbortError' })
+    await Promise.all([running, after])
+    assert.deepEqual(pool.cities.get(layout.key).processes[0].child.served, ['running', 'after'])
+  } finally { pool.closeAll() }
+}
+// Metadata readiness must not expose a second process's cold bike network.
+{
+  const pool = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fakeSpawn, maxProcesses: 2 })
+  const layout = nativeLayout('/cities/bike-startup')
+  try {
+    const first = await pool.query(layout, { kind: 'route', mode: 'bike', id: 'bike-first' })
+    await pool.query(layout, { kind: 'route', mode: 'walk', id: 'walk-first' })
+    const busy = pool.query(layout, { kind: 'route', mode: 'bike', id: 'bike-busy', delayMs: 100 })
+    const queued = pool.query(layout, { kind: 'route', mode: 'bike', id: 'bike-warmup', delayMs: 100 })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    const during = pool.query(layout, { kind: 'route', mode: 'bike', id: 'during-warmup' })
+    assert.equal((await during).process, first.process, 'Keep visitors on the loaded bike network during secondary initialization')
+    await Promise.all([busy, queued])
+    const slow = pool.query(layout, { kind: 'route', mode: 'bike', id: 'occupy-primary', delayMs: 100 })
+    const parallel = await pool.query(layout, { kind: 'route', mode: 'bike', id: 'warm-secondary' })
+    assert.notEqual(parallel.process, first.process, 'The prepared second bike process can serve parallel routes')
+    const walk = await pool.query(layout, { kind: 'route', mode: 'walk', id: 'walk-affinity' })
+    assert.equal(walk.process, first.process, 'Bike preparation does not make the secondary walking network warm')
+    await slow
+    const city = pool.cities.get(layout.key)
+    city.processes.find(stream => stream.child.id === parallel.process).lastUsed = Date.now() + 1
+    pool.setResidency(layout, true, 'startup')
+    pool.idleMs = 20
+    clearTimeout(pool.idleTimer)
+    pool.idleTimer = null
+    pool.scheduleIdle()
+    await new Promise(resolve => setTimeout(resolve, 80))
+    assert.equal(city.processes.length, 1)
+    assert.equal(city.processes[0].child.id, first.process, 'Idle cleanup retains the process with all prepared modes')
+  } finally { pool.closeAll() }
+  spawned.length = 0
+}
 const boston = nativeLayout('/cities/boston')
 try {
   // One request opens one process.

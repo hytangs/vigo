@@ -69,7 +69,7 @@ impl WalkNetwork {
     pub(super) fn load(
         db: &Connection,
         path: &str,
-        ids: &HashMap<i64, u32>,
+        ids: &super::OsmNodeIds,
         lons: &[f64],
         lats: &[f64],
     ) -> Result<Option<Self>, String> {

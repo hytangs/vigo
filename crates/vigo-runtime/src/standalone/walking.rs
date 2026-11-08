@@ -1,9 +1,10 @@
 //! Materialize the selected access witness, not a new walk to a platform.
-use super::query::{Candidates, Options, Point, haversine};
+use super::query::{Candidates, Options, Point};
 use super::{City, Result};
 use crate::{CoordinateKernel, MaterializePathInput, StreetPathInput, TimetableMatrixLeg};
 use serde_json::{Value, json};
 use std::collections::HashSet;
+use vigo_route::geo::haversine_m;
 
 /// Vertices closer than this are one public vertex (about 10 micrometers).
 fn same_point(a: [f64; 2], b: [f64; 2]) -> bool {
@@ -156,7 +157,7 @@ impl City {
                 value["distanceMeters"] = json!(if path.found {
                     path.distance_m
                 } else {
-                    haversine(from, to)
+                    haversine_m(from, to)
                 });
                 if geometry {
                     value["coordinates"] = if path.found {
@@ -282,7 +283,7 @@ impl City {
                     }
                     distance = Some(transfer.path_distance_m.unwrap_or_else(|| {
                         if located {
-                            haversine(coordinates[0], coordinates[1])
+                            haversine_m(coordinates[0], coordinates[1])
                         } else {
                             0.
                         }
@@ -308,37 +309,40 @@ impl City {
                 Some(input) => selected_street_path(&mut self.street, input)?,
                 None => None,
             };
-            let (path_coordinates, path_distance, found) = if let Some((coordinates, distance)) =
-                selected
-            {
-                (coordinates, distance, true)
-            } else {
-                let input = || StreetPathInput {
-                    origin_lon: street_coordinates[0][0],
-                    origin_lat: street_coordinates[0][1],
-                    destination_lon: street_coordinates[1][0],
-                    destination_lat: street_coordinates[1][1],
-                    maximum_distance_m: opt
-                        .walk_m
-                        .max(duration * opt.walk_speed.unwrap_or(self.speed) / 3.6),
-                    maximum_points: crate::PUBLIC_WALK_POINTS,
-                };
-                // Generated transfers were priced between physical stops.
-                // A bounded stop-to-stop search finds that witness without
-                // a metropolitan CCH query; only a miss falls back to it.
-                let transfer = if role.is_none() {
-                    Some(self.street.route_stop_transfer_path(input())?).filter(|path| path.found)
+            let (path_coordinates, path_distance, found) =
+                if let Some((coordinates, distance)) = selected {
+                    (coordinates, distance, true)
                 } else {
-                    None
+                    let input = || StreetPathInput {
+                        origin_lon: street_coordinates[0][0],
+                        origin_lat: street_coordinates[0][1],
+                        destination_lon: street_coordinates[1][0],
+                        destination_lat: street_coordinates[1][1],
+                        maximum_distance_m: opt
+                            .walk_m
+                            .max(duration * opt.walk_speed.unwrap_or(self.speed) / 3.6),
+                        maximum_points: crate::PUBLIC_WALK_POINTS,
+                    };
+                    // Generated transfers were priced between physical stops.
+                    // A bounded stop-to-stop search finds that witness without
+                    // a metropolitan CCH query; only a miss falls back to it.
+                    let transfer = if role.is_none() {
+                        Some(
+                            self.street
+                                .route_stop_transfer_path_reusing(input(), !opt.disable_cache)?,
+                        )
+                        .filter(|path| path.found)
+                    } else {
+                        None
+                    };
+                    let path = match transfer {
+                        Some(path) => path,
+                        None => self
+                            .street
+                            .route_path_reusing(input(), !opt.disable_cache)?,
+                    };
+                    (path.coordinates, path.distance_m, path.found)
                 };
-                let path = match transfer {
-                    Some(path) => path,
-                    None => self
-                        .street
-                        .route_path_reusing(input(), !opt.disable_cache)?,
-                };
-                (path.coordinates, path.distance_m, path.found)
-            };
             // Never attach a longer, newly searched path to an already priced
             // walk and then claim that path fits the timetable's walking cost.
             if found
@@ -405,12 +409,15 @@ impl City {
             value["distanceMeters"] = json!(distance);
         }
         if geometry && value.get("coordinates").is_none() {
-            value["coordinates"] = json!(
-                coordinates
-                    .iter()
-                    .filter(|c| c.iter().all(|v| v.is_finite()))
-                    .collect::<Vec<_>>()
-            );
+            // An unlocated station endpoint makes the whole source edge
+            // unlocated. Filtering it out leaves a misleading one-point path
+            // in detailed results; the known endpoint remains in `from`/`to`.
+            value["coordinates"] = if coordinates.iter().flatten().all(|v| v.is_finite()) {
+                json!(coordinates)
+            } else {
+                value["stationGeometryStatus"] = json!("incomplete");
+                json!([])
+            };
             if value.get("geometrySource").is_none() {
                 value["geometrySource"] = json!("unverified_transfer");
             }

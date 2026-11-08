@@ -1,5 +1,32 @@
 # Version history
 
+## Unreleased
+
+- Wheelchair Cities reach accessible platforms of stations without declared entrances from the street. Their platforms' own or inherited `wheelchair_boarding=1` is GTFS evidence of an accessible path from outside. Previously every platform with a parent station needed a declared entrance, which cut off accessible stations in feeds that publish no entrances for them, such as many MBTA commuter rail stations and surface Green Line stops. Stations that declare entrances still use only accessible entrances and paths. The City format and access policy identity are unchanged; prepare wheelchair Cities again to apply this.
+- Wheelchair streets keep ways tagged `wheelchair=yes` whose `incline` is `up`, `down` or `yes`, such as mapped ramps and accessible footbridges. These values give a direction without a grade, and the explicit tag vouches for the slope; previously such ways were dropped, which could force long detours. Without `wheelchair=yes` they remain excluded, as do steep or malformed inclines and inclines above 8.3%. Prepare wheelchair Cities again to apply this.
+- Planned frequency trips follow GTFS stop times: a vehicle arrives, dwells, then departs, so riders alight before the dwell, and it no longer dwells at its last stop. Boarding times are unchanged; alighting is earlier by up to one dwell (0.35 minutes by default).
+- Planned frequency service runs on every service day, as scheduled service does. The previous day's runs that are still running after midnight (a 05:00–25:00 line still runs at 00:30, and its 23:50 run still serves its later stops) and the next day's first runs are part of a query's timetable wherever its clock reaches them. Adjacent days never run one departure twice. Route and Reach expand the same whole-second windows.
+- A `replace` service with `scheduledTrips` removes every instance of its original trips from the active timetable and names only trips active on the service date. Previously it removed only the first matching trip, which a timetable holding an adjacent service day could make the wrong instance. A trip or route replaced by two services is rejected.
+- A kept trip in `scheduledTrips` can name its service day with `serviceDayOffset`. Studio and the compiler now also keep the previous day's trips that run past midnight when a branch is edited with its departures kept; previously the edit removed that branch's after-midnight service from early-morning queries.
+- Studio: when a branch that keeps its departures is extended past its last stop or before its first, riders can board or alight at the former terminus. Previously the extension could not be reached from it.
+- Scenario exclusions are resolved in one pass over the timetable rather than once per excluded ID; arrive-by Reach now rejects a non-array exclusion as depart-at Reach does. Deriving a scenario timetable reads each trip's canceled spans directly instead of scanning every span for every trip.
+- Transit matrices with many destinations from one origin, or many origins to one arrive-by destination, look up their endpoints through a per-stop index and update the scan's stopping time only when the latest endpoint improves. Answers are unchanged; such matrices compute faster.
+- Reach's street walk drops a walking label as soon as an earlier label at the same street node can walk at least as far as the later one has time left, even if the earlier one has walked farther. Every continuation adds the same time and distance to both, so the later label can never improve the surface. Surfaces are unchanged; Reach computes faster, most where walk and time limits are both tight.
+- `scheduledTrips` entries reject unknown fields, as every other scenario object does, so a misspelled field no longer runs a trip on the wrong day.
+- Studio: an edit that keeps a branch's departures divides each trip's running time between kept stops along the published shape or traced road path, as its supplied runtimes describe, rather than by straight-line distance.
+
+## 1.0.0-rc.5
+
+- Answer bicycle routes when a tight distance limit leaves too many trade-offs to prove the preferred route: return the shortest route within the limit with a `distance_limit_shortest_route` warning instead of an error. Report no route at once when no start can finish within the limit.
+- Start constrained drives from the feasible shortest path with exact remaining bounds. Long limits no longer search for seconds and report a false `not_found`; short limits keep their earlier speed.
+- Load the bicycle graph without an on-disk sort, about halving cold load time with identical answers.
+- Add a new stop to the end of a journey (A, B, then C) instead of before the destination.
+- Flush a finished City before publishing it and keep the old City until the new one is on disk. The next build or Node CLI query restores or finishes an interrupted replacement; signals remove unpublished builds.
+- Run only the head query against a City's process, so a cancelled queued query never runs.
+- Public route planner: local SQLite address index on a worker thread, an offline edge page, immutable hashed assets with ETag revalidation, a security-policy header and per-IP read limits.
+- Studio restores the offline default basemap, contacts a geocoder only once online maps are chosen, and loads secondary views on first use.
+- API 1.0, City format 1 and Result schema 1 are unchanged.
+
 ## 1.0.0-rc.4
 
 - Add optional bicycle Route and Matrix, with balanced, quiet and fast preferences, separate preference cost and ETA, bicycle access/contraflow, surfaces, mapped incline, dismount legs, and node/via-way turn restrictions.

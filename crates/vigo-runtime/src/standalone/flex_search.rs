@@ -10,7 +10,7 @@
 use super::flex_index::{FlexIndex, Place, Projection};
 use super::{
     City, Result, flag, number,
-    query::{Candidates, Options, Point, haversine},
+    query::{Candidates, Options, Point},
 };
 use crate::{
     TimetableArriveByManyQueryInput, TimetableArriveByQueryInput, TimetableManyQueryInput,
@@ -21,6 +21,7 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
+use vigo_route::geo::haversine_m;
 
 /// Walkable board/alight pairs one direct Flex search evaluates before it stops.
 pub(super) const FLEX_PAIR_LIMIT: usize = 4096;
@@ -334,7 +335,7 @@ impl City {
         // request still needs after its bounds are checked.
         let speed = opt.walk_speed.unwrap_or(self.speed);
         let bound_walk = |from: [f64; 2], to: [f64; 2]| {
-            let meters = haversine(from, to);
+            let meters = haversine_m(from, to);
             End {
                 coordinate: to,
                 stop: None,
@@ -364,7 +365,7 @@ impl City {
                         priced: true,
                     };
                     near[role].insert(s, end);
-                } else if reach > 0. && haversine(here, coordinate) <= reach {
+                } else if reach > 0. && haversine_m(here, coordinate) <= reach {
                     let mut end = bound_walk(here, coordinate);
                     end.stop = Some(s);
                     near[role].insert(s, end);
@@ -950,7 +951,7 @@ impl City {
         let (coordinates, distance, source) = if trip.planned.is_some() {
             (
                 json!([board.coordinate, alight.coordinate]),
-                json!(haversine(board.coordinate, alight.coordinate)),
+                json!(haversine_m(board.coordinate, alight.coordinate)),
                 "scenario_estimate",
             )
         } else if trip.on_demand {

@@ -1,3 +1,4 @@
+import { publicRouting } from './publicRouting'
 import type { RoutingBikeOptions } from '../routingModel'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { RealtimeSnapshot, ServiceDay } from '../domain'
@@ -143,7 +144,8 @@ export function useNationalRouting({
     ...(routeScenario ? { feedIds: routeScenario.feedIds, scenario: routeScenario.scenario } : { feedId }),
     mode,
     ...(mode === 'bike' && bike ? { bike } : {}),
-    routingDataMode,
+    // Depart-now without a live snapshot uses the native timetable clock.
+    routingDataMode: publicRouting ? (departNow ? undefined : 'scheduled' as const) : routingDataMode,
     origin,
     waypoints,
     destination,
@@ -204,7 +206,7 @@ export function useNationalRouting({
       method: 'POST',
       signal: controller.signal,
       // Transfer settings let readiness activate the timetable the routes use.
-      body: JSON.stringify({ wheelchair, ...(routeScenario ? { feedIds: routeScenario.feedIds } : { feedId }), mode, routingDataMode, departNow: departNow || undefined, serviceDate: requestServiceDate, serviceDay: requestServiceDay, allowServiceDateFallback: false, allowStreetTransfers, minimumTransferBufferMinutes, timePreference: requestTimePreference }),
+      body: JSON.stringify({ wheelchair, ...(routeScenario ? { feedIds: routeScenario.feedIds } : { feedId }), mode, routingDataMode: publicRouting ? 'scheduled' : routingDataMode, departNow: departNow || undefined, serviceDate: requestServiceDate, serviceDay: requestServiceDay, allowServiceDateFallback: false, allowStreetTransfers, minimumTransferBufferMinutes, timePreference: requestTimePreference }),
     }).then(({ routing }) => {
       if (controller.signal.aborted) return
       setServiceCoverage(routing.serviceCoverage ?? null)
@@ -271,7 +273,7 @@ export function useNationalRouting({
         // The server validates its freshness against this run's departure.
         body: JSON.stringify({
           ...request.body,
-          realtimeSnapshot: request.body.mode === 'transit' && request.body.routingDataMode === 'realtime'
+          realtimeSnapshot: !publicRouting && request.body.mode === 'transit' && request.body.routingDataMode === 'realtime'
             ? latestSnapshot.current ?? undefined
             : undefined,
         }),

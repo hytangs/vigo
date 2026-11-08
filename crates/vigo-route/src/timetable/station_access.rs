@@ -66,16 +66,10 @@ fn index(value: usize) -> Result<u32> {
     u32::try_from(value).map_err(|_| invalid("packed index exceeds Uint32"))
 }
 fn distance_km(coords: &[f64], from: usize, to: usize) -> f64 {
-    let (a, b, c, d) = (
-        coords[from * 2],
-        coords[from * 2 + 1],
-        coords[to * 2],
-        coords[to * 2 + 1],
-    );
-    let radians = |v: f64| v * std::f64::consts::PI / 180.0;
-    let h = (radians(d - b) / 2.0).sin().powi(2)
-        + radians(b).cos() * radians(d).cos() * (radians(c - a) / 2.0).sin().powi(2);
-    6371.0088 * 2.0 * h.sqrt().atan2((1.0 - h).sqrt())
+    crate::geo::haversine_km(
+        [coords[from * 2], coords[from * 2 + 1]],
+        [coords[to * 2], coords[to * 2 + 1]],
+    )
 }
 pub fn compile_station_paths(input: StationPathsInput) -> Result<StationPathsResult> {
     let n = input.platforms.len();

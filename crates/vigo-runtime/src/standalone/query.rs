@@ -745,26 +745,36 @@ impl City {
         role: &str,
         radius: f64,
     ) -> Option<(&super::city::Stop, f64)> {
-        let index = &self.access.materialized.stop_access_index;
-        let served: std::collections::HashSet<&str> = if role == "destination" {
-            index
-                .arrival_service_stop_ids
-                .iter()
-                .map(String::as_str)
-                .collect()
-        } else {
-            index
-                .direct_service_stop_ids
-                .iter()
-                .map(String::as_str)
-                .collect()
-        };
-        self.stops
+        let served = self.served_stop_indices.get_or_init(|| {
+            let index = &self.access.materialized.stop_access_index;
+            let positions = |ids: &[String]| {
+                let ids: std::collections::HashSet<&str> = ids.iter().map(String::as_str).collect();
+                self.stops
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, stop)| {
+                        ids.contains(stop.id.as_str())
+                            && stop.lon.is_finite()
+                            && stop.lat.is_finite()
+                    })
+                    .map(|(position, _)| position as u32)
+                    .collect::<Vec<_>>()
+            };
+            [
+                positions(&index.direct_service_stop_ids),
+                positions(&index.arrival_service_stop_ids),
+            ]
+        });
+        let served = &served[usize::from(role == "destination")];
+        // Great-circle distance is at least the latitude difference times the
+        // radius, so stops beyond this band cannot be within `radius`.
+        let band = radius / 6371008.8 * (1. + 1e-9) + 1e-12;
+        let latitude = point.coordinate[1].to_radians();
+        served
             .iter()
-            .filter(|stop| {
-                served.contains(stop.id.as_str()) && stop.lon.is_finite() && stop.lat.is_finite()
-            })
-            .map(|stop| (stop, haversine(point.coordinate, [stop.lon, stop.lat])))
+            .map(|&position| &self.stops[position as usize])
+            .filter(|stop| (stop.lat.to_radians() - latitude).abs() <= band)
+            .map(|stop| (stop, haversine_m(point.coordinate, [stop.lon, stop.lat])))
             .filter(|(_, meters)| *meters <= radius)
             .min_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.id.cmp(&b.0.id)))
     }
@@ -1196,11 +1206,10 @@ impl City {
         // walk cannot win and, unless choices are collected, is not searched.
         let walk_cannot_win =
             !collect && output["status"] == "ready" && output["mode"] == "transit" && {
-                let bound = crate::route_materialization::haversine_km(
-                    origin.coordinate,
-                    destination.coordinate,
-                ) / opt.walk_speed.unwrap_or(self.speed)
-                    * 60.;
+                let bound =
+                    vigo_route::geo::haversine_km(origin.coordinate, destination.coordinate)
+                        / opt.walk_speed.unwrap_or(self.speed)
+                        * 60.;
                 let transit = if opt.arrive {
                     opt.time / 60.
                         - output["departureMinutes"]
@@ -1609,7 +1618,7 @@ impl City {
             (0..points.len())
                 .filter(|&i| {
                     others.iter().any(|other| {
-                        haversine(points[i].coordinate, other.coordinate) <= limit * 1.01 + 1.
+                        haversine_m(points[i].coordinate, other.coordinate) <= limit * 1.01 + 1.
                     })
                 })
                 .collect()
@@ -2070,6 +2079,10 @@ impl City {
             "unsupportedRestrictions":r.unsupported_restrictions, "elevationModel":"osm_incline_only",
             "timingPolicy":r.timing_policy});
         let mut diagnostics = diagnostics;
+        if r.distance_limit_best_found {
+            diagnostics["distanceLimitSearch"] = json!("best_found");
+            diagnostics["preferenceCost"] = Value::Null;
+        }
         if let Some(limit) = r.max_lts {
             diagnostics["trafficStress"] = json!({"model":"osm_estimated_lts_v1",
                 "maximumCyclingLevel":limit,"aboveLimit":"walk_if_permitted"});
@@ -2381,13 +2394,6 @@ impl super::city::Drive {
         admission.as_object_mut().unwrap().remove("cacheKey");
         Ok((input, admission))
     }
-}
-pub(crate) fn haversine(a: [f64; 2], b: [f64; 2]) -> f64 {
-    let v = ((b[1] - a[1]).to_radians() / 2.).sin().powi(2)
-        + a[1].to_radians().cos()
-            * b[1].to_radians().cos()
-            * ((b[0] - a[0]).to_radians() / 2.).sin().powi(2);
-    6371008.8 * 2. * v.sqrt().atan2((1. - v).max(0.).sqrt())
 }
 // Reserve time at the final destination without modifying vehicle events or
 // moving the query's earliest departure. This is deliberately not a calibrated

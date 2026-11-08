@@ -29,7 +29,7 @@ try{
  await until(()=>read('document.querySelectorAll("[role=radio]").length===2'));
  assert.match(await read('document.querySelector(".pathfinder-results-head").textContent'),/2 journeys/);
  assert.match(await read('document.querySelector(".pathfinder-group-services").textContent'),/M or E/);
- await read('[...document.querySelectorAll(".pathfinder-group-departures button")].find(b=>b.textContent.startsWith("E")).click()');
+ await read('[...document.querySelectorAll(".pathfinder-group-departures button")].find(b=>b.textContent.includes("E · ")).click()');
  await until(()=>read('document.querySelector("#selected").textContent==="E"'));
  assert.match(await read('document.querySelector(".pathfinder-route-time").textContent'),/08:06.*08:26/);
  assert.equal(await read('document.querySelector("[role=radio]").getAttribute("aria-checked")'),'true');

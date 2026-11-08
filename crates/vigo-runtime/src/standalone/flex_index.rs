@@ -8,10 +8,11 @@
 //! continuous stopping and deviated routes all reduce to that one shape, which
 //! is what lets the timetable search treat Flex as time-dependent access and
 //! egress instead of composing a search per interchange stop.
-use super::{City, Result, query::haversine};
+use super::{City, Result};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
+use vigo_route::geo::haversine_m;
 
 pub(super) struct Zone {
     bbox: [f64; 4],
@@ -131,7 +132,7 @@ fn bbox_of<'a>(points: impl Iterator<Item = &'a [f64; 2]>) -> [f64; 4] {
 
 /// Straight-line meters from `p` to the nearest point of `bbox`.
 fn bbox_meters(bbox: &[f64; 4], p: [f64; 2]) -> f64 {
-    haversine(
+    haversine_m(
         p,
         [p[0].clamp(bbox[0], bbox[2]), p[1].clamp(bbox[1], bbox[3])],
     )
@@ -228,7 +229,7 @@ impl Pattern {
                 continue;
             }
             let (position, coordinate) = project(&shape.points, p, lo, hi);
-            if position <= lo || position >= hi || haversine(p, coordinate) > reach {
+            if position <= lo || position >= hi || haversine_m(p, coordinate) > reach {
                 continue;
             }
             let span = shape.distance(hi) - shape.distance(lo);

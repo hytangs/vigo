@@ -1,3 +1,4 @@
+import { publicRouting } from '../app/publicRouting'
 import { caseFeedSelection } from '../app/cityDataGroups'
 import type { RouteScenarioRequest } from '../app/useNationalRouting'
 import type { ScenarioDraft } from '../reach'
@@ -19,7 +20,6 @@ import type { RoutingDepartureWindowMinutes } from '../app/uiOptions'
 import type { RoutingBikeOptions, RoutingDataMode, RoutingPlan, RoutingPoint, RoutingTimePreference, RoutingTravelMode } from '../routingModel'
 import {
   appendRoutingPointSequence,
-  insertRoutingPointBeforeDestination,
   maxRoutingPointCount,
   normalizeOrderedRoutingPoints,
   parseRoutingCoordinate,
@@ -352,6 +352,7 @@ function refreshPointNames() {
 }
 
 export function pickRoutingPoint(index: number | null) {
+  if (publicRouting) shell.set({ publicPanelExpanded: true })
   if (index === null && routingPoints().length >= maxRoutingPointCount) return
   route.set({ routingPickIndex: index, routingPointError: '', routingEnabled: true })
   setActiveRouteTool('pathfinder')
@@ -368,7 +369,7 @@ export function routingPointFromMap(point: RoutingPoint) {
   }
   const next = replacing
     ? current.map((entry, index) => index === routingPickIndex ? point : entry)
-    : current.length >= 2 ? insertRoutingPointBeforeDestination(current, point) : appendRoutingPointSequence(current, point)
+    : appendRoutingPointSequence(current, point)
   if (!reorderRoutingPoints(next)) return
   if (next.length === 1) route.set({ routingEnabled: true })
 }

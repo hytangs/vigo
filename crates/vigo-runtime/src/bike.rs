@@ -22,6 +22,33 @@ mod many_to;
 mod matrix;
 #[path = "bike_walk.rs"]
 mod walk;
+
+/// OSM node identifiers come from a prepared City and are looked up millions of
+/// times while opening it; a multiplicative hash replaces SipHash for just this.
+#[derive(Default)]
+pub(crate) struct OsmNodeHasher(u64);
+impl std::hash::Hasher for OsmNodeHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.write_u64(u64::from(byte));
+        }
+    }
+    fn write_u64(&mut self, value: u64) {
+        let mixed = (self.0 ^ value).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        self.0 = mixed ^ (mixed >> 29);
+    }
+    fn write_i64(&mut self, value: i64) {
+        self.write_u64(value as u64);
+    }
+}
+pub(crate) type OsmNodeIds = HashMap<i64, u32, std::hash::BuildHasherDefault<OsmNodeHasher>>;
+// Above every edge's time cost, so the search's lower bounds stay admissible.
+const SHORTEST_COST_PER_METER: f64 = 1.;
+// Bounded by remaining distance and cost; a search this large rarely finishes.
+const MAX_CONSTRAINED_LABELS: usize = 500_000;
 // Runtime-only flags in spare attribute bits; never written into City tables.
 const TIMED_EDGE: u32 = 1 << 31;
 const NODE_TURN: u32 = 1 << 30;
@@ -36,6 +63,10 @@ pub(crate) enum Profile {
     Balanced,
     Fast,
     Quiet,
+    // Internal: prefers the fewest metres when a distance limit is too tight to
+    // search every trade-off. Requests cannot select it.
+    #[serde(skip)]
+    Shortest,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -217,6 +248,8 @@ pub(crate) struct BikeResult {
     pub destination_road_meters: Option<f64>,
     pub unsupported_restrictions: u64,
     pub timing_policy: &'static str,
+    #[serde(skip)]
+    pub distance_limit_best_found: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_lts: Option<u8>,
     #[serde(skip)]
@@ -325,7 +358,12 @@ impl BikeKernel {
         Self::read(path).map_err(|e| format!("Cannot open bicycle graph: {e}"))
     }
     fn read(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        // Only this call reads the connection, so SQLite need not lock every
+        // column read of a few million rows.
+        let db = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
         let version: String = db.query_row("SELECT value FROM metadata WHERE key='bikeProfileVersion'", [], |r| r.get(0))
             .map_err(|_| "Bike is not prepared in this City; build with --street-modes=walk,bike or walk,drive,bike")?;
         if version != "1" {
@@ -338,7 +376,7 @@ impl BikeKernel {
         })? as usize;
         let mut lons = Vec::with_capacity(node_count);
         let mut lats = Vec::with_capacity(node_count);
-        let mut ids = HashMap::with_capacity(node_count);
+        let mut ids = OsmNodeIds::with_capacity_and_hasher(node_count, Default::default());
         for row in db
             .prepare("SELECT node_id,lon_e7,lat_e7 FROM bike_nodes ORDER BY node_id")?
             .query_map([], |r| {
@@ -375,10 +413,10 @@ impl BikeKernel {
             })?
             .checked_add(timed_count)
             .ok_or("Too many bicycle edges")? as usize;
-        let mut targets = Vec::with_capacity(edge_count);
-        let mut distances = Vec::with_capacity(edge_count);
-        let mut attributes = Vec::with_capacity(edge_count);
-        let mut ways = Vec::with_capacity(edge_count);
+        let mut targets = vec![0u32; edge_count];
+        let mut distances = vec![0u32; edge_count];
+        let mut attributes = vec![0u32; edge_count];
+        let mut ways = vec![0i64; edge_count];
         let mut edge_windows = HashMap::with_capacity(timed_count as usize);
         let stress_version = match db.query_row(
             "SELECT value FROM metadata WHERE key='bikeStressVersion'",
@@ -394,62 +432,78 @@ impl BikeKernel {
         }
         let stress_prepared = stress_version.is_some();
         let stress = if stress_prepared { "stress" } else { "0" };
-        let sql = if edge_ids.is_empty() {
-            format!(
-                "SELECT from_node,to_node,distance_cm,way_id,attributes,0,{stress} FROM bike_edges ORDER BY from_node,rowid"
-            )
-        } else {
-            format!("SELECT from_node,to_node,distance_cm,way_id,attributes,window_id,stress FROM (
-                SELECT from_node,to_node,distance_cm,way_id,attributes,0 AS window_id,{stress} AS stress,0 AS source,rowid AS sequence FROM bike_edges
-                UNION ALL SELECT from_node,to_node,distance_cm,way_id,attributes,window_id,{stress} AS stress,1 AS source,rowid AS sequence FROM bike_timed_edges
-            ) ORDER BY from_node,source,sequence")
-        };
-        for row in db.prepare(&sql)?.query_map([], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, i64>(1)?,
-                r.get::<_, u32>(2)?,
-                r.get::<_, i64>(3)?,
-                r.get::<_, u32>(4)?,
-                r.get::<_, i64>(5)?,
-                r.get::<_, u8>(6)?,
-            ))
-        })? {
-            let (from, to, distance, way, mut attr, window, stress) = row?;
-            let (&from, &to) = (
-                ids.get(&from).ok_or("Missing bicycle edge source")?,
-                ids.get(&to).ok_or("Missing bicycle edge target")?,
-            );
-            if distance == 0 || attr >> 23 != 0 || ((attr >> 8) & 63) > 60 {
-                return Err("Invalid bicycle edge attributes".into());
+        // Sorting every edge would spill to temporary files. Rowid scans give
+        // the same order within a node: size each node's run, then fill it.
+        let mut sources = vec![format!(
+            "SELECT from_node,to_node,distance_cm,way_id,attributes,0,{stress} FROM bike_edges ORDER BY rowid"
+        )];
+        if !edge_ids.is_empty() {
+            sources.push(format!(
+                "SELECT from_node,to_node,distance_cm,way_id,attributes,window_id,{stress} FROM bike_timed_edges ORDER BY rowid"
+            ));
+        }
+        for sql in &sources {
+            for from in db.prepare(sql)?.query_map([], |r| r.get::<_, i64>(0))? {
+                let from = *ids.get(&from?).ok_or("Missing bicycle edge source")?;
+                offsets[from as usize + 1] = offsets[from as usize + 1]
+                    .checked_add(1)
+                    .ok_or("Too many bicycle edges")?;
             }
-            if stress_prepared {
-                if stress & !15 != 0 || !(1..=4).contains(&(stress & 7)) {
-                    return Err("Invalid bicycle traffic-stress attributes".into());
-                }
-                // Optional prepared data uses spare runtime bits in the existing
-                // edge word. No stress array or per-profile graph is retained.
-                attr |= u32::from(stress) << STRESS_SHIFT;
-            }
-            offsets[from as usize + 1] = offsets[from as usize + 1]
-                .checked_add(1)
-                .ok_or("Too many bicycle edges")?;
-            if window != 0 {
-                edge_windows.insert(
-                    u32::try_from(targets.len())?,
-                    *edge_ids.get(&window).ok_or("Unknown bicycle edge window")?,
-                );
-                attr |= TIMED_EDGE;
-            }
-            targets.push(to);
-            distances.push(distance);
-            attributes.push(attr);
-            ways.push(way);
         }
         for i in 1..offsets.len() {
             offsets[i] = offsets[i]
                 .checked_add(offsets[i - 1])
                 .ok_or("Too many bicycle edges")?;
+        }
+        if offsets[lons.len()] as usize != edge_count {
+            return Err("Inconsistent bicycle edge count".into());
+        }
+        let mut next = offsets.clone();
+        for sql in &sources {
+            for row in db.prepare(sql)?.query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, u32>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, u32>(4)?,
+                    r.get::<_, i64>(5)?,
+                    r.get::<_, u8>(6)?,
+                ))
+            })? {
+                let (from, to, distance, way, mut attr, window, stress) = row?;
+                let (&from, &to) = (
+                    ids.get(&from).ok_or("Missing bicycle edge source")?,
+                    ids.get(&to).ok_or("Missing bicycle edge target")?,
+                );
+                if distance == 0 || attr >> 23 != 0 || ((attr >> 8) & 63) > 60 {
+                    return Err("Invalid bicycle edge attributes".into());
+                }
+                if stress_prepared {
+                    if stress & !15 != 0 || !(1..=4).contains(&(stress & 7)) {
+                        return Err("Invalid bicycle traffic-stress attributes".into());
+                    }
+                    // Optional prepared data uses spare runtime bits in the existing
+                    // edge word. No stress array or per-profile graph is retained.
+                    attr |= u32::from(stress) << STRESS_SHIFT;
+                }
+                let slot = next[from as usize] as usize;
+                if slot >= offsets[from as usize + 1] as usize {
+                    return Err("Inconsistent bicycle edge count".into());
+                }
+                next[from as usize] += 1;
+                if window != 0 {
+                    edge_windows.insert(
+                        u32::try_from(slot)?,
+                        *edge_ids.get(&window).ok_or("Unknown bicycle edge window")?,
+                    );
+                    attr |= TIMED_EDGE;
+                }
+                targets[slot] = to;
+                distances[slot] = distance;
+                attributes[slot] = attr;
+                ways[slot] = way;
+            }
         }
         let mut timed_node_turns = false;
         let mut turns: HashMap<(u32, i64), Vec<NodeTurn>> = HashMap::new();
@@ -580,7 +634,8 @@ impl BikeKernel {
         for from in 0..lons.len() {
             for edge in offsets[from] as usize..offsets[from + 1] as usize {
                 let to = targets[edge] as usize;
-                let geometric = crate::haversine_m(lons[from], lats[from], lons[to], lats[to]);
+                let geometric =
+                    vigo_route::geo::haversine_m([lons[from], lats[from]], [lons[to], lats[to]]);
                 if geometric > 0. {
                     minimum_length_ratio =
                         minimum_length_ratio.min(distances[edge] as f64 / 100. / geometric);
@@ -1055,6 +1110,9 @@ impl BikeKernel {
     fn metric(&self, edge: u32, opt: BikeOptions) -> (f64, f64) {
         let a = self.attributes[edge as usize];
         if self.dismount(edge, opt) {
+            if matches!(opt.profile, Profile::Shortest) {
+                return (3.6 / 4.0, SHORTEST_COST_PER_METER);
+            }
             return (
                 3.6 / 4.0,
                 3.6 / 4.0
@@ -1085,6 +1143,7 @@ impl BikeKernel {
             Profile::Fast => 1.,
             Profile::Balanced => 0.8 + stress + surface as f64 * 0.08,
             Profile::Quiet => 0.8 + stress * 2.5 + surface as f64 * 0.12,
+            Profile::Shortest => return (3.6 / speed, SHORTEST_COST_PER_METER),
         };
         let seconds = 3.6 / speed;
         (seconds, seconds * factor)
@@ -1589,24 +1648,46 @@ impl BikeKernel {
         continuation: Option<&BikeContinuation>,
         retain_continuation: bool,
     ) -> Result<BikeResult, String> {
-        let r = self.search(
-            origin,
-            destination,
-            opt,
-            starts,
-            ends,
-            max_distance,
-            false,
-            clock,
-            kind,
-            bounds,
-            continuation,
-            retain_continuation,
-        )?;
-        if r.legs.iter().map(|leg| leg.meters).sum::<f64>() <= max_distance {
-            return Ok(r);
-        }
-        let mut constrained = self.search(
+        // A straight line longer than the limit needs no unconstrained search.
+        let straight_line_over_limit = starts.candidates.len() <= 16
+            && ends.candidates.len() <= 16
+            && starts.candidates.iter().all(|a| {
+                ends.candidates.iter().all(|b| {
+                    let (x, y) = (self.point(a.node), self.point(b.node));
+                    a.walk_meters
+                        + b.walk_meters
+                        + vigo_route::geo::haversine_m([x[0], x[1]], [y[0], y[1]])
+                            * self.minimum_length_ratio
+                            * (1. - 1e-9)
+                        > max_distance
+                })
+            });
+        let r = if straight_line_over_limit {
+            None
+        } else {
+            Some(self.search(
+                origin,
+                destination,
+                opt,
+                starts,
+                ends,
+                max_distance,
+                false,
+                clock,
+                kind,
+                bounds,
+                continuation,
+                retain_continuation,
+            )?)
+        };
+        let first_settled = match r {
+            Some(r) if r.legs.iter().map(|leg| leg.meters).sum::<f64>() <= max_distance => {
+                return Ok(r);
+            }
+            Some(r) => r.settled_labels,
+            None => 0,
+        };
+        let mut constrained = match self.search(
             origin,
             destination,
             opt,
@@ -1619,9 +1700,78 @@ impl BikeKernel {
             bounds,
             continuation,
             retain_continuation,
-        )?;
-        constrained.settled_labels += r.settled_labels;
+        ) {
+            Ok(result) => result,
+            // Too many trade-offs to prove the best route: a route within the
+            // limit still answers the request, and reports what it is.
+            Err(error) if error.contains("work limit") => {
+                let mut shortest = self.search(
+                    origin,
+                    destination,
+                    BikeOptions {
+                        profile: Profile::Shortest,
+                        ..opt
+                    },
+                    starts,
+                    ends,
+                    max_distance,
+                    false,
+                    clock,
+                    kind,
+                    bounds,
+                    continuation,
+                    retain_continuation,
+                )?;
+                if shortest.status != "ready"
+                    || shortest.legs.iter().map(|leg| leg.meters).sum::<f64>() > max_distance
+                {
+                    return Err(error);
+                }
+                shortest.distance_limit_best_found = true;
+                shortest
+            }
+            Err(error) => return Err(error),
+        };
+        constrained.settled_labels += first_settled;
         Ok(constrained)
+    }
+
+    /// Exact remaining metres to the destination, ignoring turns and access,
+    /// which can only lower them. A label beyond this bound cannot finish
+    /// within the distance limit.
+    fn meters_to(&self, ends: &Attachment, max_distance: f64) -> Vec<f64> {
+        let mut head = vec![u32::MAX; self.lons.len()];
+        let mut next = vec![u32::MAX; self.targets.len()];
+        for (edge, &node) in self.targets.iter().enumerate() {
+            next[edge] = head[node as usize];
+            head[node as usize] = edge as u32;
+        }
+        let mut meters = vec![f64::INFINITY; self.lons.len()];
+        let mut queue = BinaryHeap::new();
+        for i in 0..ends.candidates.len() {
+            let b = ends.candidate(&self.graph(), i);
+            let value = b.walk_meters + b.drive_meters;
+            if value <= max_distance && value < meters[b.node as usize] {
+                meters[b.node as usize] = value;
+                queue.push(Queue(value, b.node as usize));
+            }
+        }
+        while let Some(Queue(value, node)) = queue.pop() {
+            if value > meters[node] {
+                continue;
+            }
+            let mut edge = head[node];
+            while edge != u32::MAX {
+                let source = self.source(edge) as usize;
+                let candidate = value + self.distances[edge as usize] as f64 / 100.;
+                if candidate <= max_distance && candidate < meters[source] {
+                    meters[source] = candidate;
+                    queue.push(Queue(candidate, source));
+                }
+                edge = next[edge as usize];
+            }
+        }
+        meters
     }
 
     // A dated search may retain cost/time alternatives. An exact lower bound
@@ -1750,6 +1900,7 @@ impl BikeKernel {
             temporal_valid: true,
             continuation: None,
             max_lts: opt.max_lts,
+            distance_limit_best_found: false,
         };
         if starts.candidates.is_empty() || ends.candidates.is_empty() {
             result.reason = Some("no_bike_attachment");
@@ -1820,7 +1971,24 @@ impl BikeKernel {
         end_nodes.dedup();
         let bounds = (end_nodes.len() > 16)
             .then(|| TargetBounds::new(end_nodes.iter().map(|&node| self.point(node))));
-        let remaining_cost = timed.then(|| self.costs_to(ends, opt, false));
+        // Over the distance limit, cost and distance labels multiply across a
+        // City unless both are bounded. If no start can reach the destination
+        // within the limit, no route exists and no label search is needed.
+        let remaining_meters = constrained.then(|| self.meters_to(ends, max_distance));
+        let can_finish = |node: u32, meters: f64| {
+            remaining_meters
+                .as_ref()
+                .is_none_or(|bound| meters + bound[node as usize] * (1. - 1e-12) <= max_distance)
+        };
+        if winner.is_none()
+            && !starts.candidates.iter().enumerate().any(|(i, _)| {
+                let a = starts.candidate(&self.graph(), i);
+                can_finish(a.node, a.walk_meters + a.drive_meters)
+            })
+        {
+            return Ok(result);
+        }
+        let remaining_cost = (timed || constrained).then(|| self.costs_to(ends, opt, false));
         let remaining_excess =
             (timed && search_bounds.earliest_arrival > 0.).then(|| self.costs_to(ends, opt, true));
         let heuristic = |node: u32| {
@@ -1832,11 +2000,9 @@ impl BikeKernel {
                     end_nodes
                         .iter()
                         .map(|&end| {
-                            crate::haversine_m(
-                                self.lons[node as usize],
-                                self.lats[node as usize],
-                                self.lons[end as usize],
-                                self.lats[end as usize],
+                            vigo_route::geo::haversine_m(
+                                [self.lons[node as usize], self.lats[node as usize]],
+                                [self.lons[end as usize], self.lats[end as usize]],
                             )
                         })
                         .fold(f64::INFINITY, f64::min)
@@ -1957,6 +2123,7 @@ impl BikeKernel {
                     a.walk_seconds + a.drive_meters * cost_per_meter
                 };
                 if meters <= max_distance
+                    && can_finish(a.node, meters)
                     && cost + if timed { wait_factor * elapsed } else { 0. } < best
                 {
                     insert(
@@ -1994,7 +2161,15 @@ impl BikeKernel {
                 continue;
             }
             result.settled_labels += 1;
-            if labels.len() > if timed { 262_144 } else { 2_000_000 } {
+            if labels.len()
+                > if timed {
+                    262_144
+                } else if constrained {
+                    MAX_CONSTRAINED_LABELS
+                } else {
+                    2_000_000
+                }
+            {
                 return Err(if timed {
                     "Dated bicycle search exceeded its 262144-label work limit; shorten the route or distance limit"
                 } else {
@@ -2087,6 +2262,7 @@ impl BikeKernel {
                         }
                         >= best
                         || meters > max_distance
+                        || !can_finish(self.targets[edge as usize], meters)
                     {
                         continue;
                     }
@@ -2582,9 +2758,11 @@ mod tests {
         }
         db.execute_batch(extra).unwrap();
         drop(db);
-        let kernel = BikeKernel::open(path.to_str().unwrap()).unwrap();
+        // Remove the store before unwrapping, so fixtures that are meant to
+        // be rejected leave nothing behind in the temp directory.
+        let kernel = BikeKernel::open(path.to_str().unwrap());
         std::fs::remove_file(path).unwrap();
-        kernel
+        kernel.unwrap()
     }
     const CYCLE: u32 = (30 << 8) | (15 << 14) | (2 << 3);
     const MAJOR: u32 = (30 << 8) | (80 << 14) | 6;
@@ -2597,6 +2775,14 @@ mod tests {
 
     const STRESS_COLUMNS: &str = "INSERT INTO metadata VALUES('bikeStressVersion','1');
         ALTER TABLE bike_edges ADD COLUMN stress INTEGER NOT NULL DEFAULT 9;";
+
+    #[test]
+    fn requests_cannot_select_the_internal_shortest_profile() {
+        for profile in ["fast", "balanced", "quiet"] {
+            assert!(serde_json::from_value::<Profile>(serde_json::json!(profile)).is_ok());
+        }
+        assert!(serde_json::from_value::<Profile>(serde_json::json!("shortest")).is_err());
+    }
 
     #[test]
     fn stress_ceiling_selects_legal_cycling_detours_or_pushing_without_changing_default() {
@@ -4262,6 +4448,7 @@ mod tests {
                                         Profile::Fast => 1.,
                                         Profile::Balanced => 0.8 + stress,
                                         Profile::Quiet => 0.8 + 2.5 * stress,
+                                        Profile::Shortest => unreachable!(),
                                     };
                                     time += seconds;
                                     cost += seconds * factor;
@@ -4327,6 +4514,7 @@ mod tests {
                                         Profile::Fast => 1.,
                                         Profile::Balanced => 0.8 + stress,
                                         Profile::Quiet => 0.8 + 2.5 * stress,
+                                        Profile::Shortest => unreachable!(),
                                     };
                                     time -= seconds;
                                     cost += seconds * factor;
@@ -5236,7 +5424,7 @@ mod tests {
             {
                 let nearest = points
                     .iter()
-                    .map(|p| crate::haversine_m(point[0], point[1], p[0], p[1]))
+                    .map(|p| vigo_route::geo::haversine_m([point[0], point[1]], [p[0], p[1]]))
                     .fold(f64::INFINITY, f64::min);
                 assert!(bounds.meters(point) <= nearest + 1e-7);
             }

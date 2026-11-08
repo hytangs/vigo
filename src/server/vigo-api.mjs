@@ -1,3 +1,4 @@
+import { searchAddresses } from './address-search.mjs'
 import { studioWheelchairAccessibility, studioWheelchairAvailability, studioWheelchairSelection } from './studio-wheelchair.mjs'
 import { buildStudioWheelchair, wheelchairBuildSources } from './studio-wheelchair-build.mjs'
 import { routingResultStatus } from './gtfs/route-results.mjs'
@@ -43,7 +44,6 @@ import { resolveDepartNowRequest } from './routing-depart-now.mjs'
 import { normalizeRoutingPointIdentities } from './routing-point-identity.mjs'
 import { hydrateScenarioRouteServices } from './scenario-services.mjs'
 import { resolveServiceDay, serviceDayForDate } from './service-day.mjs'
-import { buildServiceEdgeDecomposition } from './service-decomposition.mjs'
 import { createStreetPreparationManager, prepareStreetsInWorker } from './street-preparation.mjs'
 import { allocateProjectTransportAtlasBudgets, compactTransportPreview, projectTransportAtlasBudgets } from './transport-atlas.mjs'
 import { bundleNetworkScope, createTransitNetworkTiles, transitNetworkCatalog } from './transit-network-tiles.mjs'
@@ -105,7 +105,7 @@ let runtimeConfig = {
   storageRoot: envStorageRoot || defaultStorageRoot(),
   appearance: 'dark',
   accent: 'blue',
-  basemap: 'minimal',
+  basemap: 'offline',
   createdAt: '',
   updatedAt: '',
 }
@@ -233,7 +233,7 @@ function normalizeAccent(value) {
 }
 
 function normalizeBasemap(value) {
-  return ['none', 'offline', 'minimal', 'streets', 'dark', 'terrain'].includes(value) ? value : 'minimal'
+  return ['none', 'offline', 'minimal', 'streets', 'dark', 'terrain'].includes(value) ? value : 'offline'
 }
 
 async function loadRuntimeConfig() {
@@ -3891,62 +3891,6 @@ async function runReach(projectId, body, signal, onProgress, onPreliminary) {
   })
 }
 
-async function runServiceEdgeDecomposition(projectId, body, signal) {
-  const project = await readProjectMetadata(projectId)
-  const baselineFeedId = String(body?.baselineFeedId ?? '').trim()
-  const comparisonFeedId = String(body?.comparisonFeedId ?? '').trim()
-  if (!baselineFeedId || !comparisonFeedId || baselineFeedId === comparisonFeedId) {
-    const error = new Error('Service comparison requires two different GTFS feeds.')
-    error.statusCode = 400
-    throw error
-  }
-  const baselineFeed = project.feeds.find((feed) => feed.id === baselineFeedId)
-  const comparisonFeed = project.feeds.find((feed) => feed.id === comparisonFeedId)
-  if (!baselineFeed || !comparisonFeed) {
-    const error = new Error('Both selected GTFS feeds must belong to this City.')
-    error.statusCode = 400
-    throw error
-  }
-  const [baselineContext, comparisonContext] = await Promise.all([
-    feedRoutingStoreContext(projectId, project, baselineFeed),
-    feedRoutingStoreContext(projectId, project, comparisonFeed),
-  ])
-  if (!baselineContext?.storePath || !comparisonContext?.storePath) {
-    const error = new Error('Both selected GTFS feeds need ready SQLite routing stores.')
-    error.statusCode = 409
-    throw error
-  }
-  const streetPath = project.osmStreetIndex?.status === 'ready'
-    && await exists(streetStoreFile(projectId))
-    ? streetStoreFile(projectId)
-    : null
-  if (!streetPath) {
-    const error = new Error('Service edge comparison requires a ready local OSM street index.')
-    error.statusCode = 409
-    throw error
-  }
-  if (signal?.aborted) throw makeAbortError()
-  const decomposition = buildServiceEdgeDecomposition({
-    baselineStorePath: baselineContext.storePath,
-    comparisonStorePath: comparisonContext.storePath,
-    streetStorePath: streetPath,
-    baselineSourceScope: baselineContext.sourceScope,
-    comparisonSourceScope: comparisonContext.sourceScope,
-    baselineRouteIds: body?.baselineRouteIds,
-    comparisonRouteIds: body?.comparisonRouteIds,
-    matchDistanceM: body?.matchDistanceM,
-    sampleSpacingM: body?.sampleSpacingM,
-    maxPatterns: body?.maxPatterns,
-    maxFeatures: body?.maxFeatures,
-  })
-  if (signal?.aborted) throw makeAbortError()
-  return {
-    baselineFeedId,
-    comparisonFeedId,
-    ...decomposition,
-  }
-}
-
 /**
  * Open a project's walking or driving network in its native City. The
  * JavaScript worker writes derived street files the runtime lacks, then is
@@ -4502,6 +4446,14 @@ async function route(request, response) {
       return true
     }
 
+    if (request.method === 'POST' && action === 'address-search') {
+      await readProjectMetadata(projectId)
+      const body = await readBody(request)
+      // Typing a place contacts a geocoder only once online maps are chosen.
+      sendJson(response, 200, await searchAddresses(body.query, undefined, { remote: !['offline', 'none'].includes(runtimeConfig.basemap) }))
+      return true
+    }
+
     if (request.method === 'GET' && action === 'place') {
       sendJson(response, 200, await describeProjectPlaces(projectId, url))
       return true
@@ -4694,16 +4646,6 @@ async function route(request, response) {
           })
           response.end()
         }
-      })
-      return true
-    }
-
-    if (request.method === 'POST' && action === 'service-edge-decomposition') {
-      await withRequestAbort(request, response, async (signal) => {
-        const body = await readBody(request)
-        const decomposition = await runServiceEdgeDecomposition(projectId, body, signal)
-        if (signal.aborted) throw makeAbortError()
-        sendJson(response, 200, { decomposition })
       })
       return true
     }

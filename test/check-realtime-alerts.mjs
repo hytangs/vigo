@@ -50,6 +50,34 @@ try {
   const scheduled = run('route', base).trace
   assert.equal(scheduled.arrivalMinutes, 510)
 
+  // Polling display fields must not rebuild a live timetable. Actual alerts,
+  // freshness timestamps and malformed inputs must still be re-evaluated.
+  const cached = { ...base, kind: 'route', diagnostics: 'profile', realtimeSnapshot: snapshot([]) }
+  const refreshed = structuredClone(cached)
+  Object.assign(refreshed.realtimeSnapshot, { fetchedAt: new Date().toISOString(),
+    vehicles: [{ id: 'display-only' }], feeds: [{ fetchedAt: new Date().toISOString() }], freshness: { ageSeconds: 1 } })
+  const closed = { ...cached, realtimeSnapshot: snapshot([{ id: 'r2', effect: 'NO_SERVICE', informedEntities: [{ routeId: 'R2' }] }]) }
+  const stale = { ...closed, realtimeSnapshot: { ...closed.realtimeSnapshot, feedTimestamp: feedTimestamp - 3600 } }
+  const absent = { ...cached, realtimeSnapshot: { feedTimestamp, tripUpdates: [] } }
+  const invalid = { ...absent, realtimeSnapshot: { ...absent.realtimeSnapshot, alerts: null } }
+  const stream = spawnSync(binary, ['stream', '--city', city, '--stream-output=detailed'], {
+    input: [cached, refreshed, closed, stale, absent, invalid].map(q => JSON.stringify(q)).join('\n') + '\n',
+    env, encoding: 'utf8', maxBuffer: 32 << 20,
+  })
+  assert.equal(stream.status, 0, stream.stderr)
+  const results = stream.stdout.trim().split('\n').map(line => JSON.parse(line))
+  assert.equal(results.length, 6)
+  assert(results[0].trace.timing.timetablePreparation)
+  assert.equal(results[1].trace.timing.timetablePreparation, undefined, 'display-only refresh must reuse the timetable')
+  assert.deepEqual(results[1].trace.legs, results[0].trace.legs)
+  const withoutTimings = value => JSON.parse(JSON.stringify(value, (key, item) => key.endsWith('Ns') ? undefined : item))
+  assert.deepEqual(withoutTimings(results[1].trace.diagnostics), withoutTimings(results[0].trace.diagnostics))
+  assert.equal(results[2].trace.status, 'blocked', 'changed service alerts invalidate the view')
+  assert.equal(results[3].trace.arrivalMinutes, 510, 'expired alerts cannot remain cached')
+  assert.equal(results[4].trace.arrivalMinutes, 510)
+  assert.equal(results[5].status, 'error', 'invalid explicit null must not alias absent alerts')
+  checks++
+
   // A suspended route removes its trips.
   const suspended = route({ realtimeSnapshot: snapshot([{ id: 'r2', effect: 'NO_SERVICE', informedEntities: [{ routeId: 'R2' }] }]) }).trace
   assert.equal(suspended.status, 'blocked')

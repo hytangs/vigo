@@ -3,10 +3,11 @@
 //! planning model is typical wait plus direct distance / configured speed.
 use super::flex_index::{Call, FlexIndex, Place, Trip};
 use super::flex_search::{End, Hop, Hops, Integrated, Side, Stopping, Want};
-use super::query::{Candidates, Options, Point, haversine};
+use super::query::{Candidates, Options, Point};
 use super::{City, Result, fail, number};
 use serde_json::{Value, json};
 use std::sync::Arc;
+use vigo_route::geo::haversine_m;
 
 #[derive(Clone)]
 pub(super) struct Zone {
@@ -23,7 +24,7 @@ impl Zone {
         super::flex::contains(&self.geometry, p)
     }
     pub fn duration(&self, a: [f64; 2], b: [f64; 2]) -> f64 {
-        (self.wait + haversine(a, b) / self.speed * 3.6).ceil()
+        (self.wait + haversine_m(a, b) / self.speed * 3.6).ceil()
     }
     pub fn clock(&self, a: [f64; 2], b: [f64; 2], time: f64, reverse: bool) -> Option<f64> {
         let d = self.duration(a, b);

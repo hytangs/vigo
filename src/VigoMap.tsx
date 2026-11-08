@@ -1,3 +1,4 @@
+import { publicRouting } from './app/publicRouting'
 import {
   baseCanvasColor,
   ensureLocalBasemapLayers,
@@ -81,7 +82,6 @@ import {
   type ScenarioRenderMode,
   type ScenarioStopDraft,
   type ScenarioView,
-  type ServiceEdgeDecomposition,
 } from './reach'
 import type { RoutingPlan, RoutingPoint } from './routingModel'
 import { serviceVehicleIsVisible, type ServiceVehicleFrame, type ServiceVehicleCard } from './serviceVehicles'
@@ -137,7 +137,6 @@ export type VigoMapProps = {
   routingStatusTitle?: string
   routingStatusDetail?: string
   reachResult?: ReachResult | null
-  serviceDecomposition?: ServiceEdgeDecomposition | null
   scenarioView?: ScenarioView
   scenarioRenderMode?: ScenarioRenderMode
   scenarioCutoffMinutes?: number
@@ -491,7 +490,6 @@ export function VigoMap({
   routingStatusTitle,
   routingStatusDetail,
   reachResult,
-  serviceDecomposition,
   scenarioView = 'baseline',
   scenarioRenderMode = 'area',
   scenarioCutoffMinutes = 45,
@@ -1048,7 +1046,6 @@ export function VigoMap({
       setMapSourceData(source(map, 'vigo-scenario-area'), scenarioAreaGeoJson)
       setReachBandImage(map, reachBandImageData)
       setStreetMapSourceData(source(map, 'vigo-scenario-access-edges'), scenarioAccessEdgesGeoJson)
-      setMapSourceData(source(map, 'vigo-service-edges'), serviceDecomposition?.featureCollection ?? emptyCollection)
       setMapSourceData(source(map, 'vigo-scenario-contours'), scenarioContoursGeoJson)
       setMapSourceData(source(map, 'vigo-reach-route'),
         reachResult?.scenario.routes ?? emptyCollection,
@@ -1065,7 +1062,7 @@ export function VigoMap({
       if (mapRemovedRef.current) return
       map.off('load', update)
     }
-  }, [scenarioAccessEdgesGeoJson, reachBandImageData, reachResult, scenarioAreaGeoJson, scenarioContext, scenarioContoursGeoJson, scenarioFocus, scenarioRenderMode, scenarioSketchGeoJson, serviceDecomposition])
+  }, [scenarioAccessEdgesGeoJson, reachBandImageData, reachResult, scenarioAreaGeoJson, scenarioContext, scenarioContoursGeoJson, scenarioFocus, scenarioRenderMode, scenarioSketchGeoJson])
 
   // Editing overlays or refreshing unrelated state must not reset a user's
   // pan/zoom. Only a newly selected accessibility result changes the viewport.
@@ -1682,7 +1679,7 @@ export function VigoMap({
             <small>{mapFailure}</small>
           </span>
         </div>
-      ) : routingFocus && routingPlan?.status !== 'ready' ? (
+      ) : !publicRouting && routingFocus && routingPlan?.status !== 'ready' ? (
         <div className="map-empty" role="status" aria-live="polite">
           {routingPlan?.status === 'blocked' ? (
             <>

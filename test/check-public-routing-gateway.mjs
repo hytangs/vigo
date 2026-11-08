@@ -17,10 +17,17 @@ const upstream = http.createServer(async (req, res) => {
   if (req.url.endsWith('/national-route') && release) await new Promise(resolve => { release.resolve = resolve })
   res.setHeader('Content-Type', 'application/json')
   res.end(JSON.stringify(req.url.startsWith('/api/projects/bos2?') ? { project: {
-    id: 'bos2', name: 'Boston', storagePath: '/Users/private/cities/bos2', jobs: [{ sourcePath: '/Users/private/a.zip' }], artifacts: [],
-    routingStore: { status: 'ready' }, osmStreetIndex: { status: 'ready', snapshotPath: '/Users/private/snapshot', driveEdgeCount: 3 },
-    feeds: [{ id: 'mbta', sourcePath: '/Users/private/a.zip', mapPreview: { stops: [] } }],
-  } } : { choices: [], path: '/Users/private/city', ready: true }))
+    id: 'bos2', name: 'Boston', storagePath: '/var/private/cities/bos2', jobs: [{ sourcePath: '/var/private/a.zip' }], artifacts: [],
+    routingStore: { status: 'ready' }, osmStreetIndex: { status: 'ready', snapshotPath: '/var/private/snapshot', driveEdgeCount: 3 },
+    feeds: [{ id: 'mbta', routeCount: 10, sourcePath: '/var/private/a.zip', mapPreview: {
+      routes: [{ id: 'line', points: Array(1000).fill([-71, 42]) }], stopPairs: [],
+      stops: [
+        { id: 'west', lon: -72, lat: 42 }, { id: 'east', lon: -70, lat: 42 },
+        { id: 'north', lon: -71, lat: 43 }, { id: 'south', lon: -71, lat: 41 },
+        { id: 'interior', lon: -71, lat: 42 },
+      ],
+    } }],
+  } } : { snapshot: { fetchedAt: '2026-11-05T12:00:00Z' }, choices: [], path: '/var/private/city', ready: true }))
 })
 upstream.listen(0, '127.0.0.1'); await once(upstream, 'listening')
 const gateway = createPublicRoutingGateway({ upstream: `http://127.0.0.1:${upstream.address().port}`, publicOrigin: 'https://app.example.test', cityId: 'bos2', staticRoot: root, maxActive: 1 })
@@ -41,9 +48,31 @@ try {
   assert.equal((await fetch(base + '/api/projects', { headers: { 'Sec-Fetch-Site': 'cross-site' } })).status, 403)
   const catalog = await (await fetch(base + '/api/projects')).json()
   assert.equal(catalog.projects.length, 1)
-  assert(!JSON.stringify(catalog).includes('/Users/'))
+  assert(!JSON.stringify(catalog).includes('/private/'))
   assert.deepEqual(catalog.projects[0].jobs, [])
   assert.deepEqual(catalog.projects[0].artifacts, [])
+  const preview = catalog.projects[0].feeds[0].mapPreview
+  assert.equal(catalog.projects[0].feeds[0].routeCount, 10)
+  assert.deepEqual(new Set(preview.stops.map(stop => stop.id)), new Set(['west', 'east', 'north', 'south']), 'initial map extent must survive removal of network geometry')
+  assert.deepEqual(preview.routes, [])
+  assert(preview.stops.every(stop => Array.isArray(stop.routes)), 'extent stops retain the frontend stop schema')
+  assert.equal(preview.coverage.capped, true)
+  assert(JSON.stringify(catalog).length < 2000, 'routing startup must not download full network geometry')
+  const liveGateway = createPublicRoutingGateway({ upstream: `http://127.0.0.1:${upstream.address().port}`, publicOrigin: 'https://app.example.test', cityId: 'bos2', staticRoot: root, realtimeRequest: { provider: 'test' } })
+  liveGateway.listen(0, '127.0.0.1'); await once(liveGateway, 'listening')
+  try {
+    const response = await fetch(`http://127.0.0.1:${liveGateway.address().port}/api/projects/bos2/national-route`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...query, mode: 'transit', routingDataMode: 'realtime', realtimeSnapshot: { forged: true } }) })
+    assert.equal(response.status, 200)
+    assert.match(response.headers.get('server-timing'), /^routing;dur=/)
+    assert.equal(requests.at(-1).body.realtimeSnapshot, undefined)
+    assert.equal(requests.at(-1).body.routingDataMode, 'scheduled')
+    assert.equal(requests.filter(r => r.url.endsWith('/agency')).length, 0, 'legacy feed configuration must never fetch live observations')
+    const catalog = await (await fetch(`http://127.0.0.1:${liveGateway.address().port}/api/projects`)).json()
+    assert.equal(catalog.projects[0].publicRouting.realtime, false)
+  } finally {
+    liveGateway.closeAllConnections()
+    await new Promise(resolve => liveGateway.close(resolve))
+  }
   const before = requests.length
   for (const extra of [{ scenario: {} }, { feedIds: ['private'] }, { maxWalkKm: 100 }, { departureWindowMinutes: 100 }, { waypoints: Array(4).fill(query.origin) }, { origin: { coordinate: [0, 0] } }]) assert.equal((await post({ ...query, ...extra })).status, 400)
   assert.equal(requests.length, before, 'invalid inputs must not reach the local server')

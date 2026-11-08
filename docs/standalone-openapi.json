@@ -4651,6 +4651,7 @@
         ]
       },
       "ScheduledTrip": {
+        "additionalProperties": false,
         "properties": {
           "arrivalOffsetsSeconds": {
             "items": {
@@ -4689,6 +4690,13 @@
             "maximum": 1048575,
             "minimum": 0,
             "type": "number"
+          },
+          "serviceDayOffset": {
+            "description": "Days from the query's service date to the service date this trip runs\non; -1 keeps the previous day's trips that run past midnight.\n`departureSeconds` is on that day's clock. Omitted means 0.",
+            "format": "int8",
+            "maximum": 3,
+            "minimum": -3,
+            "type": "integer"
           },
           "tripId": {
             "type": "string"
@@ -11806,7 +11814,7 @@
   "info": {
     "description": "Route, Matrix, Reach and Compare over a prepared City. Generated from the vigo-model types. Bearer authentication is optional only on a loopback listener without a configured token.",
     "title": "VIGO API",
-    "version": "1.0.0-rc.4"
+    "version": "1.0.0-rc.5"
   },
   "openapi": "3.1.0",
   "paths": {

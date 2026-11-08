@@ -90,13 +90,6 @@ impl<T> Maybe<T> {
     pub fn is_absent(&self) -> bool {
         matches!(self, Self::Absent)
     }
-
-    pub fn as_option(&self) -> Option<&T> {
-        match self {
-            Self::Value(value) => Some(value),
-            Self::Absent | Self::Null => None,
-        }
-    }
 }
 
 impl<T: Serialize> Serialize for Maybe<T> {

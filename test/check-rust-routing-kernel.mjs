@@ -671,6 +671,25 @@ try {
   )
   assert.equal(constrainedDrive.fallbackUsed, true)
   assert.equal(constrainedDrive.cchAccelerated, true)
+  // A distance limit below the fastest road: the fastest road within the limit,
+  // the shortest road when only it fits, and nothing when none fits.
+  const limitedDrive = new DriveKernel({
+    nodeCount: 2,
+    nodeLats: new Float64Array([38, 38]),
+    nodeLons: new Float64Array([0, 0.001]),
+    edgeOffsets: new Uint32Array([0, 3, 3]),
+    edgeTargets: new Uint32Array([1, 1, 1]),
+    edgeDistances: new Float64Array([10, 6, 3]),
+    edgeTravelTimes: new Float64Array([1, 3, 9]),
+  })
+  const withinLimit = maximumDistanceMeters => limitedDrive.routeExact({
+    originNodes: [0], originSnapMeters: [0], targetNodes: [1], targetSnapMeters: [0], maximumDistanceMeters,
+  })
+  assert.deepEqual([withinLimit(20).durationSeconds, withinLimit(20).distanceMeters], [1, 10])
+  assert.deepEqual([withinLimit(7).durationSeconds, withinLimit(7).distanceMeters], [3, 6])
+  assert.deepEqual([withinLimit(4).durationSeconds, withinLimit(4).distanceMeters], [9, 3])
+  assert.equal(withinLimit(4).algorithm, 'rust_cch_candidate_exact_resource_constrained_fallback')
+  assert.equal(withinLimit(2).status, 'blocked')
   const certifiedDrive = driveKernel.routeExact({
     originNodes: [0],
     originSnapMeters: [0],

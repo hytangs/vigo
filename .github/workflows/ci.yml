@@ -36,6 +36,8 @@ jobs:
       # check:public, typecheck, check:security and Rust routing targets run in
       # the engine job's check:release.
       - run: npm audit --audit-level=high
+      - run: cargo install cargo-audit --locked --version 0.22.2
+      - run: cargo audit
       - run: npm run format:check
       - run: npm run check:package-publication
       - run: npm run check:rust-workspace

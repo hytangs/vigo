@@ -62,9 +62,9 @@ try {
   const { AnalyzePanelView } = await server.ssrLoadModule('/src/components/AnalyzePanel.tsx')
   const { BackgroundTasks } = await server.ssrLoadModule('/src/components/BackgroundTasks.tsx')
   const props = {
-    mode: 'single', origin: null, serviceDate: '2026-09-13', departMinutes: 480,
-    maxWalkKm: 1.2, walkSpeedKph: 4.8, cutoffMinutes: 45, cases: [], feeds: [],
-    comparisonFeedIds: [], routes: [], stops: [], analysis: null, preparationTasks: [],
+    origin: null, serviceDate: '2026-09-13', departMinutes: 480,
+    maxWalkKm: 1.2, walkSpeedKph: 4.8, cutoffMinutes: 45, cases: [],
+    routes: [], stops: [], analysis: null, preparationTasks: [],
     routingStoreAvailable: true, streetGraphAvailable: false,
   }
   const render = (patch) => renderToStaticMarkup(createElement(AnalyzePanelView, { ...props, ...patch }))

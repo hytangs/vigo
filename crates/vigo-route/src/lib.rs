@@ -1,6 +1,7 @@
 //! Routing algorithms independent of transports, storage and process configuration.
 pub mod buffer;
 pub mod error;
+pub mod geo;
 pub mod timetable;
 mod timetable_validation;
 pub use buffer::Buffer;

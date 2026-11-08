@@ -22,11 +22,9 @@ import { formatNumber } from '../domain'
 import { scenarioStopsForRoute } from '../reach'
 import {
   analyze,
-  comparisonFeedOptions,
   invalidateAnalyzeResult,
   reachInputIdentity,
   resetAnalyze,
-  retainComparisonFeeds,
 } from './analyze'
 import { city, refreshImportedProject, resetCity, routingMerge, setActiveFeedId, setOsmStreetMessage, updatePendingPreparations, updateProjects } from './city'
 import { changeServiceDate, clock, resetClock, serviceDay } from './clock'
@@ -648,9 +646,6 @@ function AnalyzeRuntime() {
   useEffect(() => { invalidateAnalyzeResult() }, [groups])
   const inputIdentity = useStudio(reachInputIdentity)
   useEffect(() => { invalidateAnalyzeResult() }, [inputIdentity])
-
-  const feedOptions = useStudio(comparisonFeedOptions)
-  useEffect(() => { retainComparisonFeeds(feedOptions) }, [feedOptions])
 
   // An edited route needs its full timetable before its stops can be changed.
   const changeRouteId = change?.routeId

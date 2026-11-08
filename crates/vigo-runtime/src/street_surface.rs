@@ -644,6 +644,7 @@ fn compute_graph<const ENDPOINTS: bool>(
                 arrival,
                 seed as u32,
                 input.independent_terminal_walk,
+                minutes_per_meter,
             );
             if retained {
                 snapped = true;
@@ -698,6 +699,7 @@ fn compute_graph<const ENDPOINTS: bool>(
                         input.seed_durations_minutes[current.seed_index as usize],
                         current.seed_index,
                         input.independent_terminal_walk,
+                        minutes_per_meter,
                     )
                 {
                     diagnostics.retained_labels = diagnostics.retained_labels.saturating_add(1);
@@ -735,6 +737,7 @@ fn compute_graph<const ENDPOINTS: bool>(
                             input.seed_durations_minutes[current.seed_index as usize],
                             current.seed_index,
                             input.independent_terminal_walk,
+                            minutes_per_meter,
                         )
                     {
                         diagnostics.retained_labels = diagnostics.retained_labels.saturating_add(1);

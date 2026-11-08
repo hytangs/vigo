@@ -1,5 +1,4 @@
 use super::*;
-use std::collections::HashMap;
 
 impl TimetableKernel {
     /// One destination and deadline, shared by every origin. Reverse labels
@@ -101,7 +100,9 @@ impl TimetableKernel {
         // Both directions share the same endpoint-bound accumulator. Reverse
         // times are negated so improving a departure is also minimization.
         // Keep the allocation-free single-origin path used by point queries.
-        let mut terminals = (ENDPOINTS && origin_count > 1).then(|| Terminals::new(origin_count));
+        let stop_count = self.stop_count;
+        let mut terminals = (ENDPOINTS && origin_count > 1)
+            .then(|| self.query.terminals.begin(origin_count, stop_count));
         let mut stop_departures = if ENDPOINTS {
             Vec::new()
         } else {
@@ -306,7 +307,7 @@ impl TimetableKernel {
         }
         let mut latest_departures = if ENDPOINTS {
             match terminals {
-                Some(targets) => targets.bounds.into_iter().map(|time| -time).collect(),
+                Some(targets) => targets.bounds.iter().map(|time| -time).collect(),
                 None => vec![latest_origin_departure],
             }
         } else {
@@ -469,11 +470,13 @@ impl TimetableKernel {
             exit_events: _,
             query:
                 TimetableQueryWorkspace {
-                    workspace: destination_workspace,
+                    workspace: _,
                     many_workspace,
                     forward_workspace: _,
                     profile_workspace: _,
                     journey_workspace: _,
+                    capped_guard: _,
+                    terminals,
                 },
         } = self;
         let forbidden_same_stop = forbidden_same_stop.as_ref();
@@ -481,8 +484,10 @@ impl TimetableKernel {
         // one of its stops, or one transfer before it, plus the walk out. Once
         // no later departure can improve any target, the scan stops. This is
         // the final read-out below, bounded early; it never changes a result.
-        let destination_epoch = destination_workspace.begin_query();
-        let mut terminals = Terminals::new(if TARGET_BOUNDS { destination_count } else { 0 });
+        let terminals = terminals.begin(
+            if TARGET_BOUNDS { destination_count } else { 0 },
+            base_stop_count,
+        );
         if TARGET_BOUNDS {
             for destination in 0..destination_count {
                 let start = input.destination_offsets[destination] as usize;
@@ -508,14 +513,8 @@ impl TimetableKernel {
                     }
                 }
             }
-            for &stop in terminals.entries.keys() {
-                destination_workspace.destination_generation[stop] = destination_epoch;
-            }
             terminals.finish();
         }
-        let is_terminal = |stop: usize| {
-            TARGET_BOUNDS && destination_workspace.destination_generation[stop] == destination_epoch
-        };
         let epoch = many_workspace.begin_query();
         let has_excluded_trips = !input.excluded_trips.is_empty();
         for trip in &input.excluded_trips {
@@ -685,7 +684,7 @@ impl TimetableKernel {
                             continue;
                         }
                         if connection > boarding && flags & SCAN_BRIDGE_EXIT != 0 {
-                            if is_terminal(event.source_stop()) {
+                            if TARGET_BOUNDS {
                                 terminals.reach(event.source_stop(), connection_departure);
                             }
                             let bridge_stop = output_offset + event.source_stop();
@@ -717,7 +716,7 @@ impl TimetableKernel {
                         if flags & SCAN_CAN_ALIGHT == 0 || arrival.arrival as f64 > input.horizon {
                             continue;
                         }
-                        if is_terminal(arrival.to as usize) {
+                        if TARGET_BOUNDS {
                             terminals.reach(arrival.to as usize, f64::from(arrival.arrival));
                         }
                         let alight_stop = output_offset + arrival.to as usize;
@@ -817,28 +816,122 @@ impl TimetableKernel {
 
 /// Endpoint bounds shared by forward and reverse batch scans. Reverse scans
 /// supply negated departures; endpoint walking offsets stay nonnegative.
-struct Terminals {
-    /// Stop to (target, walk from the stop to the target's endpoint).
-    entries: HashMap<usize, Vec<(usize, f64)>>,
+///
+/// The query workspace keeps one instance, so a matrix that runs a scan per
+/// endpoint reuses its buffers. Each terminal stop indexes its targets in a
+/// contiguous slice, and the cutoff is the largest of the targets' bounds less
+/// their smallest walks: a target that improves can lower that largest value
+/// only if it held it.
+#[derive(Default)]
+pub(super) struct Terminals {
+    epoch: u32,
+    /// Per stop: this epoch marks a terminal stop, whose `stop_slot` is the
+    /// index of its target slice once `finish` has run.
+    stop_generation: Vec<u32>,
+    stop_slot: Vec<u32>,
+    /// (stop, target, walk) as added. Adds for one target are contiguous, so
+    /// a stop met again within the current target's block keeps the shorter walk.
+    seeds: Vec<(u32, u32, f64)>,
+    block_target: u32,
+    block_start: usize,
+    /// Slot `s` owns `targets[offsets[s]..offsets[s + 1]]`: (target, walk).
+    offsets: Vec<u32>,
+    targets: Vec<(u32, f64)>,
     bounds: Vec<f64>,
     minimum_offset: Vec<f64>,
     /// Targets with stops but no arrival yet; the cutoff waits for them.
     unreached: usize,
+    /// The target whose bound less walk is the cutoff.
+    critical: usize,
     /// Scan times after this (negated in reverse) cannot improve a target.
     cutoff: f64,
 }
 
 impl Terminals {
-    fn new(count: usize) -> Self {
-        Self {
-            entries: HashMap::new(),
-            bounds: vec![f64::INFINITY; count],
-            minimum_offset: vec![f64::INFINITY; count],
-            unreached: 0,
-            cutoff: f64::INFINITY,
+    pub(super) fn rebind(&mut self) {
+        // The next query restarts the epoch and clears every stop mark.
+        self.epoch = u32::MAX;
+    }
+
+    pub(super) fn byte_length(&self) -> usize {
+        (self.stop_generation.capacity() + self.stop_slot.capacity() + self.offsets.capacity())
+            * std::mem::size_of::<u32>()
+            + self.seeds.capacity() * std::mem::size_of::<(u32, u32, f64)>()
+            + self.targets.capacity() * std::mem::size_of::<(u32, f64)>()
+            + (self.bounds.capacity() + self.minimum_offset.capacity()) * std::mem::size_of::<f64>()
+    }
+
+    /// Starts a query with `count` targets over `stop_count` stops.
+    fn begin(&mut self, count: usize, stop_count: usize) -> &mut Self {
+        if self.stop_generation.len() < stop_count {
+            self.stop_generation.resize(stop_count, 0);
+            self.stop_slot.resize(stop_count, 0);
+        }
+        self.epoch = self.epoch.wrapping_add(1);
+        if self.epoch == 0 {
+            self.stop_generation.fill(0);
+            self.epoch = 1;
+        }
+        self.seeds.clear();
+        self.block_target = u32::MAX;
+        self.block_start = 0;
+        self.bounds.clear();
+        self.bounds.resize(count, f64::INFINITY);
+        self.minimum_offset.clear();
+        self.minimum_offset.resize(count, f64::INFINITY);
+        self.unreached = 0;
+        self.critical = usize::MAX;
+        self.cutoff = f64::INFINITY;
+        self
+    }
+
+    fn add(&mut self, stop: usize, target: usize, walk: f64) {
+        self.minimum_offset[target] = self.minimum_offset[target].min(walk);
+        let target = target as u32;
+        if target != self.block_target {
+            self.block_target = target;
+            self.block_start = self.seeds.len();
+        }
+        let seed = self.stop_slot[stop] as usize;
+        if self.stop_generation[stop] == self.epoch && seed >= self.block_start {
+            let entry = &mut self.seeds[seed].2;
+            *entry = entry.min(walk);
+        } else {
+            self.stop_generation[stop] = self.epoch;
+            self.stop_slot[stop] = self.seeds.len() as u32;
+            self.seeds.push((stop as u32, target, walk));
         }
     }
+
     fn finish(&mut self) {
+        // Number the terminal stops, then counting-sort the seeds by slot.
+        // Filling from the back keeps each slice in add order and leaves
+        // every offset at its slice start.
+        for &(stop, _, _) in &self.seeds {
+            self.stop_slot[stop as usize] = u32::MAX;
+        }
+        self.offsets.clear();
+        for &(stop, _, _) in &self.seeds {
+            let slot = &mut self.stop_slot[stop as usize];
+            if *slot == u32::MAX {
+                *slot = self.offsets.len() as u32;
+                self.offsets.push(0);
+            }
+            self.offsets[*slot as usize] += 1;
+        }
+        let mut end = 0;
+        for offset in &mut self.offsets {
+            end += *offset;
+            *offset = end;
+        }
+        self.offsets.push(end);
+        self.targets.clear();
+        self.targets.resize(self.seeds.len(), (0, 0.0));
+        for &(stop, target, walk) in self.seeds.iter().rev() {
+            let offset = &mut self.offsets[self.stop_slot[stop as usize] as usize];
+            *offset -= 1;
+            self.targets[*offset as usize] = (target, walk);
+        }
         // Empty endpoint frontiers are known unreachable and need no scan.
         self.unreached = self
             .minimum_offset
@@ -849,36 +942,44 @@ impl Terminals {
             self.cutoff = f64::NEG_INFINITY;
         }
     }
-    fn add(&mut self, stop: usize, destination: usize, egress: f64) {
-        self.minimum_offset[destination] = self.minimum_offset[destination].min(egress);
-        let entry = self.entries.entry(stop).or_default();
-        match entry.iter_mut().find(|(d, _)| *d == destination) {
-            Some((_, walk)) => *walk = walk.min(egress),
-            None => entry.push((destination, egress)),
-        }
-    }
-    /// A feasible ride reached an endpoint candidate at the signed scan time.
+
+    /// A feasible ride reached `stop` at the signed scan time. Stops that are
+    /// not terminal stops of this query are ignored.
+    #[inline]
     fn reach(&mut self, stop: usize, time: f64) {
-        let mut improved = false;
-        for &(destination, egress) in &self.entries[&stop] {
-            if time + egress < self.bounds[destination] {
-                if self.bounds[destination].is_infinite() {
+        if self.stop_generation[stop] != self.epoch {
+            return;
+        }
+        let slot = self.stop_slot[stop] as usize;
+        let range = self.offsets[slot] as usize..self.offsets[slot + 1] as usize;
+        let mut refold = false;
+        for &(target, walk) in &self.targets[range] {
+            let target = target as usize;
+            let bound = time + walk;
+            if bound < self.bounds[target] {
+                if self.bounds[target] == f64::INFINITY {
                     self.unreached -= 1;
+                    refold |= self.unreached == 0;
                 }
-                self.bounds[destination] = time + egress;
-                improved = true;
+                self.bounds[target] = bound;
+                refold |= target == self.critical;
             }
         }
-        if improved && self.unreached == 0 {
-            // Future scan events cannot beat this endpoint's bound even with
-            // its smallest access/egress walk. All reachable targets must agree.
-            self.cutoff = self
-                .bounds
-                .iter()
-                .zip(&self.minimum_offset)
-                .filter(|(_, walk)| walk.is_finite())
-                .map(|(bound, walk)| bound - walk)
-                .fold(f64::NEG_INFINITY, f64::max);
+        if refold && self.unreached == 0 {
+            self.refold();
+        }
+    }
+
+    /// Future scan events cannot beat a target's bound even with its smallest
+    /// access/egress walk. All reachable targets must agree.
+    #[cold]
+    fn refold(&mut self) {
+        self.cutoff = f64::NEG_INFINITY;
+        for (target, (bound, walk)) in self.bounds.iter().zip(&self.minimum_offset).enumerate() {
+            if walk.is_finite() && bound - walk > self.cutoff {
+                self.cutoff = bound - walk;
+                self.critical = target;
+            }
         }
     }
 }
@@ -1111,5 +1212,77 @@ mod tests {
         let empty = reverse.route_arrive_by_many_csa_impl(&empty).unwrap();
         assert_eq!(empty.latest_departures, [f64::NEG_INFINITY; 2]);
         assert_eq!(empty.scanned_departures, 0);
+    }
+
+    #[test]
+    fn terminal_cutoff_matches_a_full_refold() {
+        // A reused index with duplicate stops per target, an unreachable
+        // target, and random reaches must keep the cutoff the old full fold
+        // over every reachable target gave after each improvement.
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = |bound: u64| {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (state >> 33) % bound
+        };
+        let mut terminals = Terminals::default();
+        for round in 0..200 {
+            let count = 1 + next(12) as usize;
+            let stops = 1 + next(30) as usize;
+            let terminals = terminals.begin(count, stops);
+            let mut walks = vec![Vec::new(); stops];
+            for target in 0..count {
+                if target == 0 && round % 3 == 0 {
+                    continue;
+                }
+                for _ in 0..1 + next(5) {
+                    let stop = next(stops as u64) as usize;
+                    let walk = next(600) as f64;
+                    terminals.add(stop, target, walk);
+                    walks[stop].push((target, walk));
+                }
+            }
+            terminals.finish();
+            let mut bounds = vec![f64::INFINITY; count];
+            let mut minimum = vec![f64::INFINITY; count];
+            for &(target, walk) in walks.iter().flatten() {
+                minimum[target] = minimum[target].min(walk);
+            }
+            let reachable = minimum.iter().filter(|walk| walk.is_finite()).count();
+            let mut expected = if reachable == 0 {
+                f64::NEG_INFINITY
+            } else {
+                f64::INFINITY
+            };
+            assert_eq!(terminals.cutoff, expected);
+            for _ in 0..80 {
+                let stop = next(stops as u64) as usize;
+                let time = next(5_000) as f64 - 2_000.;
+                terminals.reach(stop, time);
+                let mut improved = false;
+                for &(target, walk) in &walks[stop] {
+                    if time + walk < bounds[target] {
+                        bounds[target] = time + walk;
+                        improved = true;
+                    }
+                }
+                if improved
+                    && bounds
+                        .iter()
+                        .zip(&minimum)
+                        .all(|(b, w)| w.is_infinite() || b.is_finite())
+                {
+                    expected = bounds
+                        .iter()
+                        .zip(&minimum)
+                        .filter(|(_, walk)| walk.is_finite())
+                        .map(|(bound, walk)| bound - walk)
+                        .fold(f64::NEG_INFINITY, f64::max);
+                }
+                assert_eq!(terminals.bounds, bounds);
+                assert_eq!(terminals.cutoff, expected);
+            }
+        }
     }
 }

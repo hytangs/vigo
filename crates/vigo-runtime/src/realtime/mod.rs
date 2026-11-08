@@ -876,6 +876,28 @@ fn past_boundary(snapshot: &Value, update: &Value, now: f64) -> Option<i64> {
     (feed >= 0 && record >= 0 && feed as f64 <= now && record as f64 <= now)
         .then_some(feed.min(record))
 }
+/// Identity of the fields consumed by routing and its realtime diagnostics.
+/// Poll timestamps, freshness summaries and vehicle positions are presentation
+/// data: changing them must not rebuild an otherwise identical timetable.
+/// Keep validity's wall-clock checks separate so retained observations expire.
+/// Borrow the potentially large update arrays rather than cloning them.
+#[cfg(feature = "standalone")]
+pub(crate) fn routing_identity(snapshot: &Value) -> impl serde::Serialize + '_ {
+    (
+        snapshot.is_object(),
+        (!snapshot.is_object()).then_some(snapshot),
+        &snapshot["tripUpdates"],
+        (snapshot.get("alerts").is_some(), &snapshot["alerts"]),
+        &snapshot["feedTimestamp"],
+        (
+            snapshot.get("incrementality").is_some(),
+            &snapshot["incrementality"],
+        ),
+        &snapshot["timezone"],
+        &snapshot["failedFeeds"],
+    )
+}
+
 /// Everything about `snapshot` that changes with the observation time. A view
 /// is reusable for an unchanged snapshot while this stays the same.
 pub(crate) fn validity(snapshot: &Value, now: f64) -> Value {

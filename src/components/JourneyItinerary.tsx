@@ -1,3 +1,5 @@
+import { publicRouting } from '../app/publicRouting'
+import { shell } from '../state/shell'
 import { Bike, Car, Clock3, Footprints, X } from 'lucide-react'
 import { useEffect, useRef, type CSSProperties } from 'react'
 import {
@@ -32,6 +34,8 @@ function viaSegmentStarts(plan: RoutingPlan) {
   }
   return starts
 }
+
+const SharedServiceOptions = publicRouting ? 'details' : 'div'
 
 const coordinateLabel = /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/u
 
@@ -109,7 +113,8 @@ export function RoutingItinerary({ plan, destinationLabel }: { plan: RoutingPlan
             </details> : null}
             {leg.stationAccessStatus !== 'unverified' && leg.transferSource === 'parent_station_fallback' ? <p className="journey-caution">Assumed station connection time</p> : null}
             {ride && plan.sharedLegAlternatives && (frequency || sharedOptions.length > 0) ?
-              <div className="journey-leg-evidence journey-shared-services">
+              <SharedServiceOptions className={classNames('journey-leg-evidence journey-shared-services', publicRouting && 'kit-inline-details')}>
+                {publicRouting ? <summary>Departure times</summary> : null}
                 <p className="journey-departure-times" aria-label="Departure times">{(frequency?.departureSeconds ?? [leg.startMinutes * 60, ...sharedOptions.map(option => option.plan.legs[index].startMinutes * 60)])
                   .filter((time, i, times) => times.indexOf(time) === i).sort((a, b) => a - b)
                   .map(time => <time key={time}>{formatScheduleClock(time / 60)}</time>)}</p>
@@ -123,7 +128,7 @@ export function RoutingItinerary({ plan, destinationLabel }: { plan: RoutingPlan
                       <small>{alternate.routeId} · Arrive {formatScheduleClock(option.plan.arriveMinutes ?? option.plan.departMinutes + option.plan.durationMinutes)}</small>
                     </button>
                   })}
-              </div> : null}
+              </SharedServiceOptions> : null}
           </div>
         </li>
       })}
@@ -145,8 +150,9 @@ export function RoutingDetailPanel({
   onClose: () => void
 }) {
   const closeButtonRef = useRef<HTMLButtonElement>(null)
-  const onCloseRef = useRef(onClose)
-  onCloseRef.current = onClose
+  const close = () => { onClose(); if (publicRouting) shell.set({ publicPanelExpanded: true }) }
+  const onCloseRef = useRef(close)
+  onCloseRef.current = close
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement
@@ -170,9 +176,9 @@ export function RoutingDetailPanel({
     <aside className="routing-detail-panel" aria-label="Routing details" data-map-occluder="">
       <header className="routing-detail-head">
         <div className="routing-detail-title">
-          <p className="journey-eyebrow">{plan.travelMode === 'transit' ? routingDataModeLabel(plan) || 'Transit' : plan.travelMode === 'bike' ? 'Bike' : plan.travelMode === 'drive' ? 'Drive' : 'Walk'} journey</p>
+          {!publicRouting ? <p className="journey-eyebrow">{plan.travelMode === 'transit' ? routingDataModeLabel(plan) || 'Transit' : plan.travelMode === 'bike' ? 'Bike' : plan.travelMode === 'drive' ? 'Drive' : 'Walk'} journey</p> : null}
           <div className="routing-detail-time">
-            <h2><JourneyDuration minutes={routingPlanJourneyMinutes(plan)} suffix=" total" /></h2>
+            <h2><JourneyDuration minutes={routingPlanJourneyMinutes(plan)} suffix={publicRouting ? '' : ' total'} /></h2>
             <p className="journey-time-range">{formatScheduleClock(plan.departMinutes)} <span aria-hidden="true">→</span> {formatScheduleClock(plan.arriveMinutes ?? plan.departMinutes + plan.durationMinutes)}</p>
           </div>
         </div>
@@ -180,7 +186,7 @@ export function RoutingDetailPanel({
           <ResultExportActions label="Save journey" formats={['json', 'md', 'geojson', 'csv']} resultKey={plan}
             unavailable={journeyGeometryAvailable(plan) ? {} : { geojson: 'Complete path geometry is unavailable' }}
             onExport={format => exportJourney(plan, format)} />
-          <button ref={closeButtonRef} type="button" className="kit-icon-button routing-detail-close" onClick={onClose} aria-label="Close routing details" title="Close details"><X size={16} aria-hidden="true" /></button>
+          <button ref={closeButtonRef} type="button" className="kit-icon-button routing-detail-close" onClick={close} aria-label="Close routing details" title="Close details"><X size={16} aria-hidden="true" /></button>
         </div>
         {plan.legs.length ? <JourneyLegStrip plan={plan} /> : null}
         <p className="journey-overview">{plan.travelMode === 'transit' ? `${plan.transfers} transfer${plan.transfers === 1 ? '' : 's'} · ` : ''}{plan.travelMode === 'drive' ? `${formatRoutingMinutes(plan.rideMinutes)} driving` : `${formatRoutingMinutes(plan.walkMinutes)} walking`}{plan.waitMinutes > 0 ? ` · ${formatRoutingMinutes(plan.waitMinutes)} waiting en route` : ''}</p>

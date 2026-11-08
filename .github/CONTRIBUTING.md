@@ -47,7 +47,7 @@ Run tests and Clippy for both supported configurations.
 
 `check:docs` verifies the generated guide is current and validates local links, document anchors, assets, documented npm scripts, and guide/package versions across Markdown and HTML. Keep the docs index connected to current guides; preserve version history in release notes and the changelog.
 
-Use `docs/guide.md` for user documentation, `docs/developer.md` for implementation and research guidance, and `docs/history.md` for dated records. `docs/guides/rust-standalone.md` is the engine manual and the README of engine archives, and `docs/guides/cli-only.md` is the compiler archive README; both, with the shared references, also feed the guide. Add chapters to these canonical files rather than creating a Markdown file for every topic.
+Use `docs/guide.md` for user documentation, `docs/developer.md` for implementation and research guidance, and `CHANGELOG.md` with `docs/releases/` for dated records. `docs/guides/rust-standalone.md` is the engine manual and the README of engine archives, and `docs/guides/cli-only.md` is the compiler archive README; both, with the shared references, also feed the guide. Add chapters to these canonical files rather than creating a Markdown file for every topic.
 
 
 ## Packaging and releases
