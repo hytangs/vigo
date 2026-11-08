@@ -20,7 +20,6 @@ import {
   ChevronRight,
   Footprints,
   LoaderCircle,
-  MapPin,
   Navigation2,
   Plus,
   RotateCcw,
@@ -461,14 +460,14 @@ export function SidebarPathfinderBox({
                   <span className={classNames('pathfinder-location-mark', index === 0 ? 'is-origin' : index === pointRows.length - 1 ? 'is-destination' : 'is-waypoint')} aria-hidden="true" />
                   <RouteAddressInput point={point} label={role} disabled={index > points.length}
                     onRemove={publicRouting && point ? () => onReorderRoutingPoints(points.filter((_, current) => current !== index)) : undefined}
+                    actions={!publicRouting && point ? <span className="pathfinder-location-actions">
+                      <button type="button" onClick={() => movePoint(index, -1)} disabled={index === 0} aria-label={`Move ${role.toLowerCase()} earlier`}><ArrowUp size={13} /></button>
+                      <button type="button" onClick={() => movePoint(index, 1)} disabled={index === points.length - 1} aria-label={`Move ${role.toLowerCase()} later`}><ArrowDown size={13} /></button>
+                      <button type="button" onClick={() => onReorderRoutingPoints(points.filter((_, current) => current !== index))} aria-label={`Remove ${role.toLowerCase()}`}><X size={13} /></button>
+                    </span> : undefined}
                     onPick={() => onPickRoutingPoint(index)} onChoose={chosen => {
                       const next = [...points]; next[index] = chosen; onReorderRoutingPoints(next)
                     }} />
-                  {!publicRouting && (point ? <span className="pathfinder-location-actions">
-                    <button type="button" onClick={() => movePoint(index, -1)} disabled={index === 0} aria-label={`Move ${role.toLowerCase()} earlier`}><ArrowUp size={13} /></button>
-                    <button type="button" onClick={() => movePoint(index, 1)} disabled={index === points.length - 1} aria-label={`Move ${role.toLowerCase()} later`}><ArrowDown size={13} /></button>
-                    <button type="button" onClick={() => onReorderRoutingPoints(points.filter((_, current) => current !== index))} aria-label={`Remove ${role.toLowerCase()}`}><X size={13} /></button>
-                  </span> : <MapPin className="pathfinder-location-pin" size={14} aria-hidden="true" />)}
                 </div>
               )
             })}
