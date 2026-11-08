@@ -27,7 +27,7 @@ vigo-route = { path = "../vigo-route" }
 vigo-format = { path = "../vigo-format" }
 vigo-prepare = { path = "../vigo-prepare" }
 vigo-gtfs = { path = "../vigo-gtfs" }
-bincode = "1.3"
+bincode = { package = "grovedb-bincode", version = "=2.1.0", default-features = false, features = ["std", "serde"] }
 cch = { path = "../../vendor/cch" }
 memmap2 = "0.9"
 napi = { version = "3.16.1", features = ["napi10"], optional = true }

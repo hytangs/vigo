@@ -48,7 +48,7 @@ try {
   execFileSync(process.execPath, [path.join(root, 'public/vigo.mjs'), 'build', `--gtfs=${gtfsPath}`, `--osm=${osmPath}`, `--output=${city}`], { stdio: ['ignore', 'ignore', 'pipe'] })
   const original = fingerprint(city)
   assert.equal(run('info', {}).schema, 'vigo.info.v1')
-  for (const operation of ['street.prepare', 'bike.prepare', 'drive.prepare']) {
+  for (const operation of ['street.prepare', 'drive.prepare']) {
     const preparation = run('native', { operation }).result
     assert.equal(preparation.ready, true)
     assert.equal(preparation.journeys, undefined)

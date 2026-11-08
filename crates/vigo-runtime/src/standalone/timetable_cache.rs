@@ -234,7 +234,10 @@ impl TimetableCache {
         let used = self.tick();
         let entry = &mut self.compact[index];
         let decoder = flate2::read::DeflateDecoder::new(entry.value.data.as_ref());
-        let mut result = bincode::deserialize_from(BufReader::new(decoder))?;
+        let mut result = bincode::serde::decode_from_std_read(
+            &mut BufReader::new(decoder),
+            bincode::config::legacy(),
+        )?;
         delta_columns(&mut result, false);
         entry.used = used;
         self.hits += 1;
@@ -267,7 +270,11 @@ impl TimetableCache {
         // Buffer serialization writes; do not materialize an uncompressed copy.
         let encoded = (|| -> Result<Box<[u8]>> {
             let mut writer = BufWriter::new(&mut encoder);
-            bincode::serialize_into(&mut writer, &*source)?;
+            bincode::serde::encode_into_std_write(
+                &*source,
+                &mut writer,
+                bincode::config::legacy(),
+            )?;
             writer.flush()?;
             drop(writer);
             Ok(encoder.finish()?.bytes.into_boxed_slice())

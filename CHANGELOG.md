@@ -2,6 +2,8 @@
 
 ## 1.0.0 — 2026-11-08
 
+- Update the dependency sets together and replace the unmaintained bincode crate with its maintained GroveDB fork, preserving the prepared-profile encoding.
+
 - Wheelchair Cities reach accessible platforms of stations without declared entrances from the street. Their platforms' own or inherited `wheelchair_boarding=1` is GTFS evidence of an accessible path from outside. Previously every platform with a parent station needed a declared entrance, which cut off accessible stations in feeds that publish no entrances for them, such as many MBTA commuter rail stations and surface Green Line stops. Stations that declare entrances still use only accessible entrances and paths. The City format and access policy identity are unchanged; prepare wheelchair Cities again to apply this.
 - Wheelchair streets keep ways tagged `wheelchair=yes` whose `incline` is `up`, `down` or `yes`, such as mapped ramps and accessible footbridges. These values give a direction without a grade, and the explicit tag vouches for the slope; previously such ways were dropped, which could force long detours. Without `wheelchair=yes` they remain excluded, as do steep or malformed inclines and inclines above 8.3%. Prepare wheelchair Cities again to apply this.
 - Planned frequency trips follow GTFS stop times: a vehicle arrives, dwells, then departs, so riders alight before the dwell, and it no longer dwells at its last stop. Boarding times are unchanged; alighting is earlier by up to one dwell (0.35 minutes by default).
