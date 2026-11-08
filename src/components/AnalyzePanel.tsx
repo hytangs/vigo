@@ -80,16 +80,6 @@ function MonteCarloSettings() {
   </details>
 }
 
-export type AnalyzeMode = 'single' | 'compare'
-
-export type ComparisonFeedOption = {
-  id: string
-  name: string
-  routeCount: number
-  stopCount: number
-  tripCount: number
-}
-
 type AnalyzePanelProps = {
   origin: RoutingPoint | null
   serviceDate: string
