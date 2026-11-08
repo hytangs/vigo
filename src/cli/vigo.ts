@@ -1348,11 +1348,14 @@ async function stopCompilers() {
 
 // Signals and early exits skip `finally`, so remove unpublished work here. The
 // next build sweeps whatever SIGKILL or a crash leaves (recoverCityPublication).
-function removeOnTermination(directory: string) {
+// Register before creating the directory; a signal can arrive as soon as mkdir
+// makes it visible. The getter resolves its path after that synchronous call.
+function removeOnTermination(directory: () => string | null) {
   const remove = () => {
     for (const child of runningCompilers) child.kill()
     try {
-      fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
+      const target = directory()
+      if (target) fs.rmSync(target, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
     } catch { /* Swept by the next build. */ }
   }
   const signalHandlers = (['SIGINT', 'SIGTERM', 'SIGHUP'] as const).map((signal) => {
@@ -1570,9 +1573,10 @@ async function runBuildScenarios(args: CliArguments) {
   }
   const defaultScenario = String(spec.defaultScenario ?? scenarios[0].id)
   if (!seen.has(defaultScenario)) throw new Error('Unknown defaultScenario.')
-  const staged = createCityStagingDirectory(output)
-  const stopWatchingStaged = removeOnTermination(staged)
+  let pendingStage: string | null = null
+  const stopWatchingStaged = removeOnTermination(() => pendingStage)
   try {
+    const staged = pendingStage = createCityStagingDirectory(output)
     fs.mkdirSync(path.join(staged, 'cities'))
     let firstCity = ''
     for (const scenario of scenarios) {
@@ -1638,7 +1642,7 @@ async function runBuildScenarios(args: CliArguments) {
     process.stdout.write(JSON.stringify({ ...manifest, storageBytes: [...physicalFiles.values()].reduce((sum, file) => sum + file.bytes, 0), sharedStreetCopies: 1 }, null, 2) + '\n')
   } finally {
     stopWatchingStaged()
-    fs.rmSync(staged, { recursive: true, force: true })
+    if (pendingStage) fs.rmSync(pendingStage, { recursive: true, force: true })
   }
 }
 
@@ -1654,9 +1658,10 @@ async function runBuildCity(args: CliArguments) {
   if (fs.existsSync(outputDirectory) && !replaceExisting) {
     throw new Error(`City already exists; pass --replace to replace it: ${outputDirectory}`)
   }
-  const stagingDirectory = createCityStagingDirectory(outputDirectory)
-  const stopWatchingStaging = removeOnTermination(stagingDirectory)
+  let pendingStage: string | null = null
+  const stopWatchingStaging = removeOnTermination(() => pendingStage)
   try {
+    const stagingDirectory = pendingStage = createCityStagingDirectory(outputDirectory)
     // Native memory mappings outlive JavaScript cache eviction. Compile in a
     // child and wait for its close event before renaming the directory so all
     // mapped files and SQLite handles are released, including on Windows.
@@ -1680,7 +1685,7 @@ async function runBuildCity(args: CliArguments) {
     process.stdout.write(`${JSON.stringify(outcome.result, null, 2)}\n`)
   } finally {
     stopWatchingStaging()
-    fs.rmSync(stagingDirectory, { recursive: true, force: true })
+    if (pendingStage) fs.rmSync(pendingStage, { recursive: true, force: true })
   }
 }
 
