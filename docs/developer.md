@@ -93,11 +93,11 @@ JavaScript owns request validation, identity resolution, orchestration, cancella
 
 ### Rust-native compiler migration (1.0 development)
 
-The `vigo-v1-dev` branch evolves toward a Rust-native mobility computation
+The `v1.0.0-dev` branch evolves toward a Rust-native mobility computation
 engine with language-specific application layers. Rust should own computation
 and canonical data semantics; TypeScript owns interaction, and Python owns
-research integration. The migration follows RFC 0001 in verified stages,
-preserving public query behavior and the permanent prepared-data contract.
+research integration. The migration proceeds in verified stages, preserving
+public query behavior and the permanent prepared-data contract.
 
 The starting point already has native service-timetable reads, departure and
 transfer indexes, selected-journey geometry, scenario routing, and binary
