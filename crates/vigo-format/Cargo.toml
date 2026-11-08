@@ -13,4 +13,4 @@ serde_json = { workspace = true, features = ["raw_value"] }
 memmap2 = "0.9"
 flate2 = "1.1"
 vigo-route = { path = "../vigo-route" }
-rusqlite = { version = "0.37.0", features = ["bundled"] }
+rusqlite = { version = "0.41.1", features = ["bundled"] }

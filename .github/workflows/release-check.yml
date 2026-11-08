@@ -12,7 +12,7 @@ on:
       release_tag:
         description: Existing release tag matching package.json (original assets are preserved)
         type: string
-        default: v1.0.0-rc.5
+        default: v1.0.0
 
 concurrency:
   group: release-${{ github.event.inputs.release_tag || github.ref_name }}
@@ -88,6 +88,16 @@ jobs:
         run: npm run check:standalone
         env:
           GH_TOKEN: ${{ github.token }}
+      - name: Install pinned Electron runtime
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in 1 2 3; do
+            node scripts/install-electron.mjs && exit 0
+            sleep 2
+          done
+          exit 1
       - run: xvfb-run -a npm run check:release
         if: runner.os == 'Linux'
       - run: npm run check:release
@@ -115,14 +125,6 @@ jobs:
             release/rust/*.tar.gz.sha256
           compression-level: 0
           if-no-files-found: error
-      - name: Install pinned Electron runtime
-        shell: bash
-        run: |
-          for attempt in 1 2 3; do
-            node node_modules/electron/install.js && exit 0
-            sleep 2
-          done
-          exit 1
       - run: npm run build:studio-assets
       - run: xvfb-run -a npm run check:studio-runtime
         if: runner.os == 'Linux'
@@ -291,7 +293,7 @@ jobs:
           else
             flags=()
             if [[ "$RELEASE_TAG" == *-* ]]; then flags+=(--prerelease); fi
-            gh release create "$RELEASE_TAG" release/* --verify-tag --title "VIGO $RELEASE_TAG" --generate-notes "${flags[@]}"
+            gh release create "$RELEASE_TAG" release/* --verify-tag --title "VIGO $RELEASE_TAG" --notes-file "docs/releases/${RELEASE_TAG#v}.md" "${flags[@]}"
           fi
       - name: Update release download links
         env:

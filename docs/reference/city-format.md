@@ -49,7 +49,7 @@ not a proof that all future code or every possible City is compatible.
 
 ## Optional bicycle profile
 
-RC.4 writers can add `bikeProfileVersion=1` metadata and four base tables to
+VIGO writers can add `bikeProfileVersion=1` metadata and four base tables to
 `street-index.sqlite`. They do not change the walking/driving snapshots,
 required layouts, City version, or existing units. Historical readers ignore
 them; new readers require them only for Bike Route and Matrix. A missing

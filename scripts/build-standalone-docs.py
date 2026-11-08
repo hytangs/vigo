@@ -225,7 +225,7 @@ def native_contracts():
         register(response, True)
     lines = ['# Native Rust field reference', '', f'Generated for VIGO {VERSION} from public Rust structs. Regenerate with `npm run docs:standalone`.', '',
              'Use the [native operation reference](../guides/rust-standalone.md#18-native-operation-reference) for units, index domains, and examples. In requests, an optional field accepts omission or null. Result objects include every listed field; an unavailable optional value is null. Native arrays become JSON arrays, and non-finite result numbers become null. The runtime also checks compatible array lengths, indices, and values.', '',
-             '| Operation | Input | Result |', '| --- | --- | --- |', '| `timetable.identifiers` | No input object | Active identifier arrays |', '| `timetable.prepare` | Service date and query settings; no input object | Ready state and preparation timing; no search |']
+             '| Operation | Input | Result |', '| --- | --- | --- |', '| `timetable.identifiers` | No input object | Active identifier arrays |', '| `timetable.prepare` | Service date and query settings; no input object | Ready state and preparation timing; no search |', '| `street.prepare`, `bike.prepare`, `drive.prepare` | No input object | Ready state; loads the mode without routing |']
     for op, (request, response) in OPERATIONS.items():
         lines.append(f'| `{op}` | [{request}](#{request.lower()}) | [{response}](#{response.lower()}) |')
     for name in sorted(schemas):
@@ -249,6 +249,8 @@ def specification(native):
     schemas.update(native)
     cases = [obj({'operation':{'const':'timetable.identifiers'},'serviceDate':{'type':'string','format':'date'},'kind':text(),'id':{}},['operation','serviceDate'],strict=False)]
     cases.append(obj({'operation':{'const':'timetable.prepare'},'serviceDate':{'type':'string','format':'date'},'time':text(),'timeMinutes':number(0),'timePreference':text('depart_at','arrive_by'),'allowStreetTransfers':boolean(True),'minimumTransferBufferMinutes':number(0,60,0,integer=True),'kind':text(),'id':{}},['operation','serviceDate'],strict=False))
+    for op in ['street.prepare', 'bike.prepare', 'drive.prepare']:
+        cases.append(obj({'operation': {'const': op}, 'kind': text(), 'id': {}}, ['operation'], strict=False))
     for op,(request,response) in OPERATIONS.items():
         required=['operation','input'] + (['serviceDate'] if op.startswith('timetable.') else [])
         cases.append(obj({'operation':{'const':op},'input':ref(request),'serviceDate':{'type':'string','format':'date'},'kind':text(),'id':{},'allowStreetTransfers':boolean(True),'minimumTransferBufferMinutes':number(0,60,0,integer=True),'requireCompleteServiceCoverage':boolean()},required,strict=False))
@@ -256,6 +258,8 @@ def specification(native):
     schemas['QueryMetadata'] = obj({'schemaVersion':text(description='JSON interface version; not the executable version.'),'runtime':{'const':'rust'},'cityRevision':text(description='Revision of the City loaded by this process.'),'timing':obj({'totalMs':number(0,description='Milliseconds inside dispatch; excludes initial City loading, final serialization, HTTP queue/network time, and client parsing.')},['totalMs']),'id':{'description':'Echoed by Stream and dispatched HTTP queries, not by one-shot CLI.'}},strict=False)
     schemas['TimetablePreparation'] = obj({'ready':boolean(),'activationMs':number(0),'preparation':{}},['ready','activationMs','preparation'],strict=False)
     schemas['NativeResult'] = {'allOf':[ref('QueryMetadata'),{'oneOf':[obj({'operation':{'const':op},'result':ref(response)},['operation','result'],strict=False) for op,(_,response) in OPERATIONS.items()]+[obj({'operation':{'const':'timetable.prepare'},'result':ref('TimetablePreparation')},['operation','result'],strict=False),obj({'operation':{'const':'timetable.identifiers'},'result':obj({k:array(text()) for k in ['stopIds','tripIds','routeIds','accessMemberStopIds']},strict=False)},['operation','result'],strict=False)]}]}
+    for op in ['street.prepare', 'bike.prepare', 'drive.prepare']:
+        schemas['NativeResult']['allOf'][1]['oneOf'].append(obj({'operation': {'const': op}, 'result': obj({'ready': boolean()}, ['ready'])}, ['operation', 'result'], strict=False))
     operation = model['paths']['/v1/native']['post']
     operation['requestBody']['content']['application/json']['schema'] = ref('NativeRequest')
     operation['responses']['200']['content']['application/json']['schema'] = ref('NativeResult')
@@ -281,7 +285,7 @@ def main():
         if args.check:
             assert path.exists() and path.read_text(encoding='utf-8')==body, f'{name} is stale; run npm run docs:standalone'
         else: path.write_text(body, encoding='utf-8')
-    print(json.dumps({'status':'current' if args.check else 'generated','files':list(products),'nativeOperations':len(OPERATIONS)+1,'nativeTypes':len(native)}))
+    print(json.dumps({'status':'current' if args.check else 'generated','files':list(products),'nativeOperations':len(OPERATIONS)+5,'nativeTypes':len(native)}))
 
 
 if __name__=='__main__': main()

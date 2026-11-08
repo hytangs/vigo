@@ -70,3 +70,6 @@ for (const status of ['applied', 'stale_fallback', 'unavailable_fallback']) {
   }
 }
 console.log('Studio preserves every Rust drive leg, road-access verification, distance and traffic status.')
+
+const identified = studioRouteResponse({ ...driveTrace, queryFingerprint: 'engine-query-identity' }, driveBody).choices[0]
+assert.equal(identified.diagnostics.routingDataProvenance.reproducibilityKey, 'engine-query-identity')

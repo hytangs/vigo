@@ -7,6 +7,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { studioPaths } from './lib/studio-paths.mjs'
 import { auditPackageFiles } from './lib/package-audit.mjs'
+import { electronDownload } from './lib/electron-download.mjs'
 
 const execFileAsync = promisify(execFile)
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -75,6 +76,7 @@ try {
     prune: false,
     asar: false,
     electronVersion,
+    download: electronDownload,
     icon: path.join(repositoryRoot, 'public', 'icons', process.platform === 'darwin' ? 'VIGO.icns' : process.platform === 'win32' ? 'VIGO.ico' : 'VIGOIcon.png'),
     appBundleId: 'app.vigo.studio',
     appCategoryType: 'public.app-category.productivity',

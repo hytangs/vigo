@@ -23,8 +23,20 @@ const rewarmSpacingMs = 30_000
 const maxResponseBytes = 256 * 1024 * 1024
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url))
 const preparationRequest = request => request?.kind === 'info'
-  || request?.kind === 'native' && request.operation === 'timetable.prepare'
+  || request?.kind === 'native' && request.operation?.endsWith('.prepare')
 const routeMode = request => request?.kind === 'route' ? request.mode ?? 'transit' : null
+// Preparation keeps only timetable selectors, never a visitor's journey.
+function modePreparation(request) {
+  const mode = routeMode(request)
+  if (!mode) return null
+  if (mode === 'transit' && !request.serviceDate) return { kind: 'info' }
+  const operation = { walk: 'street.prepare', drive: 'drive.prepare', bike: 'bike.prepare', transit: 'timetable.prepare' }[mode]
+  if (!operation) return null
+  const selectors = ['serviceDate', 'serviceDay', 'time', 'timeMinutes', 'timePreference',
+    'horizonMinutes', 'allowStreetTransfers', 'minimumTransferBufferMinutes', 'wheelchair', 'sourceScopes']
+  return { kind: 'native', operation,
+    ...(mode === 'transit' ? Object.fromEntries(selectors.filter(key => request[key] !== undefined).map(key => [key, request[key]])) : {}) }
+}
 const executableName = process.platform === 'win32' ? 'vigo.exe' : 'vigo'
 
 export function makeAbortError(message = 'The request was cancelled.') {
@@ -94,7 +106,7 @@ export function nativeLayout(root, routingStore = null) {
 
 /** One resident `vigo stream` process of a City. */
 class StreamProcess {
-  constructor({ executable, layout, spawnProcess, onExit }) {
+  constructor({ executable, layout, spawnProcess, onExit, responseLimitBytes }) {
     this.layout = layout
     this.pending = []
     this.lastUsed = Date.now()
@@ -105,6 +117,7 @@ class StreamProcess {
     this.stderr = ''
     this.chunks = []
     this.bufferedBytes = 0
+    this.responseLimitBytes = responseLimitBytes
     this.onExit = onExit
     const args = ['stream', '--stream-output=detailed', `--city=${layout.root}`]
     if (layout.routingStore) args.push(`--routing-store=${path.basename(layout.routingStore)}`)
@@ -137,21 +150,30 @@ class StreamProcess {
   }
 
   receive(chunk) {
+    if (this.closed) return
     let start = 0
     let newline = chunk.indexOf(10)
     while (newline >= 0) {
+      if (this.bufferedBytes + newline - start > this.responseLimitBytes) {
+        this.stop(new NativeCityUnavailableError('The VIGO runtime response exceeds its byte limit.'))
+        return
+      }
       this.chunks.push(chunk.subarray(start, newline))
       const line = Buffer.concat(this.chunks)
       this.chunks = []
       this.bufferedBytes = 0
       if (line.length) this.settle(line)
+      if (this.closed) return
       start = newline + 1
       newline = chunk.indexOf(10, start)
     }
     if (start < chunk.length) {
-      this.chunks.push(chunk.subarray(start))
       this.bufferedBytes += chunk.length - start
-      if (this.bufferedBytes > maxResponseBytes) this.stop(new NativeCityUnavailableError('The VIGO runtime response exceeds 256 MiB.'))
+      if (this.bufferedBytes > this.responseLimitBytes) {
+        this.stop(new NativeCityUnavailableError('The VIGO runtime response exceeds its byte limit.'))
+        return
+      }
+      this.chunks.push(chunk.subarray(start))
     }
   }
 
@@ -265,6 +287,8 @@ class StreamProcess {
         : error)
     }
     this.pending = []
+    this.chunks = []
+    this.bufferedBytes = 0
     this.onExit?.(this, error)
   }
 
@@ -308,6 +332,7 @@ export class NativeRuntime {
     maxProcesses = processesPerCity,
     idleMs = residentIdleMs,
     spawnProcess = spawn,
+    responseLimitBytes = maxResponseBytes,
   } = {}) {
     this.executable = executable
     this.warmRoutes = new Map()
@@ -316,6 +341,7 @@ export class NativeRuntime {
     this.maxProcesses = maxProcesses
     this.idleMs = idleMs
     this.spawnProcess = spawnProcess
+    this.responseLimitBytes = responseLimitBytes
     this.cities = new Map()
     this.leases = new Map()
     this.idleTimer = null
@@ -341,10 +367,10 @@ export class NativeRuntime {
         const mode = routeMode(request)
         if (mode) {
           stream.routeModes.add(mode)
-          // What a replacement process replays to load this mode's network.
+          // A replacement process loads the mode without replaying a journey.
           if (this.leases.has(layout.key) && !request.scenario && !request.realtimeSnapshot) {
             const known = this.warmRoutes.get(layout.key) ?? new Map()
-            known.set(mode, request)
+            known.set(mode, modePreparation({ ...request, serviceDate: result.serviceDate ?? request.serviceDate }))
             this.warmRoutes.set(layout.key, known)
           }
         }
@@ -364,6 +390,9 @@ export class NativeRuntime {
     let city = this.cities.get(layout.key)
     if (!city && create) {
       this.evict()
+      if (this.cities.size >= this.maxCities) {
+        throw new NativeQueryError('All resident City slots are busy. Retry when a query completes.', 'capacity_exceeded', 503)
+      }
       city = new CityProcesses(layout)
       this.cities.set(layout.key, city)
     }
@@ -377,6 +406,7 @@ export class NativeRuntime {
       executable: this.executable,
       layout: city.layout,
       spawnProcess: this.spawnProcess,
+      responseLimitBytes: this.responseLimitBytes,
       onExit: exited => {
         city.processes = city.processes.filter(other => other !== exited)
         if (city.baseline === exited) city.baseline = null
@@ -391,11 +421,10 @@ export class NativeRuntime {
     if (warm) {
       void (async () => {
         await stream.query({ kind: 'info' })
-        // Opening metadata does not load the mode's lazy network. Keep this
-        // extra process out of dispatch until a real route has loaded it.
+        // Keep this process out of dispatch until its lazy network is loaded.
         const mode = routeMode(request)
         if (mode) {
-          await stream.query(request)
+          await stream.query(modePreparation(request))
           stream.routeModes.add(mode)
         }
         stream.ready = true
@@ -431,9 +460,11 @@ export class NativeRuntime {
     if (!routes?.size || !this.leases.has(layout.key) || now - (this.lastRewarm.get(layout.key) ?? 0) < rewarmSpacingMs) return
     this.lastRewarm.set(layout.key, now)
     void (async () => {
-      for (const request of routes.values()) {
+      for (const [mode, request] of routes) {
         if (!this.leases.has(layout.key)) return
-        await this.query(layout, request)
+        const stream = this.#stream(layout, request)
+        await stream.query(request)
+        stream.routeModes.add(mode)
       }
     })().catch(() => {})
   }

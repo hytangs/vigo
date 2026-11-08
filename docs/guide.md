@@ -1,10 +1,10 @@
-# VIGO 1.0.0-rc.5 guide
+# VIGO 1.0.0 guide
 
 The canonical source for the [VIGO guide](guide.html), a single offline page that also includes the [engine reference](guides/rust-standalone.md), [Results](reference/results.md), [VIGO Python](../python/docs/guide.md), and [developer resources](developer.md#developer-resources). Edit a chapter here, then run `npm run docs:build`.
 
 ## Build a network. Answer a transport question.
 
-VIGO 1.0.0-rc.5 turns GTFS timetables and OpenStreetMap streets into a reusable City, then answers three questions about it: how to make a journey, how long every trip takes, and how far people can get. It runs on your own machine, explains each answer, and never needs an internet connection to route.
+VIGO 1.0.0 turns GTFS timetables and OpenStreetMap streets into a reusable City, then answers three questions about it: how to make a journey, how long every trip takes, and how far people can get. It runs on your own machine, explains each answer, and never needs an internet connection to route.
 
 ### Start here
 
@@ -43,11 +43,11 @@ Every answer carries its evidence. A Route Result says whether each walk follows
 - **Stable results.** The public `vigo.route.v1`, `vigo.matrix.v1`, and `vigo.reach.v1` schemas only gain optional fields. See [Read a Result](reference/results.md).
 - **Offline by default.** Queries never fetch anything. This guide works offline too: press `/` to search, and open saved Results in the [Result viewer](#inspect-a-saved-result).
 
-### What's new in 1.0.0-rc.5
+### What's new in 1.0.0
 
-Tight bicycle and driving distance limits now return a route or a clean no-route answer quickly instead of an error. Adding a stop extends a journey to A, B, then C. An interrupted `vigo build --replace` keeps or restores the published City. The public route planner gains a local address index, an offline page and stricter limits. Read the [release notes](releases/1.0.0-rc.5.md).
+Tight bicycle and driving distance limits now return a route or a clean no-route answer quickly instead of an error. Adding a stop extends a journey to A, B, then C. An interrupted `vigo build --replace` keeps or restores the published City. The public route planner gains a local address index, an offline page and stricter limits. Read the [release notes](releases/1.0.0.md).
 
-RC.4 added Bike Route and Matrix. They use bicycle access, contraflow, surfaces, mapped incline and turn restrictions. Choose balanced, quiet or fast preferences; travel-time estimates remain separate from preference penalties. Bike data is optional in CLI builds and loads only on demand. Studio includes Bike and prepares bicycle streets on new OSM imports. See the [RC.4 release notes](releases/1.0.0-rc.4.md) and the [changelog](../CHANGELOG.md).
+VIGO includes Bike Route and Matrix. They use bicycle access, contraflow, surfaces, mapped incline and turn restrictions. Choose balanced, quiet or fast preferences; travel-time estimates remain separate from preference penalties. Bike data is optional in CLI builds and loads only on demand. Studio includes Bike and prepares bicycle streets on new OSM imports. See the [release notes](releases/1.0.0.md) and the [changelog](../CHANGELOG.md).
 
 ## Install VIGO
 
@@ -795,7 +795,7 @@ A Scenario is an immutable set of changes tied to exactly one City revision. It 
 
 Scenarios never edit the imported GTFS or OSM, and a complete alternative feed is another City revision. Drawing geometry in an editor creates no computational change until it is attached to a valid service edit. Several nonconflicting planned changes may coexist; conflicts need an explicit resolution. A Scenario never moves to another City revision, and expired live state cannot be queried.
 
-In VIGO 1.0.0-rc.5, planned service changes apply to Reach, supplied traffic to Drive Route and Drive Matrix, and supplied realtime predictions to transit Route. Transit Matrix and Reach remain scheduled. Studio can also route transit journeys on a saved scenario, on the scheduled timetable. Unsupported combinations are rejected with an explanation. The [Scenario request reference](guides/rust-standalone.md#10-scenarios) lists every field.
+In VIGO 1.0.0, planned service changes apply to Reach, supplied traffic to Drive Route and Drive Matrix, and supplied realtime predictions to transit Route. Transit Matrix and Reach remain scheduled. Studio can also route transit journeys on a saved scenario, on the scheduled timetable. Unsupported combinations are rejected with an explanation. The [Scenario request reference](guides/rust-standalone.md#10-scenarios) lists every field.
 
 ### Planned service
 
@@ -1334,7 +1334,7 @@ Run the engine executable as the HTTP service. It opens a prepared City or scena
 From the repository root with Docker installed:
 
 ```sh
-docker build -f deploy/Dockerfile -t vigo:1.0.0-rc.5 .
+docker build -f deploy/Dockerfile -t vigo:1.0.0 .
 ```
 
 The image contains the engine with this guide embedded, license notices, and a Debian glibc runtime, and runs as UID/GID 65532. Its compiler matches `rust-toolchain.toml`; City data, JavaScript dependencies, desktop bundles, and build caches are excluded from the build context. Check the image before using it:
@@ -1342,7 +1342,7 @@ The image contains the engine with this guide embedded, license notices, and a D
 ```sh
 npm ci
 npm run build:cli-runtime
-npm run check:deployment -- --image vigo:1.0.0-rc.5
+npm run check:deployment -- --image vigo:1.0.0
 ```
 
 The check builds public synthetic inputs and exercises the real Compose service: a read-only City, authentication, Route, Matrix, Reach, scenario switching, readiness, restart, and resource limits, and it confirms that queries never change City files. CI runs it on Linux x64 and ARM64. Measure your own City and request mix before choosing production limits; the small fixture is not a metropolitan memory or latency result.
@@ -1352,7 +1352,7 @@ The check builds public synthetic inputs and exercises the real Compose service:
 Make the City directory and its files readable by UID 65532, and keep every referenced directory inside the mounted City or collection.
 
 ```sh
-export VIGO_IMAGE=vigo:1.0.0-rc.5
+export VIGO_IMAGE=vigo:1.0.0
 export VIGO_CITY=/absolute/path/to/prepared-city
 # Set VIGO_API_TOKEN through your shell or deployment secret store (16+ characters).
 docker compose -f deploy/compose.yml up -d --wait

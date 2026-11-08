@@ -33,7 +33,6 @@ mod realtime;
 mod realtime_node;
 pub(crate) mod route_alternatives;
 pub(crate) mod shared_legs;
-use bincode::Options;
 #[cfg(all(feature = "standalone", not(feature = "node")))]
 pub mod standalone;
 #[cfg(not(feature = "node"))]
@@ -3768,13 +3767,21 @@ impl CoordinateKernel {
         .ok_or_else(|| {
             Error::from_reason("Persisted native access profile layout is inconsistent.")
         })?;
-        let profile: AccessProfile = bincode::DefaultOptions::new()
-            .with_fixint_encoding()
-            .with_limit(MAXIMUM_ACCESS_PROFILE_SNAPSHOT_BYTES)
-            .deserialize(&mmap[layout.profile_start..layout.profile_end])
-            .map_err(|error| {
-                Error::from_reason(format!("Unable to decode native access profile: {error}"))
-            })?;
+        // Fixed-width little-endian encoding preserves the published profile bytes.
+        let encoded = &mmap[layout.profile_start..layout.profile_end];
+        let (profile, consumed): (AccessProfile, usize) = bincode::serde::decode_from_slice(
+            encoded,
+            bincode::config::legacy()
+                .with_limit::<{ MAXIMUM_ACCESS_PROFILE_SNAPSHOT_BYTES as usize }>(),
+        )
+        .map_err(|error| {
+            Error::from_reason(format!("Unable to decode native access profile: {error}"))
+        })?;
+        if consumed != encoded.len() {
+            return Err(Error::from_reason(
+                "Persisted native access profile has trailing bytes.",
+            ));
+        }
         profile
             .validate(&self.snapshot, &expected_profile_key)
             .map_err(Error::from_reason)?;
@@ -3903,10 +3910,7 @@ impl CoordinateKernel {
         }
         let temporary = temporary_access_profile_path(destination);
         let write_result = (|| -> std::result::Result<u64, String> {
-            let profile_bytes = bincode::DefaultOptions::new()
-                .with_fixint_encoding()
-                .with_limit(MAXIMUM_ACCESS_PROFILE_SNAPSHOT_BYTES)
-                .serialize(profile)
+            let profile_bytes = bincode::serde::encode_to_vec(profile, bincode::config::legacy())
                 .map_err(|error| error.to_string())?;
             let layout = access_profile_snapshot_layout(
                 profile_bytes.len(),

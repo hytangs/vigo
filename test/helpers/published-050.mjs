@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
+import { downloadReleaseAsset } from '../../scripts/lib/github-release-asset.mjs'
 const packages = {
   'darwin-arm64': [
     'aarch64-apple-darwin',
@@ -36,15 +37,13 @@ export async function published050(directory) {
     const name = `VIGO-Rust-0.5.0-${target}.tar.gz`
     const archive = path.join(directory, name)
     const asset = name.replace('.tar.gz', '-baseline-c8da84fff781.tar.gz')
-    const response = await fetch(
-      `https://github.com/hytangs/vigo/releases/download/v0.5.0/${asset}`,
-      { signal: AbortSignal.timeout(120000) },
-    )
-    assert(
-      response.ok,
-      `Permanent reference download failed (${response.status}); provide VIGO_050_REFERENCE_BINARY from the pinned package`,
-    )
-    fs.writeFileSync(archive, Buffer.from(await response.arrayBuffer()))
+    await downloadReleaseAsset({
+      repository: 'hytangs/vigo',
+      tag: 'v0.5.0',
+      name: asset,
+      destination: archive,
+      sha256,
+    })
     assert.equal(
       digest(archive),
       sha256,

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, rc4, vigo-v1-final]
+    branches: [main, 'release/**']
   pull_request:
   workflow_dispatch:
 
@@ -72,18 +72,20 @@ jobs:
       - name: Reuse this job's compiled runtime
         run: echo "VIGO_USE_BUILT_RUNTIME=1" >> "$GITHUB_ENV"
         shell: bash
+      - name: Install pinned Electron runtime
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in 1 2 3; do
+            node scripts/install-electron.mjs && exit 0
+            sleep 2
+          done
+          exit 1
       - run: xvfb-run -a npm run check:release
         if: runner.os == 'Linux'
       - run: npm run check:release
         if: runner.os != 'Linux'
-      - name: Install pinned Electron runtime
-        shell: bash
-        run: |
-          for attempt in 1 2 3; do
-            node node_modules/electron/install.js && exit 0
-            sleep 2
-          done
-          exit 1
       - run: npm run build:studio-assets
       - run: xvfb-run -a npm run check:studio-runtime
         if: runner.os == 'Linux'

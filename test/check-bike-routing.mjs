@@ -38,6 +38,9 @@ try {
   assert(db.prepare('SELECT count(*) AS n FROM bike_edges').get().n > 0)
   assert.equal(db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name='edges'").get().n, 0, 'Bike survives ordinary source-graph compaction')
   db.close()
+  const preparation = run('native', { operation: 'bike.prepare' }).result
+  assert.equal(preparation.ready, true)
+  assert.equal(preparation.journeys, undefined)
   const route = run('route', query)
   assert.equal(route.status, 'ok')
   assert(route.journey.legs.some(l => l.type === 'bike'))

@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url'
 
 const pick = (value, keys) => Object.fromEntries(keys.filter(key => value?.[key] !== undefined).map(key => [key, value[key]]))
 const reject = (message, status = 400) => Object.assign(new Error(message), { status })
-const newLimits = () => ({ active: 0, buckets: new Map(), searchActive: 0, searchBuckets: new Map(), readActive: 0, readBuckets: new Map() })
+const newLimits = () => ({ minutes: {}, active: 0, buckets: new Map(), searchActive: 0, searchBuckets: new Map(), readActive: 0, readBuckets: new Map() })
 const maxConnections = 1024
 // Sent as a header so it can name the public app's only other origins: the
 // default basemap and the analytics beacon Cloudflare injects at the edge.
@@ -259,9 +259,12 @@ function createCityGateway({ upstream, publicOrigin, cityId, staticRoot, maxActi
     const meter = meters[kind], buckets = limits[meter.buckets]
     const ip = String(req.headers['cf-connecting-ip'] ?? req.socket.remoteAddress)
     const minute = Math.floor(Date.now() / 60000)
-    for (const [key, bucket] of buckets) if (bucket.minute < minute) buckets.delete(key)
+    if (limits.minutes[kind] !== minute) {
+      buckets.clear()
+      limits.minutes[kind] = minute
+    }
     const bucket = buckets.get(ip) ?? { minute, count: 0 }
-    if (bucket.count >= meter.perMinute || buckets.size >= 10000 || limits[meter.active] >= meter.concurrent) {
+    if (bucket.count >= meter.perMinute || !buckets.has(ip) && buckets.size >= 10000 || limits[meter.active] >= meter.concurrent) {
       res.setHeader('Retry-After', '10'); throw reject(`${meter.label} is busy. Please retry shortly.`, 429)
     }
     bucket.count++; buckets.set(ip, bucket); limits[meter.active]++

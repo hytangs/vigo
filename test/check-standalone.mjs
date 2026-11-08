@@ -48,9 +48,19 @@ try {
   execFileSync(process.execPath, [path.join(root, 'public/vigo.mjs'), 'build', `--gtfs=${gtfsPath}`, `--osm=${osmPath}`, `--output=${city}`], { stdio: ['ignore', 'ignore', 'pipe'] })
   const original = fingerprint(city)
   assert.equal(run('info', {}).schema, 'vigo.info.v1')
+  for (const operation of ['street.prepare', 'drive.prepare']) {
+    const preparation = run('native', { operation }).result
+    assert.equal(preparation.ready, true)
+    assert.equal(preparation.journeys, undefined)
+  }
   const prepared = run('native', { operation: 'timetable.prepare', serviceDate: base.serviceDate, time: '08:00' })
   assert.equal(prepared.result.ready, true)
   assert.equal(prepared.result.journeys, undefined, 'Preparation activates data without running a route')
+  const publicRoute = JSON.parse(invoke('route', base).stdout)
+  assert.equal(publicRoute.meta.queryFingerprint, publicRoute.trace.queryFingerprint,
+    'Public metadata and Studio detailed traces share the engine query identity')
+  const alternativesIdentity = JSON.parse(invoke('route', { ...base, alternatives: 2 }).stdout)
+  assert.notEqual(publicRoute.meta.queryFingerprint, alternativesIdentity.meta.queryFingerprint)
   const forward = run('route', base)
   assert.equal(forward.status, 'ready')
   assert.equal(forward.diagnostics.native.journeys, null, 'Route diagnostics must not duplicate the materialized journey')

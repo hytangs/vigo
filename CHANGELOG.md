@@ -1,6 +1,8 @@
 # Version history
 
-## Unreleased
+## 1.0.0 — 2026-11-08
+
+- Update the dependency sets together and replace the unmaintained bincode crate with its maintained GroveDB fork, preserving the prepared-profile encoding.
 
 - Wheelchair Cities reach accessible platforms of stations without declared entrances from the street. Their platforms' own or inherited `wheelchair_boarding=1` is GTFS evidence of an accessible path from outside. Previously every platform with a parent station needed a declared entrance, which cut off accessible stations in feeds that publish no entrances for them, such as many MBTA commuter rail stations and surface Green Line stops. Stations that declare entrances still use only accessible entrances and paths. The City format and access policy identity are unchanged; prepare wheelchair Cities again to apply this.
 - Wheelchair streets keep ways tagged `wheelchair=yes` whose `incline` is `up`, `down` or `yes`, such as mapped ramps and accessible footbridges. These values give a direction without a grade, and the explicit tag vouches for the slope; previously such ways were dropped, which could force long detours. Without `wheelchair=yes` they remain excluded, as do steep or malformed inclines and inclines above 8.3%. Prepare wheelchair Cities again to apply this.
@@ -15,7 +17,6 @@
 - `scheduledTrips` entries reject unknown fields, as every other scenario object does, so a misspelled field no longer runs a trip on the wrong day.
 - Studio: an edit that keeps a branch's departures divides each trip's running time between kept stops along the published shape or traced road path, as its supplied runtimes describe, rather than by straight-line distance.
 
-## 1.0.0-rc.5
 
 - Answer bicycle routes when a tight distance limit leaves too many trade-offs to prove the preferred route: return the shortest route within the limit with a `distance_limit_shortest_route` warning instead of an error. Report no route at once when no start can finish within the limit.
 - Start constrained drives from the feasible shortest path with exact remaining bounds. Long limits no longer search for seconds and report a false `not_found`; short limits keep their earlier speed.
@@ -27,7 +28,6 @@
 - Studio restores the offline default basemap, contacts a geocoder only once online maps are chosen, and loads secondary views on first use.
 - API 1.0, City format 1 and Result schema 1 are unchanged.
 
-## 1.0.0-rc.4
 
 - Add optional bicycle Route and Matrix, with balanced, quiet and fast preferences, separate preference cost and ETA, bicycle access/contraflow, surfaces, mapped incline, dismount legs, and node/via-way turn restrictions.
 - Load one bicycle graph only on demand. Retain the existing City format and omit bike data from CLI builds unless selected. Studio OSM imports include bike streets.
@@ -39,7 +39,6 @@
 - Complete Python Bike Route, Matrix and Reach, bike-enabled builds, distribution exports and marginal-percentile comparisons. Preserve existing defaults and require runtime capabilities for new features.
 - Allocate sampling, phasing and fixed-grid bounds only when used, and keep sampling work outside the ordinary transit scan.
 
-## 1.0.0-rc.3
 
 - Departure windows (Studio's Later departures) rank candidate journeys without copying their lines, intermediate stops, endpoint details and descriptive trip fields; only the returned choices carry them. The wider-walking search's shared services are searched only for the choices that survive merging with the preferred walking limit. Answers are unchanged.
 - Arrive-by windows reuse a recent identical walking path instead of searching it again at every sampled deadline. Scheduled arrive-by windows, and departure windows whose samples share one timetable, search shared services only for the choices they finally return; other windows, for the choices each sample keeps. `disableCache` still searches every path. Answers are unchanged.
@@ -51,7 +50,6 @@
 - Studio leases the wheelchair City that answers wheelchair routes, and releasing it no longer fails when that profile was rebuilt or removed.
 - Depart now and the warmed realtime view use GTFS service time on daylight-saving days, including the repeated fall-back hour.
 
-## 1.0.0-rc.2
 
 - Keep a continuous street-to-station walk in one leg even when station geometry is missing; omit incomplete lines and preserve shared-service leg references after merging.
 - Connect planned scenario Flex zones to Route and Reach, including arrive-by, service hours, transit interchanges and walking to a pickup instead of taking an unnecessary short bus ride.
@@ -81,7 +79,6 @@
 - Prepare wheelchair Cities with inferred step-free street evidence by default; `--wheelchair-streets verified` keeps the `wheelchair=yes`-only rule. Results report `accessibility.streetEvidence`.
 - Preserve compatible prepared Cities, API 1.0, City format 1 and Result schema 1.
 
-## 1.0.0-rc.1
 
 - Add bounded Node CLI stream workers with ordered output and resource caps.
 - Restore lightweight timed-leg Matrix journeys without per-cell Studio metadata; retain full metadata and geometry on request. Reuse unique native Matrix journeys across the internal transport.
@@ -92,6 +89,6 @@
 - Return one walk leg for each continuous walk. Station pathway and street pieces become `components`; waits, rides and waypoints still separate legs.
 - Extend GTFS transfer, headway and station-access handling with capability and limitation reporting.
 - Preserve compatible prepared Cities, API 1.0, City format 1 and Result schema 1.
-- Align the Python release candidate with the same-commit engine and independent package tags.
+- Align the Python release with the same-commit engine and independent package tags.
 
 Earlier release records remain in Git history and the archived GitHub releases.
