@@ -6,7 +6,6 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawn, execFileSync } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import { once } from 'node:events'
 import JSZip from 'jszip'
 import { serviceEpochSeconds } from '../src/server/gtfs/service-clock.mjs'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
@@ -19,7 +18,8 @@ const processes = []
 let checked = 0
 function resident(executable, args, env) {
   const child = spawn(executable, args, { cwd: root, env })
-  processes.push(child)
+  const closed = new Promise(resolve => child.once('close', resolve))
+  processes.push({ child, closed })
   let errors = ''
   child.stderr.setEncoding('utf8').on('data', text => { errors += text })
   const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]()
@@ -277,7 +277,15 @@ try {
   console.log(JSON.stringify({ checked, failures }, null, 2))
   assert.equal(failures.length, 0, `${failures.length}/${checked} standalone parity checks failed`)
 } finally {
-  await Promise.all(processes.filter(child => child.exitCode === null).map(child => { const exited = once(child, 'exit'); child.kill(); return exited }))
+  // EOF lets the Node CLI close its resident native reader before Windows
+  // removes the mapped City files. Killing only the CLI can orphan that reader.
+  await Promise.all(processes.map(async ({ child, closed }) => {
+    const timeout = setTimeout(() => child.kill(), 5000)
+    try {
+      child.stdin.end()
+      assert.equal(await closed, 0, 'Resident parity stream must close cleanly on EOF')
+    } finally { clearTimeout(timeout) }
+  }))
   if (process.env.VIGO_KEEP_STANDALONE_FIXTURE) console.log(`Retained parity fixtures: ${directory}`)
   else fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
