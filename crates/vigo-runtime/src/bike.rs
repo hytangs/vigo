@@ -2759,9 +2759,11 @@ mod tests {
         }
         db.execute_batch(extra).unwrap();
         drop(db);
-        let kernel = BikeKernel::open(path.to_str().unwrap()).unwrap();
+        // Remove the store before unwrapping, so fixtures that are meant to
+        // be rejected leave nothing behind in the temp directory.
+        let kernel = BikeKernel::open(path.to_str().unwrap());
         std::fs::remove_file(path).unwrap();
-        kernel
+        kernel.unwrap()
     }
     const CYCLE: u32 = (30 << 8) | (15 << 14) | (2 << 3);
     const MAJOR: u32 = (30 << 8) | (80 << 14) | 6;
