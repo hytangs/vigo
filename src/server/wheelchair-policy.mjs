@@ -35,7 +35,6 @@ export function wheelchairDescriptionFor(streets = 'inferred') {
     ]),
   })
 }
-export const wheelchairDescription = wheelchairDescriptionFor('inferred')
 const tag = value => String(value ?? '').trim().toLowerCase()
 const suppliedNumber = value => tag(value) !== '' && Number.isFinite(Number(value)) ? Number(value) : null
 
