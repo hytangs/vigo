@@ -1,4 +1,4 @@
-# VIGO 1.0.0-rc.5 developer guide
+# VIGO 1.0.0 developer guide
 
 Canonical source for the developer chapters of the [VIGO guide](guide.html). Edit the relevant chapter, then run `npm run docs:build`.
 
@@ -627,10 +627,24 @@ The independent suite validates the generated graph and timetable models under t
 
 ## Runtime limits and recovery
 
-The following admission limits and recovery behavior apply to VIGO 1.0.0-rc.5.
+The following admission limits and recovery behavior apply to VIGO 1.0.0.
 See [public results](reference/results.md) for the current result schemas.
 
 ### Memory and request admission
+
+Studio's native runtime admits at most `VIGO_NATIVE_CITY_MAX` Cities (default 2,
+range 1–8), with at most `VIGO_NATIVE_CITY_PROCESSES` processes each (default 2,
+range 1–8). When all City slots are busy, a new City returns HTTP 503 with
+`capacity_exceeded`; idle slots can be reused. These count limits complement
+the native memory budgets. Complete and fragmented native response lines share
+a 256 MiB limit. Mode preparation uses `street.prepare`, `bike.prepare`,
+`drive.prepare` or `timetable.prepare`, without retaining or replaying journeys.
+
+The Node routing-time validator has explicit interface bounds: Studio accepts
+whole minutes from 0 through 1799, and GTFS orchestration through 2880. The
+native public request schema accepts seconds through 71:59:59. Tests retain
+these boundary distinctions. Engine and Python documentation readers ship
+independently; their shared Markdown subset is checked for rendering parity.
 
 The runtime uses the smaller of host RAM and Node's reported container limit to
 choose its default budgets. Configuration accepts finite positive integers;
@@ -1084,7 +1098,7 @@ requires its own initial compilation.
 
 ## Bicycle routing
 
-RC.4 adds an optional bicycle graph in `bike_nodes`, `bike_edges`, `bike_turns`,
+VIGO supports an optional bicycle graph in `bike_nodes`, `bike_edges`, `bike_turns`,
 and `bike_way_turns` tables inside the existing street database. Existing
 readers ignore these tables; no existing field, snapshot or format identifier
 changes. CLI builds opt in with `--street-modes=walk,bike` or

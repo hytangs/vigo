@@ -100,6 +100,11 @@ try {
   assert.equal((await first).status, 200)
   for (let i = 0; i < 30; i++) await post(query)
   assert.equal((await post(query)).status, 429, 'query rate is bounded')
+  const now = Date.now
+  try {
+    Date.now = () => now() + 60_000
+    assert.equal((await post(query)).status, 200, 'A new minute releases expired visitor budgets')
+  } finally { Date.now = now }
   console.log('Public routing gateway: isolation, origin checks, hidden files, metadata redaction, input bounds, concurrency and rate limits passed.')
 } finally {
   gateway.closeAllConnections(); upstream.closeAllConnections()

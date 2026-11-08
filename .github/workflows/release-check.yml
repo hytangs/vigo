@@ -12,7 +12,7 @@ on:
       release_tag:
         description: Existing release tag matching package.json (original assets are preserved)
         type: string
-        default: v1.0.0-rc.5
+        default: v1.0.0
 
 concurrency:
   group: release-${{ github.event.inputs.release_tag || github.ref_name }}
@@ -291,7 +291,7 @@ jobs:
           else
             flags=()
             if [[ "$RELEASE_TAG" == *-* ]]; then flags+=(--prerelease); fi
-            gh release create "$RELEASE_TAG" release/* --verify-tag --title "VIGO $RELEASE_TAG" --generate-notes "${flags[@]}"
+            gh release create "$RELEASE_TAG" release/* --verify-tag --title "VIGO $RELEASE_TAG" --notes-file "docs/releases/${RELEASE_TAG#v}.md" "${flags[@]}"
           fi
       - name: Update release download links
         env:

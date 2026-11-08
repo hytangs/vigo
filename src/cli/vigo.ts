@@ -65,7 +65,10 @@ import type { RoutingExecutionStatus, RoutingPlan, RoutingPoint, RoutingTimePref
 // Studio preparation owns this process tree. Closing the parent must release
 // importer heaps and stop nested compilers, including during cancellation.
 if (process.send) {
-  process.once('disconnect', () => process.exit(1))
+  process.once('disconnect', () => { void stopCompilers().then(() => process.exit(1)) })
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+    process.once(signal, () => { void stopCompilers().then(() => process.kill(process.pid, signal)) })
+  }
   process.channel?.unref()
 }
 
@@ -1335,6 +1338,13 @@ function rawCompilerConcurrency(gtfsBytes: number, osmBytes: number) {
 }
 
 const runningCompilers = new Set<ChildProcess>()
+async function stopCompilers() {
+  await Promise.all([...runningCompilers].map(async child => {
+    const closed = once(child, 'close').catch(() => {})
+    child.kill()
+    await closed
+  }))
+}
 
 // Signals and early exits skip `finally`, so remove unpublished work here. The
 // next build sweeps whatever SIGKILL or a crash leaves (recoverCityPublication).
@@ -1346,7 +1356,10 @@ function removeOnTermination(directory: string) {
     } catch { /* Swept by the next build. */ }
   }
   const signalHandlers = (['SIGINT', 'SIGTERM', 'SIGHUP'] as const).map((signal) => {
-    const handler = () => {
+    const handler = async () => {
+      // A child can still create files after kill() returns. Wait for the
+      // entire compiler tree to close before removing its output.
+      await stopCompilers()
       remove()
       // The handler is gone, so this ends the process with its usual signal status.
       process.kill(process.pid, signal)

@@ -259,9 +259,12 @@ function createCityGateway({ upstream, publicOrigin, cityId, staticRoot, maxActi
     const meter = meters[kind], buckets = limits[meter.buckets]
     const ip = String(req.headers['cf-connecting-ip'] ?? req.socket.remoteAddress)
     const minute = Math.floor(Date.now() / 60000)
-    for (const [key, bucket] of buckets) if (bucket.minute < minute) buckets.delete(key)
+    if (meter.minute !== minute) {
+      buckets.clear()
+      meter.minute = minute
+    }
     const bucket = buckets.get(ip) ?? { minute, count: 0 }
-    if (bucket.count >= meter.perMinute || buckets.size >= 10000 || limits[meter.active] >= meter.concurrent) {
+    if (bucket.count >= meter.perMinute || !buckets.has(ip) && buckets.size >= 10000 || limits[meter.active] >= meter.concurrent) {
       res.setHeader('Retry-After', '10'); throw reject(`${meter.label} is busy. Please retry shortly.`, 429)
     }
     bucket.count++; buckets.set(ip, bucket); limits[meter.active]++

@@ -99,9 +99,10 @@ impl WalkNetwork {
         }
         let xs = snapshot.f64_array("nodeLons").map_err(|e| e.to_string())?;
         let ys = snapshot.f64_array("nodeLats").map_err(|e| e.to_string())?;
-        let count: usize = db
+        let count: i64 = db
             .query_row("SELECT count(*) FROM bike_walk_nodes", [], |r| r.get(0))
             .map_err(|e| e.to_string())?;
+        let count = usize::try_from(count).map_err(|_| "Invalid bicycle walking link count")?;
         if count > ids.len() {
             return Err("Too many bicycle walking links".into());
         }

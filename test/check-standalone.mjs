@@ -48,6 +48,7 @@ try {
   execFileSync(process.execPath, [path.join(root, 'public/vigo.mjs'), 'build', `--gtfs=${gtfsPath}`, `--osm=${osmPath}`, `--output=${city}`], { stdio: ['ignore', 'ignore', 'pipe'] })
   const original = fingerprint(city)
   assert.equal(run('info', {}).schema, 'vigo.info.v1')
+  assert.equal(run('native', { operation: 'street.prepare' }).result.ready, true)
   const prepared = run('native', { operation: 'timetable.prepare', serviceDate: base.serviceDate, time: '08:00' })
   assert.equal(prepared.result.ready, true)
   assert.equal(prepared.result.journeys, undefined, 'Preparation activates data without running a route')

@@ -45,6 +45,7 @@ function fakeSpawn(_executable, args) {
   child.exitCode = null
   child.killed = false
   child.served = []
+  child.requests = []
   child.stdout = new EventEmitter()
   child.stderr = new EventEmitter()
   let queue = Promise.resolve()
@@ -67,6 +68,7 @@ function fakeSpawn(_executable, args) {
     end() {},
     write(line) {
       const request = JSON.parse(line)
+      child.requests.push(request)
       queue = queue.then(() => new Promise(resolve => setTimeout(resolve, request.delayMs ?? 1))).then(() => {
         if (child.exitCode !== null || child.killed) return
         if (request.crash === 'always' || (request.crash === 'once' && child.id === request.crashOn)) {
@@ -91,6 +93,34 @@ function fakeSpawn(_executable, args) {
   return child
 }
 
+// Completed and fragmented lines obey the same per-response byte budget.
+for (const fragments of [[Buffer.alloc(65, 32), Buffer.from('\n')], [Buffer.concat([Buffer.alloc(65, 32), Buffer.from('\n')])], [Buffer.alloc(32, 32), Buffer.concat([Buffer.alloc(33, 32), Buffer.from('\n')])]]) {
+  const pool = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fakeSpawn, responseLimitBytes: 64 })
+  const layout = nativeLayout('/cities/response-limit')
+  try {
+    const pending = pool.query(layout, { delayMs: 30 })
+    const rejected = assert.rejects(pending, /response exceeds its byte limit/)
+    const child = pool.cities.get(layout.key).processes[0].child
+    for (const fragment of fragments) child.stdout.emit('data', fragment)
+    await rejected
+    assert(child.killed)
+  } finally { pool.closeAll() }
+}
+// Busy Cities cannot silently exceed the admission limit; an idle slot can be reused.
+{
+  const pool = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fakeSpawn, maxCities: 1 })
+  try {
+    const first = pool.query(nativeLayout('/cities/busy'), { delayMs: 30 })
+    const before = spawned.length
+    await assert.rejects(pool.query(nativeLayout('/cities/overflow'), {}), error => error.code === 'capacity_exceeded' && error.statusCode === 503)
+    assert.equal(spawned.length, before)
+    await first
+    await pool.query(nativeLayout('/cities/overflow'), {})
+    assert.equal(pool.cities.size, 1)
+  } finally { pool.closeAll() }
+}
+spawned.length = 0
+
 const runtime = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fakeSpawn, maxProcesses: 2, idleMs: 60_000 })
 // A kept City replaces a process stopped by a cancelled query and reloads its modes.
 {
@@ -107,7 +137,7 @@ const runtime = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fake
     await new Promise(resolve => setTimeout(resolve, 80))
     const replacement = pool.cities.get(layout.key).processes[0]
     assert.notEqual(replacement.child, first)
-    assert.deepEqual(replacement.child.served, ['bike-load'], 'Only reusable modes are replayed')
+    assert.deepEqual(replacement.child.requests, [{ kind: 'native', operation: 'bike.prepare' }], 'Replacement loads only the mode and retains no journey')
     assert(replacement.routeModes.has('bike'))
     pool.setResidency(layout, false, 'visitor')
     assert.equal(pool.warmRoutes.has(layout.key), false)
@@ -139,7 +169,9 @@ const runtime = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fake
     const queued = pool.query(layout, { kind: 'route', mode: 'bike', id: 'bike-warmup', delayMs: 100 })
     await new Promise(resolve => setTimeout(resolve, 20))
     const during = pool.query(layout, { kind: 'route', mode: 'bike', id: 'during-warmup' })
-    assert.equal((await during).process, first.process, 'Keep visitors on the loaded bike network during secondary initialization')
+    await during
+    assert(pool.cities.get(layout.key).processes[1].child.requests.some(request => request.operation === 'bike.prepare'))
+    assert(!pool.cities.get(layout.key).processes[1].child.requests.some(request => request.id === 'bike-warmup'), 'Secondary initialization never repeats the queued route')
     await Promise.all([busy, queued])
     const slow = pool.query(layout, { kind: 'route', mode: 'bike', id: 'occupy-primary', delayMs: 100 })
     const parallel = await pool.query(layout, { kind: 'route', mode: 'bike', id: 'warm-secondary' })

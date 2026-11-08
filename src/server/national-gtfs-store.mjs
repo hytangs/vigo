@@ -171,7 +171,7 @@ import {
   routeNativeTimetablePareto,
   routeNativeTimetableScalar,
 } from './native-routing-kernel.mjs'
-import { integralNumber, numeric, timingMilliseconds } from './number-utils.mjs'
+import { routingMinute as integralRoutingMinute, numeric, timingMilliseconds } from './number-utils.mjs'
 import { loadPreparedAccessContext, persistPreparedAccessContext } from './prepared-access-context.mjs'
 import { normalizeRoutingDataRequest, normalizeScheduledAnalysisRequest } from './routing-data-mode.mjs'
 import { arrivalReserve, validateArrivalBuffer, withArrivalReserve } from './arrival-reserve.mjs'
@@ -201,14 +201,6 @@ function withResolvedServiceDay(request) {
   )
 }
 
-function integralRoutingMinute(value, label, fallback = 8 * 60, maximum = 2_880) {
-  const candidate = value === undefined ? fallback : value
-  const parsed = integralNumber(candidate)
-  if (!Number.isInteger(parsed) || parsed < 0 || parsed > maximum) {
-    throw new Error(`${label} must be an integral minute in [0, ${maximum}].`)
-  }
-  return parsed
-}
 
 export {
 nationalChoiceIdentity,

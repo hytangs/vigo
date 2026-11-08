@@ -8,7 +8,7 @@ import { NationalRouteWorkerPool, makeAbortError, maxNationalRouteWorkerStores }
 import { NativeCityUnavailableError, NativeQueryError, NativeRuntime, nativeLayout } from './runtime/native-runtime.mjs'
 import { nativeRouteRequest, onServiceDate, studioBlockedResponse, studioRouteResponse } from './studio-route-plans.mjs'
 import { nativePreliminaryRequest, nativeReachRangeRequest, nativeSurface, plannedService, studioReachRange } from './studio-reach-ranges.mjs'
-import { currentStreetStoreStorageIdentity, routingSemanticsFromMetadata } from './gtfs/store-metadata.mjs'
+import { nativeStoreContext } from './native-store-context.mjs'
 
 import crypto from 'node:crypto'
 import { constants, createReadStream, existsSync, statSync } from 'node:fs'
@@ -35,7 +35,7 @@ import { readNationalOsmStoreMetadata } from './national-osm-store.mjs'
 import { readLocalBasemap, localBasemapBudgets } from './local-basemap-store.mjs'
 import { networkSignatureVersion } from './network-signature.mjs'
 import { renderNativeLocalBasemapTile } from './native-routing-kernel.mjs'
-import { integralNumber } from './number-utils.mjs'
+import { routingMinute, studioRoutingMinuteLimit } from './number-utils.mjs'
 import { compactReachResult, compileReachScenario, computeReachResult, reachPlace } from './reach.mjs'
 import { readScenarioLibrary, scenarioLibraryFileName, writeScenarioLibrary } from './scenario-library.mjs'
 import { inspectRealtimeFeed } from './realtime-inspector.mjs'
@@ -204,15 +204,8 @@ function slugify(value) {
 }
 
 function integralRoutingMinute(value, label, fallback = 8 * 60) {
-  const candidate = value === undefined ? fallback : value
-  const parsed = integralNumber(candidate)
-  if (!Number.isInteger(parsed) || parsed < 0 || parsed >= 30 * 60) {
-    const error = new Error(`${label} must be an integral minute in [0, 1800).`)
-    error.statusCode = 400
-    error.code = 'invalid_routing_time'
-    throw error
-  }
-  return parsed
+  try { return routingMinute(value, label, fallback, studioRoutingMinuteLimit, true) }
+  catch (error) { throw Object.assign(error, { statusCode: 400, code: 'invalid_routing_time' }) }
 }
 
 async function exists(target) {
@@ -3007,38 +3000,6 @@ async function retryNationalImportJob(projectId, jobId) {
   return retried
 }
 
-// What Studio's plans report about a routing store: its zone and data semantics.
-const nativeStoreContextCache = new Map()
-
-function nativeStoreContext(storePath, streetPath) {
-  const stats = statSync(storePath)
-  const key = `${storePath}\u0000${stats.size}\u0000${stats.mtimeMs}\u0000${streetPath ?? ''}`
-  const cached = nativeStoreContextCache.get(key)
-  if (cached) return cached
-  const db = new DatabaseSync(storePath, { readOnly: true })
-  let context
-  try {
-    const metadata = Object.fromEntries(db.prepare('SELECT key, value FROM metadata').all().map(({ key: name, value }) => {
-      try { return [name, JSON.parse(value)] } catch { return [name, value] }
-    }))
-    const permissions = db.prepare("SELECT 1 AS ready FROM sqlite_master WHERE type = 'table' AND name = 'connection_permissions'").get()
-    const { routingDataSemantics } = routingSemanticsFromMetadata(metadata, permissions?.ready === 1)
-    context = {
-      timeZone: metadata.agencyTimezones?.[0] || 'UTC',
-      staticTimetableIdentity: String(routingDataSemantics.sourceFingerprint ?? ''),
-      streetIdentity: streetPath ? currentStreetStoreStorageIdentity(streetPath) : null,
-      dataSemantics: Object.fromEntries(['blockingFeatures', 'limitations', 'sourceFingerprint', 'transferSemanticsVersion']
-        .filter(name => routingDataSemantics[name] !== undefined).map(name => [name, routingDataSemantics[name]])),
-    }
-  } finally {
-    db.close()
-  }
-  for (const retained of nativeStoreContextCache.keys()) {
-    if (retained.startsWith(`${storePath}\u0000`)) nativeStoreContextCache.delete(retained)
-  }
-  nativeStoreContextCache.set(key, context)
-  return context
-}
 
 async function requireCaseRoutingStore(projectId, project, body) {
   const feedIds = cityCaseFeedIds(project, body)
@@ -3148,21 +3109,6 @@ async function queryNativeCity(selection, request, signal, { afterPreparation = 
 const nativePreparationStats = { started: 0, completed: 0, failed: 0, repaired: 0 }
 const nativePreparations = new Map()
 const preparingLayouts = new Map()
-const warmStops = new Map()
-
-/** A served stop used to locate the driving network. */
-function warmStopId(storePath) {
-  if (!warmStops.has(storePath)) {
-    const db = new DatabaseSync(storePath, { readOnly: true })
-    try {
-      warmStops.set(storePath, db.prepare('SELECT from_stop_id AS stop FROM connections LIMIT 1').get()?.stop ?? null)
-    } finally {
-      db.close()
-    }
-  }
-  return warmStops.get(storePath)
-}
-
 /**
  * Open `selection`'s City and activate `context`'s service date with its
  * transfer settings, through 36:00 so later departures reuse it. Concurrent
@@ -3907,17 +3853,7 @@ async function prepareStudioStreets(preparation, drive) {
     await queryNativeCity(selection, { kind: 'info' }, signal)
     return
   }
-  const db = new DatabaseSync(selection.storePath, { readOnly: true })
-  let place
-  try {
-    place = db.prepare('SELECT lon, lat FROM stops WHERE stop_id = ?').get(warmStopId(selection.storePath))
-  } finally {
-    db.close()
-  }
-  const coordinate = place ? { coordinate: [Number(place.lon), Number(place.lat)] } : null
-  const warm = () => coordinate
-    ? nativeRuntime.query(selection.layout, { kind: 'route', mode: 'drive', origin: coordinate, destination: coordinate, timeMinutes: 720 }, signal)
-    : Promise.reject(new Error('The City has no stop to open its driving network from.'))
+  const warm = () => nativeRuntime.query(selection.layout, { kind: 'native', operation: 'drive.prepare' }, signal)
   try {
     await warm()
   } catch (error) {

@@ -164,4 +164,6 @@ jobs:
         shell: bash
         run: |
           VERSION=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
-          gh release create "$RELEASE_TAG" dist/* --verify-tag --prerelease --title "VIGO Python $VERSION" --notes-file "docs/releases/$VERSION.md"
+          flags=(--latest=false)
+          if [[ "$VERSION" =~ (a|b|rc|dev)[0-9] ]]; then flags+=(--prerelease); fi
+          gh release create "$RELEASE_TAG" dist/* --verify-tag "${flags[@]}" --title "VIGO Python $VERSION" --notes-file "docs/releases/$VERSION.md"

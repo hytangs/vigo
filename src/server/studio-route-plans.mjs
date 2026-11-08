@@ -254,8 +254,7 @@ function provenance(trace, body, context, { serviceDate, requested, realtime, ar
     realtimeApplied: realtime,
     cityRevision: trace.cityRevision ?? null,
   }
-  return { ...record, reproducibilityKey: crypto.createHash('sha256')
-    .update(stableJson({ provenance: record, origin: body.origin, destination: body.destination })).digest('hex') }
+  return { ...record, reproducibilityKey: trace.queryFingerprint ?? null }
 }
 
 // What every plan of one Result shares: its service date, data and timing.

@@ -1,9 +1,9 @@
 # Monte Carlo routing and accessibility
 
-RC.4 adds opt-in departure-window distributions to the native Route, Matrix and
+VIGO supports opt-in departure-window distributions to the native Route, Matrix and
 Reach endpoints. Studio exposes the controls under Analyze → Departure window.
 The ordinary single-time result contract stays unchanged. No City rebuild or new
-package dependency is required for simulation. RC.4 also corrects an extra
+package dependency is required for simulation. The engine corrects an extra
 end-boundary departure in newly built exact-frequency GTFS service. Existing
 Cities retain their stored expanded trips; rebuild from source to apply that
 separate compiler correction.

@@ -10754,6 +10754,54 @@
             "type": "object",
             "properties": {
               "operation": {
+                "const": "street.prepare"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "id": {}
+            },
+            "required": [
+              "operation"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "bike.prepare"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "id": {}
+            },
+            "required": [
+              "operation"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
+                "const": "drive.prepare"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "id": {}
+            },
+            "required": [
+              "operation"
+            ],
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "properties": {
+              "operation": {
                 "const": "places.describe"
               },
               "input": {
@@ -11798,6 +11846,84 @@
                   "result"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "operation": {
+                    "const": "street.prepare"
+                  },
+                  "result": {
+                    "type": "object",
+                    "properties": {
+                      "ready": {
+                        "type": "boolean",
+                        "default": false
+                      }
+                    },
+                    "required": [
+                      "ready"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "operation",
+                  "result"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "operation": {
+                    "const": "bike.prepare"
+                  },
+                  "result": {
+                    "type": "object",
+                    "properties": {
+                      "ready": {
+                        "type": "boolean",
+                        "default": false
+                      }
+                    },
+                    "required": [
+                      "ready"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "operation",
+                  "result"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "operation": {
+                    "const": "drive.prepare"
+                  },
+                  "result": {
+                    "type": "object",
+                    "properties": {
+                      "ready": {
+                        "type": "boolean",
+                        "default": false
+                      }
+                    },
+                    "required": [
+                      "ready"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "operation",
+                  "result"
+                ],
+                "additionalProperties": true
               }
             ]
           }
@@ -11814,7 +11940,7 @@
   "info": {
     "description": "Route, Matrix, Reach and Compare over a prepared City. Generated from the vigo-model types. Bearer authentication is optional only on a loopback listener without a configured token.",
     "title": "VIGO API",
-    "version": "1.0.0-rc.5"
+    "version": "1.0.0"
   },
   "openapi": "3.1.0",
   "paths": {

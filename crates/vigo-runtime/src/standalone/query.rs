@@ -261,6 +261,12 @@ impl City {
                     .map_or(json!("public"), |model| json!(model));
         }
         if matches!(command, "route" | "matrix" | "reach" | "isochrone") {
+            raw["queryFingerprint"] = json!(crate::presentation::query_fingerprint(
+                command,
+                request,
+                &self.manifest["revisionId"],
+                &raw
+            ));
             raw["assumptionsFingerprint"] = json!(crate::presentation::comparison_fingerprint(
                 command,
                 request,
@@ -2304,6 +2310,15 @@ impl City {
             self.ensure_pedestrian_hierarchy()?;
         }
         let result = match operation {
+            "street.prepare" => json!({"ready":true}),
+            "bike.prepare" => {
+                self.load_bike()?;
+                json!({"ready":true})
+            }
+            "drive.prepare" => {
+                self.load_drive()?;
+                json!({"ready":true})
+            }
             "places.describe" => serde_json::to_value(crate::place_describe::describe_batch(
                 self.street_directory
                     .join("street-index.sqlite")

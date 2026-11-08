@@ -674,6 +674,37 @@ fn complete_journey_endpoints(result: &mut Value, origin: &Value, destination: &
         }
     }
 }
+/// Identity of the complete query, independent of transport and display switches.
+pub(crate) fn query_fingerprint(
+    kind: &str,
+    request: &Value,
+    revision: &Value,
+    raw: &Value,
+) -> String {
+    // Hash the caller's request (stop references canonicalized), so the same
+    // request has one fingerprint in every runtime. Output switches are excluded.
+    let mut fingerprint_query = request.clone();
+    let _ = normalize_points(&mut fingerprint_query);
+    if let Some(o) = fingerprint_query.as_object_mut() {
+        for k in [
+            "id",
+            "kind",
+            "diagnostics",
+            "includeGeometry",
+            "reachFormat",
+            "includeLimitations",
+        ] {
+            o.remove(k);
+        }
+    }
+    let kind = if kind == "isochrone" { "reach" } else { kind };
+    let mut identity = json!({"kind":kind,"query":fingerprint_query,"cityRevision":revision,"engineVersion":env!("CARGO_PKG_VERSION")});
+    if let Some(id) = raw["diagnostics"]["realtime"]["snapshot"]["id"].as_str() {
+        identity["liveSnapshotId"] = json!(id);
+    }
+    digest(&identity)
+}
+
 pub(crate) fn digest(v: &Value) -> String {
     format!("{:x}", Sha256::digest(serde_json::to_vec(v).unwrap()))
 }
@@ -897,27 +928,11 @@ pub fn format_owned(kind: &str, request: &Value, mut raw: Value) -> Value {
         .as_str()
         .or_else(|| raw["city"]["revisionId"].as_str())
         .map(str::to_owned);
-    // Hash the caller's request (stop references canonicalized), so the same
-    // request has one fingerprint in every runtime. Output switches are excluded.
-    let mut fingerprint_query = request.clone();
-    let _ = normalize_points(&mut fingerprint_query);
-    if let Some(o) = fingerprint_query.as_object_mut() {
-        for k in [
-            "id",
-            "kind",
-            "diagnostics",
-            "includeGeometry",
-            "reachFormat",
-            "includeLimitations",
-        ] {
-            o.remove(k);
-        }
-    }
     let assumptions_fingerprint = comparison_fingerprint(kind, request, &json!(revision));
     let mut meta = json!({"engineVersion":env!("CARGO_PKG_VERSION"),"cityRevision":revision,
         "requestId":request.get("id").cloned().unwrap_or_else(||json!(request_id())),
         "assumptionsFingerprint":assumptions_fingerprint,
-        "queryFingerprint":digest(&json!({"kind":kind,"query":fingerprint_query,"cityRevision":revision})),
+        "queryFingerprint":raw.get("queryFingerprint").cloned().unwrap_or_else(||json!(query_fingerprint(kind, request, &json!(revision), &raw))),
         "computeUs":compute.map(|n|(n*1000.).round() as i64),
         "computeScope":"query_dispatch_including_materialization"});
     for key in ["realtimeSnapshot", "scenario"] {
@@ -1428,6 +1443,42 @@ mod tests {
     }
 
     use super::*;
+    #[test]
+    fn complete_query_identity() {
+        let q = json!({"origin":{"stopId":"A"},"destination":{"stopId":"B"},
+            "scenario":{"services":[{"id":"S","headwayMinutes":10}]},
+            "via":[{"stopId":"C"},{"stopId":"D"}],"alternatives":3});
+        let identity = |request: &Value, revision: &Value, raw: &Value| {
+            query_fingerprint("route", request, revision, raw)
+        };
+        let revision = json!("city-1");
+        let base = identity(&q, &revision, &Value::Null);
+        for (field, value) in [
+            (
+                "scenario",
+                json!({"services":[{"id":"S","headwayMinutes":15}]}),
+            ),
+            ("via", json!([{"stopId":"D"},{"stopId":"C"}])),
+            ("alternatives", json!(4)),
+            ("realtimeSnapshot", json!({"tripUpdates":[]})),
+            ("alternativeRanking", json!("fewest_transfers")),
+        ] {
+            let mut changed = q.clone();
+            changed[field] = value;
+            assert_ne!(base, identity(&changed, &revision, &Value::Null), "{field}");
+        }
+        assert_ne!(base, identity(&q, &json!("city-2"), &Value::Null));
+        let live = |id| json!({"diagnostics":{"realtime":{"snapshot":{"id":id}}}});
+        assert_ne!(
+            identity(&q, &revision, &live("one")),
+            identity(&q, &revision, &live("two"))
+        );
+        let mut display = q.clone();
+        display["id"] = json!("another display id");
+        display["diagnostics"] = json!("trace");
+        display["includeGeometry"] = json!(false);
+        assert_eq!(base, identity(&display, &revision, &Value::Null));
+    }
     #[test]
     fn missing_station_coordinates_and_walking_alternatives() {
         let q = json!({"origin":{"coordinate":[-77.,39.]},"destination":{"stopId":"B"}});

@@ -1,6 +1,6 @@
 # Native Rust field reference
 
-Generated for VIGO 1.0.0-rc.5 from public Rust structs. Regenerate with `npm run docs:standalone`.
+Generated for VIGO 1.0.0 from public Rust structs. Regenerate with `npm run docs:standalone`.
 
 Use the [native operation reference](../guides/rust-standalone.md#18-native-operation-reference) for units, index domains, and examples. In requests, an optional field accepts omission or null. Result objects include every listed field; an unavailable optional value is null. Native arrays become JSON arrays, and non-finite result numbers become null. The runtime also checks compatible array lengths, indices, and values.
 
@@ -8,6 +8,7 @@ Use the [native operation reference](../guides/rust-standalone.md#18-native-oper
 | --- | --- | --- |
 | `timetable.identifiers` | No input object | Active identifier arrays |
 | `timetable.prepare` | Service date and query settings; no input object | Ready state and preparation timing; no search |
+| `street.prepare`, `bike.prepare`, `drive.prepare` | No input object | Ready state; loads the mode without routing |
 | `places.describe` | [DescribePlacesInput](#describeplacesinput) | [DescribePlacesResult](#describeplacesresult) |
 | `timetable.route` | [TimetableQueryInput](#timetablequeryinput) | [TimetableQueryResult](#timetablequeryresult) |
 | `timetable.arrive_by` | [TimetableArriveByQueryInput](#timetablearrivebyqueryinput) | [TimetableArriveByQueryResult](#timetablearrivebyqueryresult) |

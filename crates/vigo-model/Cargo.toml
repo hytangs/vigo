@@ -18,4 +18,4 @@ path = "src/bin/vigo-model-gen.rs"
 
 [dev-dependencies]
 # Validates corpus records against the generated schema; no network features.
-jsonschema = { version = "0.59", default-features = false }
+jsonschema = { version = "0.60.2", default-features = false }
