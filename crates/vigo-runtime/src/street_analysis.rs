@@ -402,12 +402,20 @@ fn push_surface_label(
     seed_arrival_minutes: f64,
     seed_index: u32,
     independent_terminal_walk: bool,
+    minutes_per_meter: f64,
 ) -> bool {
     if walk_distance_m > maximum_walk_m + DISTANCE_EPSILON_M
         || duration_minutes > maximum_duration_minutes + DURATION_EPSILON_MINUTES
     {
         return false;
     }
+    // With dependent walking, a label can still walk the lesser of its walk
+    // budget and its remaining time at walking pace, and every continuation
+    // adds the same time and distance to every label at a node. A label no
+    // later than another therefore covers it when its walk budget reaches as
+    // far as the other's remaining time, even if it has walked farther: beyond
+    // that point the later label has run out of time too.
+    let time_reach_m = (maximum_duration_minutes - duration_minutes) / minutes_per_meter;
     let mut node_label = frontier_heads[node as usize];
     while node_label != u32::MAX {
         let label = labels[node_label as usize];
@@ -423,7 +431,9 @@ fn push_surface_label(
                     && label.walk_distance_m <= walk_distance_m + DISTANCE_EPSILON_M
             } else {
                 label.duration_minutes <= duration_minutes + DURATION_EPSILON_MINUTES
-                    && label.walk_distance_m <= walk_distance_m + DISTANCE_EPSILON_M
+                    && (label.walk_distance_m <= walk_distance_m + DISTANCE_EPSILON_M
+                        || maximum_walk_m - label.walk_distance_m
+                            >= time_reach_m + DISTANCE_EPSILON_M)
             }
         {
             return false;
@@ -443,7 +453,11 @@ fn push_surface_label(
                     && walk_distance_m <= label.walk_distance_m + DISTANCE_EPSILON_M
             } else {
                 duration_minutes <= label.duration_minutes + DURATION_EPSILON_MINUTES
-                    && walk_distance_m <= label.walk_distance_m + DISTANCE_EPSILON_M
+                    && (walk_distance_m <= label.walk_distance_m + DISTANCE_EPSILON_M
+                        || maximum_walk_m - walk_distance_m
+                            >= (maximum_duration_minutes - label.duration_minutes)
+                                / minutes_per_meter
+                                + DISTANCE_EPSILON_M)
             };
         if dominates {
             label.active = false;
@@ -1131,4 +1145,49 @@ pub(super) fn timed_connectors(
         matrix_cch_query_ns: 0.0,
         query_ns: started.elapsed().as_nanos() as f64,
     })
+}
+
+#[cfg(test)]
+mod surface_label_tests {
+    use super::*;
+
+    #[test]
+    fn earlier_labels_cover_later_ones_that_run_out_of_time_first() {
+        // 1,000 m of walking and 60 minutes at 0.0125 minutes per metre.
+        let mut heads = PagedVec::new(1, u32::MAX);
+        let mut labels = SurfaceRecords::new();
+        let mut queue = SurfaceQueue::new();
+        let mut push = |labels: &mut SurfaceRecords<SurfaceLabel>, duration: f64, walk: f64| {
+            push_surface_label(
+                &mut heads,
+                labels,
+                &mut queue,
+                &[0.0],
+                0,
+                duration,
+                walk,
+                1_000.0,
+                60.0,
+                0.0,
+                0,
+                false,
+                0.0125,
+            )
+        };
+        assert!(push(&mut labels, 50.0, 900.0));
+        // 400 m of time remain, but the earlier label can walk only 100 m.
+        assert!(push(&mut labels, 55.0, 100.0));
+        // This label can walk 500 m: it retires the first label as before, and
+        // the second, whose 400 m of remaining time it outwalks.
+        assert!(push(&mut labels, 50.0, 500.0));
+        // 320 m of time remain and are covered; 640 m are not.
+        assert!(!push(&mut labels, 56.0, 50.0));
+        assert!(push(&mut labels, 52.0, 50.0));
+        let active: Vec<_> = labels
+            .iter()
+            .filter(|label| label.active)
+            .map(|label| (label.duration_minutes, label.walk_distance_m))
+            .collect();
+        assert_eq!(active, [(50.0, 500.0), (52.0, 50.0)]);
+    }
 }
