@@ -80,6 +80,13 @@ impl CoordinateKernel {
                 .map(|(_, path)| {
                     size_of::<([u64; 6], StreetPathResult)>() + path.coordinates.capacity() * 8
                 })
+                .sum::<usize>()
+            + self
+                .stop_path_memo
+                .values()
+                .map(|path| {
+                    size_of::<([u64; 6], StreetPathResult)>() + path.coordinates.capacity() * 8
+                })
                 .sum::<usize>();
         let mut frontiers = HashSet::new();
         for (entries, order) in [
@@ -304,6 +311,7 @@ impl CoordinateKernel {
             destination_cache_order: VecDeque::new(),
             destination_cache_bytes: 0,
             path_memo: VecDeque::new(),
+            stop_path_memo: HashMap::new(),
         }
     }
 }

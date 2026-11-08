@@ -3162,11 +3162,16 @@ pub struct CoordinateKernel {
     destination_cache_bytes: usize,
     /// Recent `route_path` answers by exact input, newest first.
     path_memo: VecDeque<([u64; 6], StreetPathResult)>,
+    /// Stop-to-stop transfer walks by exact input. A journey's transfers
+    /// recur across requests, and the street graph is fixed between clears.
+    stop_path_memo: HashMap<[u64; 6], StreetPathResult>,
 }
 
 /// A departure window asks for the same walk at every sampled minute.
 #[cfg(feature = "standalone")]
 const PATH_MEMO_ENTRIES: usize = 16;
+#[cfg(feature = "standalone")]
+const STOP_PATH_MEMO_ENTRIES: usize = 4096;
 
 impl CoordinateKernel {
     /// `route_path`, answering a repeated input from the last few searches.
@@ -3198,6 +3203,38 @@ impl CoordinateKernel {
             self.path_memo.push_front((key, path.clone()));
             self.path_memo.truncate(PATH_MEMO_ENTRIES);
         }
+        Ok(path)
+    }
+
+    /// `route_stop_transfer_path`, answered from the memo when `reuse` allows.
+    #[cfg(feature = "standalone")]
+    pub(crate) fn route_stop_transfer_path_reusing(
+        &mut self,
+        input: StreetPathInput,
+        reuse: bool,
+    ) -> napi::Result<StreetPathResult> {
+        if !reuse {
+            return self.route_stop_transfer_path(input);
+        }
+        let key = [
+            input.origin_lon.to_bits(),
+            input.origin_lat.to_bits(),
+            input.destination_lon.to_bits(),
+            input.destination_lat.to_bits(),
+            input.maximum_distance_m.to_bits(),
+            u64::from(input.maximum_points),
+        ];
+        let started = Instant::now();
+        if let Some(saved) = self.stop_path_memo.get(&key) {
+            let mut path = saved.clone();
+            path.query_ns = started.elapsed().as_nanos() as f64;
+            return Ok(path);
+        }
+        let path = self.route_stop_transfer_path(input)?;
+        if self.stop_path_memo.len() >= STOP_PATH_MEMO_ENTRIES {
+            self.stop_path_memo.clear();
+        }
+        self.stop_path_memo.insert(key, path.clone());
         Ok(path)
     }
 
@@ -3634,6 +3671,7 @@ impl CoordinateKernel {
             public_components: HashSet::new(),
         });
         self.path_memo.clear();
+        self.stop_path_memo.clear();
         self.profile
             .as_mut()
             .expect("installed profile")
@@ -3801,6 +3839,7 @@ impl CoordinateKernel {
         profile.index_public_components(&self.snapshot)?;
         self.profile = Some(profile);
         self.path_memo.clear();
+        self.stop_path_memo.clear();
         self.last_origin_frontier = None;
         self.last_destination_frontier = None;
         self.origin_cache.clear();
@@ -4722,6 +4761,7 @@ impl CoordinateKernel {
         self.last_origin_frontier = None;
         self.last_destination_frontier = None;
         self.path_memo.clear();
+        self.stop_path_memo.clear();
         self.query_token = self.query_token.wrapping_add(1).max(1);
     }
 
@@ -6454,6 +6494,34 @@ fn access_cell(latitude: f64, longitude: f64) -> (i32, i32) {
 
 fn access_cell_key(latitude_cell: i32, longitude_cell: i32) -> u64 {
     ((latitude_cell as u32 as u64) << 32) | longitude_cell as u32 as u64
+}
+
+/// Frees a large result tree on a background thread. Responses are fully
+/// written before their trees are dropped, so freeing thousands of small JSON
+/// nodes need not delay the next request. Falls back to an inline drop.
+pub fn defer_drop(value: serde_json::Value) {
+    use std::sync::{Mutex, OnceLock, mpsc};
+    if !matches!(
+        value,
+        serde_json::Value::Object(_) | serde_json::Value::Array(_)
+    ) {
+        return;
+    }
+    static GRAVEYARD: OnceLock<Option<Mutex<mpsc::Sender<serde_json::Value>>>> = OnceLock::new();
+    let sender = GRAVEYARD.get_or_init(|| {
+        let (sender, receiver) = mpsc::channel::<serde_json::Value>();
+        std::thread::Builder::new()
+            .name("vigo-drop".into())
+            .spawn(move || receiver.into_iter().for_each(drop))
+            .ok()
+            .map(|_| Mutex::new(sender))
+    });
+    if let Some(sender) = sender
+        && let Ok(sender) = sender.lock()
+    {
+        // A closed channel hands the value back; it is then dropped here.
+        let _ = sender.send(value);
+    }
 }
 
 fn haversine_m(left_lon: f64, left_lat: f64, right_lon: f64, right_lat: f64) -> f64 {

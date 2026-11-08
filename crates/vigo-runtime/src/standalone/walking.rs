@@ -308,37 +308,40 @@ impl City {
                 Some(input) => selected_street_path(&mut self.street, input)?,
                 None => None,
             };
-            let (path_coordinates, path_distance, found) = if let Some((coordinates, distance)) =
-                selected
-            {
-                (coordinates, distance, true)
-            } else {
-                let input = || StreetPathInput {
-                    origin_lon: street_coordinates[0][0],
-                    origin_lat: street_coordinates[0][1],
-                    destination_lon: street_coordinates[1][0],
-                    destination_lat: street_coordinates[1][1],
-                    maximum_distance_m: opt
-                        .walk_m
-                        .max(duration * opt.walk_speed.unwrap_or(self.speed) / 3.6),
-                    maximum_points: crate::PUBLIC_WALK_POINTS,
-                };
-                // Generated transfers were priced between physical stops.
-                // A bounded stop-to-stop search finds that witness without
-                // a metropolitan CCH query; only a miss falls back to it.
-                let transfer = if role.is_none() {
-                    Some(self.street.route_stop_transfer_path(input())?).filter(|path| path.found)
+            let (path_coordinates, path_distance, found) =
+                if let Some((coordinates, distance)) = selected {
+                    (coordinates, distance, true)
                 } else {
-                    None
+                    let input = || StreetPathInput {
+                        origin_lon: street_coordinates[0][0],
+                        origin_lat: street_coordinates[0][1],
+                        destination_lon: street_coordinates[1][0],
+                        destination_lat: street_coordinates[1][1],
+                        maximum_distance_m: opt
+                            .walk_m
+                            .max(duration * opt.walk_speed.unwrap_or(self.speed) / 3.6),
+                        maximum_points: crate::PUBLIC_WALK_POINTS,
+                    };
+                    // Generated transfers were priced between physical stops.
+                    // A bounded stop-to-stop search finds that witness without
+                    // a metropolitan CCH query; only a miss falls back to it.
+                    let transfer = if role.is_none() {
+                        Some(
+                            self.street
+                                .route_stop_transfer_path_reusing(input(), !opt.disable_cache)?,
+                        )
+                        .filter(|path| path.found)
+                    } else {
+                        None
+                    };
+                    let path = match transfer {
+                        Some(path) => path,
+                        None => self
+                            .street
+                            .route_path_reusing(input(), !opt.disable_cache)?,
+                    };
+                    (path.coordinates, path.distance_m, path.found)
                 };
-                let path = match transfer {
-                    Some(path) => path,
-                    None => self
-                        .street
-                        .route_path_reusing(input(), !opt.disable_cache)?,
-                };
-                (path.coordinates, path.distance_m, path.found)
-            };
             // Never attach a longer, newly searched path to an already priced
             // walk and then claim that path fits the timetable's walking cost.
             if found

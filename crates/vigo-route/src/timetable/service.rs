@@ -1564,20 +1564,35 @@ impl TimetableKernel {
             // uncapped scan. A capped journey's prefix keeps the cap, so the
             // capped bulk scan still bounds its first exceptional transfer.
             // Certifying the whole horizon rejected nearly every capped query.
-            let service = self.service.take();
+            let mut service = self.service.take();
+            // The capped search starts with an unrestricted scan. When that
+            // scan alone settles the capped result, its labels certify the
+            // guard events as the uncapped branch below does, and the bulk
+            // capped scan is not needed.
+            self.query.capped_guard = CappedGuard {
+                events: service
+                    .as_mut()
+                    .map(|s| std::mem::take(&mut s.forward_guard_events)),
+                certified: None,
+            };
             let result = self.route_scalar_csa_impl::<true>(input);
+            let guard = std::mem::take(&mut self.query.capped_guard);
+            if let (Some(s), Some(events)) = (service.as_mut(), guard.events) {
+                s.forward_guard_events = events;
+            }
             self.service = service;
             let result = result?;
             if !result.supported
-                || !self.ordinary_forward_is_safe(
-                    &input.origin_stops,
-                    &input.origin_walk_seconds,
-                    input.departure,
-                    result.best_arrival.unwrap_or(input.horizon),
-                    input.allow_pre_ride_transfers,
-                    input.maximum_boardings,
-                    &[],
-                )?
+                || (guard.certified != Some(true)
+                    && !self.ordinary_forward_is_safe(
+                        &input.origin_stops,
+                        &input.origin_walk_seconds,
+                        input.departure,
+                        result.best_arrival.unwrap_or(input.horizon),
+                        input.allow_pre_ride_transfers,
+                        input.maximum_boardings,
+                        &[],
+                    )?)
             {
                 return Ok(None);
             }
@@ -1620,6 +1635,46 @@ impl TimetableKernel {
         });
         self.record_ordinary_search();
         Ok(Some(result))
+    }
+    /// Certifies the lent guard events from the unrestricted scan just run by
+    /// a capped search, using the same label test as the uncapped branch of
+    /// `guarded_scalar`. It applies only when that scan settles the capped
+    /// result: no destination (blocked through the horizon), or a winner
+    /// within the cap, whose arrival the capped search then returns.
+    pub(super) fn certify_capped_guard(
+        &mut self,
+        input: &TimetableQueryInput,
+        unrestricted: &TimetableQueryResult,
+        maximum: u32,
+    ) {
+        let Some(events) = self.query.capped_guard.events.as_ref() else {
+            return;
+        };
+        if !unrestricted.supported {
+            return;
+        }
+        let bound = if unrestricted.status == "blocked" {
+            input.horizon
+        } else if let (Some(arrival), Some(boardings)) =
+            (unrestricted.best_arrival, unrestricted.best_boardings)
+            && boardings <= maximum
+        {
+            arrival
+        } else {
+            return;
+        };
+        let buffer = i64::from(self.minimum_transfer_buffer_seconds);
+        let first = events.partition_point(|&(time, ..)| f64::from(time) < input.departure);
+        let last = events.partition_point(|&(time, ..)| f64::from(time) <= bound);
+        let workspace = &self.query.workspace;
+        let safe = events[first..last].iter().all(|&(time, stop, slack)| {
+            slack >= buffer
+                || (4..STATE_STRIDE).all(|flags| {
+                    let label = &workspace.labels[stop as usize * STATE_STRIDE + flags];
+                    label.generation != workspace.epoch || label.arrival > f64::from(time)
+                })
+        });
+        self.query.capped_guard.certified = Some(safe);
     }
     pub(super) fn service_scalar(
         &self,

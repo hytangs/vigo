@@ -369,6 +369,7 @@ fn run() -> Result<()> {
             serde_json::to_writer(&mut stdout, &result)?;
             writeln!(stdout)?;
             stdout.flush()?;
+            crate::defer_drop(result);
         }
         // The process exits next and returns the City's memory at once.
         std::mem::forget(city);

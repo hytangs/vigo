@@ -3324,6 +3324,15 @@ pub struct TimetableQueryWorkspace {
     forward_workspace: ForwardWorkspace,
     profile_workspace: ProfileWorkspace,
     journey_workspace: Option<journeys::JourneyWorkspace>,
+    capped_guard: CappedGuard,
+}
+
+/// Lends the ordinary-service guard events to a capped scalar search, which
+/// can certify them from its unrestricted scan's labels (see `guarded_scalar`).
+#[derive(Default)]
+pub(crate) struct CappedGuard {
+    events: Option<Vec<(u32, u32, i64)>>,
+    certified: Option<bool>,
 }
 impl TimetableQueryWorkspace {
     fn new(stops: usize, runs: usize, trips: usize) -> Self {
@@ -3333,6 +3342,7 @@ impl TimetableQueryWorkspace {
             forward_workspace: ForwardWorkspace::new(stops, runs),
             profile_workspace: ProfileWorkspace::new(stops * STATE_STRIDE, runs),
             journey_workspace: None,
+            capped_guard: CappedGuard::default(),
         }
     }
     pub fn byte_length(&self) -> usize {

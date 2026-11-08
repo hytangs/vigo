@@ -334,6 +334,9 @@ pub struct City {
     /// Heap of the stop dictionary, access and manifest data, which never
     /// change after opening; measured once for the memory ledger.
     pub(crate) static_heap_bytes: OnceLock<usize>,
+    /// Indices of stops with direct (origin) and arrival (destination)
+    /// service, computed on the first straight-line access diagnosis.
+    pub(crate) served_stop_indices: OnceLock<[Vec<u32>; 2]>,
     pub(super) flex_index: OnceLock<Arc<super::flex_index::FlexIndex>>,
     /// One-shot optimistic Flex access and egress per timetable stop for the
     /// next transit search, and whether that search's winner used them.
@@ -732,6 +735,7 @@ impl City {
             frequency_sample: None,
             linked_candidates: Default::default(),
             static_heap_bytes: OnceLock::new(),
+            served_stop_indices: OnceLock::new(),
             timetable_cache: super::timetable_cache::TimetableCache::from_env()?,
             query_workspace: None,
             timetable_preparations: 0,

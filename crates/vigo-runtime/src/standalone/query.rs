@@ -745,25 +745,35 @@ impl City {
         role: &str,
         radius: f64,
     ) -> Option<(&super::city::Stop, f64)> {
-        let index = &self.access.materialized.stop_access_index;
-        let served: std::collections::HashSet<&str> = if role == "destination" {
-            index
-                .arrival_service_stop_ids
-                .iter()
-                .map(String::as_str)
-                .collect()
-        } else {
-            index
-                .direct_service_stop_ids
-                .iter()
-                .map(String::as_str)
-                .collect()
-        };
-        self.stops
+        let served = self.served_stop_indices.get_or_init(|| {
+            let index = &self.access.materialized.stop_access_index;
+            let positions = |ids: &[String]| {
+                let ids: std::collections::HashSet<&str> = ids.iter().map(String::as_str).collect();
+                self.stops
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, stop)| {
+                        ids.contains(stop.id.as_str())
+                            && stop.lon.is_finite()
+                            && stop.lat.is_finite()
+                    })
+                    .map(|(position, _)| position as u32)
+                    .collect::<Vec<_>>()
+            };
+            [
+                positions(&index.direct_service_stop_ids),
+                positions(&index.arrival_service_stop_ids),
+            ]
+        });
+        let served = &served[usize::from(role == "destination")];
+        // Great-circle distance is at least the latitude difference times the
+        // radius, so stops beyond this band cannot be within `radius`.
+        let band = radius / 6371008.8 * (1. + 1e-9) + 1e-12;
+        let latitude = point.coordinate[1].to_radians();
+        served
             .iter()
-            .filter(|stop| {
-                served.contains(stop.id.as_str()) && stop.lon.is_finite() && stop.lat.is_finite()
-            })
+            .map(|&position| &self.stops[position as usize])
+            .filter(|stop| (stop.lat.to_radians() - latitude).abs() <= band)
             .map(|stop| (stop, haversine(point.coordinate, [stop.lon, stop.lat])))
             .filter(|(_, meters)| *meters <= radius)
             .min_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.id.cmp(&b.0.id)))
