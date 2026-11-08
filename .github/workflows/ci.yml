@@ -74,9 +74,11 @@ jobs:
         shell: bash
       - name: Install pinned Electron runtime
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           for attempt in 1 2 3; do
-            node node_modules/electron/install.js && exit 0
+            node scripts/install-electron.mjs && exit 0
             sleep 2
           done
           exit 1
