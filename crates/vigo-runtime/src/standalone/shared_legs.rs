@@ -23,6 +23,8 @@ pub(super) struct SharedLegsContext {
     pub access: [Candidates; 2],
     /// The journeys' trip indices belong to this active timetable.
     pub timetable: Option<(String, Option<u32>)>,
+    /// An otherwise eager policy search must restore its endpoint witnesses.
+    pub refresh_access: bool,
 }
 
 /// A journey whose shared services wait, with the options of the clock it
@@ -169,6 +171,7 @@ impl City {
         deferred: &[DeferredSharedLegs],
     ) -> Result<()> {
         let mut found: HashMap<usize, Value> = HashMap::new();
+        let mut frontiers: HashMap<usize, (Candidates, Candidates)> = HashMap::new();
         for value in values {
             let Some(index) = value
                 .as_object_mut()
@@ -188,12 +191,35 @@ impl City {
                 context,
             } = &deferred[index];
             debug_assert!(self.timetable_identity() == context.timetable);
+            // Supplemental policy searches replace the street frontiers. A
+            // retained candidate's token must match before its priced endpoint
+            // walk can be reconstructed, rather than falling back to a new path.
+            let token = self.street.query_token;
+            let current =
+                |a: &Candidates| a.evidence.as_ref().is_none_or(|e| e.query_token == token);
+            let refreshed = if context.refresh_access && !context.access.iter().all(current) {
+                let key = Rc::as_ptr(context) as usize;
+                // Consecutive retained choices share their restored frontiers,
+                // only while no intervening coordinate query has replaced them.
+                if !frontiers
+                    .get(&key)
+                    .is_some_and(|(a, b)| current(a) && current(b))
+                {
+                    let pair = self.point_candidates(&context.origin, &context.destination, opt)?;
+                    frontiers.insert(key, pair);
+                }
+                frontiers.get(&key)
+            } else {
+                None
+            };
+            let access =
+                refreshed.map_or([&context.access[0], &context.access[1]], |(a, b)| [a, b]);
             let shared = self.shared_leg_alternatives(
                 value,
                 journey,
                 [&context.origin, &context.destination],
                 opt,
-                [&context.access[0], &context.access[1]],
+                access,
             )?;
             value["sharedLegAlternatives"] = shared.clone();
             found.insert(index, shared);

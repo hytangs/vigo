@@ -1689,6 +1689,7 @@ impl City {
                 destination,
                 access: [a, b],
                 timetable,
+                refresh_access: false,
             });
             let buffer = self.window_shared_legs.as_mut().unwrap();
             buffer.extend(
