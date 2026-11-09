@@ -47,7 +47,7 @@ Every answer carries its evidence. A Route Result says whether each walk follows
 
 Tight bicycle and driving distance limits now return a route or a clean no-route answer quickly instead of an error. Adding a stop extends a journey to A, B, then C. An interrupted `vigo build --replace` keeps or restores the published City. The public route planner gains a local address index, an offline page and stricter limits. Read the [release notes](releases/1.0.0.md).
 
-VIGO includes Bike Route and Matrix. They use bicycle access, contraflow, surfaces, mapped incline and turn restrictions. Choose balanced, quiet or fast preferences; travel-time estimates remain separate from preference penalties. Bike data is optional in CLI builds and loads only on demand. Studio includes Bike and prepares bicycle streets on new OSM imports. See the [release notes](releases/1.0.0.md) and the [changelog](../CHANGELOG.md).
+VIGO includes Bike Route, Matrix and Reach. They use bicycle access, contraflow, surfaces, mapped incline and turn restrictions. Choose balanced, quiet or fast preferences; travel-time estimates remain separate from preference penalties. Bike data is optional in CLI builds and loads only on demand. Studio includes Bike in Route and Reach and prepares bicycle streets on new OSM imports. Address suggestions stay inside the selected City’s prepared street coverage, or its timetable coverage when no street snapshot is available. See the [release notes](releases/1.0.0.md) and the [changelog](../CHANGELOG.md).
 
 ## Install VIGO
 

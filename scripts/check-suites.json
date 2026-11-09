@@ -36,6 +36,7 @@
     "test/check-public-routing-cities.mjs",
     "test/check-public-routing-offline.mjs",
     "test/check-address-index.mjs",
+    "test/check-studio-address-search.mjs",
     "test/check-realtime-url-security.mjs",
     "test/check-cch-manifest.mjs"
   ],

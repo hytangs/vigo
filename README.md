@@ -42,7 +42,7 @@ Then choose the journey with fewer boardings and less walking. Leave at 08:00 or
 
 **One origin. Every possibility.**
 
-Where can you get in 15, 30 or 45 minutes? Reach maps every place you can get to within a time budget; its boundary is an isochrone. It stretches along transit lines, as faster connections bring distant places within reach. Add a **Scenario**, such as a new line or a removed route, and measure the proposal against today's network.
+Where can you get in 15, 30 or 45 minutes? Reach supports transit, walking, driving and cycling. It maps the places you can get to within a time budget; its boundary is an isochrone. It stretches along transit lines, as faster connections bring distant places within reach. Add a **Scenario**, such as a new line or a removed route, and measure the proposal against today's network.
 
 ## 03 — Matrix
 
@@ -52,15 +52,15 @@ A thousand destinations shouldn't mean a thousand separate searches. Matrix shar
 
 ## The performance
 
-**Six cities. Milliseconds in every one.**
+**Six cities in the paper’s transit benchmark.**
 
-The median time for a complete coordinate-to-coordinate request, with walking access, journey selection and output included:
+The paper’s frozen matched-request benchmark reports these median times for resident coordinate-to-coordinate transit requests, with walking access, journey selection and output included:
 
 | Anchorage | Las Vegas | Denver | Washington, DC | Boston | New York |
 | :---: | :---: | :---: | :---: | :---: | :---: |
 | **0.67 ms** | **0.94 ms** | **1.32 ms** | **1.64 ms** | **1.69 ms** | **2.11 ms** |
 
-The lowest median end-to-end latency among all nine interfaces in the VIGO paper's matched-request benchmark. The paper, the benchmark code and the measurement method are linked from [vigo.city](https://vigo.city/).
+VIGO had the lowest median latency among the nine interfaces in that benchmark. These are historical transit point-query measurements; City loading, bicycle isochrones and Matrix workloads have different costs. The paper, benchmark code and measurement method are linked from [vigo.city](https://vigo.city/).
 
 ## Put VIGO to work
 
@@ -71,7 +71,7 @@ Explore interactively, connect a web application, or run an analysis in Python. 
 | **01** | **[Studio](docs/guide.md#vigo-studio-desktop-guide)** | Interactive desktop software for exploring networks, planning journeys and mapping accessibility. No coding required. |
 | **02** | **[Engine & CLI](docs/guides/rust-standalone.md)** | Millisecond-scale routing for your web apps and services, through the command line or a self-hosted [HTTP API](docs/guides/rust-standalone.md#15-http-api-and-server-operation). |
 | **03** | **[Python](python/README.md)** | Routing and accessibility analysis alongside pandas, Jupyter notebooks and your existing Python tools. |
-| **04** | **Public API** | Routing and accessibility for your applications, through a public API. *Coming soon.* |
+| **04** | **[Route planner](https://app.vigo.city/)** | Plan a journey in the available Cities. For application integration, deploy the [HTTP API](docs/guides/rust-standalone.md#15-http-api-and-server-operation) with your own prepared data. |
 
 ## Get started
 

@@ -11,8 +11,43 @@ use std::sync::Arc;
 
 pub(super) struct WalkNetwork {
     snapshot: Arc<Snapshot>,
-    // Sorted walking-node -> bicycle-node pairs. Never join by coordinates.
-    links: Vec<(u32, u32)>,
+    // Source-identity join, dense only when it occupies no more memory than
+    // sorted pairs. Never join by coordinates.
+    links: WalkLinks,
+}
+enum WalkLinks {
+    Dense(Vec<u32>),
+    Sparse(Vec<(u32, u32)>),
+}
+impl WalkLinks {
+    fn bike_node(&self, node: u32) -> Option<u32> {
+        match self {
+            Self::Dense(nodes) => nodes.get(node as usize).copied().filter(|&n| n != u32::MAX),
+            Self::Sparse(links) => links
+                .binary_search_by_key(&node, |&(walk, _)| walk)
+                .ok()
+                .map(|i| links[i].1),
+        }
+    }
+    fn walk_node(&self, node: u32) -> Option<u32> {
+        match self {
+            Self::Dense(nodes) => nodes
+                .iter()
+                .position(|&bike| bike == node)
+                .map(|i| i as u32),
+            Self::Sparse(links) => links
+                .iter()
+                .find(|&&(_, bike)| bike == node)
+                .map(|&(walk, _)| walk),
+        }
+    }
+    #[cfg(any(feature = "standalone", test))]
+    fn heap_bytes(&self) -> usize {
+        match self {
+            Self::Dense(nodes) => nodes.capacity() * 4,
+            Self::Sparse(links) => links.capacity() * 8,
+        }
+    }
 }
 struct WalkSearch {
     // Keys are compact snapshot node ids, never external strings. Candidate
@@ -106,7 +141,12 @@ impl WalkNetwork {
         if count > ids.len() {
             return Err("Too many bicycle walking links".into());
         }
-        let mut links = Vec::with_capacity(count);
+        let mut links = if xs.len() <= count.saturating_mul(2) {
+            WalkLinks::Dense(vec![u32::MAX; xs.len()])
+        } else {
+            WalkLinks::Sparse(Vec::with_capacity(count))
+        };
+        let mut previous = None;
         let mut statement = db
             .prepare("SELECT bike_node,walk_node FROM bike_walk_nodes ORDER BY walk_node")
             .map_err(|e| e.to_string())?;
@@ -117,25 +157,26 @@ impl WalkNetwork {
             let (source, walk) = row.map_err(|e| e.to_string())?;
             let bike = *ids.get(&source).ok_or("Unknown bicycle walking node")?;
             if walk as usize >= xs.len()
-                || links.last().is_some_and(|&(previous, _)| previous >= walk)
+                || previous.is_some_and(|previous| previous >= walk)
                 || (xs[walk as usize] - lons[bike as usize]).abs() > 1e-7
                 || (ys[walk as usize] - lats[bike as usize]).abs() > 1e-7
             {
                 return Err("Invalid bicycle walking node identity".into());
             }
-            links.push((walk, bike));
+            match &mut links {
+                WalkLinks::Dense(nodes) => nodes[walk as usize] = bike,
+                WalkLinks::Sparse(links) => links.push((walk, bike)),
+            }
+            previous = Some(walk);
         }
         Ok(Some(Self { snapshot, links }))
     }
     #[cfg(any(feature = "standalone", test))]
     pub(super) fn heap_bytes(&self) -> usize {
-        self.links.capacity() * std::mem::size_of::<(u32, u32)>()
+        self.links.heap_bytes()
     }
     fn bike_node(&self, node: u32) -> Option<u32> {
-        self.links
-            .binary_search_by_key(&node, |&(walk, _)| walk)
-            .ok()
-            .map(|i| self.links[i].1)
+        self.links.bike_node(node)
     }
     fn search(&self, point: [f64; 2], maximum: f64, origin: bool) -> Result<WalkSearch, String> {
         let snapshot = &self.snapshot;
@@ -368,9 +409,7 @@ impl WalkNetwork {
         let walk = self.search(point, candidate.walk_meters + 1e-5, origin)?;
         let target = self
             .links
-            .iter()
-            .find(|&&(_, b)| b == node)
-            .map(|&(w, _)| w)
+            .walk_node(node)
             .ok_or("Missing bicycle walking join")?;
         let (meters, _) = *walk
             .labels
@@ -434,6 +473,19 @@ impl WalkNetwork {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dense_and_sparse_identity_joins_agree() {
+        let sparse = WalkLinks::Sparse(vec![(0, 8), (2, 4), (4, 1)]);
+        let dense = WalkLinks::Dense(vec![8, u32::MAX, 4, u32::MAX, 1]);
+        for node in 0..8 {
+            assert_eq!(dense.bike_node(node), sparse.bike_node(node));
+        }
+        for node in 0..10 {
+            assert_eq!(dense.walk_node(node), sparse.walk_node(node));
+        }
+        assert!(dense.heap_bytes() <= sparse.heap_bytes());
+    }
 
     #[test]
     fn compact_walk_queue_preserves_distance_and_node_ties() {

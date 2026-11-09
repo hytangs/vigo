@@ -1,6 +1,10 @@
 # Version history
 
-## 1.0.0 — 2026-11-08
+## 1.0.0 — 2026-11-09
+
+- Stop shared bicycle destination-group searches after all requested optima are settled, retain exact fallback behavior, accelerate walking-node identity lookup within the existing memory footprint, and reduce graph-loading scans. Existing Cities remain readable.
+- Constrain Studio address suggestions to the selected City’s prepared street or timetable coverage, including after switching Cities and replacing data.
+- Clarify the README’s historical transit benchmark boundary and link the live route planner.
 
 - Update the dependency sets together and replace the unmaintained bincode crate with its maintained GroveDB fork, preserving the prepared-profile encoding.
 

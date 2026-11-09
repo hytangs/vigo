@@ -397,6 +397,7 @@ impl BikeKernel {
             lons.push(lon as f64 / 1e7);
             lats.push(lat as f64 / 1e7);
         }
+
         let mut offsets = vec![0u32; lons.len() + 1];
         let (mut windows, window_ids) = TurnWindows::load(&db)?;
         let edge_ids = windows.load_edges(&db)?;
@@ -442,11 +443,20 @@ impl BikeKernel {
                 "SELECT from_node,to_node,distance_cm,way_id,attributes,window_id,{stress} FROM bike_timed_edges ORDER BY rowid"
             ));
         }
-        for sql in &sources {
-            for from in db.prepare(sql)?.query_map([], |r| r.get::<_, i64>(0))? {
-                let from = *ids.get(&from?).ok_or("Missing bicycle edge source")?;
+        for table in std::iter::once("bike_edges")
+            .chain((!edge_ids.is_empty()).then_some("bike_timed_edges"))
+        {
+            // The source index can count each run without decoding full edges
+            // or repeating the external-id lookup for every edge in that run.
+            let sql = format!("SELECT from_node,count(*) FROM {table} GROUP BY from_node");
+            for row in db
+                .prepare(&sql)?
+                .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, u32>(1)?)))?
+            {
+                let (from, count) = row?;
+                let from = *ids.get(&from).ok_or("Missing bicycle edge source")?;
                 offsets[from as usize + 1] = offsets[from as usize + 1]
-                    .checked_add(1)
+                    .checked_add(count)
                     .ok_or("Too many bicycle edges")?;
             }
         }
@@ -505,6 +515,7 @@ impl BikeKernel {
                 ways[slot] = way;
             }
         }
+
         let mut timed_node_turns = false;
         let mut turns: HashMap<(u32, i64), Vec<NodeTurn>> = HashMap::new();
         for row in db
@@ -629,7 +640,9 @@ impl BikeKernel {
             distance_units_per_meter: 100.,
             time_units_per_second: 100.,
         };
+
         let index = RoadIndex::build(&graph);
+
         let mut minimum_length_ratio = 1.0_f64;
         for from in 0..lons.len() {
             for edge in offsets[from] as usize..offsets[from + 1] as usize {
@@ -666,6 +679,7 @@ impl BikeKernel {
                 destination_components[node] = root(&mut destination_components, node as u32);
             }
         }
+
         let walking = walk::WalkNetwork::load(&db, path, &ids, &lons, &lats)?;
         Ok(Self {
             walking,
