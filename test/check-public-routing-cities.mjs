@@ -98,18 +98,22 @@ try {
   held[2].resolve(); assert.equal((await replacement).status,200,'Canceled lookups release capacity for new text')
   second.abort(); assert.equal((await secondRequest).name,'AbortError')
   await until(()=>aborted.includes('Hold second'))
-  for (let i=0;i<60;i++) assert.equal((await address(i%2?'bos2':'singapore','Cached query',undefined,'198.51.100.2')).status,200)
-  assert.equal((await address('bos2','Cached query',undefined,'198.51.100.2')).status,429,'Autocomplete keeps a bounded request budget shared across Cities')
-  const routeAfterTyping = await originalFetch(`${base}/api/projects/bos2/national-route`,{method:'POST',headers:{'Content-Type':'application/json','cf-connecting-ip':'198.51.100.2'},body:JSON.stringify({origin:{coordinate:[-71,42]},destination:{coordinate:[-71,42]},mode:'walk'})})
-  assert.equal(routeAfterTyping.status,200,'Autocomplete cannot exhaust the route query budget')
   const realNow = Date.now
   let rateMinute = realNow() + 60_000
+  // Keep both rate-limit checks within one fixed window, even when CI starts
+  // these requests just before the wall clock rolls into the next minute.
   Date.now = () => rateMinute
   try {
+    for (let i=0;i<60;i++) assert.equal((await address(i%2?'bos2':'singapore','Cached query',undefined,'198.51.100.2')).status,200)
+    assert.equal((await address('bos2','Cached query',undefined,'198.51.100.2')).status,429,'Autocomplete keeps a bounded request budget shared across Cities')
+    const routeAfterTyping = await originalFetch(`${base}/api/projects/bos2/national-route`,{method:'POST',headers:{'Content-Type':'application/json','cf-connecting-ip':'198.51.100.2'},body:JSON.stringify({origin:{coordinate:[-71,42]},destination:{coordinate:[-71,42]},mode:'walk'})})
+    assert.equal(routeAfterTyping.status,200,'Autocomplete cannot exhaust the route query budget')
     for (let i = 0; i < 30; i++) assert.equal((await post('bos2', [-71, 42])).status, 200)
     assert.equal((await post('singapore', [103.8, 1.3])).status, 429,
       'First request to another City cannot reset the shared minute budget')
     rateMinute += 60_000
+    assert.equal((await address('bos2','Cached query',undefined,'198.51.100.2')).status,200,
+      'Autocomplete capacity renews in the next minute')
     assert.equal((await post('singapore', [103.8, 1.3])).status, 200)
   } finally { Date.now = realNow }
   console.log('Public Cities: catalog, region bounds, endpoint isolation, shared concurrency, geocoding cache/failure/cancellation and independent search budgets passed.')

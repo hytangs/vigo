@@ -127,5 +127,22 @@ window.checkAnalysisRequest = async () => {
   await until(() => requests.length === 7 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
   assert(!requests[6].monteCarlo && requests[6].rasterSize > 96, 'Hidden simulation settings must not degrade ordinary arrival analysis')
   timeChoice('Leave at')
-  return { networkRemix: true, exactLimits: true, noHiddenWindow: true, automaticLimit: true, arriveBy: true, monteCarlo: true, requests: requests.length }
+  const bikeButton = document.querySelector('.reach-travel-mode [aria-label="Bike"]')
+  assert(bikeButton.textContent === 'Bike', 'Bicycle isochrones must have a visible mode label')
+  flushSync(() => bikeButton.click())
+  const preference = document.querySelector('select[aria-label="Bike preference"]')
+  Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(preference, 'quiet')
+  flushSync(() => preference.dispatchEvent(new Event('change', { bubbles: true })))
+  fill(document.querySelector('[aria-label="Cycling speed"]'), 21)
+  for (const direction of ['Leave at', 'Arrive by']) {
+    timeChoice(direction)
+    const count = requests.length
+    flushSync(() => document.querySelector('.reach-run').click())
+    await until(() => requests.length === count + 1 && !document.querySelector('.reach-run').textContent.includes('Cancel'))
+    const request = requests.at(-1)
+    assert(request.mode === 'bike' && request.bike.profile === 'quiet' && request.bike.speedKph === 21, 'Bicycle preferences must reach the native isochrone request')
+    assert(request.rasterSize === 48 && request.surfaceSampling === 'cell-center' && !request.monteCarlo, 'Bike Reach must use its own grid and omit hidden transit simulation')
+    assert(Boolean(request.destination) === (direction === 'Arrive by'), 'Bike isochrones must preserve their travel direction')
+  }
+  return { networkRemix: true, exactLimits: true, noHiddenWindow: true, automaticLimit: true, arriveBy: true, monteCarlo: true, bike: true, requests: requests.length }
 }

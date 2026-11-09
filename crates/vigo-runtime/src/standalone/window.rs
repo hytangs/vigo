@@ -1608,6 +1608,39 @@ impl City {
         let mut deferred = vec![];
         for mut plan in choices {
             cache.unpark(&mut plan.value);
+            // Refine only selected witnesses. Changing the best journey before
+            // collecting its frontier can hide a later, shorter departure.
+            // Preserve the selected endpoint clocks and all ranking metadata.
+            if let Some((journey, t)) = plan.source.as_mut()
+                && self
+                    .timetable
+                    .as_ref()
+                    .unwrap()
+                    .kernel
+                    .improve_interchanges(journey)
+            {
+                let at = Options {
+                    time: *t * 60.,
+                    start: *t * 60.,
+                    end: *t * 60. + horizon,
+                    ..opt
+                };
+                let mut refined = self.materialize(
+                    journey,
+                    [&ends.origin, &ends.destination],
+                    true,
+                    &at,
+                    [&ends.a, &ends.b],
+                    Some(&mut cache),
+                )?;
+                cache.unpark(&mut refined);
+                let delta = depart(&plan.value) - depart(&refined);
+                move_start(&mut refined, delta);
+                plan.value
+                    .as_object_mut()
+                    .unwrap()
+                    .extend(refined.as_object().unwrap().clone());
+            }
             if shared_legs
                 && plan.value["mode"] == "transit"
                 && let Some((journey, t)) = plan.source.take()

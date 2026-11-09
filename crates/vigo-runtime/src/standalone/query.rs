@@ -1166,7 +1166,12 @@ impl City {
                 None => json!({"status":"complete"}),
                 Some(reason) => json!({"status":"unavailable","reason":reason}),
             });
-            for candidate in candidates {
+            for mut candidate in candidates {
+                self.timetable
+                    .as_ref()
+                    .unwrap()
+                    .kernel
+                    .improve_interchanges(&mut candidate);
                 let mut choice = self.materialize(
                     &candidate,
                     [&origin, &destination],
@@ -1191,6 +1196,13 @@ impl City {
                 }
                 choices.push(choice);
             }
+        }
+        if let Some(journey) = journey.as_mut() {
+            self.timetable
+                .as_ref()
+                .unwrap()
+                .kernel
+                .improve_interchanges(journey);
         }
         let mut output = if let Some(j) = journey.as_ref() {
             let mut j = self.materialize(
@@ -1728,6 +1740,7 @@ impl City {
                             let t = self.timetable.as_ref().unwrap();
                             super::corridor::alight_before_return(&t.kernel, &t.links, journey);
                             super::shared_legs::depart_later(t, journey)?;
+                            t.kernel.improve_interchanges(journey);
                         }
                         j.as_ref().map_or(Ok(Value::Null), |j| {
                             if compact {

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { journeyGroups } from '../src/app/journeyGroups.ts'
+import { journeyGroups, sameRidePath } from '../src/app/journeyGroups.ts'
 const leg = (routeId, tripId = routeId) => ({ type:'ride', routeId, tripId, fromStopId:'A', toStopId:'B', stopIds:['A','X','B'], geometrySource:'gtfs_shape', coordinates:[[0,0],[1,1],[2,0]] })
 const plan = (id, rides, arriveMinutes = 510) => ({id, status:'ready',travelMode:'transit',timePreference:'depart',departMinutes:480,arriveMinutes,durationMinutes:arriveMinutes-480,walkMinutes:3,legs:rides})
 const m=plan('M',[leg('M')]), e=plan('E',[leg('E')],512)
@@ -16,4 +16,13 @@ const rail=plan('rail',[leg('M'),leg('rail')],513)
 assert.equal(journeyGroups([m,rail]).length,2,'A different onward service remains a distinct option')
 assert.equal(journeyGroups([m, {...needless,walkMinutes:1}]).length,2,'A meaningful walking tradeoff remains')
 assert.equal(m.legs[0].routeId,'M','Grouping cannot mutate source journeys')
+const path = [[-77.03,38.9],[-77.0305,38.9],[-77.031,38.9001]]
+const jittered = [[-77.03,38.9],[-77.03025,38.900002],[-77.0305,38.900003],[-77.0305,38.900003],[-77.031,38.9001]]
+assert(sameRidePath(path,jittered),'Shared platforms tolerate shape rounding and different sampling')
+assert(sameRidePath([...path].reverse(),[...jittered].reverse()),'Both travel directions group consistently')
+assert(!sameRidePath(path,[...jittered].reverse()),'Reversed paths are distinct')
+assert(!sameRidePath(path,[path[0],[-77.0305,38.9001],path[2]]),'A different street or track remains distinct')
+assert(!sameRidePath(path,[path[0],path[1],path[0],path[2]]),'Do not hide a loop or backtrack')
+const rounded=plan('rounded',[{...leg('E'),coordinates:jittered}])
+assert.deepEqual(journeyGroups([plan('original',[{...leg('M'),coordinates:path}]),rounded]).map(g=>g.length),[2])
 console.log('Journey grouping: shared path services, distinct corridors, unknown geometry, stopping patterns and useful transfer tradeoffs passed.')

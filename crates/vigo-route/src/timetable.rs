@@ -25,6 +25,7 @@ pub use preparation::*;
 mod transfer_paths;
 pub use transfer_paths::*;
 
+mod interchange;
 mod journeys;
 mod shared_legs;
 pub use shared_legs::*;

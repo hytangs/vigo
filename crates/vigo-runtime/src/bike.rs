@@ -1272,6 +1272,7 @@ impl BikeKernel {
             clock,
             None,
             false,
+            f64::INFINITY,
         )
     }
 
@@ -1302,6 +1303,7 @@ impl BikeKernel {
                 clock,
                 previous.as_ref(),
                 i + 2 < points.len(),
+                f64::INFINITY,
             )?;
             let ready = result.status == "ready";
             if let Some(clock) = &mut clock {
@@ -1373,6 +1375,7 @@ impl BikeKernel {
         clock: Option<BikeClock>,
         continuation: Option<&BikeContinuation>,
         retain_continuation: bool,
+        maximum_cost: f64,
     ) -> Result<BikeResult, String> {
         self.validate_request(
             origin,
@@ -1406,7 +1409,11 @@ impl BikeKernel {
             false,
             &eligible,
         )?;
-        let solve = |starts: &Attachment, ends: &Attachment, kind: SearchKind<'_>, bounds| {
+        let solve = |starts: &Attachment,
+                     ends: &Attachment,
+                     kind: SearchKind<'_>,
+                     mut bounds: SearchBounds| {
+            bounds.upper_cost = bounds.upper_cost.min(maximum_cost);
             self.search_with_limit(
                 origin,
                 destination,

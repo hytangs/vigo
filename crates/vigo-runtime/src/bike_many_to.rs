@@ -340,14 +340,7 @@ impl BikeKernel {
             ends,
             end_edges,
             labels: vec![],
-            direct: vec![
-                u32::MAX;
-                if self.lons.len() <= 262_144 {
-                    self.lons.len()
-                } else {
-                    0
-                }
-            ],
+            direct: vec![u32::MAX; super::many::field_node_slots(self.lons.len())],
             by_node: HashMap::new(),
             certified_cost: ceiling,
             settled: 0,
@@ -435,11 +428,16 @@ impl BikeKernel {
                 &mut queue,
             );
         }
+        let label_limit = if distances {
+            262_144
+        } else {
+            super::many::field_label_limit()
+        };
         'search: while let Some(Queue(cost, id)) = queue.pop() {
             if field.labels[id].settled || cost > field.labels[id].cost {
                 continue;
             }
-            if field.queued >= 262_144 {
+            if field.queued >= label_limit {
                 field.certified_cost = cost;
                 field.limited = true;
                 break;
@@ -453,7 +451,7 @@ impl BikeKernel {
                     && (clock.is_some() || self.attributes[edge as usize] & TIMED_EDGE == 0)
                     && self.reverse_node_turn(Some(edge), label.node, label.edge(), clock.is_some())
                 {
-                    if field.queued >= 262_144 {
+                    if field.queued >= label_limit {
                         field.certified_cost = cost;
                         field.limited = true;
                         break 'search;

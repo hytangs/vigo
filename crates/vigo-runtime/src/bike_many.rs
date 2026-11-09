@@ -6,6 +6,21 @@ use super::*;
 // Label, start attachment, end attachment, cost, tied.
 type FieldCandidate = (Option<usize>, usize, usize, f64, bool);
 
+// A dense node lookup is smaller than sparse hash entries once a regional
+// query reaches hundreds of thousands of ordinary nodes. Bound both the lookup
+// and label arena by resident memory, rather than by the City's node count.
+pub(super) fn field_node_slots(nodes: usize) -> usize {
+    if nodes <= crate::resources::cache_budget(64 * 1024 * 1024, 128) / 4 {
+        nodes
+    } else {
+        0
+    }
+}
+pub(super) fn field_label_limit() -> usize {
+    // Includes frontier, queue and turn-state overhead, not just FieldLabel.
+    crate::resources::cache_budget(128 * 1024 * 1024, 16) / 128
+}
+
 pub(crate) struct BikeManyResult {
     pub seconds: Vec<f64>,
     // Matrix requests need distance as well; Reach allocates no second output.
@@ -166,7 +181,7 @@ impl BikeKernel {
             max.max(cost / seconds)
         });
         let ceiling = maximum_seconds * ratio * (1. + 1e-12);
-        // Complete the primary relaxation within the existing label budget.
+        // Legacy nearest-road attachments need a complete primary relaxation.
         // A cutoff-truncated tree cannot prove that the primary attachment has
         // no path: a longer primary route would prevent the point router from
         // trying a nearer-in-time road farther from the endpoint.
@@ -174,19 +189,44 @@ impl BikeKernel {
         // single all-access lower bound avoids rebuilding the same bicycle
         // search for each of them. Replay below certifies only paths whose
         // restricted roads belong to the actual endpoint permission set.
+        // With network walking, both point-router passes use the same complete
+        // attachments. No path below the cost ceiling proves no result within
+        // the physical cutoff; exhausting the whole regional graph is needless
+        // and can hit the label limit, forcing thousands of exact searches.
+        let primary_ceiling = if self.walking.is_some() {
+            ceiling
+        } else {
+            f64::INFINITY
+        };
+        // Every path below this cost ceiling lasts at most cost/min_factor.
+        // Enforce permissions fixed throughout that horizon in the shared
+        // search, rather than sending each cell through a closed-road shortcut
+        // and then repeating a timed point search to reject it.
+        let bounded_scope = || {
+            clock.filter(|_| self.walking.is_some()).map(|clock| {
+                let factor = if matches!(opt.profile, Profile::Fast) {
+                    1.
+                } else {
+                    0.8
+                };
+                self.windows.scope(clock, ceiling / factor * (1. + 1e-12))
+            })
+        };
         let primary_access = self.walking.is_none().then_some(&[][..]);
         let field = self.bike_field_metrics(
             starts,
             opt,
             clock,
-            f64::INFINITY,
+            primary_ceiling,
             primary_access,
-            None,
+            bounded_scope(),
             distances,
         )?;
+
         let mut extended = None;
         let mut waiting = Vec::new();
         let mut fallback = Vec::new();
+        let mut absent = Vec::new();
         let mut origin_access = None;
         let mut access_groups = std::collections::BTreeMap::<Vec<u32>, Vec<usize>>::new();
         let mut access_key_bytes = 0usize;
@@ -295,6 +335,14 @@ impl BikeKernel {
                 continue;
             }
             if certified.is_none()
+                && reason == "no_tree_path"
+                && !distances
+                && self.walking.is_some()
+            {
+                absent.push(target);
+                continue;
+            }
+            if certified.is_none()
                 && reason == "destination_access"
                 && self.walking.is_some()
                 && !distances
@@ -354,9 +402,9 @@ impl BikeKernel {
                 grouped_starts.as_ref().unwrap().clone(),
                 opt,
                 clock,
-                f64::INFINITY,
+                ceiling,
                 Some(&extra_access),
-                None,
+                bounded_scope(),
                 distances,
             )?;
             result.settled_labels += field.settled;
@@ -382,6 +430,13 @@ impl BikeKernel {
                 if let Some((seconds, _, meters)) = certified {
                     result.certified_targets += 1;
                     result.record(target, seconds, meters, maximum_seconds);
+                } else if reason == "waiting" && clock.is_some() {
+                    waiting.push((
+                        target,
+                        self.field_candidate(&field, &ends, opt, clock)?.unwrap().3,
+                    ));
+                } else if reason == "no_tree_path" && !distances {
+                    absent.push(target);
                 } else {
                     result.fallback_targets += 1;
                     *result.fallback_reasons.entry(reason).or_default() += 1;
@@ -390,9 +445,58 @@ impl BikeKernel {
             }
         }
         drop(grouped_starts);
+        if !absent.is_empty() {
+            // One physical-time relaxation can prove that all these cells are
+            // outside the budget, even when the preference tree hit its work
+            // limit. Relax road permissions; only absence is used as evidence.
+            let fast = BikeOptions {
+                profile: Profile::Fast,
+                ..opt
+            };
+            let starts = self.attach_bicycle_matching(
+                &graph,
+                origin,
+                max_walk,
+                walk_speed / 3.6,
+                true,
+                false,
+                &eligible,
+            )?;
+            let horizon = maximum_seconds * (1. + 1e-12);
+            let field = self.bike_field_metrics(
+                starts,
+                fast,
+                clock,
+                horizon,
+                None,
+                clock.map(|clock| self.windows.scope(clock, horizon)),
+                false,
+            )?;
+            result.settled_labels += field.settled;
+            result.tree_limited |= field.limited;
+            for target in absent {
+                let ends = self.attach_bicycle_matching(
+                    &graph,
+                    targets[target],
+                    max_walk,
+                    walk_speed / 3.6,
+                    false,
+                    false,
+                    &eligible,
+                )?;
+                if !field.limited && self.field_candidate(&field, &ends, fast, clock)?.is_none() {
+                    result.certified_targets += 1;
+                } else {
+                    result.fallback_targets += 1;
+                    *result.fallback_reasons.entry("no_tree_path").or_default() += 1;
+                    fallback.push(target);
+                }
+            }
+        }
         // No field or attachment scratch overlaps the exact point fallbacks.
+
         for target in fallback {
-            let route = self.route_at(
+            let route = self.reach_fallback(
                 origin,
                 targets[target],
                 opt,
@@ -400,6 +504,8 @@ impl BikeKernel {
                 walk_speed,
                 max_distance,
                 clock,
+                maximum_seconds,
+                if distances { f64::INFINITY } else { ceiling },
             )?;
             result.settled_labels += route.settled_labels;
             if route.status == "ready" {
@@ -456,6 +562,28 @@ impl BikeKernel {
             false,
             &eligible,
         )?;
+        // Network-walking attachments are identical in both point passes.
+        // First try a shared timed certificate with relaxed endpoint permissions;
+        // replay proves permissions for each target. This avoids building a pair
+        // of regional trees per small endpoint-access group when the chosen path
+        // does not use those roads at all.
+        let remaining = if self.walking.is_some() && result.meters.is_empty() {
+            self.certify_timed_reach(
+                &starts,
+                targets,
+                waiting,
+                opt,
+                max_walk,
+                walk_speed,
+                max_distance,
+                clock,
+                maximum_seconds,
+                result,
+            )?
+        } else {
+            waiting.to_vec()
+        };
+        let waiting = &remaining;
         let mut confirmed = Vec::new();
         let mut fallback = Vec::new();
         let physical = |r: &BikeResult| {
@@ -681,8 +809,17 @@ impl BikeKernel {
             }
         }
         drop(starts);
+        let ceiling = if distances || fallback.is_empty() {
+            f64::INFINITY
+        } else {
+            let ratio = (0..self.targets.len()).fold(1f64, |max, edge| {
+                let (seconds, cost) = self.metric(edge as u32, opt);
+                max.max(cost / seconds)
+            });
+            maximum_seconds * ratio * (1. + 1e-12)
+        };
         for target in fallback {
-            let route = self.route_at(
+            let route = self.reach_fallback(
                 origin,
                 targets[target],
                 opt,
@@ -690,6 +827,8 @@ impl BikeKernel {
                 walk_speed,
                 max_distance,
                 Some(clock),
+                maximum_seconds,
+                ceiling,
             )?;
             result.settled_labels += route.settled_labels;
             result.fallback_targets += 1;
@@ -704,6 +843,216 @@ impl BikeKernel {
             }
         }
         Ok(())
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep shared temporal proof bounds explicit."
+    )]
+    fn certify_timed_reach(
+        &self,
+        starts: &Attachment,
+        targets: &[[f64; 2]],
+        waiting: &[(usize, f64)],
+        opt: BikeOptions,
+        max_walk: f64,
+        walk_speed: f64,
+        max_distance: f64,
+        clock: BikeClock,
+        maximum_seconds: f64,
+        result: &mut BikeManyResult,
+    ) -> Result<Vec<(usize, f64)>, String> {
+        let graph = self.graph();
+        let eligible = |edge| self.allowed_edge(edge, opt);
+        let ratio = (0..self.targets.len()).fold(1f64, |max, edge| {
+            let (seconds, cost) = self.metric(edge as u32, opt);
+            max.max(cost / seconds)
+        });
+        let ceiling = maximum_seconds * ratio * (1. + 1e-12);
+        let factor = if matches!(opt.profile, Profile::Fast) {
+            1.
+        } else {
+            0.8
+        };
+        let snapshot = self.bike_field_metrics(
+            starts.clone(),
+            opt,
+            Some(clock),
+            ceiling,
+            None,
+            Some(self.windows.scope(clock, 0.)),
+            false,
+        )?;
+        result.settled_labels += snapshot.settled;
+        result.tree_limited |= snapshot.limited;
+        result.scoped_trees += 1;
+        let events = self.windows.scope_events(clock);
+        let mut groups = std::collections::BTreeMap::<usize, Vec<(usize, f64, f64)>>::new();
+        let mut remaining = Vec::new();
+        for &(target, lower) in waiting {
+            let ends = self.attach_bicycle_matching(
+                &graph,
+                targets[target],
+                max_walk,
+                walk_speed / 3.6,
+                false,
+                false,
+                &eligible,
+            )?;
+            let (candidate, _) =
+                self.field_duration(&snapshot, &ends, opt, max_distance, Some(clock))?;
+            if let Some((_, upper, _)) = candidate.filter(|&(_, cost, _)| cost.is_finite()) {
+                let horizon = upper / factor * (1. + 1e-12);
+                groups
+                    .entry(events.partition_point(|&event| event <= horizon))
+                    .or_default()
+                    .push((target, lower, upper));
+            } else {
+                remaining.push((target, lower));
+            }
+        }
+        drop(snapshot);
+        // Start with the largest shared horizon. Most global window changes
+        // are unrelated to these paths; split only targets whose replay fails.
+        let mut batches = std::collections::VecDeque::new();
+        if groups.len() > 1 {
+            batches.push_back((true, groups.into_values().flatten().collect::<Vec<_>>()));
+        } else {
+            batches.extend(groups.into_values().map(|group| (false, group)));
+        }
+        while let Some((split, group)) = batches.pop_front() {
+            let mut retry = std::collections::BTreeMap::<usize, Vec<(usize, f64, f64)>>::new();
+            let upper = group.iter().map(|&(_, _, cost)| cost).fold(0., f64::max);
+            let field = self.bike_field_metrics(
+                starts.clone(),
+                opt,
+                Some(clock),
+                upper * (1. + 1e-12),
+                None,
+                Some(self.windows.scope(clock, upper / factor * (1. + 1e-12))),
+                false,
+            )?;
+            result.settled_labels += field.settled;
+            result.tree_limited |= field.limited;
+            result.scoped_trees += 1;
+            for (target, lower, upper) in group {
+                let ends = self.attach_bicycle_matching(
+                    &graph,
+                    targets[target],
+                    max_walk,
+                    walk_speed / 3.6,
+                    false,
+                    false,
+                    &eligible,
+                )?;
+                let (candidate, _) =
+                    self.field_duration(&field, &ends, opt, max_distance, Some(clock))?;
+                if let Some((seconds, _, meters)) = candidate.filter(|&(_, cost, _)| cost <= upper)
+                {
+                    result.record(target, seconds, meters, maximum_seconds);
+                    result.certified_targets += 1;
+                } else if split {
+                    let horizon = upper / factor * (1. + 1e-12);
+                    retry
+                        .entry(events.partition_point(|&event| event <= horizon))
+                        .or_default()
+                        .push((target, lower, upper));
+                } else {
+                    remaining.push((target, lower));
+                }
+            }
+            batches.extend(retry.into_values().map(|group| (false, group)));
+        }
+        Ok(remaining)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep Reach's proof bounds explicit."
+    )]
+    fn reach_fallback(
+        &self,
+        origin: [f64; 2],
+        destination: [f64; 2],
+        opt: BikeOptions,
+        max_walk: f64,
+        walk_speed: f64,
+        max_distance: f64,
+        clock: Option<BikeClock>,
+        maximum_seconds: f64,
+        ceiling: f64,
+    ) -> Result<BikeResult, String> {
+        if !ceiling.is_finite() || self.walking.is_none() {
+            return self.route_at(
+                origin,
+                destination,
+                opt,
+                max_walk,
+                walk_speed,
+                max_distance,
+                clock,
+            );
+        }
+        let graph = self.graph();
+        let eligible = |edge| {
+            self.allowed_edge(edge, opt)
+                && (clock.is_some() || self.attributes[edge as usize] & TIMED_EDGE == 0)
+        };
+        let starts = self.attach_bicycle_matching(
+            &graph,
+            origin,
+            max_walk,
+            walk_speed / 3.6,
+            true,
+            false,
+            &eligible,
+        )?;
+        let ends = self.attach_bicycle_matching(
+            &graph,
+            destination,
+            max_walk,
+            walk_speed / 3.6,
+            false,
+            false,
+            &eligible,
+        )?;
+        // Absence within the physical budget is sufficient for a blank Reach
+        // cell. A point query would instead search for an arbitrarily late
+        // opening of a restricted road, which can exhaust its work budget.
+        let fastest = self.search(
+            origin,
+            destination,
+            opt,
+            &starts,
+            &ends,
+            max_distance,
+            false,
+            clock,
+            SearchKind::Earliest,
+            SearchBounds {
+                upper_cost: maximum_seconds * (1. + 1e-12),
+                earliest_arrival: 0.,
+            },
+            None,
+            false,
+        )?;
+        if fastest.status != "ready" {
+            return Ok(fastest);
+        }
+        let mut result = self.route_from(
+            origin,
+            destination,
+            opt,
+            max_walk,
+            walk_speed,
+            max_distance,
+            clock,
+            None,
+            false,
+            ceiling,
+        )?;
+        result.settled_labels += fastest.settled_labels;
+        Ok(result)
     }
 
     fn endpoint_access(&self, endpoint: &Attachment) -> HashSet<u32> {
@@ -755,14 +1104,7 @@ impl BikeKernel {
             starts,
             start_edges,
             labels: vec![],
-            direct: vec![
-                u32::MAX;
-                if self.lons.len() <= 262_144 {
-                    self.lons.len()
-                } else {
-                    0
-                }
-            ],
+            direct: vec![u32::MAX; field_node_slots(self.lons.len())],
             special: HashMap::new(),
             certified_cost: ceiling,
             settled: 0,
@@ -862,13 +1204,18 @@ impl BikeKernel {
                 );
             }
         }
+        let label_limit = if distances {
+            262_144
+        } else {
+            field_label_limit()
+        };
         'search: while let Some(Queue(cost, id)) = queue.pop() {
             if !field.labels[id].active {
                 continue;
             }
             // A bounded accelerator must not turn exhaustion into no-route.
             // Only paths cheaper than this unfinished frontier remain certified.
-            if field.labels.len() >= 262_144 {
+            if field.labels.len() >= label_limit {
                 field.certified_cost = cost;
                 field.limited = true;
                 break;
@@ -899,7 +1246,7 @@ impl BikeKernel {
                     )?
                     .into_iter()
                 {
-                    if field.labels.len() >= 262_144 {
+                    if field.labels.len() >= label_limit {
                         field.certified_cost = cost;
                         field.limited = true;
                         break 'search;
