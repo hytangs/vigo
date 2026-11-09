@@ -8,7 +8,8 @@
  */
 
 .reach-analysis-switch > strong { margin-right: auto; }
-.reach-analysis-switch > .reach-travel-mode { flex: 0 1 132px; }
+.reach-analysis-switch { flex-wrap: wrap; }
+.reach-analysis-switch > .reach-travel-mode { order: 1; flex: 1 0 100%; }
 
 
 .reach-surface { display: flex; flex-direction: column; }

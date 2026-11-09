@@ -1728,6 +1728,7 @@ impl City {
                             let t = self.timetable.as_ref().unwrap();
                             super::corridor::alight_before_return(&t.kernel, &t.links, journey);
                             super::shared_legs::depart_later(t, journey)?;
+                            t.kernel.improve_interchanges(journey);
                         }
                         j.as_ref().map_or(Ok(Value::Null), |j| {
                             if compact {

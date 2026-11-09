@@ -403,10 +403,11 @@ export function AnalyzePanelView({
     <section className="reach-surface" aria-label="Reach analysis controls">
       <header className="inspector-head is-compact reach-analysis-switch">
         <strong>Reach</strong>
-        {onTravelModeChange ? <div className="studio-tabs is-icon-only reach-travel-mode" role="group" aria-label="Travel mode">
+        {onTravelModeChange ? <div className="studio-tabs reach-travel-mode" role="group" aria-label="Travel mode">
           {([['transit', 'Transit & walk', TrainFront], ['drive', 'Drive', Car], ['bike', 'Bike', Bike]] as const).map(([value, label, Icon]) => (
             <button key={value} type="button" aria-label={label} title={label} aria-pressed={travelMode === value} onClick={() => onTravelModeChange(value)}>
               <Icon size={18} aria-hidden="true" />
+              <span>{value === 'transit' ? 'Transit' : label}</span>
             </button>
           ))}
         </div> : null}

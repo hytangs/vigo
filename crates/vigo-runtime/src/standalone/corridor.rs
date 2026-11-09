@@ -364,6 +364,7 @@ pub(super) fn simplify(
     board_last_pass(&t.kernel, &t.links, input, journey)?;
     alight_before_return(&t.kernel, &t.links, journey);
     super::shared_legs::depart_later(t, journey)?;
+    t.kernel.improve_interchanges(journey);
     Ok(())
 }
 
