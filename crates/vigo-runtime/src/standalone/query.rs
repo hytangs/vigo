@@ -1141,7 +1141,7 @@ impl City {
         // Collected choices are selected without reading shared services:
         // each keeps its journey's index, and only selected ones are searched.
         // An arrive-by window defers them further, to its own selection.
-        let window_deferral = collect && self.window_shared_legs.is_some();
+        let window_deferral = self.window_shared_legs.is_some();
         let base = self.window_shared_legs.as_ref().map_or(0, Vec::len);
         let mut deferred_shared: Vec<TimetableMatrixJourney> = vec![];
         if (collect || requested.is_some())
@@ -1177,7 +1177,7 @@ impl City {
                 )?;
                 choice["status"] = json!("ready");
                 choice["mode"] = json!("transit");
-                if shared_legs && collect {
+                if shared_legs && (collect || window_deferral) {
                     choice[DEFERRED_SHARED_LEGS] = json!(base + deferred_shared.len());
                     deferred_shared.push(candidate);
                 } else if shared_legs {
@@ -1329,6 +1329,7 @@ impl City {
                 destination,
                 access: [a, b],
                 timetable: self.timetable_identity(),
+                refresh_access: !collect,
             });
             self.window_shared_legs
                 .as_mut()

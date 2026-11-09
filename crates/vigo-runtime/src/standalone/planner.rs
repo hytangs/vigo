@@ -37,6 +37,57 @@ fn transit(v: &Value) -> bool {
 }
 impl City {
     pub(super) fn planner_route(&mut self, q: &Value) -> Result<Value> {
+        // Ranking and station bundling do not inspect shared-service details.
+        // Resolve those only for the journeys that survive the complete policy,
+        // sharing duplicate work between the primary and its alternatives.
+        let defer = flag(q, "sharedLegs", false)?
+            && q.get("realtimeSnapshot").is_none()
+            && self.query_live.is_none()
+            && self.window_shared_legs.is_none();
+        if !defer {
+            return self.planner_route_selected(q);
+        }
+        self.window_shared_legs = Some(vec![]);
+        let selected = self.planner_route_selected(q);
+        // Always clear the collection, including on a failed supplemental query.
+        let deferred = self.window_shared_legs.take().unwrap();
+        let mut result = selected?;
+        if deferred
+            .iter()
+            .any(|d| d.context.timetable != self.timetable_identity())
+        {
+            // A clock crossing a timetable coverage boundary invalidates trip
+            // indices. Preserve the eager path's semantics in that rare case.
+            return self.planner_route_selected(q);
+        }
+        let mut choices = result
+            .as_object_mut()
+            .unwrap()
+            .remove("choices")
+            .and_then(|v| v.as_array().cloned())
+            .unwrap_or_default();
+        self.resolve_shared_legs(
+            std::iter::once(&mut result).chain(choices.iter_mut()),
+            &deferred,
+        )?;
+        // The inner route calls already priced their ordinary journeys, but
+        // these shared options were created after that annotation step.
+        let date = q["serviceDate"].as_str().unwrap_or_default();
+        for plan in std::iter::once(&mut result).chain(choices.iter_mut()) {
+            if let Some(options) = plan
+                .get_mut("sharedLegAlternatives")
+                .and_then(|shared| shared.get_mut("options"))
+                .and_then(Value::as_array_mut)
+            {
+                for option in options {
+                    self.annotate_fares(&mut option["plan"], date);
+                }
+            }
+        }
+        result["choices"] = json!(choices);
+        Ok(result)
+    }
+    fn planner_route_selected(&mut self, q: &Value) -> Result<Value> {
         if q["journeyPolicy"] != "alternatives-v1" {
             return fail("Unknown journeyPolicy; supported: alternatives-v1");
         }
