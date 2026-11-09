@@ -710,11 +710,10 @@ impl BikeKernel {
         };
         let events = self.windows.scope_events(clock);
         if self.walking.is_some() && !distances {
-            // The shared timed certificate already tried the common paths.
-            // Remaining network-walking targets use the exact point router,
-            // instead of repeating regional fields for each endpoint-access
-            // group before falling back to those same point searches.
-            fallback.extend(waiting.iter().map(|&(target, _)| target));
+            // Both point-router passes use the same complete walking-network
+            // attachments. Preserve the existing field certificates, including
+            // their physical-duration summation, before exact point fallbacks.
+            confirmed.extend(waiting.iter().map(|&(target, _)| target));
         } else {
             let mut checks = std::collections::BTreeMap::<usize, Vec<(usize, f64)>>::new();
             for &(target, lower) in waiting {
