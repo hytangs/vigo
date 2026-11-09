@@ -324,6 +324,7 @@ try {
     bounds[3]-(Math.floor(i/size)+.5)/size*(bounds[3]-bounds[1])])
   for(const [reachCity,profile,maxLts,arrive,clockTime,serviceDate] of [[stressCity,'fast',1,false],[stressCity,'quiet',4,false],
     [viaCity,'balanced',undefined,false],[viaCity,'quiet',undefined,true],
+    [timedCity,'balanced',undefined,false],[roadCity,'quiet',undefined,false],
     [stressCity,'balanced',1,true],[roadCity,'balanced',undefined,true,'08:30'],
     [roadCity,'balanced',undefined,true,'00:00'],
     [roadCity,'balanced',undefined,true,'00:15','2026-03-08'],
@@ -338,6 +339,8 @@ try {
     assert.equal(reach.trace.surface.sampling,'cell-center')
     assert.equal(reach.trace.diagnostics.bike.algorithm,arrive?'shared_bicycle_arrival_tree_with_verified_paths':'shared_bicycle_lower_bound_tree_with_verified_paths')
     assert.equal(reach.trace.diagnostics.bike.certifiedTargets+reach.trace.diagnostics.bike.exactFallbackTargets,size*size)
+    if (!arrive) assert.equal(reach.trace.diagnostics.bike.timedAttachmentCertificates,0,
+      'Network-walking endpoints do not need per-target widening proofs')
     const matrix=run('matrix',{...parameters,maxStreetKm:750,
       origins:arrive?cells:[query.origin],destinations:arrive?[query.destination]:cells},reachCity)
     const expected=arrive?matrix.durationsSeconds.map(row=>row[0]):matrix.durationsSeconds[0]
@@ -493,4 +496,4 @@ try {
   for(const file of stores)disposeNationalOsmStore(file)
   fs.rmSync(directory,{recursive:true,force:true,maxRetries:20,retryDelay:50})
 }
-console.log('Bike import, compaction, native/Node/HTTP Route, Matrix and Reach, 5,888 grid/point comparisons including midnight/DST clocks and preference/cutoff trade-offs, ordered/arrive-by routes, lazy shared graph and validation passed.')
+console.log('Bike import, compaction, native/Node/HTTP Route, Matrix and Reach, 6,400 grid/point comparisons including midnight/DST clocks and preference/cutoff trade-offs, ordered/arrive-by routes, lazy shared graph and validation passed.')
