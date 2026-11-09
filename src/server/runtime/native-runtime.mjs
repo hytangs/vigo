@@ -24,7 +24,9 @@ const maxResponseBytes = 256 * 1024 * 1024
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url))
 const preparationRequest = request => request?.kind === 'info'
   || request?.kind === 'native' && request.operation?.endsWith('.prepare')
-const routeMode = request => request?.kind === 'route' ? request.mode ?? 'transit' : null
+const preparationModes = { 'street.prepare': 'walk', 'drive.prepare': 'drive', 'bike.prepare': 'bike', 'timetable.prepare': 'transit' }
+const routeMode = request => request?.kind === 'native' ? preparationModes[request.operation] ?? null
+  : ['route', 'matrix', 'reach'].includes(request?.kind) ? request.mode ?? 'transit' : null
 // Preparation keeps only timetable selectors, never a visitor's journey.
 function modePreparation(request) {
   const mode = routeMode(request)

@@ -128,7 +128,9 @@ const runtime = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fake
   const layout = nativeLayout('/cities/rewarm')
   try {
     pool.setResidency(layout, true, 'visitor')
-    await pool.query(layout, { kind: 'route', mode: 'bike', id: 'bike-load' })
+    await pool.query(layout, { kind: 'native', operation: 'bike.prepare' })
+    await pool.query(layout, { kind: 'reach', mode: 'drive', origin: { coordinate: [1, 2] }, id: 'drive-surface' })
+    await pool.query(layout, { kind: 'matrix', mode: 'walk', origins: [[1, 2]], destinations: [[3, 4]], id: 'walk-matrix' })
     const first = pool.cities.get(layout.key).processes[0].child
     const controller = new AbortController()
     const overrun = pool.query(layout, { kind: 'route', mode: 'walk', scenario: { id: 'x' }, id: 'overrun', delayMs: 500 }, controller.signal)
@@ -137,8 +139,14 @@ const runtime = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fake
     await new Promise(resolve => setTimeout(resolve, 80))
     const replacement = pool.cities.get(layout.key).processes[0]
     assert.notEqual(replacement.child, first)
-    assert.deepEqual(replacement.child.requests, [{ kind: 'native', operation: 'bike.prepare' }], 'Replacement loads only the mode and retains no journey')
+    assert.deepEqual(replacement.child.requests, [
+      { kind: 'native', operation: 'bike.prepare' },
+      { kind: 'native', operation: 'drive.prepare' },
+      { kind: 'native', operation: 'street.prepare' },
+    ], 'Replacement loads only the prepared networks and retains no journey or surface')
     assert(replacement.routeModes.has('bike'))
+    assert(replacement.routeModes.has('drive'))
+    assert(replacement.routeModes.has('walk'))
     pool.setResidency(layout, false, 'visitor')
     assert.equal(pool.warmRoutes.has(layout.key), false)
   } finally { pool.closeAll() }
@@ -159,22 +167,22 @@ const runtime = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fake
   } finally { pool.closeAll() }
 }
 // Metadata readiness must not expose a second process's cold bike network.
-{
+for (const kind of ['route', 'matrix', 'reach']) {
   const pool = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fakeSpawn, maxProcesses: 2 })
   const layout = nativeLayout('/cities/bike-startup')
   try {
-    const first = await pool.query(layout, { kind: 'route', mode: 'bike', id: 'bike-first' })
+    const first = await pool.query(layout, { kind, mode: 'bike', id: 'bike-first' })
     await pool.query(layout, { kind: 'route', mode: 'walk', id: 'walk-first' })
-    const busy = pool.query(layout, { kind: 'route', mode: 'bike', id: 'bike-busy', delayMs: 100 })
-    const queued = pool.query(layout, { kind: 'route', mode: 'bike', id: 'bike-warmup', delayMs: 100 })
+    const busy = pool.query(layout, { kind, mode: 'bike', id: 'bike-busy', delayMs: 100 })
+    const queued = pool.query(layout, { kind, mode: 'bike', id: 'bike-warmup', delayMs: 100 })
     await new Promise(resolve => setTimeout(resolve, 20))
-    const during = pool.query(layout, { kind: 'route', mode: 'bike', id: 'during-warmup' })
+    const during = pool.query(layout, { kind, mode: 'bike', id: 'during-warmup' })
     await during
     assert(pool.cities.get(layout.key).processes[1].child.requests.some(request => request.operation === 'bike.prepare'))
     assert(!pool.cities.get(layout.key).processes[1].child.requests.some(request => request.id === 'bike-warmup'), 'Secondary initialization never repeats the queued route')
     await Promise.all([busy, queued])
-    const slow = pool.query(layout, { kind: 'route', mode: 'bike', id: 'occupy-primary', delayMs: 100 })
-    const parallel = await pool.query(layout, { kind: 'route', mode: 'bike', id: 'warm-secondary' })
+    const slow = pool.query(layout, { kind, mode: 'bike', id: 'occupy-primary', delayMs: 100 })
+    const parallel = await pool.query(layout, { kind, mode: 'bike', id: 'warm-secondary' })
     assert.notEqual(parallel.process, first.process, 'The prepared second bike process can serve parallel routes')
     const walk = await pool.query(layout, { kind: 'route', mode: 'walk', id: 'walk-affinity' })
     assert.equal(walk.process, first.process, 'Bike preparation does not make the secondary walking network warm')

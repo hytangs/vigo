@@ -15,7 +15,7 @@ let api
 try {
  const inputs=await writeCliFixtureInputs(root)
  await buildNationalGtfsStore({zipPath:inputs.gtfsPath,outputPath:store})
- await buildNationalOsmStore({pbfPath:inputs.osmPath,outputPath:street})
+ await buildNationalOsmStore({pbfPath:inputs.osmPath,outputPath:street,includeBiking:true})
  compactNationalOsmRuntimeStore(street,{requireDrive:true});buildNativeStreetCchIndex(street)
  disposeNationalOsmStore(street);disposeAllNationalGtfsStores()
  // A prepared street snapshot can outlive its derived hierarchy generation.
@@ -39,6 +39,14 @@ try {
  // The missing street index was written once by the JavaScript worker, which was then released.
  assert.equal(health.body.nativePreparation.repaired,1)
  assert.equal(health.body.routingRuntime.routingAccessPrewarm.started,1)
+ for(const mode of ['bike','walk']) {
+  const opened=await post('routing-residency',{...context,mode,resident:true,leaseId:mode})
+  assert.equal(opened.residency.reachPreparation.ready,true,JSON.stringify(opened))
+  assert.equal(opened.residency.reachPreparation.mode,mode)
+  assert.equal(opened.residency.reachPreparation.timetableActivated,false,'Street modes must prepare their own network without activating transit')
+  await post('routing-residency',{...context,mode,resident:false,leaseId:mode})
+ }
+ assert(!(await fs.readdir(path.dirname(street))).some(name=>name.includes('drive-cch-v2-')),'Bike and walk preparation must leave driving deferred')
  const request={...context,requireTransitRide:true,origin:{stopId:'A',coordinate:[-77.05,38.9]},destination:{stopId:'B',coordinate:[-77.03,38.91]},departMinutes:480,maxWalkKm:0.1}
  const first=await post('national-route',request),repeat=await post('national-route',request)
  assert.equal(first.choices[0].status,'ready');assert.equal(first.choices[0].arriveMinutes,510);assert.deepEqual(first.choices[0].legs,repeat.choices[0].legs)
@@ -54,6 +62,11 @@ try {
  }
  assert.equal(job.status,'complete',JSON.stringify(job))
  assert((await fs.readdir(path.dirname(street))).some(name=>name.includes('drive-cch-v2-')&&name.endsWith('.manifest.json')))
+ const driving=await post('routing-residency',{...context,mode:'drive',resident:true,leaseId:'drive-route'})
+ assert.equal(driving.residency.reachPreparation.ready,true,JSON.stringify(driving))
+ assert.equal(driving.residency.reachPreparation.mode,'drive')
+ assert.equal(driving.residency.reachPreparation.timetableActivated,false)
+ await post('routing-residency',{...context,mode:'drive',resident:false,leaseId:'drive-route'})
  await post('street-residency',{resident:false,leaseId:'drive-check'})
  await post('routing-residency',{...live,resident:false})
  await post('routing-residency',{...context,resident:false,leaseId:'test'})

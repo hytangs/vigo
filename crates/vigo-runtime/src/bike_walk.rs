@@ -307,12 +307,15 @@ impl WalkNetwork {
                 "reverseSources"
             })
             .map_err(|e| e.to_string())?;
-        let distances = snapshot
-            .f64_array("edgeDistances")
-            .map_err(|e| e.to_string())?;
-        let reverse = snapshot
-            .u32_array("reverseEdgeIndices")
-            .map_err(|e| e.to_string())?;
+        // Endpoint walks reuse the snapshot's exact reverse-order distances.
+        // Gathering them once removes an indirect graph read from every
+        // reverse relaxation, shared by all cells and later queries.
+        let distances = if origin {
+            snapshot.f64_array("edgeDistances")
+        } else {
+            snapshot.reverse_edge_distances()
+        }
+        .map_err(|e| e.to_string())?;
         while let Some(current) = queue.pop() {
             if labels[&current.node].0 != current.meters {
                 continue;
@@ -321,7 +324,7 @@ impl WalkNetwork {
                 offsets[current.node as usize] as usize..offsets[current.node as usize + 1] as usize
             {
                 let next = targets[edge];
-                let length = distances[if origin { edge } else { reverse[edge] as usize }];
+                let length = distances[edge];
                 let distance = current.meters + length;
                 if distance > maximum {
                     continue;

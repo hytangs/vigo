@@ -408,6 +408,8 @@ function NetworkRuntime() {
 function RouteRuntime() {
   const page = useStore(shell, (state) => state.page)
   const activeRouteTool = useStore(shell, (state) => state.activeRouteTool)
+  const reachTravelMode = useStore(analyze, (state) => state.reachTravelMode)
+  const reachTimePreference = useStore(analyze, (state) => state.reachTimePreference)
   const project = useStudioRecord(() => {
     const current = selectedProject()
     return { id: current.id, streetKey: `${current.osmStreetIndex?.builtAt ?? ''}:${current.osmStreetIndex?.bytes ?? ''}` }
@@ -509,6 +511,8 @@ function RouteRuntime() {
 
   // Hold the routing store resident while a workspace can route against it.
   const cityRoutingActive = page === 'project' && activeRouteTool !== 'data' && Boolean(nationalRoutingFeed)
+  const residencyMode = activeRouteTool === 'analyze' ? reachTravelMode : settings.routingMode
+  const residencyTimePreference = activeRouteTool === 'analyze' ? reachTimePreference : settings.routingTimePreference
   const feedId = nationalRoutingFeed?.id
   useEffect(() => {
     if (!cityRoutingActive || !feedId) {
@@ -526,7 +530,8 @@ function RouteRuntime() {
         feedId,
         resident,
         leaseId,
-        mode: settings.routingMode,
+        mode: residencyMode,
+        timePreference: residencyTimePreference,
         routingDataMode: settings.routingDataMode,
         departNow: activeRouteTool === 'pathfinder' && settings.routingMode === 'transit' && settings.routingDataMode === 'realtime' || undefined,
         serviceDate,
@@ -545,7 +550,7 @@ function RouteRuntime() {
       // Release after it settles so a late acquisition cannot retain a worker.
       void acquisition.then(() => request(false, true))
     }
-  }, [cityRoutingActive, feedId, project.id, serviceDate, routingServiceDay, activeRouteTool, settings.routingMode, settings.routingDataMode])
+  }, [cityRoutingActive, feedId, project.id, serviceDate, routingServiceDay, activeRouteTool, residencyMode, residencyTimePreference, settings.routingMode, settings.routingDataMode])
 
   // Open the wheelchair City once the person selects it, then keep both
   // profiles resident so toggling back and forth does not reopen them. An

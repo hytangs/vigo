@@ -30,7 +30,7 @@ import {
   readNationalGtfsStoreMetadata,
   removeNationalGtfsOsmStopTransfers,
 } from './national-gtfs-store.mjs'
-import { describeNativePlaces } from './native-routing-kernel.mjs'
+import { describeNativePlaces, prepareNativeResultRendering } from './native-routing-kernel.mjs'
 import { readNationalOsmStoreMetadata } from './national-osm-store.mjs'
 import { readLocalBasemap, localBasemapBudgets } from './local-basemap-store.mjs'
 import { networkSignatureVersion } from './network-signature.mjs'
@@ -3110,28 +3110,34 @@ const nativePreparationStats = { started: 0, completed: 0, failed: 0, repaired: 
 const nativePreparations = new Map()
 const preparingLayouts = new Map()
 /**
- * Open `selection`'s City and activate `context`'s service date with its
- * transfer settings, through 36:00 so later departures reuse it. Concurrent
- * callers with the same context share one preparation.
+ * Open the selected mode's network. Transit activates the service date
+ * through 36:00 so later departures reuse it. Concurrent callers with the
+ * same context share one preparation.
  */
 function prepareNativeCity(selection, context) {
+  const mode = context.mode ?? 'transit'
   const settings = {
     allowStreetTransfers: context.allowStreetTransfers !== false,
     minimumTransferBufferMinutes: Number(context.minimumTransferBufferMinutes ?? 0),
   }
   const arriving = context.timePreference === 'arrive'
-  const key = JSON.stringify([selection.layout.key, context.serviceDate ?? null, settings, arriving])
+  const key = JSON.stringify([selection.layout.key, mode, ...(mode === 'transit'
+    ? [context.serviceDate ?? null, settings, arriving] : [])])
   let preparation = nativePreparations.get(key)
   if (!preparation) {
     nativePreparationStats.started += 1
     preparation = (async () => {
       const started = performance.now()
-      const activate = Boolean(context.serviceDate)
-      const request = activate
+      const activate = mode === 'transit' && Boolean(context.serviceDate)
+      const operation = { walk: 'street.prepare', drive: 'drive.prepare', bike: 'bike.prepare' }[mode]
+      const request = operation ? { kind: 'native', operation } : activate
         ? { kind: 'native', operation: 'timetable.prepare', serviceDate: context.serviceDate,
             timeMinutes: 1439, ...settings, ...(selection.wheelchair ? { wheelchair: true } : {}) }
         : { kind: 'info' }
-      const trace = await queryNativeCity(selection, request, undefined, { afterPreparation: false })
+      const [trace] = await Promise.all([
+        queryNativeCity(selection, request, undefined, { afterPreparation: false }),
+        Promise.resolve().then(prepareNativeResultRendering),
+      ])
       // An arrive-by deadline within the search horizon of midnight runs on the
       // preceding service day's clock: open that timetable too.
       if (activate && arriving) {
@@ -3142,6 +3148,7 @@ function prepareNativeCity(selection, context) {
       return {
         ready: true,
         runtime: 'rust',
+        mode,
         serviceDate: context.serviceDate ?? null,
         timetableActivated: activate,
         precedingDayActivated: activate && arriving,
@@ -3907,11 +3914,11 @@ async function setRoutingResidency(projectId, body) {
     : nativeLayout(projectMetaDir(projectId), storePath)
   const residency = nativeRuntime.setResidency(layout, body?.resident === true, body?.leaseId)
   let reachPreparation = null
-  if (body?.resident === true && String(body?.serviceDate ?? '').trim()) {
-    const selection = await nativeRouteSelection(projectId, project, { ...body, mode: 'transit' }).catch(() => null)
+  if (body?.resident === true && (['walk', 'drive', 'bike'].includes(body?.mode) || String(body?.serviceDate ?? '').trim())) {
+    const selection = await nativeRouteSelection(projectId, project, body).catch(() => null)
     if (selection) {
       try {
-        reachPreparation = await prepareNativeCity(selection, { ...nationalRequestServiceContext(body), ...transferSettings(body),
+        reachPreparation = await prepareNativeCity(selection, { ...nationalRequestServiceContext(body), ...transferSettings(body), mode: body?.mode ?? 'transit',
           ...(body?.timePreference === 'arrive' ? { timePreference: 'arrive' } : {}) })
       } catch (error) {
         reachPreparation = {

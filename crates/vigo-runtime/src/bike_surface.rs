@@ -3,6 +3,7 @@
 //! destinations. No point queries are issued while evaluating the surface.
 use super::*;
 use many::BikeManyResult;
+use std::hash::BuildHasherDefault;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SurfacePass {
@@ -407,7 +408,7 @@ impl SurfaceEnds {
 
 #[derive(Default)]
 struct SurfaceScopes {
-    nodes: HashMap<u32, usize>,
+    nodes: HashMap<u32, usize, BuildHasherDefault<crate::IntegerHasher>>,
     bands: Vec<SurfaceBand>,
 }
 struct SurfaceBand {
@@ -421,7 +422,9 @@ struct SurfaceBand {
 struct SurfaceMasks {
     sets: Vec<std::sync::Arc<[u64]>>,
     ids: HashMap<std::sync::Arc<[u64]>, u32>,
-    operations: HashMap<[u32; 3], u32>,
+    // The two mask ids fit exactly in one integer key. Separate operation
+    // tables avoid hashing a tuple for every frontier dominance comparison.
+    operations: [HashMap<u64, u32, BuildHasherDefault<crate::IntegerHasher>>; 3],
     all: u32,
 }
 impl SurfaceMasks {
@@ -429,7 +432,7 @@ impl SurfaceMasks {
         let mut masks = Self {
             sets: vec![],
             ids: HashMap::new(),
-            operations: HashMap::new(),
+            operations: Default::default(),
             all: 0,
         };
         masks.intern(vec![0; count.div_ceil(64)]);
@@ -486,8 +489,8 @@ impl SurfaceMasks {
         if op != 1 && a > b {
             std::mem::swap(&mut a, &mut b);
         }
-        let key = [a, b, op];
-        if let Some(&id) = self.operations.get(&key) {
+        let key = (u64::from(a) << 32) | u64::from(b);
+        if let Some(&id) = self.operations[op as usize].get(&key) {
             return id;
         }
         let words = self.sets[a as usize]
@@ -500,10 +503,12 @@ impl SurfaceMasks {
             })
             .collect();
         let id = self.intern(words);
-        if self.operations.len() >= 65536 {
-            self.operations.clear();
+        if self.operations.iter().map(HashMap::len).sum::<usize>() >= 65536 {
+            for table in &mut self.operations {
+                table.clear();
+            }
         }
-        self.operations.insert(key, id);
+        self.operations[op as usize].insert(key, id);
         id
     }
 }
