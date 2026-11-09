@@ -62,6 +62,8 @@ The paper’s frozen matched-request benchmark reports these median times for re
 
 VIGO had the lowest median latency among the nine interfaces in that benchmark. These are historical transit point-query measurements; City loading, bicycle isochrones and Matrix workloads have different costs. The paper, benchmark code and measurement method are linked from [vigo.city](https://vigo.city/).
 
+Bicycle surfaces share a temporal search across grid cells for both departure and arrival queries. Reopening a prepared bicycle graph can reuse its source-checked local representation; query answers are never stored in that cache.
+
 When timing a current build, measure the first request separately from repeated requests against a resident City. Record the data revision, mode, bicycle profile where applicable, surface size, time budget and worker count alongside the result.
 
 ## Put VIGO to work

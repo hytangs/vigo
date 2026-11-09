@@ -42,7 +42,7 @@ impl BikeClock {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub(crate) struct TurnWindows {
     // Index zero always applies, including old Cities and unknown conditions.
     pub schedules: Vec<Vec<(u16, u16)>>,

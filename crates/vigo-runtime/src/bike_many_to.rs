@@ -60,9 +60,9 @@ impl BikeKernel {
         maximum_seconds: f64,
         max_elapsed: Option<f64>,
     ) -> Result<BikeManyResult, String> {
-        self.many_to_metrics(
-            origins,
+        self.surface_to(
             destination,
+            origins,
             opt,
             max_walk,
             walk_speed,
@@ -70,7 +70,6 @@ impl BikeKernel {
             clock,
             maximum_seconds,
             max_elapsed,
-            false,
         )
     }
 

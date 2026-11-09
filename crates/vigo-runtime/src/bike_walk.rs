@@ -15,7 +15,8 @@ pub(super) struct WalkNetwork {
     // sorted pairs. Never join by coordinates.
     links: WalkLinks,
 }
-enum WalkLinks {
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(super) enum WalkLinks {
     Dense(Vec<u32>),
     Sparse(Vec<(u32, u32)>),
 }
@@ -49,7 +50,10 @@ impl WalkLinks {
         }
     }
 }
-struct WalkSearch {
+#[derive(Default)]
+pub(super) struct WalkSearch {
+    queue: BinaryHeap<WalkQueue>,
+    snap: SnapWorkspace,
     // Keys are compact snapshot node ids, never external strings. Candidate
     // order is sorted below, independent of hash-table iteration order.
     labels: HashMap<u32, (f64, u32), BuildHasherDefault<IntegerHasher>>,
@@ -101,6 +105,46 @@ fn push_candidate(candidates: &mut Vec<BikeCandidate>, candidate: BikeCandidate)
 }
 
 impl WalkNetwork {
+    pub(super) fn prepared_links(&self) -> &WalkLinks {
+        &self.links
+    }
+
+    pub(super) fn from_prepared(
+        path: &str,
+        links: WalkLinks,
+        lons: &[f64],
+        lats: &[f64],
+    ) -> Result<Self, String> {
+        let snapshot =
+            crate::shared_streets::snapshot(&format!("{path}.street-accelerator-v7.bin"))
+                .map_err(|e| e.to_string())?;
+        let xs = snapshot.f64_array("nodeLons").map_err(|e| e.to_string())?;
+        let ys = snapshot.f64_array("nodeLats").map_err(|e| e.to_string())?;
+        let valid = |walk: usize, bike: u32| {
+            walk < xs.len()
+                && (bike as usize) < lons.len()
+                && (xs[walk] - lons[bike as usize]).abs() <= 1e-7
+                && (ys[walk] - lats[bike as usize]).abs() <= 1e-7
+        };
+        let matches = match &links {
+            WalkLinks::Dense(nodes) => {
+                nodes.len() == xs.len()
+                    && nodes
+                        .iter()
+                        .enumerate()
+                        .all(|(walk, &bike)| bike == u32::MAX || valid(walk, bike))
+            }
+            WalkLinks::Sparse(nodes) => {
+                nodes.windows(2).all(|pair| pair[0].0 < pair[1].0)
+                    && nodes.iter().all(|&(walk, bike)| valid(walk as usize, bike))
+            }
+        };
+        if !matches {
+            return Err("Invalid compiled bicycle walking node identity".into());
+        }
+        Ok(Self { snapshot, links })
+    }
+
     pub(super) fn load(
         db: &Connection,
         path: &str,
@@ -190,11 +234,27 @@ impl WalkNetwork {
         self.links.bike_node(node)
     }
     fn search(&self, point: [f64; 2], maximum: f64, origin: bool) -> Result<WalkSearch, String> {
+        let mut walk = WalkSearch::default();
+        self.search_into(point, maximum, origin, &mut walk)?;
+        Ok(walk)
+    }
+    fn search_into(
+        &self,
+        point: [f64; 2],
+        maximum: f64,
+        origin: bool,
+        walk: &mut WalkSearch,
+    ) -> Result<(), String> {
+        // A batch reuses bounded allocations, never labels or answers from
+        // another coordinate. Queue ordering and every relaxation stay intact.
+        walk.labels.clear();
+        walk.queue.clear();
+        walk.attached_bike_nodes.clear();
         let snapshot = &self.snapshot;
         let (snaps, projection) = crate::street_attachment_with_workspace(
             snapshot,
             snapshot.reciprocal_edge_flags(),
-            &mut SnapWorkspace::default(),
+            &mut walk.snap,
             point[0],
             point[1],
         )
@@ -220,12 +280,10 @@ impl WalkNetwork {
                 ]
             },
         );
-        let attached_bike_nodes = snaps
-            .iter()
-            .filter_map(|s| self.bike_node(s.node))
-            .collect();
-        let mut labels = HashMap::<_, _, BuildHasherDefault<IntegerHasher>>::default();
-        let mut queue = BinaryHeap::new();
+        walk.attached_bike_nodes
+            .extend(snaps.iter().filter_map(|s| self.bike_node(s.node)));
+        let labels = &mut walk.labels;
+        let queue = &mut walk.queue;
         if gap <= crate::SNAP_RADIUS_M && gap <= maximum {
             for snap in snaps.into_iter().filter(|s| s.distance_m <= maximum) {
                 labels.insert(snap.node, (snap.distance_m, u32::MAX));
@@ -287,12 +345,9 @@ impl WalkNetwork {
                 });
             }
         }
-        Ok(WalkSearch {
-            labels,
-            projection: projected,
-            gap,
-            attached_bike_nodes,
-        })
+        walk.projection = projected;
+        walk.gap = gap;
+        Ok(())
     }
     pub(super) fn attach(
         &self,
@@ -303,7 +358,33 @@ impl WalkNetwork {
         origin: bool,
         eligible: &impl Fn(u32) -> bool,
     ) -> Result<Attachment, String> {
-        let walk = self.search(point, maximum, origin)?;
+        self.attach_with_workspace(
+            bike,
+            point,
+            maximum,
+            speed,
+            origin,
+            eligible,
+            false,
+            &mut WalkSearch::default(),
+        )
+    }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Batch scratch must not change endpoint policy."
+    )]
+    pub(super) fn attach_with_workspace(
+        &self,
+        bike: &BikeKernel,
+        point: [f64; 2],
+        maximum: f64,
+        speed: f64,
+        origin: bool,
+        eligible: &impl Fn(u32) -> bool,
+        vertex_origins: bool,
+        walk: &mut WalkSearch,
+    ) -> Result<Attachment, String> {
+        self.search_into(point, maximum, origin, walk)?;
         let graph = bike.graph();
         // A coordinate can choose a nearer bicycle road, but cannot jump over
         // its nearer pedestrian attachment to an unrelated road. Remaining
@@ -337,7 +418,29 @@ impl WalkNetwork {
         for (node, meters) in reached {
             let edges = bike.offsets[node as usize]..bike.offsets[node as usize + 1];
             let mut outgoing = edges.filter(|&e| eligible(e));
-            if origin {
+            if origin && vertex_origins {
+                // A shared reverse search already checks the first road when
+                // it reaches this vertex. Store one walking terminal instead
+                // of repeating it once for every outgoing edge. Preserve the
+                // endpoint's private-component permission when one is present.
+                let edge = outgoing
+                    .clone()
+                    .find(|&e| bike.attributes[e as usize] & (1 << 22) != 0)
+                    .or_else(|| outgoing.next());
+                if let Some(edge) = edge
+                    && !push_candidate(
+                        &mut candidates,
+                        BikeCandidate {
+                            node,
+                            edge,
+                            fraction: 4.,
+                            walk_meters: meters,
+                        },
+                    )
+                {
+                    return Err(CANDIDATE_LIMIT.into());
+                }
+            } else if origin {
                 for edge in outgoing {
                     if !push_candidate(
                         &mut candidates,

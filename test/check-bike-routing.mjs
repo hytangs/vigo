@@ -337,8 +337,9 @@ try {
       cutoffsMinutes:[15,60],rasterSize:size,bounds,reachFormat:'surface',diagnostics:'trace'},reachCity)
     assert.equal(reach.status,'ok');assert.equal(reach.mode,'bike')
     assert.equal(reach.trace.surface.sampling,'cell-center')
-    assert.equal(reach.trace.diagnostics.bike.algorithm,arrive?'shared_bicycle_arrival_tree_with_verified_paths':'shared_bicycle_lower_bound_tree_with_verified_paths')
-    assert.equal(reach.trace.diagnostics.bike.certifiedTargets+reach.trace.diagnostics.bike.exactFallbackTargets,size*size)
+    assert.equal(reach.trace.diagnostics.bike.algorithm,'shared_bicycle_temporal_surface')
+    assert.equal(reach.trace.diagnostics.bike.certifiedTargets,size*size)
+    assert.equal(reach.trace.diagnostics.bike.exactFallbackTargets,0)
     if (!arrive) assert.equal(reach.trace.diagnostics.bike.timedAttachmentCertificates,0,
       'Network-walking endpoints do not need per-target widening proofs')
     const matrix=run('matrix',{...parameters,maxStreetKm:750,

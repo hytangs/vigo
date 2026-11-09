@@ -239,7 +239,7 @@ impl City {
                     maximum * 60.,
                 )?
             };
-            let diagnostics = json!({"algorithm":if arrive {"shared_bicycle_arrival_tree_with_verified_paths"} else {"shared_bicycle_lower_bound_tree_with_verified_paths"},
+            let diagnostics = json!({"algorithm":"shared_bicycle_temporal_surface",
                 "settledLabels":result.settled_labels,"certifiedTargets":result.certified_targets,
                 "exactFallbackTargets":result.fallback_targets,"treeLimited":result.tree_limited,
                 "fallbackReasons":result.fallback_reasons,
@@ -308,15 +308,7 @@ impl City {
                     .unwrap_or(f64::INFINITY)
             }));
         }
-        Ok((
-            values,
-            if q["mode"] == "bike" {
-                json!({"algorithm":"bicycle_point_queries",
-            "timingPolicy":"conservative","durationPolicy":"physical_seconds_on_minimum_preference_cost_route"})
-            } else {
-                Value::Null
-            },
-        ))
+        Ok((values, Value::Null))
     }
 
     pub fn reach(&mut self, q: &Value) -> Result<Value> {

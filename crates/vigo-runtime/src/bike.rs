@@ -10,10 +10,15 @@ use std::{
     cmp::Ordering,
     collections::{BinaryHeap, HashMap, HashSet},
 };
+#[cfg(any(feature = "standalone", test))]
+#[path = "bike_arrival_states.rs"]
+mod arrival_states;
 #[path = "bike_arrive.rs"]
 mod arrive;
 #[path = "bike_arrive_profile.rs"]
 mod arrive_profile;
+#[path = "bike_cache.rs"]
+mod cache;
 #[path = "bike_costs.rs"]
 mod costs;
 #[path = "bike_many.rs"]
@@ -22,6 +27,9 @@ mod many;
 mod many_to;
 #[path = "bike_matrix.rs"]
 mod matrix;
+#[cfg(any(feature = "standalone", test))]
+#[path = "bike_surface.rs"]
+mod surface;
 #[path = "bike_walk.rs"]
 mod walk;
 
@@ -47,6 +55,7 @@ impl std::hash::Hasher for OsmNodeHasher {
     }
 }
 pub(crate) type OsmNodeIds = HashMap<i64, u32, std::hash::BuildHasherDefault<OsmNodeHasher>>;
+
 // Above every edge's time cost, so the search's lower bounds stay admissible.
 const SHORTEST_COST_PER_METER: f64 = 1.;
 // Bounded by remaining distance and cost; a search this large rarely finishes.
@@ -108,7 +117,9 @@ impl BikeOptions {
     }
 }
 
+#[derive(Deserialize, Serialize)]
 pub(crate) struct BikeKernel {
+    #[serde(skip)]
     walking: Option<walk::WalkNetwork>,
     lons: Vec<f64>,
     lats: Vec<f64>,
@@ -133,6 +144,7 @@ pub(crate) struct BikeKernel {
     pub unsupported_restrictions: u64,
 }
 
+#[derive(Deserialize, Serialize)]
 struct WayTurn {
     from: i64,
     via: Vec<i64>,
@@ -141,6 +153,7 @@ struct WayTurn {
     only: bool,
     independent: bool,
 }
+#[derive(Deserialize, Serialize)]
 struct NodeTurn {
     to: i64,
     window: u32,
@@ -308,6 +321,20 @@ enum SearchKind<'a> {
     ArriveConservative,
 }
 impl SearchKind<'_> {
+    fn active(
+        self,
+        windows: &TurnWindows,
+        id: u32,
+        clock: Option<BikeClock>,
+        elapsed: f64,
+    ) -> bool {
+        match self {
+            Self::Scoped(scope) | Self::ArriveScoped(scope) => {
+                scope[id as usize].unwrap_or_else(|| windows.active(id, clock, elapsed))
+            }
+            _ => windows.active(id, clock, elapsed),
+        }
+    }
     fn relaxed(self) -> bool {
         matches!(
             self,
@@ -359,9 +386,9 @@ impl Ord for Queue {
 
 impl BikeKernel {
     pub fn open(path: &str) -> Result<Self, String> {
-        Self::read(path).map_err(|e| format!("Cannot open bicycle graph: {e}"))
+        cache::read(path).map_err(|e| format!("Cannot open bicycle graph: {e}"))
     }
-    fn read(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    fn read_source(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
         // Only this call reads the connection, so SQLite need not lock every
         // column read of a few million rows.
         let db = Connection::open_with_flags(
@@ -817,6 +844,17 @@ impl BikeKernel {
         clock: Option<BikeClock>,
         elapsed: f64,
     ) -> bool {
+        self.allowed_turns_with(turns, incoming, outgoing, |window| {
+            self.windows.active(window, clock, elapsed)
+        })
+    }
+    fn allowed_turns_with(
+        &self,
+        turns: &[NodeTurn],
+        incoming: Option<u32>,
+        outgoing: u32,
+        active: impl Fn(u32) -> bool,
+    ) -> bool {
         let Some(incoming) = incoming.filter(|_| !turns.is_empty()) else {
             return true;
         };
@@ -825,7 +863,7 @@ impl BikeKernel {
         let mut only = false;
         let mut matches_only = false;
         for &NodeTurn { to, kind, window } in turns {
-            if !self.windows.active(window, clock, elapsed) {
+            if !active(window) {
                 continue;
             }
             let matches = to == way
@@ -920,17 +958,18 @@ impl BikeKernel {
                 _ => clock.is_some_and(|c| self.windows.active(id, Some(c), at)),
             });
             let turn_open = turns.iter().any(|turn| kind.variable(turn.window))
-                || self.allowed_turns_at(
-                    turns,
-                    incoming,
-                    outgoing,
-                    if matches!(kind, SearchKind::Relaxed | SearchKind::ArriveConservative) {
-                        None
-                    } else {
-                        clock
-                    },
-                    at,
-                );
+                || self.allowed_turns_with(turns, incoming, outgoing, |window| {
+                    kind.active(
+                        &self.windows,
+                        window,
+                        if matches!(kind, SearchKind::Relaxed | SearchKind::ArriveConservative) {
+                            None
+                        } else {
+                            clock
+                        },
+                        at,
+                    )
+                });
             if edge_open
                 && turn_open
                 && let Some(next) = self.next_turn_state_at(
@@ -1049,7 +1088,7 @@ impl BikeKernel {
         for &(id, step, start) in state {
             let rule = &self.way_turns[id as usize];
             let variable = kind.variable(rule.window);
-            let active = !variable && self.windows.active(rule.window, clock, elapsed);
+            let active = !variable && kind.active(&self.windows, rule.window, clock, elapsed);
             let next_step = if way == rule.via[step as usize] {
                 Some(step)
             } else if rule.via.get(step as usize + 1) == Some(&way) {
@@ -1094,7 +1133,7 @@ impl BikeKernel {
             for &id in ids {
                 let rule = &self.way_turns[id as usize];
                 let variable = kind.variable(rule.window);
-                let active = !variable && self.windows.active(rule.window, clock, elapsed);
+                let active = !variable && kind.active(&self.windows, rule.window, clock, elapsed);
                 if rule.independent && active && rule.via[0] != way {
                     return None;
                 }
@@ -3740,8 +3779,8 @@ mod tests {
                 .unwrap();
             assert!((shared.seconds[0] - point.elapsed_seconds()).abs() < 1e-7);
             assert_eq!(
-                shared.fallback_targets, 1,
-                "A private shortcut in the relaxed tree must not become a certificate"
+                shared.fallback_targets, 0,
+                "Endpoint permission groups must share the exact surface search"
             );
         }
     }
@@ -3813,10 +3852,10 @@ mod tests {
                 .unwrap();
             assert_eq!(many.seconds, vec![400., 200., 400.]);
             assert_eq!(
-                many.scoped_trees, 3,
-                "An attachment proof, snapshot and window group serve both waiting targets"
+                many.scoped_trees, 0,
+                "The shared surface must not repeat per-group field searches"
             );
-            assert_eq!(many.attachment_certificates, 2);
+            assert_eq!(many.certified_targets, 3);
             assert_eq!(many.fallback_targets, 0);
         }
         // Opening within the improving-path horizon must remain available:
@@ -3866,8 +3905,8 @@ mod tests {
                 .unwrap();
             assert_eq!(many.seconds, vec![80., 200., 80.]);
             assert_eq!(
-                many.fallback_targets, 2,
-                "Useful waits still use the exact temporal search"
+                many.fallback_targets, 0,
+                "Useful waits remain in the shared temporal search"
             );
         }
         // A legal equal-cost alternative prevents a proof that every original
@@ -3898,7 +3937,7 @@ mod tests {
                 .unwrap();
             assert!((seconds(&route) - 20.).abs() < 1e-7);
             assert_eq!(many.seconds, vec![20.]);
-            assert!(many.scoped_trees > 0);
+            assert_eq!(many.fallback_targets, 0);
             assert_eq!(many.attachment_certificates, 0);
         }
     }
@@ -3962,7 +4001,7 @@ mod tests {
             assert_eq!(many.fallback_targets, 0);
             assert_eq!(many.access_groups, 2);
             assert!(many.access_group_key_bytes <= 512 * 1024);
-            // A one-off permission set still uses the exact point path.
+            // A one-off permission set uses the same exact surface search.
             let single = k
                 .many_from(
                     nodes[0],
@@ -3976,7 +4015,7 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(single.seconds, vec![60.]);
-            assert_eq!(single.fallback_targets, 1);
+            assert_eq!(single.fallback_targets, 0);
             // Shrinking the endpoint radius removes that permission; the
             // group must not retain it from another request or destination.
             let restricted = k
@@ -4087,8 +4126,8 @@ mod tests {
             )
             .unwrap();
         assert_eq!(result.seconds, vec![60., 200., 60., 200.]);
-        assert_eq!(result.certified_targets, 2);
-        assert_eq!(result.fallback_reasons.get("destination_access"), Some(&2));
+        assert_eq!(result.certified_targets, 4);
+        assert_eq!(result.fallback_targets, 0);
         assert_eq!(k.heap_bytes(), before);
     }
 
@@ -4123,7 +4162,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(result.seconds, vec![point.elapsed_seconds()]);
-        assert_eq!(result.fallback_reasons.get("duration_tie"), Some(&1));
+        assert_eq!(result.fallback_targets, 0);
     }
 
     #[test]
@@ -4323,6 +4362,27 @@ mod tests {
             .unwrap();
         assert_eq!(blocked.status, "blocked");
         assert_eq!(blocked.timing_policy, "dated_arrive_by_verified");
+        for (horizon, expected) in [
+            (None, early.elapsed_seconds()),
+            (Some(30.), 20.),
+            (Some(10.), f64::INFINITY),
+        ] {
+            let surface = k
+                .many_to(
+                    &[nodes[0]],
+                    nodes[2],
+                    opt,
+                    0.,
+                    4.8,
+                    1000.,
+                    clock,
+                    400.,
+                    horizon,
+                )
+                .unwrap();
+            assert_eq!(surface.seconds, vec![expected]);
+            assert_eq!(surface.fallback_targets, 0);
+        }
     }
 
     #[test]
@@ -4472,6 +4532,191 @@ mod tests {
                     .all(|leg| !leg.coordinates.contains(&nodes[4]))
             );
         }
+    }
+
+    #[test]
+    fn arrival_turn_states_contain_every_forward_permission_transition() {
+        let nodes = [
+            [0., 0.],
+            [0.001, 0.],
+            [0.002, 0.],
+            [0.003, 0.],
+            [0.004, 0.],
+            [0.003, 0.001],
+            [0.004, 0.001],
+        ];
+        let edges = [
+            (0, 1, 10000, 1, CYCLE),
+            (1, 2, 10000, 2, CYCLE),
+            (2, 3, 10000, 3, CYCLE),
+            (3, 4, 10000, 4, CYCLE),
+            (2, 5, 10000, 5, CYCLE),
+            (5, 6, 10000, 6, CYCLE),
+            (3, 2, 10000, 3, CYCLE),
+            (4, 1, 10000, 7, CYCLE),
+        ];
+        let mut k = fixture_rules(
+            &nodes,
+            &edges,
+            &[(3, 3, 4, 0)],
+            &[(1, "[2,3]", 4, 1), (1, "[2,5]", 6, 1), (2, "[3]", 4, 0)],
+        );
+        k.windows.schedules = vec![vec![(480, 540)], vec![(510, 570)]];
+        k.way_turns[0].window = 1;
+        k.way_turns[1].window = 2;
+        let states = arrival_states::ArrivalStates::build(&k).unwrap();
+        assert!(!states.extra.is_empty());
+        let clock = Some(BikeClock::service("2026-11-02", "America/New_York", 8. * 3600.).unwrap());
+        for state_id in 0..(nodes.len() + states.extra.len()) as u32 {
+            let state = states.state(state_id);
+            assert!(states.variants(state.node).any(|id| id == state_id));
+            let history = &states.turns[state.turns as usize];
+            for edge in k.offsets[state.node as usize]..k.offsets[state.node as usize + 1] {
+                for a in [None, Some(false), Some(true)] {
+                    for b in [None, Some(false), Some(true)] {
+                        let scope = [Some(true), a, b];
+                        for time in [-3600., 0., 1800., 3600., 5400.] {
+                            for kind in [
+                                SearchKind::Frozen,
+                                SearchKind::Relaxed,
+                                SearchKind::Scoped(&scope),
+                            ] {
+                                if let Some(next) = k.next_turn_state_at(
+                                    history,
+                                    (state.incoming != u32::MAX).then_some(state.incoming),
+                                    state.node,
+                                    edge,
+                                    clock,
+                                    time,
+                                    kind,
+                                ) {
+                                    let next_id = states
+                                        .turn_ids
+                                        .get(&next)
+                                        .expect("Every forward turn history must be represented");
+                                    let incoming = if k.attributes[edge as usize]
+                                        & (NODE_TURN | WAY_TURN)
+                                        != 0
+                                    {
+                                        edge
+                                    } else {
+                                        u32::MAX
+                                    };
+                                    if incoming != u32::MAX || *next_id != 0 {
+                                        assert!(states.ids.contains_key(&(
+                                            k.targets[edge as usize],
+                                            incoming,
+                                            *next_id
+                                        )));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn backward_movements_keep_forward_turns_and_half_open_windows() {
+        let nodes = [[0., 0.], [0.001, 0.], [0.002, 0.]];
+        let mut k = fixture(
+            &nodes,
+            &[(0, 1, 10000, 10, CYCLE), (1, 2, 10000, 20, CYCLE)],
+            &[(1, 10, 20, 0)],
+        );
+        k.windows.schedules = vec![vec![(480, 540)]];
+        k.turns.get_mut(&(1, 10)).unwrap()[0].window = 1;
+        k.timed_node_turns = true;
+        let incoming = k.ways.iter().position(|&w| w == 10).unwrap() as u32;
+        let outgoing = k.ways.iter().position(|&w| w == 20).unwrap() as u32;
+        let clock = BikeClock::service("2026-11-02", "America/New_York", 8. * 3600. + 30.).unwrap();
+        let time = k
+            .latest_arrival_movement(
+                &vec![],
+                Some(incoming),
+                1,
+                outgoing,
+                Some(&vec![]),
+                Some(clock),
+                0.,
+                -60.,
+                SearchKind::Normal,
+            )
+            .unwrap()
+            .unwrap();
+        let boundary = clock.epoch - 30.;
+        assert_eq!(clock.epoch + time, boundary.next_down());
+        assert!(
+            k.latest_arrival_movement(
+                &vec![],
+                Some(incoming),
+                1,
+                outgoing,
+                Some(&vec![]),
+                Some(clock),
+                0.,
+                -29.,
+                SearchKind::Normal
+            )
+            .unwrap()
+            .is_none()
+        );
+        let before = BikeClock {
+            epoch: clock.epoch + time,
+            ..clock
+        };
+        assert!(
+            k.movements(
+                &vec![],
+                Some(incoming),
+                1,
+                outgoing,
+                Some(before),
+                0.,
+                SearchKind::Frozen,
+                false
+            )
+            .unwrap()
+            .first
+            .is_some()
+        );
+        let boundary = BikeClock {
+            epoch: boundary,
+            ..clock
+        };
+        assert!(
+            k.movements(
+                &vec![],
+                Some(incoming),
+                1,
+                outgoing,
+                Some(boundary),
+                0.,
+                SearchKind::Frozen,
+                false
+            )
+            .unwrap()
+            .first
+            .is_none()
+        );
+        // Without a preceding road the turn restriction cannot apply.
+        assert_eq!(
+            k.latest_arrival_movement(
+                &vec![],
+                None,
+                1,
+                outgoing,
+                Some(&vec![]),
+                Some(clock),
+                0.,
+                -60.,
+                SearchKind::Normal
+            )
+            .unwrap(),
+            Some(0.)
+        );
     }
 
     #[test]
@@ -5683,8 +5928,8 @@ mod tests {
             .unwrap();
         assert!((many.seconds[0] - seconds(&through)).abs() < 1e-7);
         assert!((many.seconds[1] - seconds(&access)).abs() < 1e-7);
-        assert_eq!(many.certified_targets, 1);
-        assert_eq!(many.fallback_targets, 1);
+        assert_eq!(many.certified_targets, 2);
+        assert_eq!(many.fallback_targets, 0);
     }
 
     #[test]

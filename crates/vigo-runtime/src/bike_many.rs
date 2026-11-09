@@ -166,7 +166,7 @@ impl BikeKernel {
         clock: Option<BikeClock>,
         maximum_seconds: f64,
     ) -> Result<BikeManyResult, String> {
-        self.many_from_metrics(
+        self.surface_from(
             origin,
             targets,
             opt,
@@ -175,7 +175,6 @@ impl BikeKernel {
             max_distance,
             clock,
             maximum_seconds,
-            false,
         )
     }
 
