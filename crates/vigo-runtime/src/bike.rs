@@ -14,6 +14,8 @@ use std::{
 mod arrive;
 #[path = "bike_arrive_profile.rs"]
 mod arrive_profile;
+#[path = "bike_costs.rs"]
+mod costs;
 #[path = "bike_many.rs"]
 mod many;
 #[path = "bike_many_to.rs"]
@@ -321,15 +323,17 @@ impl SearchKind<'_> {
     }
 }
 #[derive(Clone, Copy)]
-struct SearchBounds {
+struct SearchBounds<'a> {
     upper_cost: f64,
     earliest_arrival: f64,
+    prepared: Option<&'a costs::Prepared>,
 }
-impl Default for SearchBounds {
+impl Default for SearchBounds<'_> {
     fn default() -> Self {
         Self {
             upper_cost: f64::INFINITY,
             earliest_arrival: 0.,
+            prepared: None,
         }
     }
 }
@@ -1287,6 +1291,8 @@ impl BikeKernel {
             None,
             false,
             f64::INFINITY,
+            None,
+            None,
         )
     }
 
@@ -1318,6 +1324,8 @@ impl BikeKernel {
                 previous.as_ref(),
                 i + 2 < points.len(),
                 f64::INFINITY,
+                None,
+                None,
             )?;
             let ready = result.status == "ready";
             if let Some(clock) = &mut clock {
@@ -1390,6 +1398,8 @@ impl BikeKernel {
         continuation: Option<&BikeContinuation>,
         retain_continuation: bool,
         maximum_cost: f64,
+        mut earliest: Option<BikeResult>,
+        prepared: Option<&costs::Prepared>,
     ) -> Result<BikeResult, String> {
         self.validate_request(
             origin,
@@ -1423,28 +1433,30 @@ impl BikeKernel {
             false,
             &eligible,
         )?;
-        let solve = |starts: &Attachment,
-                     ends: &Attachment,
-                     kind: SearchKind<'_>,
-                     mut bounds: SearchBounds| {
-            bounds.upper_cost = bounds.upper_cost.min(maximum_cost);
-            self.search_with_limit(
-                origin,
-                destination,
-                opt,
-                starts,
-                ends,
-                max_distance,
-                clock,
-                kind,
-                bounds,
-                continuation,
-                retain_continuation,
-            )
-        };
-        let run = |starts: &Attachment,
-                   ends: &Attachment,
-                   first: Option<BikeResult>|
+        let solve =
+            |starts: &Attachment, ends: &Attachment, kind: SearchKind<'_>, bounds: SearchBounds| {
+                let bounds = SearchBounds {
+                    upper_cost: bounds.upper_cost.min(maximum_cost),
+                    earliest_arrival: bounds.earliest_arrival,
+                    prepared,
+                };
+                self.search_with_limit(
+                    origin,
+                    destination,
+                    opt,
+                    starts,
+                    ends,
+                    max_distance,
+                    clock,
+                    kind,
+                    bounds,
+                    continuation,
+                    retain_continuation,
+                )
+            };
+        let mut run = |starts: &Attachment,
+                       ends: &Attachment,
+                       first: Option<BikeResult>|
          -> Result<BikeResult, String> {
             // A static relaxation is a lower bound on the timed optimum. If
             // its path is legal at every actual arrival time, it already solves
@@ -1510,20 +1522,35 @@ impl BikeKernel {
                 // Its duration is a lower bound for every preference profile,
                 // including paths which must wait at an unavoidable turn.
                 if !matches!(opt.profile, Profile::Fast) {
-                    let mut fastest = self.search(
-                        origin,
-                        destination,
-                        opt,
-                        starts,
-                        ends,
-                        max_distance,
-                        false,
-                        clock,
-                        SearchKind::Earliest,
-                        SearchBounds::default(),
-                        continuation,
-                        retain_continuation,
-                    )?;
+                    let mut fastest = if let Some(fastest) = earliest.take() {
+                        fastest
+                    } else {
+                        self.search(
+                            origin,
+                            destination,
+                            opt,
+                            starts,
+                            ends,
+                            max_distance,
+                            false,
+                            clock,
+                            SearchKind::Earliest,
+                            SearchBounds {
+                                // Replay already supplies a feasible timed route.
+                                // The earliest route cannot take longer; avoid an
+                                // unbounded reverse search merely to prove that.
+                                upper_cost: if relaxed.status == "ready" {
+                                    relaxed.elapsed_seconds() * (1. + 1e-12)
+                                } else {
+                                    f64::INFINITY
+                                },
+                                earliest_arrival: 0.,
+                                prepared,
+                            },
+                            continuation,
+                            retain_continuation,
+                        )?
+                    };
                     if fastest.status != "ready" {
                         fastest.settled_labels += relaxed.settled_labels;
                         return Ok(fastest);
@@ -2019,13 +2046,33 @@ impl BikeKernel {
         {
             return Ok(result);
         }
-        let remaining_cost =
-            (timed || constrained).then(|| self.costs_to(ends, opt, false, best * (1. + 1e-12)));
-        let remaining_excess = (timed && search_bounds.earliest_arrival > 0.)
-            .then(|| self.costs_to(ends, opt, true, best * (1. + 2e-12)));
-        let heuristic = |node: u32| {
-            if let Some(costs) = &remaining_cost {
-                return costs[node as usize] * (1. - 1e-12);
+        let prepared = search_bounds.prepared;
+        let local_links =
+            (prepared.is_none() && (timed || constrained)).then(|| costs::Links::new(self));
+        let reverse_links = prepared.map(|p| &p.links).or(local_links.as_ref());
+        let mut remaining_cost = (timed || constrained).then(|| {
+            costs::Costs::new(
+                self,
+                reverse_links.unwrap(),
+                ends,
+                opt,
+                false,
+                best * (1. + 1e-12),
+            )
+            .with_prepared(prepared, starts)
+        });
+        let mut remaining_excess = (timed && search_bounds.earliest_arrival > 0.).then(|| {
+            // The elapsed-time lower bound is already charged below. Only
+            // the residual preference budget can improve the incumbent.
+            // Pad before subtracting to cover the heuristic's rounding slack.
+            let ceiling =
+                (best * (1. + 2e-12) - wait_factor * search_bounds.earliest_arrival).max(0.);
+            costs::Costs::new(self, reverse_links.unwrap(), ends, opt, true, ceiling)
+                .with_prepared(prepared, starts)
+        });
+        let mut heuristic = |node: u32, ceiling: f64| {
+            if let Some(costs) = &mut remaining_cost {
+                return costs.get(node, ceiling) * (1. - 1e-12);
             }
             bounds.as_ref().map_or_else(
                 || {
@@ -2052,10 +2099,16 @@ impl BikeKernel {
         let mut states = vec![TurnState::new()];
         let mut state_ids = HashMap::from([(TurnState::new(), 0u32)]);
         let mut queue = BinaryHeap::new();
-        // Small urban graphs use direct query-local slots for ordinary states.
-        // Cap these two scratch arrays at 3 MiB; large graphs stay sparse.
+        // Small point queries cap ordinary-state slots at 3 MiB. Large
+        // fallback batches can amortize a memory-bounded regional lookup,
+        // avoiding a hash allocation for every ordinary scalar label.
         // No workspace is retained or multiplied by bicycle preference.
-        let dense = !constrained && !timed && self.lons.len() <= 262_144;
+        let dense_nodes = if prepared.is_some() {
+            crate::resources::cache_budget(32 * 1024 * 1024, 128) / 12
+        } else {
+            262_144
+        };
+        let dense = !constrained && !timed && self.lons.len() <= dense_nodes;
         let mut direct = vec![u32::MAX; if dense { self.lons.len() } else { 0 }];
         let mut lower_bounds = vec![f64::NAN; direct.len()];
         // Timed labels store excess cost above wait_factor * elapsed, built
@@ -2068,7 +2121,8 @@ impl BikeKernel {
                           labels: &mut Vec<Label>,
                           arrivals: &mut Vec<f64>,
                           frontier: &mut HashMap<(u32, Option<u32>, u32), Vec<usize>>,
-                          queue: &mut BinaryHeap<Queue>| {
+                          queue: &mut BinaryHeap<Queue>,
+                          incumbent: f64| {
             let turn_incoming = label
                 .incoming()
                 .filter(|&edge| self.attributes[edge as usize] & (NODE_TURN | WAY_TURN) != 0);
@@ -2104,24 +2158,34 @@ impl BikeKernel {
                 });
                 known.push(id);
             }
+            // A capped reverse value may differ only for a label which cannot
+            // beat this incumbent. Padding covers subtraction, addition, and
+            // the heuristic's downward rounding. Competitive labels retain
+            // their exact old priorities and tie order.
+            let elapsed_cost = if timed { wait_factor * elapsed } else { 0. };
+            let ceiling = (incumbent * (1. + 4e-12) - label.cost - elapsed_cost).max(0.);
             let bound = if dense {
                 let entry = &mut lower_bounds[label.node as usize];
                 if entry.is_nan() {
-                    *entry = heuristic(label.node);
+                    *entry = heuristic(label.node, ceiling);
                 }
                 *entry
             } else {
-                heuristic(label.node)
+                heuristic(label.node, ceiling)
             };
-            let remaining = if timed {
-                (wait_factor * elapsed + bound).max(
+            let remaining = if timed && label.cost + (elapsed_cost + bound) < incumbent {
+                (elapsed_cost + bound).max(
                     wait_factor * search_bounds.earliest_arrival
-                        + remaining_excess
-                            .as_ref()
-                            .map_or(0., |costs| costs[label.node as usize] * (1. - 1e-12)),
+                        + remaining_excess.as_mut().map_or(0., |costs| {
+                            let ceiling = (incumbent * (1. + 4e-12)
+                                - label.cost
+                                - wait_factor * search_bounds.earliest_arrival)
+                                .max(0.);
+                            costs.get(label.node, ceiling) * (1. - 1e-12)
+                        }),
                 )
             } else {
-                bound
+                elapsed_cost + bound
             };
             queue.push(Queue(label.cost + remaining, id));
             labels.push(label);
@@ -2181,6 +2245,7 @@ impl BikeKernel {
                         &mut arrivals,
                         &mut frontier,
                         &mut queue,
+                        best,
                     );
                 }
             }
@@ -2276,15 +2341,18 @@ impl BikeKernel {
                         })
                     };
                     let distance = self.distances[edge as usize] as f64 / 100.;
-                    let (seconds_per_meter, cost_per_meter) = self.metric(edge, opt);
-                    let next_elapsed = departure + distance * seconds_per_meter;
-                    let cost = label.cost
-                        + distance
-                            * if timed {
-                                (cost_per_meter - wait_factor * seconds_per_meter).max(0.)
-                            } else {
-                                cost_per_meter
-                            };
+                    let weight = prepared
+                        .and_then(|p| p.weight(self, edge, opt))
+                        .unwrap_or_else(|| {
+                            let (seconds, cost) = self.metric(edge, opt);
+                            costs::Weight {
+                                seconds: distance * seconds,
+                                cost: distance * cost,
+                                excess: distance * (cost - wait_factor * seconds).max(0.),
+                            }
+                        });
+                    let next_elapsed = departure + weight.seconds;
+                    let cost = label.cost + if timed { weight.excess } else { weight.cost };
                     let meters = label.meters + distance;
                     if cost
                         + if timed {
@@ -2314,6 +2382,7 @@ impl BikeKernel {
                         &mut arrivals,
                         &mut frontier,
                         &mut queue,
+                        best,
                     );
                 }
             }
@@ -2845,8 +2914,18 @@ mod tests {
             };
             for excess in [false, true] {
                 let full = k.costs_to(&ends, opt, excess, f64::INFINITY);
-                for ceiling in [0., 1., 30., 100., 10_000.] {
+                for ceiling in [0., 1., 30., 100., 10_000., f64::INFINITY] {
                     let bounded = k.costs_to(&ends, opt, excess, ceiling);
+                    let links = costs::Links::new(&k);
+                    let mut lazy = costs::Costs::new(&k, &links, &ends, opt, excess, ceiling);
+                    // Includes a repeated request, an unreachable node, and
+                    // requests on either side of the settled reverse frontier.
+                    for node in [4, 3, 5, 0, 2, 1, 4] {
+                        assert_eq!(
+                            lazy.get(node, f64::INFINITY).to_bits(),
+                            bounded[node as usize].to_bits()
+                        );
+                    }
                     for (node, (&actual, &unbounded)) in bounded.iter().zip(&full).enumerate() {
                         assert_eq!(
                             actual,

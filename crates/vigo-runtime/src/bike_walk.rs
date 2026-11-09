@@ -146,9 +146,11 @@ impl WalkNetwork {
         } else {
             WalkLinks::Sparse(Vec::with_capacity(count))
         };
-        let mut previous = None;
+        // Dense links need no row order. Sorting this multi-million-row table
+        // in SQLite can spill to disk on a cold open. Sparse links sort their
+        // compact integer pairs below; both paths reject duplicate identities.
         let mut statement = db
-            .prepare("SELECT bike_node,walk_node FROM bike_walk_nodes ORDER BY walk_node")
+            .prepare("SELECT bike_node,walk_node FROM bike_walk_nodes")
             .map_err(|e| e.to_string())?;
         for row in statement
             .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, u32>(1)?)))
@@ -157,17 +159,26 @@ impl WalkNetwork {
             let (source, walk) = row.map_err(|e| e.to_string())?;
             let bike = *ids.get(&source).ok_or("Unknown bicycle walking node")?;
             if walk as usize >= xs.len()
-                || previous.is_some_and(|previous| previous >= walk)
                 || (xs[walk as usize] - lons[bike as usize]).abs() > 1e-7
                 || (ys[walk as usize] - lats[bike as usize]).abs() > 1e-7
             {
                 return Err("Invalid bicycle walking node identity".into());
             }
             match &mut links {
-                WalkLinks::Dense(nodes) => nodes[walk as usize] = bike,
+                WalkLinks::Dense(nodes) => {
+                    if nodes[walk as usize] != u32::MAX {
+                        return Err("Invalid bicycle walking node identity".into());
+                    }
+                    nodes[walk as usize] = bike;
+                }
                 WalkLinks::Sparse(links) => links.push((walk, bike)),
             }
-            previous = Some(walk);
+        }
+        if let WalkLinks::Sparse(links) = &mut links {
+            links.sort_unstable_by_key(|&(walk, _)| walk);
+            if links.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+                return Err("Invalid bicycle walking node identity".into());
+            }
         }
         Ok(Some(Self { snapshot, links }))
     }

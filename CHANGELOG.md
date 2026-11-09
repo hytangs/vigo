@@ -2,6 +2,8 @@
 
 ## 1.0.0 — 2026-11-09
 
+- Reuse exact lower-bound work across timed bicycle Reach fallbacks, skip unreachable directed components, and bound independent fallback workers by CPU and memory availability. Preserve route costs, physical durations and prepared City compatibility.
+- Load bicycle walking identities without an external SQLite sort, retaining coordinate and duplicate-identity validation for dense and sparse links.
 - Stop shared bicycle destination-group searches after all requested optima are settled, retain exact fallback behavior, accelerate walking-node identity lookup within the existing memory footprint, and reduce graph-loading scans. Existing Cities remain readable.
 - Constrain Studio address suggestions to the selected City’s prepared street or timetable coverage, including after switching Cities and replacing data.
 - Clarify the README’s historical transit benchmark boundary and link the live route planner.

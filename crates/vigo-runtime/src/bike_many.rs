@@ -3,6 +3,59 @@
 //! policy. Uncertified targets use the existing exact router on the same graph.
 use super::*;
 
+// Independent exact fallback queries share immutable graph/bound data. Keep
+// result and error order unchanged, and cap both workers and estimated scratch.
+fn fallback_batch<T: Send>(
+    indices: &[usize],
+    nodes: usize,
+    prepared: bool,
+    run: impl Fn(usize) -> Result<T, String> + Sync,
+) -> Vec<Result<T, String>> {
+    use rayon::prelude::*;
+    let sequential = || indices.iter().map(|&i| run(i)).collect();
+    if !prepared || indices.len() < 16 {
+        return sequential();
+    }
+    let Some(pool) = crate::ENDPOINT_ACCESS_POOL.as_ref() else {
+        return sequential();
+    };
+    let per_worker = nodes.saturating_mul(28).saturating_add(192 * 1024 * 1024);
+    let parts = pool
+        .current_num_threads()
+        .min(4)
+        .min(crate::resources::cache_budget(1024 * 1024 * 1024, 8) / per_worker.max(1))
+        .max(1);
+    if parts == 1 {
+        return sequential();
+    }
+    // Nearby destinations can have very different timed-search costs. Let
+    // each bounded worker claim the next target instead of leaving it with
+    // one contiguous chunk while the other workers become idle.
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let mut results: Vec<_> = pool
+        .install(|| {
+            (0..parts)
+                .into_par_iter()
+                .map(|_| {
+                    let mut results = Vec::new();
+                    loop {
+                        let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(&target) = indices.get(index) else {
+                            break;
+                        };
+                        results.push((index, run(target)));
+                    }
+                    results
+                })
+                .collect::<Vec<_>>()
+        })
+        .into_iter()
+        .flatten()
+        .collect();
+    results.sort_unstable_by_key(|&(index, _)| index);
+    results.into_iter().map(|(_, result)| result).collect()
+}
+
 // Label, start attachment, end attachment, cost, tied.
 type FieldCandidate = (Option<usize>, usize, usize, f64, bool);
 
@@ -502,7 +555,10 @@ impl BikeKernel {
         }
         // No field or attachment scratch overlaps the exact point fallbacks.
 
-        for target in fallback {
+        let prepared = (!distances && self.walking.is_some())
+            .then(|| costs::Prepared::for_batch(self, opt, fallback.len()))
+            .flatten();
+        let routes = fallback_batch(&fallback, self.lons.len(), prepared.is_some(), |target| {
             let route = self.reach_fallback(
                 origin,
                 targets[target],
@@ -513,17 +569,24 @@ impl BikeKernel {
                 clock,
                 maximum_seconds,
                 if distances { f64::INFINITY } else { ceiling },
+                prepared.as_ref(),
             )?;
-            result.settled_labels += route.settled_labels;
-            if route.status == "ready" {
-                result.record(
-                    target,
-                    route.elapsed_seconds(),
-                    route.legs.iter().map(|l| l.meters).sum(),
-                    maximum_seconds,
-                );
+            Ok((
+                target,
+                route.status == "ready",
+                route.elapsed_seconds(),
+                route.legs.iter().map(|l| l.meters).sum(),
+                route.settled_labels,
+            ))
+        });
+        for route in routes {
+            let (target, ready, seconds, meters, settled) = route?;
+            result.settled_labels += settled;
+            if ready {
+                result.record(target, seconds, meters, maximum_seconds);
             }
         }
+        drop(prepared);
         if !waiting.is_empty() {
             self.resolve_scoped_targets(
                 origin,
@@ -647,10 +710,11 @@ impl BikeKernel {
         };
         let events = self.windows.scope_events(clock);
         if self.walking.is_some() && !distances {
-            // Both point-router passes use the same complete walking-network
-            // attachments. No per-target search is needed to authorize the
-            // second pass; the scoped fields still prove its timed optimum.
-            confirmed.extend(waiting.iter().map(|&(target, _)| target));
+            // The shared timed certificate already tried the common paths.
+            // Remaining network-walking targets use the exact point router,
+            // instead of repeating regional fields for each endpoint-access
+            // group before falling back to those same point searches.
+            fallback.extend(waiting.iter().map(|&(target, _)| target));
         } else {
             let mut checks = std::collections::BTreeMap::<usize, Vec<(usize, f64)>>::new();
             for &(target, lower) in waiting {
@@ -891,7 +955,10 @@ impl BikeKernel {
             });
             maximum_seconds * ratio * (1. + 1e-12)
         };
-        for target in fallback {
+        let prepared = (!distances && self.walking.is_some())
+            .then(|| costs::Prepared::for_batch(self, opt, fallback.len()))
+            .flatten();
+        let routes = fallback_batch(&fallback, self.lons.len(), prepared.is_some(), |target| {
             let route = self.reach_fallback(
                 origin,
                 targets[target],
@@ -902,17 +969,23 @@ impl BikeKernel {
                 Some(clock),
                 maximum_seconds,
                 ceiling,
+                prepared.as_ref(),
             )?;
-            result.settled_labels += route.settled_labels;
+            Ok((
+                target,
+                route.status == "ready",
+                physical(&route),
+                route.legs.iter().map(|l| l.meters).sum(),
+                route.settled_labels,
+            ))
+        });
+        for route in routes {
+            let (target, ready, seconds, meters, settled) = route?;
+            result.settled_labels += settled;
             result.fallback_targets += 1;
             *result.fallback_reasons.entry("waiting").or_default() += 1;
-            if route.status == "ready" {
-                result.record(
-                    target,
-                    physical(&route),
-                    route.legs.iter().map(|l| l.meters).sum(),
-                    maximum_seconds,
-                );
+            if ready {
+                result.record(target, seconds, meters, maximum_seconds);
             }
         }
         Ok(())
@@ -1054,6 +1127,7 @@ impl BikeKernel {
         clock: Option<BikeClock>,
         maximum_seconds: f64,
         ceiling: f64,
+        prepared: Option<&costs::Prepared>,
     ) -> Result<BikeResult, String> {
         if !ceiling.is_finite() || self.walking.is_none() {
             return self.route_at(
@@ -1092,7 +1166,7 @@ impl BikeKernel {
         // Absence within the physical budget is sufficient for a blank Reach
         // cell. A point query would instead search for an arbitrarily late
         // opening of a restricted road, which can exhaust its work budget.
-        let fastest = self.search(
+        let mut fastest = self.search(
             origin,
             destination,
             opt,
@@ -1105,6 +1179,7 @@ impl BikeKernel {
             SearchBounds {
                 upper_cost: maximum_seconds * (1. + 1e-12),
                 earliest_arrival: 0.,
+                prepared,
             },
             None,
             false,
@@ -1112,6 +1187,11 @@ impl BikeKernel {
         if fastest.status != "ready" {
             return Ok(fastest);
         }
+        // Modern walking attachments are identical in both passes. Reuse the
+        // exact earliest route just computed instead of running it a second
+        // time inside the timed preference search. Account for its work once,
+        // including when the preference search returns through a certificate.
+        let settled = std::mem::take(&mut fastest.settled_labels);
         let mut result = self.route_from(
             origin,
             destination,
@@ -1123,8 +1203,10 @@ impl BikeKernel {
             None,
             false,
             ceiling,
+            Some(fastest),
+            prepared,
         )?;
-        result.settled_labels += fastest.settled_labels;
+        result.settled_labels += settled;
         Ok(result)
     }
 
@@ -1641,6 +1723,22 @@ impl BikeKernel {
 mod walk_attachment_tests {
     use super::*;
     use crate::drive_attachment::BikeCandidate;
+
+    #[test]
+    fn independent_fallbacks_preserve_input_and_error_order() {
+        let indices: Vec<_> = (0..37).rev().collect();
+        let run = |index| {
+            if index == 7 || index == 23 {
+                Err(format!("target {index}"))
+            } else {
+                Ok(index * index)
+            }
+        };
+        let expected: Vec<_> = indices.iter().copied().map(run).collect();
+        assert_eq!(fallback_batch(&indices, 0, true, run), expected);
+        assert_eq!(fallback_batch(&indices, 0, false, run), expected);
+        assert!(fallback_batch::<usize>(&[], 0, true, |_| panic!()).is_empty());
+    }
     #[test]
     fn target_completion_preserves_full_field_results_and_unreachable_targets() {
         let nodes: Vec<_> = (0..10002).map(|i| [i as f64 * 0.000001, 0.]).collect();
