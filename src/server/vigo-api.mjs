@@ -1,4 +1,4 @@
-import { searchAddresses } from './address-search.mjs'
+import { searchStudioAddresses } from './studio-address-search.mjs'
 import { studioWheelchairAccessibility, studioWheelchairAvailability, studioWheelchairSelection } from './studio-wheelchair.mjs'
 import { buildStudioWheelchair, wheelchairBuildSources } from './studio-wheelchair-build.mjs'
 import { routingResultStatus } from './gtfs/route-results.mjs'
@@ -4383,10 +4383,14 @@ async function route(request, response) {
     }
 
     if (request.method === 'POST' && action === 'address-search') {
-      await readProjectMetadata(projectId)
+      const project = await readProjectMetadata(projectId)
       const body = await readBody(request)
       // Typing a place contacts a geocoder only once online maps are chosen.
-      sendJson(response, 200, await searchAddresses(body.query, undefined, { remote: !['offline', 'none'].includes(runtimeConfig.basemap) }))
+      sendJson(response, 200, await searchStudioAddresses(body.query, {
+        streetPath: project.osmStreetIndex?.status === 'ready' ? streetStoreFile(projectId) : null,
+        routingPaths: projectNationalRoutingStorePaths(projectId, project),
+        remote: !['offline', 'none'].includes(runtimeConfig.basemap),
+      }))
       return true
     }
 

@@ -398,7 +398,9 @@ impl BikeKernel {
                 fallback.extend(members);
                 continue;
             }
-            let field = self.bike_field_metrics(
+            let group_ends =
+                self.field_target_attachments(targets, &members, opt, max_walk, walk_speed, clock)?;
+            let field = self.bike_field_for_targets(
                 grouped_starts.as_ref().unwrap().clone(),
                 opt,
                 clock,
@@ -406,19 +408,24 @@ impl BikeKernel {
                 Some(&extra_access),
                 bounded_scope(),
                 distances,
+                &group_ends,
             )?;
             result.settled_labels += field.settled;
             result.tree_limited |= field.limited;
-            for target in members {
-                let ends = self.attach_bicycle_matching(
-                    &graph,
-                    targets[target],
-                    max_walk,
-                    walk_speed / 3.6,
-                    false,
-                    false,
-                    &eligible,
-                )?;
+            for (member, target) in members.into_iter().enumerate() {
+                let ends = if !group_ends.is_empty() {
+                    group_ends[member].clone()
+                } else {
+                    self.attach_bicycle_matching(
+                        &graph,
+                        targets[target],
+                        max_walk,
+                        walk_speed / 3.6,
+                        false,
+                        false,
+                        &eligible,
+                    )?
+                };
                 let (mut certified, reason) =
                     self.field_duration(&field, &ends, opt, max_distance, clock)?;
                 if reason == "no_tree_path" && !field.limited {
@@ -532,6 +539,46 @@ impl BikeKernel {
             )?;
         }
         Ok(result)
+    }
+
+    fn field_target_attachments(
+        &self,
+        targets: &[[f64; 2]],
+        members: &[usize],
+        opt: BikeOptions,
+        max_walk: f64,
+        walk_speed: f64,
+        clock: Option<BikeClock>,
+    ) -> Result<Vec<Attachment>, String> {
+        if self.walking.is_none() {
+            return Ok(Vec::new());
+        }
+        let graph = self.graph();
+        let eligible = |edge| {
+            self.allowed_edge(edge, opt)
+                && (clock.is_some() || self.attributes[edge as usize] & TIMED_EDGE == 0)
+        };
+        let mut ends = Vec::new();
+        let mut bytes = 0;
+        for &target in members {
+            let end = self.attach_bicycle_matching(
+                &graph,
+                targets[target],
+                max_walk,
+                walk_speed / 3.6,
+                false,
+                false,
+                &eligible,
+            )?;
+            bytes += end.candidates.capacity()
+                * std::mem::size_of::<crate::drive_attachment::BikeCandidate>()
+                + std::mem::size_of::<Attachment>();
+            if bytes > crate::resources::cache_budget(8 * 1024 * 1024, 128) {
+                return Ok(Vec::new());
+            }
+            ends.push(end);
+        }
+        Ok(ends)
     }
 
     #[expect(
@@ -729,16 +776,29 @@ impl BikeKernel {
             }
             result.access_group_key_bytes = result.access_group_key_bytes.max(key_bytes);
             for (extra_access, members) in access_groups {
-                // A single new permission set cannot amortize two whole trees.
-                // Keep the existing point path for these uncommon destinations.
                 if !extra_access.is_empty() && members.len() < 2 {
                     fallback.extend(members);
                     continue;
                 }
                 result.access_groups += 1;
                 let copy_starts = || wide_starts.clone();
+                // This small group can stop its snapshot once every target is
+                // settled. Cap attachment scratch; larger groups keep the
+                // original bounded field and per-target attachment path.
+                let group_ends = if distances {
+                    Vec::new()
+                } else {
+                    self.field_target_attachments(
+                        targets,
+                        &members,
+                        opt,
+                        max_walk,
+                        walk_speed,
+                        Some(clock),
+                    )?
+                };
                 let current = self.windows.scope(clock, 0.);
-                let snapshot = self.bike_field_metrics(
+                let snapshot = self.bike_field_for_targets(
                     copy_starts(),
                     opt,
                     Some(clock),
@@ -746,20 +806,25 @@ impl BikeKernel {
                     Some(&extra_access),
                     Some(current),
                     distances,
+                    &group_ends,
                 )?;
                 result.settled_labels += snapshot.settled;
                 result.tree_limited |= snapshot.limited;
                 result.scoped_trees += 1;
                 let mut groups = std::collections::BTreeMap::<usize, Vec<(usize, f64)>>::new();
-                for target in members {
-                    let ends = self.attach_bicycle_fallback(
-                        &graph,
-                        targets[target],
-                        max_walk,
-                        walk_speed / 3.6,
-                        false,
-                        &eligible,
-                    )?;
+                for (member, target) in members.into_iter().enumerate() {
+                    let ends = if !group_ends.is_empty() {
+                        group_ends[member].clone()
+                    } else {
+                        self.attach_bicycle_fallback(
+                            &graph,
+                            targets[target],
+                            max_walk,
+                            walk_speed / 3.6,
+                            false,
+                            &eligible,
+                        )?
+                    };
                     let (candidate, _) =
                         self.field_duration(&snapshot, &ends, opt, max_distance, Some(clock))?;
                     if let Some((_, upper, _)) = candidate.filter(|&(_, cost, _)| cost.is_finite())
@@ -772,6 +837,7 @@ impl BikeKernel {
                     }
                 }
                 drop(snapshot);
+                drop(group_ends);
                 // Targets with the same changing windows share one scalar search.
                 // Retain only small target/cost pairs, never all attachments or a
                 // collection of graph trees. Their original order is restored by
@@ -1098,6 +1164,33 @@ impl BikeKernel {
         scope: Option<Vec<Option<bool>>>,
         distances: bool,
     ) -> Result<Field, String> {
+        self.bike_field_for_targets(
+            starts,
+            opt,
+            clock,
+            ceiling,
+            additional_access,
+            scope,
+            distances,
+            &[],
+        )
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep the field bounds and target certificate explicit."
+    )]
+    fn bike_field_for_targets(
+        &self,
+        starts: Attachment,
+        opt: BikeOptions,
+        clock: Option<BikeClock>,
+        ceiling: f64,
+        additional_access: Option<&[u32]>,
+        scope: Option<Vec<Option<bool>>>,
+        distances: bool,
+        ends: &[Attachment],
+    ) -> Result<Field, String> {
         let mut start_edges: Vec<u32> = (0..starts.candidates.len() as u32).collect();
         start_edges.sort_unstable_by_key(|&i| starts.candidates[i as usize].edge);
         // Exact permission sets are shared only by targets with the same
@@ -1118,7 +1211,7 @@ impl BikeKernel {
             limited: false,
             access,
             states: vec![],
-            scope: None,
+            scope: scope.clone(),
             ties: Vec::new(),
             distances,
         };
@@ -1186,11 +1279,15 @@ impl BikeKernel {
                 .start_movements(&a, a.drive_meters, None, clock, kind, true)?
                 .into_iter()
             {
-                let state = *state_ids.entry(state.clone()).or_insert_with(|| {
-                    let id = states.len() as u32;
-                    states.push(state);
-                    id
-                });
+                let state = if state.is_empty() {
+                    0
+                } else {
+                    *state_ids.entry(state.clone()).or_insert_with(|| {
+                        let id = states.len() as u32;
+                        states.push(state);
+                        id
+                    })
+                };
                 insert(
                     FieldLabel {
                         node: a.node,
@@ -1227,6 +1324,26 @@ impl BikeKernel {
                 field.limited = true;
                 break;
             }
+            // A target's full relaxed optimum is fixed once its best candidate
+            // is cheaper than every unsettled label. Check in bounded batches;
+            // retain all equal-cost labels and the existing tie order. A missing
+            // candidate never authorizes early termination.
+            if !ends.is_empty() && field.settled.is_multiple_of(4096) {
+                std::mem::swap(&mut field.states, &mut states);
+                let done = ends.iter().try_fold(true, |done, end| {
+                    if !done || end.candidates.is_empty() {
+                        return Ok::<_, String>(done);
+                    }
+                    Ok(self
+                        .field_candidate(&field, end, opt, clock)?
+                        .is_some_and(|c| c.3 < cost))
+                })?;
+                std::mem::swap(&mut field.states, &mut states);
+                if done {
+                    field.certified_cost = cost.min(field.certified_cost);
+                    break;
+                }
+            }
             field.settled += 1;
             let label = field.labels[id];
             for edge in self.offsets[label.node as usize]..self.offsets[label.node as usize + 1] {
@@ -1258,11 +1375,15 @@ impl BikeKernel {
                         field.limited = true;
                         break 'search;
                     }
-                    let state = *state_ids.entry(state.clone()).or_insert_with(|| {
-                        let id = states.len() as u32;
-                        states.push(state);
-                        id
-                    });
+                    let state = if state.is_empty() {
+                        0
+                    } else {
+                        *state_ids.entry(state.clone()).or_insert_with(|| {
+                            let id = states.len() as u32;
+                            states.push(state);
+                            id
+                        })
+                    };
                     let meters = self.distances[edge as usize] as f64 / 100.;
                     insert(
                         FieldLabel {
@@ -1283,6 +1404,7 @@ impl BikeKernel {
         }
         field.states = states;
         field.scope = scope;
+
         Ok(field)
     }
 
@@ -1519,6 +1641,89 @@ impl BikeKernel {
 mod walk_attachment_tests {
     use super::*;
     use crate::drive_attachment::BikeCandidate;
+    #[test]
+    fn target_completion_preserves_full_field_results_and_unreachable_targets() {
+        let nodes: Vec<_> = (0..10002).map(|i| [i as f64 * 0.000001, 0.]).collect();
+        let edges: Vec<_> = (0..10000)
+            .map(|i| (i, i + 1, 100, i as i64, (2 << 3) | (30 << 8) | (15 << 14)))
+            .collect();
+        let bike = super::super::tests::fixture(&nodes, &edges, &[]);
+        let opt = BikeOptions::default();
+        let start = Attachment::from_candidates(
+            vec![BikeCandidate {
+                node: 1,
+                edge: 0,
+                fraction: 0.,
+                walk_meters: 0.,
+            }],
+            1.,
+            true,
+        );
+        let end = |node| {
+            Attachment::from_candidates(
+                vec![BikeCandidate {
+                    node,
+                    edge: node,
+                    fraction: 2.,
+                    walk_meters: 0.,
+                }],
+                1.,
+                false,
+            )
+        };
+        let ends = [end(100), end(6000)];
+        let full = bike
+            .bike_field_metrics(start.clone(), opt, None, f64::INFINITY, None, None, false)
+            .unwrap();
+        let stopped = bike
+            .bike_field_for_targets(
+                start.clone(),
+                opt,
+                None,
+                f64::INFINITY,
+                None,
+                None,
+                false,
+                &ends,
+            )
+            .unwrap();
+        assert!(stopped.settled < full.settled);
+        assert!(!stopped.limited);
+        for end in &ends {
+            assert_eq!(
+                bike.field_duration(&stopped, end, opt, 100000., None)
+                    .unwrap(),
+                bike.field_duration(&full, end, opt, 100000., None).unwrap()
+            );
+        }
+        let missing = Attachment::from_candidates(
+            vec![BikeCandidate {
+                node: 10001,
+                edge: 9999,
+                fraction: 2.,
+                walk_meters: 0.,
+            }],
+            1.,
+            false,
+        );
+        let exhausted = bike
+            .bike_field_for_targets(
+                start,
+                opt,
+                None,
+                f64::INFINITY,
+                None,
+                None,
+                false,
+                &[missing],
+            )
+            .unwrap();
+        assert_eq!(
+            exhausted.settled, full.settled,
+            "Unsettled targets must not authorize stopping"
+        );
+    }
+
     #[test]
     fn compact_field_labels_preserve_edge_zero_and_the_largest_valid_edge() {
         assert_eq!(std::mem::size_of::<FieldLabel>(), 32);
