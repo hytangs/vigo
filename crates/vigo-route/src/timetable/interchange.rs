@@ -5,10 +5,11 @@ use super::*;
 use std::collections::HashSet;
 
 impl TimetableKernel {
-    pub fn improve_interchanges(&self, journey: &mut TimetableMatrixJourney) {
+    pub fn improve_interchanges(&self, journey: &mut TimetableMatrixJourney) -> bool {
         if journey.boardings < 2 {
-            return;
+            return false;
         }
+        let mut changed = false;
         let rides: Vec<_> = journey
             .legs
             .iter()
@@ -91,6 +92,7 @@ impl TimetableKernel {
                 best = Some((i, j, stop));
             }
             if let Some((i, j, stop)) = best {
+                changed = true;
                 journey.ride_seconds +=
                     f64::from(arr[i]) - first.arrival - (f64::from(dep[j]) - next.departure);
                 let first = &mut journey.legs[a];
@@ -112,6 +114,7 @@ impl TimetableKernel {
         journey.waiting_seconds =
             (journey.arrival - journey.departure - journey.walking_seconds - journey.ride_seconds)
                 .max(0.);
+        changed
     }
 }
 

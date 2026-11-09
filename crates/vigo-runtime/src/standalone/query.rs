@@ -1166,7 +1166,12 @@ impl City {
                 None => json!({"status":"complete"}),
                 Some(reason) => json!({"status":"unavailable","reason":reason}),
             });
-            for candidate in candidates {
+            for mut candidate in candidates {
+                self.timetable
+                    .as_ref()
+                    .unwrap()
+                    .kernel
+                    .improve_interchanges(&mut candidate);
                 let mut choice = self.materialize(
                     &candidate,
                     [&origin, &destination],
@@ -1191,6 +1196,13 @@ impl City {
                 }
                 choices.push(choice);
             }
+        }
+        if let Some(journey) = journey.as_mut() {
+            self.timetable
+                .as_ref()
+                .unwrap()
+                .kernel
+                .improve_interchanges(journey);
         }
         let mut output = if let Some(j) = journey.as_ref() {
             let mut j = self.materialize(
