@@ -599,85 +599,92 @@ impl BikeKernel {
             0.8
         };
         let events = self.windows.scope_events(clock);
-        let mut checks = std::collections::BTreeMap::<usize, Vec<(usize, f64)>>::new();
-        for &(target, lower) in waiting {
-            let horizon = lower / factor * (1. + 1e-12);
-            checks
-                .entry(events.partition_point(|&event| event <= horizon))
-                .or_default()
-                .push((target, lower));
-        }
-        for (_, checks) in checks {
-            let maximum = checks.iter().map(|&(_, cost)| cost).fold(0., f64::max);
-            let scope = self.windows.scope(clock, maximum / factor * (1. + 1e-12));
-            let proof = self.bike_field_metrics(
-                starts.clone(),
-                opt,
-                Some(clock),
-                maximum * (1. + 2e-12),
-                self.walking.is_none().then_some(&[][..]),
-                Some(scope),
-                distances,
-            )?;
-            result.settled_labels += proof.settled;
-            result.tree_limited |= proof.limited;
-            result.scoped_trees += 1;
-            for (target, lower) in checks {
-                let ends = self.attach_bicycle_matching(
-                    &graph,
-                    targets[target],
-                    max_walk,
-                    walk_speed / 3.6,
-                    false,
-                    false,
-                    &eligible,
-                )?;
-                // Every original optimum costs `lower` and, without waiting, lasts
-                // at most lower / factor. If enforcing its fixed windows raises
-                // even the relaxed optimum, ALL original optima require waiting
-                // or fail replay. This proves the point router will widen endpoints
-                // regardless of ties, without repeating its initial search.
-                // These targets passed access/distance replay. Network-walking
-                // fields retain the same all-access relaxation for this proof;
-                // relaxing additional roads can only lower the scoped optimum.
-                let scoped_lower = self
-                    .field_candidate(&proof, &ends, opt, Some(clock))?
-                    .map(|c| c.3)
-                    .unwrap_or(proof.certified_cost);
-                if scoped_lower > lower * (1. + 1e-12) {
-                    confirmed.push(target);
-                    result.attachment_certificates += 1;
-                    continue;
-                }
-                // Preserve the point router's attachment policy even when equal-
-                // cost static paths differ in temporal validity. Only its own
-                // invalid initial relaxation authorizes the wider timed search.
-                let initial = self.search_with_limit(
-                    origin,
-                    targets[target],
+        if self.walking.is_some() && !distances {
+            // Both point-router passes use the same complete walking-network
+            // attachments. No per-target search is needed to authorize the
+            // second pass; the scoped fields still prove its timed optimum.
+            confirmed.extend(waiting.iter().map(|&(target, _)| target));
+        } else {
+            let mut checks = std::collections::BTreeMap::<usize, Vec<(usize, f64)>>::new();
+            for &(target, lower) in waiting {
+                let horizon = lower / factor * (1. + 1e-12);
+                checks
+                    .entry(events.partition_point(|&event| event <= horizon))
+                    .or_default()
+                    .push((target, lower));
+            }
+            for (_, checks) in checks {
+                let maximum = checks.iter().map(|&(_, cost)| cost).fold(0., f64::max);
+                let scope = self.windows.scope(clock, maximum / factor * (1. + 1e-12));
+                let proof = self.bike_field_metrics(
+                    starts.clone(),
                     opt,
-                    &starts,
-                    &ends,
-                    max_distance,
                     Some(clock),
-                    SearchKind::Relaxed,
-                    SearchBounds::default(),
-                    None,
-                    false,
+                    maximum * (1. + 2e-12),
+                    self.walking.is_none().then_some(&[][..]),
+                    Some(scope),
+                    distances,
                 )?;
-                result.settled_labels += initial.settled_labels;
-                if initial.temporal_valid && initial.status == "ready" {
-                    result.record(
-                        target,
-                        physical(&initial),
-                        initial.legs.iter().map(|l| l.meters).sum(),
-                        maximum_seconds,
-                    );
-                    result.certified_targets += 1;
-                } else if !initial.temporal_valid {
-                    confirmed.push(target);
-                } else {
-                    fallback.push(target);
+                result.settled_labels += proof.settled;
+                result.tree_limited |= proof.limited;
+                result.scoped_trees += 1;
+                for (target, lower) in checks {
+                    let ends = self.attach_bicycle_matching(
+                        &graph,
+                        targets[target],
+                        max_walk,
+                        walk_speed / 3.6,
+                        false,
+                        false,
+                        &eligible,
+                    )?;
+                    // Every original optimum costs `lower` and, without waiting, lasts
+                    // at most lower / factor. If enforcing its fixed windows raises
+                    // even the relaxed optimum, ALL original optima require waiting
+                    // or fail replay. This proves the point router will widen endpoints
+                    // regardless of ties, without repeating its initial search.
+                    // These targets passed access/distance replay. Network-walking
+                    // fields retain the same all-access relaxation for this proof;
+                    // relaxing additional roads can only lower the scoped optimum.
+                    let scoped_lower = self
+                        .field_candidate(&proof, &ends, opt, Some(clock))?
+                        .map(|c| c.3)
+                        .unwrap_or(proof.certified_cost);
+                    if scoped_lower > lower * (1. + 1e-12) {
+                        confirmed.push(target);
+                        result.attachment_certificates += 1;
+                        continue;
+                    }
+                    // Preserve the point router's attachment policy even when equal-
+                    // cost static paths differ in temporal validity. Only its own
+                    // invalid initial relaxation authorizes the wider timed search.
+                    let initial = self.search_with_limit(
+                        origin,
+                        targets[target],
+                        opt,
+                        &starts,
+                        &ends,
+                        max_distance,
+                        Some(clock),
+                        SearchKind::Relaxed,
+                        SearchBounds::default(),
+                        None,
+                        false,
+                    )?;
+                    result.settled_labels += initial.settled_labels;
+                    if initial.temporal_valid && initial.status == "ready" {
+                        result.record(
+                            target,
+                            physical(&initial),
+                            initial.legs.iter().map(|l| l.meters).sum(),
+                            maximum_seconds,
+                        );
+                        result.certified_targets += 1;
+                    } else if !initial.temporal_valid {
+                        confirmed.push(target);
+                    } else {
+                        fallback.push(target);
+                    }
                 }
             }
         }

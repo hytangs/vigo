@@ -1785,8 +1785,18 @@ impl BikeKernel {
     // on remaining static cost keeps those alternatives near a useful route.
     // Ignore turns and destination-only permissions here: relaxing constraints
     // can only lower the bound. The reverse links are temporary, not another
-    // resident graph or one graph per bicycle preference.
-    fn costs_to(&self, ends: &Attachment, opt: BikeOptions, excess: bool) -> Vec<f64> {
+    // resident graph or one graph per bicycle preference. A query only needs
+    // exact bounds below its incumbent/horizon. Clamp all larger costs to that
+    // ceiling instead of exploring the whole connected City: this remains a
+    // lower bound, including for unreachable nodes. Padding at the callers
+    // preserves boundary comparisons after the heuristic's rounding slack.
+    fn costs_to(
+        &self,
+        ends: &Attachment,
+        opt: BikeOptions,
+        excess: bool,
+        ceiling: f64,
+    ) -> Vec<f64> {
         let wait_factor = if matches!(opt.profile, Profile::Fast) {
             1.
         } else {
@@ -1807,7 +1817,7 @@ impl BikeKernel {
             next[edge] = head[node as usize];
             head[node as usize] = edge as u32;
         }
-        let mut costs = vec![f64::INFINITY; self.lons.len()];
+        let mut costs = vec![ceiling; self.lons.len()];
         let mut queue = BinaryHeap::new();
         for i in 0..ends.candidates.len() {
             let b = ends.candidate(&self.graph(), i);
@@ -1995,9 +2005,10 @@ impl BikeKernel {
         {
             return Ok(result);
         }
-        let remaining_cost = (timed || constrained).then(|| self.costs_to(ends, opt, false));
-        let remaining_excess =
-            (timed && search_bounds.earliest_arrival > 0.).then(|| self.costs_to(ends, opt, true));
+        let remaining_cost =
+            (timed || constrained).then(|| self.costs_to(ends, opt, false, best * (1. + 1e-12)));
+        let remaining_excess = (timed && search_bounds.earliest_arrival > 0.)
+            .then(|| self.costs_to(ends, opt, true, best * (1. + 2e-12)));
         let heuristic = |node: u32| {
             if let Some(costs) = &remaining_cost {
                 return costs[node as usize] * (1. - 1e-12);
@@ -2782,6 +2793,57 @@ mod tests {
 
     const STRESS_COLUMNS: &str = "INSERT INTO metadata VALUES('bikeStressVersion','1');
         ALTER TABLE bike_edges ADD COLUMN stress INTEGER NOT NULL DEFAULT 9;";
+
+    #[test]
+    fn bounded_reverse_costs_preserve_every_useful_lower_bound() {
+        let nodes = [
+            [0., 0.],
+            [0.001, 0.],
+            [0.002, 0.],
+            [0.003, 0.],
+            [0.004, 0.],
+            [0.005, 0.],
+        ];
+        let k = fixture(
+            &nodes,
+            &[
+                (0, 1, 1_000_000, 10, MAJOR),
+                (1, 2, 10_000, 20, CYCLE),
+                (2, 3, 10_000, 30, MAJOR),
+                (3, 4, 10_000, 40, CYCLE),
+            ],
+            &[],
+        );
+        let ends = k.index.attach_bicycle_matching(
+            &k.graph(),
+            nodes[4],
+            0.,
+            4.8 / 3.6,
+            false,
+            false,
+            &|_| true,
+        );
+        assert!(!ends.candidates.is_empty());
+        for profile in [Profile::Fast, Profile::Balanced, Profile::Quiet] {
+            let opt = BikeOptions {
+                profile,
+                ..Default::default()
+            };
+            for excess in [false, true] {
+                let full = k.costs_to(&ends, opt, excess, f64::INFINITY);
+                for ceiling in [0., 1., 30., 100., 10_000.] {
+                    let bounded = k.costs_to(&ends, opt, excess, ceiling);
+                    for (node, (&actual, &unbounded)) in bounded.iter().zip(&full).enumerate() {
+                        assert_eq!(
+                            actual,
+                            unbounded.min(ceiling),
+                            "node={node} ceiling={ceiling} excess={excess}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn requests_cannot_select_the_internal_shortest_profile() {

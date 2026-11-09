@@ -164,8 +164,9 @@ impl BikeKernel {
                 ..opt
             },
             false,
+            horizon * (1. + 2e-12),
         );
-        let remaining_excess = self.costs_to(ends, opt, true);
+        let remaining_excess = self.costs_to(ends, opt, true, upper * (1. + 2e-12));
         let destination_access: HashSet<_> = starts
             .candidates
             .iter()
