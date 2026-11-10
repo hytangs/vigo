@@ -84,8 +84,19 @@ struct StoredRef<'a> {
     walking: Option<&'a walk::WalkLinks>,
 }
 #[derive(Deserialize)]
-struct Stored {
-    kernel: BikeKernel,
+struct StoredTail {
+    turns: HashMap<(u32, i64), Vec<NodeTurn>>,
+    windows: TurnWindows,
+    edge_windows: HashMap<u32, u32>,
+    timed_node_turns: bool,
+    timed_way_turns: bool,
+    stress_prepared: bool,
+    way_turns: Vec<WayTurn>,
+    way_starts: HashMap<(u32, i64), Vec<u32>>,
+    index: RoadIndex,
+    minimum_length_ratio: f64,
+    destination_components: Vec<u32>,
+    unsupported_restrictions: u64,
     walking: Option<walk::WalkLinks>,
 }
 
@@ -152,37 +163,79 @@ fn load(source: &str, path: &Path, binding: &Binding) -> Result<BikeKernel> {
     }
     // The cache writer only publishes completed files by atomic replacement;
     // an admitted map remains bound to that file for this whole decode.
-    let mapped = unsafe { memmap2::Mmap::map(&file)? };
+    let mapped = std::sync::Arc::new(unsafe { memmap2::Mmap::map(&file)? });
     if &mapped[..8] != MAGIC
         || mapped[8..40] != binding.digest
         || u64::from_le_bytes(mapped[72..80].try_into()?) != (size - HEADER) as u64
     {
         return Err("Stale compiled bicycle graph".into());
     }
-    let payload = &mapped[HEADER..];
-    let checksum: [u8; 32] = Sha256::digest(payload).into();
-    if checksum != mapped[40..72] {
-        return Err("Damaged compiled bicycle graph".into());
+    #[cfg(unix)]
+    let admission = index::Admission::new(path, &file.metadata()?, &mapped[..HEADER]);
+    #[cfg(unix)]
+    let verified = admission.verified();
+    #[cfg(not(unix))]
+    let verified = false;
+    if !verified {
+        let checksum: [u8; 32] = Sha256::digest(&mapped[HEADER..]).into();
+        if checksum != mapped[40..72] {
+            return Err("Damaged compiled bicycle graph".into());
+        }
     }
-    let (mut stored, consumed): (Stored, usize) = bincode::serde::decode_from_slice(
-        payload,
+    let mut cursor = HEADER;
+    let lons = index::Column::<f64>::legacy(&mapped, &mut cursor)?;
+    let lats = index::Column::<f64>::legacy(&mapped, &mut cursor)?;
+    let offsets = index::Column::<u32>::legacy(&mapped, &mut cursor)?;
+    let targets = index::Column::<u32>::legacy(&mapped, &mut cursor)?;
+    let distances = index::Column::<u32>::legacy(&mapped, &mut cursor)?;
+    let attributes = index::Column::<u32>::legacy(&mapped, &mut cursor)?;
+    let ways = index::Column::<i64>::legacy(&mapped, &mut cursor)?;
+
+    let tail = &mapped[cursor..];
+    let (stored, consumed): (StoredTail, usize) = bincode::serde::decode_from_slice(
+        tail,
         bincode::config::legacy().with_limit::<MAX_BYTES>(),
     )?;
-    if consumed != payload.len() || !valid(&stored.kernel) {
+    let mut kernel = BikeKernel {
+        lons,
+        lats,
+        offsets,
+        targets,
+        distances,
+        attributes,
+        ways,
+        turns: stored.turns,
+        windows: stored.windows,
+        edge_windows: stored.edge_windows,
+        timed_node_turns: stored.timed_node_turns,
+        timed_way_turns: stored.timed_way_turns,
+        stress_prepared: stored.stress_prepared,
+        way_turns: stored.way_turns,
+        way_starts: stored.way_starts,
+        index: stored.index,
+        minimum_length_ratio: stored.minimum_length_ratio,
+        destination_components: stored.destination_components,
+        unsupported_restrictions: stored.unsupported_restrictions,
+        walking: None,
+        cch_prepared: Default::default(),
+        cch_topology: Default::default(),
+        cch_source: None,
+        cch_index: Default::default(),
+    };
+    if consumed != tail.len() || (!verified && !valid(&kernel)) {
         return Err("Invalid compiled bicycle layout".into());
     }
-    stored.kernel.walking = stored
+    kernel.walking = stored
         .walking
         .map(|links| {
-            walk::WalkNetwork::from_prepared(
-                source,
-                links,
-                &stored.kernel.lons,
-                &stored.kernel.lats,
-            )
+            walk::WalkNetwork::from_prepared(source, links, &kernel.lons, &kernel.lats, verified)
         })
         .transpose()?;
-    Ok(stored.kernel)
+    #[cfg(unix)]
+    if !verified {
+        let _ = admission.remember(&file, &mapped[..HEADER]);
+    }
+    Ok(kernel)
 }
 
 fn valid(k: &BikeKernel) -> bool {
@@ -361,22 +414,22 @@ mod tests {
         broken[HEADER + 3] ^= 1;
         fs::write(&compiled, broken).unwrap();
         assert!(load(path, &compiled, &binding).is_err());
-        assert_eq!(read_in(path, Some(&cache)).unwrap().distances, vec![10000]);
+        assert_eq!(read_in(path, Some(&cache)).unwrap().distances[..], [10000]);
         assert!(load(path, &compiled, &binding).is_ok());
         let db = Connection::open(&source).unwrap();
         db.execute_batch("PRAGMA journal_mode=WAL; UPDATE bike_edges SET distance_cm=20000")
             .unwrap();
         assert!(load(path, &compiled, &Binding::read(path).unwrap()).is_err());
-        assert_eq!(read_in(path, Some(&cache)).unwrap().distances, vec![20000]);
+        assert_eq!(read_in(path, Some(&cache)).unwrap().distances[..], [20000]);
         db.execute_batch("UPDATE bike_edges SET distance_cm=30000")
             .unwrap();
-        assert_eq!(read_in(path, Some(&cache)).unwrap().distances, vec![30000]);
+        assert_eq!(read_in(path, Some(&cache)).unwrap().distances[..], [30000]);
         drop(db);
         let unavailable = root.join("not-a-directory");
         fs::write(&unavailable, b"file").unwrap();
         assert_eq!(
-            read_in(path, Some(&unavailable)).unwrap().distances,
-            vec![30000]
+            read_in(path, Some(&unavailable)).unwrap().distances[..],
+            [30000]
         );
         let db = Connection::open(&source).unwrap();
         db.execute_batch("UPDATE bike_edges SET distance_cm=0")

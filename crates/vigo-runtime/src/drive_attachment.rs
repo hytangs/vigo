@@ -159,7 +159,6 @@ impl BikeAttachment {
         }
     }
 
-    #[cfg(any(feature = "standalone", test))]
     pub fn walk_seconds(&self, index: usize) -> f64 {
         self.candidates[index].walk_meters / self.speed
     }

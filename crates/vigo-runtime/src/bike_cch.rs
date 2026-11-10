@@ -821,6 +821,9 @@ impl Prepared {
             return Ok(());
         };
         if self.published.load(Ordering::Relaxed) {
+            if let Some(walking) = &kernel.walking {
+                walking.publish_hierarchy(store)?;
+            }
             return Ok(());
         }
         let topology = kernel.cch_topology.get().expect("prepared topology");

@@ -122,52 +122,6 @@ impl Store {
         digest.finalize().into()
     }
 
-    #[cfg(unix)]
-    fn receipt(&self, kind: &str) -> PathBuf {
-        self.file(kind).with_extension(format!("{kind}.verified"))
-    }
-
-    #[cfg(unix)]
-    fn verified_identity(header: &[u8], meta: &fs::Metadata) -> [u8; 32] {
-        use std::os::unix::fs::MetadataExt;
-        let mut digest = Sha256::new();
-        digest.update(b"VIGO bicycle index verified file v1");
-        digest.update(header);
-        digest.update(meta.dev().to_le_bytes());
-        digest.update(meta.ino().to_le_bytes());
-        digest.update(meta.len().to_le_bytes());
-        digest.update(meta.mtime().to_le_bytes());
-        digest.update(meta.mtime_nsec().to_le_bytes());
-        digest.update(meta.ctime().to_le_bytes());
-        digest.update(meta.ctime_nsec().to_le_bytes());
-        digest.finalize().into()
-    }
-
-    #[cfg(unix)]
-    fn remember_verified(&self, kind: &str, identity: [u8; 32]) -> io::Result<()> {
-        use std::os::unix::fs::OpenOptionsExt;
-        let receipt = self.receipt(kind);
-        let temporary = receipt.with_extension(format!(
-            "verified.{}-{}.tmp",
-            std::process::id(),
-            SERIAL.fetch_add(1, Ordering::Relaxed)
-        ));
-        let result = (|| {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&temporary)?;
-            file.write_all(&identity)?;
-            drop(file);
-            fs::rename(&temporary, receipt)
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(temporary);
-        }
-        result
-    }
-
     pub(super) fn open(&self, kind: &str, key: &[u8]) -> io::Result<Reader> {
         let file = File::open(self.file(kind))?;
         let meta = file.metadata()?;
@@ -188,15 +142,9 @@ impl Store {
         // identity. In-place edits change ctime even if size and mtime
         // are restored. Old files and changed files are fully checked.
         #[cfg(unix)]
-        let identity = Self::verified_identity(&data[..HEADER], &meta);
+        let admission = Admission::new(&self.file(kind), &meta, &data[..HEADER]);
         #[cfg(unix)]
-        let verified = {
-            let mut bytes = [0; 32];
-            File::open(self.receipt(kind))
-                .and_then(|mut f| f.read_exact(&mut bytes))
-                .is_ok()
-                && bytes == identity
-        };
+        let verified = admission.verified();
         #[cfg(not(unix))]
         let verified = false;
         if !verified {
@@ -205,9 +153,7 @@ impl Store {
                 return Err(invalid("Hierarchy index checksum mismatch"));
             }
             #[cfg(unix)]
-            if Self::verified_identity(&data[..HEADER], &file.metadata()?) == identity {
-                let _ = self.remember_verified(kind, identity);
-            }
+            let _ = admission.remember(&file, &data[..HEADER]);
         }
         Ok(Reader {
             data,
@@ -270,7 +216,7 @@ impl Store {
                     && actual == header
                     && let Ok(meta) = published.metadata()
                 {
-                    let _ = self.remember_verified(kind, Self::verified_identity(&actual, &meta));
+                    let _ = Admission::new(&file, &meta, &actual).remember(&published, &actual);
                 }
             }
             Ok(())
@@ -282,14 +228,92 @@ impl Store {
     }
 }
 
+#[cfg(unix)]
+pub(super) struct Admission {
+    receipt: PathBuf,
+    identity: [u8; 32],
+}
+
+#[cfg(unix)]
+impl Admission {
+    pub(super) fn new(path: &Path, meta: &fs::Metadata, header: &[u8]) -> Self {
+        let mut name = path.as_os_str().to_os_string();
+        name.push(".verified");
+        Self {
+            receipt: PathBuf::from(name),
+            identity: Self::identity(meta, header),
+        }
+    }
+
+    fn identity(meta: &fs::Metadata, header: &[u8]) -> [u8; 32] {
+        use std::os::unix::fs::MetadataExt;
+        let mut digest = Sha256::new();
+        digest.update(b"VIGO bicycle index verified file v1");
+        digest.update(header);
+        digest.update(meta.dev().to_le_bytes());
+        digest.update(meta.ino().to_le_bytes());
+        digest.update(meta.len().to_le_bytes());
+        digest.update(meta.mtime().to_le_bytes());
+        digest.update(meta.mtime_nsec().to_le_bytes());
+        digest.update(meta.ctime().to_le_bytes());
+        digest.update(meta.ctime_nsec().to_le_bytes());
+        digest.finalize().into()
+    }
+
+    pub(super) fn verified(&self) -> bool {
+        let mut bytes = [0; 32];
+        File::open(&self.receipt)
+            .and_then(|mut file| file.read_exact(&mut bytes))
+            .is_ok()
+            && bytes == self.identity
+    }
+
+    pub(super) fn remember(&self, file: &File, header: &[u8]) -> io::Result<()> {
+        if Self::identity(&file.metadata()?, header) != self.identity {
+            return Err(invalid("Bicycle index changed during verification"));
+        }
+        use std::os::unix::fs::OpenOptionsExt;
+        let temporary = self.receipt.with_extension(format!(
+            "verified.{}-{}.tmp",
+            std::process::id(),
+            SERIAL.fetch_add(1, Ordering::Relaxed)
+        ));
+        let result = (|| {
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&temporary)?;
+            file.write_all(&self.identity)?;
+            drop(file);
+            fs::rename(&temporary, &self.receipt)
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(temporary);
+        }
+        result
+    }
+}
+
 mod sealed {
     pub trait Word {}
     impl Word for u32 {}
+    impl Word for i64 {}
     impl Word for f64 {}
 }
-pub(super) trait Word: sealed::Word + Copy {}
-impl Word for u32 {}
-impl Word for f64 {}
+pub(super) trait Word: sealed::Word + Copy {
+    fn little_endian(bytes: &[u8]) -> Self;
+}
+macro_rules! words {
+    ($($word:ty),* $(,)?) => {
+        $(impl Word for $word {
+            fn little_endian(bytes: &[u8]) -> Self {
+                <$word>::from_le_bytes(bytes.try_into().unwrap())
+            }
+        })*
+    };
+}
+words!(u32, i64, f64);
 
 pub(super) struct Column<T> {
     storage: Storage<T>,
@@ -313,6 +337,72 @@ impl<T> From<Vec<T>> for Column<T> {
 impl<T> Column<T> {
     pub(super) fn mapped(&self) -> bool {
         matches!(self.storage, Storage::Mapped { .. })
+    }
+}
+impl<T> Default for Column<T> {
+    fn default() -> Self {
+        Vec::new().into()
+    }
+}
+impl<T: Word + serde::Serialize> serde::Serialize for Column<T> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serde::Serialize::serialize(&**self, serializer)
+    }
+}
+impl<'de, T: Word + serde::Deserialize<'de>> serde::Deserialize<'de> for Column<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        <Vec<T> as serde::Deserialize>::deserialize(deserializer).map(Self::from)
+    }
+}
+impl<T: Word> Column<T> {
+    // The original compiled graph stores a fixed-width little-endian length
+    // followed by a contiguous sequence. Retain an immutable view wherever
+    // its original alignment permits; only a misaligned column needs copying.
+    pub(super) fn legacy(data: &Arc<memmap2::Mmap>, cursor: &mut usize) -> io::Result<Self> {
+        let prefix = cursor
+            .checked_add(8)
+            .ok_or_else(|| invalid("Invalid bicycle column offset"))?;
+        let count = u64::from_le_bytes(
+            data.get(*cursor..prefix)
+                .ok_or_else(|| invalid("Truncated bicycle column"))?
+                .try_into()
+                .unwrap(),
+        );
+        let count = usize::try_from(count).map_err(|_| invalid("Invalid bicycle column size"))?;
+        let end = count
+            .checked_mul(size_of::<T>())
+            .and_then(|bytes| prefix.checked_add(bytes))
+            .ok_or_else(|| invalid("Invalid bicycle column length"))?;
+        let bytes = data
+            .get(prefix..end)
+            .ok_or_else(|| invalid("Truncated bicycle column"))?;
+        *cursor = end;
+        if cfg!(target_endian = "little")
+            && (bytes.as_ptr() as usize).is_multiple_of(align_of::<T>())
+        {
+            Ok(Self {
+                storage: Storage::Mapped {
+                    data: data.clone(),
+                    start: prefix,
+                    count,
+                    word: PhantomData,
+                },
+            })
+        } else {
+            Ok(bytes
+                .chunks_exact(size_of::<T>())
+                .map(T::little_endian)
+                .collect::<Vec<_>>()
+                .into())
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn capacity(&self) -> usize {
+        match &self.storage {
+            Storage::Owned(values) => values.capacity(),
+            Storage::Mapped { .. } => 0,
+        }
     }
 }
 impl<T: Word> Deref for Column<T> {

@@ -122,33 +122,36 @@ impl WalkNetwork {
         links: WalkLinks,
         lons: &[f64],
         lats: &[f64],
+        verified: bool,
     ) -> Result<Self, String> {
         let snapshot =
             crate::shared_streets::snapshot(&format!("{path}.street-accelerator-v7.bin"))
                 .map_err(|e| e.to_string())?;
-        let xs = snapshot.f64_array("nodeLons").map_err(|e| e.to_string())?;
-        let ys = snapshot.f64_array("nodeLats").map_err(|e| e.to_string())?;
-        let valid = |walk: usize, bike: u32| {
-            walk < xs.len()
-                && (bike as usize) < lons.len()
-                && (xs[walk] - lons[bike as usize]).abs() <= 1e-7
-                && (ys[walk] - lats[bike as usize]).abs() <= 1e-7
-        };
-        let matches = match &links {
-            WalkLinks::Dense(nodes) => {
-                nodes.len() == xs.len()
-                    && nodes
-                        .iter()
-                        .enumerate()
-                        .all(|(walk, &bike)| bike == u32::MAX || valid(walk, bike))
+        if !verified {
+            let xs = snapshot.f64_array("nodeLons").map_err(|e| e.to_string())?;
+            let ys = snapshot.f64_array("nodeLats").map_err(|e| e.to_string())?;
+            let valid = |walk: usize, bike: u32| {
+                walk < xs.len()
+                    && (bike as usize) < lons.len()
+                    && (xs[walk] - lons[bike as usize]).abs() <= 1e-7
+                    && (ys[walk] - lats[bike as usize]).abs() <= 1e-7
+            };
+            let matches = match &links {
+                WalkLinks::Dense(nodes) => {
+                    nodes.len() == xs.len()
+                        && nodes
+                            .iter()
+                            .enumerate()
+                            .all(|(walk, &bike)| bike == u32::MAX || valid(walk, bike))
+                }
+                WalkLinks::Sparse(nodes) => {
+                    nodes.windows(2).all(|pair| pair[0].0 < pair[1].0)
+                        && nodes.iter().all(|&(walk, bike)| valid(walk as usize, bike))
+                }
+            };
+            if !matches {
+                return Err("Invalid compiled bicycle walking node identity".into());
             }
-            WalkLinks::Sparse(nodes) => {
-                nodes.windows(2).all(|pair| pair[0].0 < pair[1].0)
-                    && nodes.iter().all(|&(walk, bike)| valid(walk as usize, bike))
-            }
-        };
-        if !matches {
-            return Err("Invalid compiled bicycle walking node identity".into());
         }
         Ok(Self {
             snapshot,

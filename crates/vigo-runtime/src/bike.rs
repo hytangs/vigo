@@ -110,15 +110,13 @@ pub(crate) struct BikeKernel {
     cch_source: Option<index::Source>,
     #[serde(skip)]
     cch_index: std::sync::OnceLock<index::Store>,
-    lons: Vec<f64>,
-    lats: Vec<f64>,
-    offsets: Vec<u32>,
-    targets: Vec<u32>,
-    distances: Vec<u32>,
-    attributes: Vec<u32>,
-    ways: Vec<i64>,
-    // Attachment uses geometric distances; request-specific costs are computed
-    // only for the sparse search, with no per-profile graph copies.
+    lons: index::Column<f64>,
+    lats: index::Column<f64>,
+    offsets: index::Column<u32>,
+    targets: index::Column<u32>,
+    distances: index::Column<u32>,
+    attributes: index::Column<u32>,
+    ways: index::Column<i64>,
     turns: HashMap<(u32, i64), Vec<NodeTurn>>,
     windows: TurnWindows,
     edge_windows: HashMap<u32, u32>,
@@ -601,13 +599,13 @@ impl BikeKernel {
             cch_topology: std::sync::OnceLock::new(),
             cch_source: None,
             cch_index: std::sync::OnceLock::new(),
-            lons,
-            lats,
-            offsets,
-            targets,
-            distances,
-            attributes,
-            ways,
+            lons: lons.into(),
+            lats: lats.into(),
+            offsets: offsets.into(),
+            targets: targets.into(),
+            distances: distances.into(),
+            attributes: attributes.into(),
+            ways: ways.into(),
             turns,
             windows,
             edge_windows,
@@ -623,7 +621,7 @@ impl BikeKernel {
         })
     }
 
-    #[cfg(any(feature = "standalone", test))]
+    #[cfg(test)]
     pub fn heap_bytes(&self) -> usize {
         self.walking
             .as_ref()
