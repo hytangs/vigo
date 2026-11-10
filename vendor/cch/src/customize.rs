@@ -63,9 +63,27 @@ impl Metric {
 /// (metric-independent) and reused across customizations. `nodes` lists every
 /// node id level-major (level 0 first); `first[l]..first[l+1]` slices `nodes`
 /// for level `l`.
-pub(crate) struct Levels {
+pub struct Levels {
+    /// Every node id, level-major (level 0 first).
     pub nodes: Vec<u32>,
+    /// `first[l]..first[l + 1]` slices `nodes` for level `l`.
     pub first: Vec<u32>,
+}
+
+impl Levels {
+    /// Partitions ranks by elimination-tree height, given each rank's parent
+    /// ([`INVALID_ID`] for a root). Parents must have a strictly higher rank.
+    #[must_use]
+    pub fn from_parents(elimination_tree_parent: &[u32]) -> Self {
+        compute_levels_from_parents(elimination_tree_parent)
+    }
+
+    /// The ranks of each level, lowest level first.
+    pub fn iter(&self) -> impl Iterator<Item = &[u32]> {
+        self.first
+            .windows(2)
+            .map(|range| &self.nodes[range[0] as usize..range[1] as usize])
+    }
 }
 
 /// Compute the elimination-tree height of every node and bucket nodes by height.
@@ -75,10 +93,14 @@ pub(crate) struct Levels {
 /// strictly higher rank than `x`, iterating `x` in increasing rank finalizes
 /// `height[x]` before it is read as a child (all children have lower rank).
 pub(crate) fn compute_levels(cch: &Cch) -> Levels {
-    let n = cch.node_count();
+    compute_levels_from_parents(&cch.elimination_tree_parent)
+}
+
+fn compute_levels_from_parents(elimination_tree_parent: &[u32]) -> Levels {
+    let n = elimination_tree_parent.len();
     let mut height = vec![0u32; n];
     let mut num_levels = 1u32; // at least level 0 (or 0 nodes -> unused)
-    for (x, &p) in cch.elimination_tree_parent.iter().enumerate() {
+    for (x, &p) in elimination_tree_parent.iter().enumerate() {
         if p != INVALID_ID {
             let cand = height[x] + 1;
             if cand > height[p as usize] {

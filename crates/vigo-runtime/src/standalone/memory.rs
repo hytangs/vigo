@@ -224,7 +224,11 @@ impl City {
             "sqliteHeapBytes":sqlite_bytes(&self.db) + self.shapes.sqlite_heap_bytes(),
             "contextMappedFileBytes":self.context.mapped_bytes(),"lastOutput":output_ledger(),
             "drive":self.drive.as_ref().map(|d| d.memory_ledger()),
-            "bike":self.bike.as_ref().map(|b| json!({"networkHeapBytes":b.heap_bytes() + std::mem::size_of::<crate::bike::BikeKernel>()})),
+            "bike":self.bike.as_ref().map(|b| {
+                let (hierarchy, mapped) = b.hierarchy_memory();
+                json!({"networkHeapBytes":b.heap_bytes() + std::mem::size_of::<crate::bike::BikeKernel>(),
+                    "hierarchyHeapBytes":hierarchy,"indexMappedFileBytes":mapped})
+            }),
             "scope":"retained capacities; hash/JSON container overhead estimated; mappings are file lengths, not RSS; active-query temporaries and transport/UI allocations measured separately"})
     }
 }

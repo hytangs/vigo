@@ -42,7 +42,7 @@ impl BikeClock {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, serde::Serialize, serde::Deserialize)]
 pub(crate) struct TurnWindows {
     // Index zero always applies, including old Cities and unknown conditions.
     pub schedules: Vec<Vec<(u16, u16)>>,
@@ -165,6 +165,7 @@ impl TurnWindows {
                 .sum::<usize>()
     }
 
+    #[cfg(test)]
     pub fn stable_until(&self, clock: BikeClock, horizon: f64) -> bool {
         horizon.is_finite()
             && horizon >= 0.
@@ -176,6 +177,7 @@ impl TurnWindows {
 
     /// Constant permissions inside a proven improving-path horizon. A changing
     /// window remains unknown, so a relaxed search admits every possibility.
+    #[cfg(test)]
     pub fn scope(&self, clock: BikeClock, horizon: f64) -> Vec<Option<bool>> {
         std::iter::once(Some(true))
             .chain((1..=self.schedules.len() as u32).map(|id| {
@@ -189,6 +191,7 @@ impl TurnWindows {
     /// Horizons between the same two events have identical scoped permissions.
     /// Compute once per shared search instead of retaining one window vector
     /// per target group.
+    #[cfg(test)]
     pub fn scope_events(&self, clock: BikeClock) -> Vec<f64> {
         let mut events: Vec<_> = (1..=self.schedules.len() as u32)
             .filter_map(|id| self.next_change(id, clock, 0.))
@@ -201,6 +204,7 @@ impl TurnWindows {
     /// Permissions that cannot change between a departure and its arrival
     /// deadline. A boundary exactly at the deadline remains unknown: the
     /// preceding segment may have entered immediately before it.
+    #[cfg(test)]
     pub fn scope_before(&self, clock: BikeClock, horizon: f64) -> Vec<Option<bool>> {
         std::iter::once(Some(true))
             .chain((1..=self.schedules.len() as u32).map(|id| {

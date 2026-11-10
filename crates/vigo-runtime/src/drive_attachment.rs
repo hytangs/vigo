@@ -127,7 +127,9 @@ pub(crate) struct BikeCandidate {
     pub edge: u32,
     // 0..1 is a direct projection. Exact values 2/3 denote a network walk
     // to the source/target vertex. This keeps the bounded record at 24 bytes;
-    // arbitrary projection fractions are never quantized or modified.
+    // arbitrary projection fractions are never quantized or modified. Value 4
+    // is a walking origin at a source vertex; a shared search owns the first
+    // road, so this attachment carries no road length.
     pub fraction: f64,
     pub walk_meters: f64,
 }
@@ -157,10 +159,17 @@ impl BikeAttachment {
         }
     }
 
+    pub fn walk_seconds(&self, index: usize) -> f64 {
+        self.candidates[index].walk_meters / self.speed
+    }
+
     pub fn candidate(&self, graph: &DriveGraph<'_>, index: usize) -> RoadCandidate {
         let c = self.candidates[index];
         let walk_network = c.fraction >= 2.;
-        let fraction = if walk_network {
+        let vertex = c.fraction == 4.;
+        let fraction = if vertex {
+            0.
+        } else if walk_network {
             c.fraction - 2.
         } else {
             c.fraction
@@ -182,7 +191,13 @@ impl BikeAttachment {
                 from + fraction * (to - from)
             }
         };
-        let part = if self.origin { 1. - fraction } else { fraction };
+        let part = if vertex {
+            0.
+        } else if self.origin {
+            1. - fraction
+        } else {
+            fraction
+        };
         RoadCandidate {
             walk_network,
             node: c.node,
@@ -203,6 +218,7 @@ impl BikeAttachment {
 }
 
 /// A uniform grid over road segments and the graph's weak components.
+#[derive(serde::Serialize, serde::Deserialize)]
 pub(crate) struct RoadIndex {
     min_lon: f64,
     min_lat: f64,
@@ -216,6 +232,25 @@ pub(crate) struct RoadIndex {
 }
 
 impl RoadIndex {
+    pub(crate) fn valid_layout(&self, nodes: usize, edges: usize) -> bool {
+        self.min_lon.is_finite()
+            && self.min_lat.is_finite()
+            && self.cell_degrees.is_finite()
+            && self.cell_degrees > 0.
+            && self
+                .columns
+                .checked_mul(self.rows)
+                .and_then(|n| n.checked_add(1))
+                == Some(self.cell_offsets.len())
+            && self.cell_offsets.first() == Some(&0)
+            && self.cell_offsets.last().copied().map(|n| n as usize) == Some(self.cell_edges.len())
+            && self.cell_offsets.windows(2).all(|pair| pair[0] <= pair[1])
+            && self.cell_edges.iter().all(|&edge| (edge as usize) < edges)
+            && self.component.len() == nodes
+            && self.component.iter().all(|&node| (node as usize) < nodes)
+            && (nodes == 0 || (self.largest_component as usize) < nodes)
+    }
+
     pub fn build(graph: &DriveGraph<'_>) -> Self {
         let node_count = graph.lons.len();
         let (mut min_lon, mut min_lat) = (f64::INFINITY, f64::INFINITY);
@@ -316,10 +351,6 @@ impl RoadIndex {
     pub fn byte_length(&self) -> usize {
         (self.cell_offsets.capacity() + self.cell_edges.capacity() + self.component.capacity())
             * std::mem::size_of::<u32>()
-    }
-
-    pub(crate) fn connected_nodes(&self, a: u32, b: u32) -> bool {
-        self.component[a as usize] == self.component[b as usize]
     }
 
     fn segment_cells(
@@ -530,7 +561,7 @@ impl RoadIndex {
     /// Failed bicycle searches can consider the entire permitted connector
     /// radius. Bound query-local storage; never report an incomplete scan as
     /// a valid no-path answer. Ordinary driving keeps its existing matching.
-    pub(crate) fn attach_bicycle_fallback(
+    pub(crate) fn attach_bicycle_full_radius(
         &self,
         graph: &DriveGraph<'_>,
         point: [f64; 2],
@@ -824,7 +855,7 @@ mod tests {
             for origin in [true, false] {
                 let expected = index.segments_within(&graph, point, 1200.);
                 let compact = index
-                    .attach_bicycle_fallback(&graph, point, 1200., 4.8 / 3.6, origin, &|_| true)
+                    .attach_bicycle_full_radius(&graph, point, 1200., 4.8 / 3.6, origin, &|_| true)
                     .unwrap();
                 assert_eq!(compact.candidates.len(), expected.len());
                 for (i, projection) in expected.into_iter().enumerate() {
@@ -856,6 +887,29 @@ mod tests {
             }
         }
         assert_eq!(std::mem::size_of::<BikeCandidate>(), 24);
+        for edge in 0..graph.edge_targets.len() {
+            let node = graph.edge_source(edge) as u32;
+            let attachment = BikeAttachment::from_candidates(
+                vec![BikeCandidate {
+                    node,
+                    edge: edge as u32,
+                    fraction: 4.,
+                    walk_meters: 37.5,
+                }],
+                1.25,
+                true,
+            );
+            let vertex = attachment.candidate(&graph, 0);
+            assert_eq!(vertex.node, node);
+            assert_eq!(
+                vertex.road,
+                [graph.lons[node as usize], graph.lats[node as usize]]
+            );
+            assert_eq!(vertex.drive_meters, 0.);
+            assert_eq!(vertex.drive_seconds, 0.);
+            assert_eq!(vertex.walk_seconds, 30.);
+            assert!(vertex.walk_network);
+        }
     }
 
     #[test]
@@ -874,7 +928,7 @@ mod tests {
             let graph = view(&parts);
             let index = RoadIndex::build(&graph);
             for origin in [true, false] {
-                let result = index.attach_bicycle_fallback(
+                let result = index.attach_bicycle_full_radius(
                     &graph,
                     [0.0005, 0.0001],
                     1200.,

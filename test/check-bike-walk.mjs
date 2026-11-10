@@ -65,10 +65,19 @@ try {
         const values=arrive?matrix.durationsSeconds.map(r=>r[0]):matrix.durationsSeconds[0]
         assert.deepEqual(reach.surface.valuesSeconds,values.map(v=>v!=null&&v<=1800?v:null),profile+' '+arrive)
       }
-      for (const mutation of ['version','identity','node']) {
+      for (const mutation of ['version','identity','node','duplicate-dense','duplicate-sparse']) {
         const copy=path.join(dir,'bad-'+mutation);fs.cpSync(city,copy,{recursive:true})
         const corrupt=new DatabaseSync(path.join(copy,'osm/street-index.sqlite'))
         if (mutation==='node') corrupt.exec('UPDATE bike_walk_nodes SET walk_node=4294967295 WHERE bike_node=1')
+        else if (mutation.startsWith('duplicate-')) {
+          // Coincident coordinates still represent distinct source identities.
+          // Exercise both dense and sparse readers without relying on row order.
+          if (mutation==='duplicate-sparse') corrupt.exec('DELETE FROM bike_walk_nodes WHERE bike_node NOT IN (SELECT bike_node FROM bike_walk_nodes ORDER BY bike_node LIMIT 2)')
+          const first=corrupt.prepare('SELECT bike_node,walk_node FROM bike_walk_nodes ORDER BY bike_node LIMIT 1').get()
+          const coordinate=corrupt.prepare('SELECT lon_e7,lat_e7 FROM bike_nodes WHERE node_id=?').get(first.bike_node)
+          corrupt.prepare('UPDATE bike_nodes SET lon_e7=?,lat_e7=? WHERE node_id IN (SELECT bike_node FROM bike_walk_nodes)').run(coordinate.lon_e7,coordinate.lat_e7)
+          corrupt.prepare('UPDATE bike_walk_nodes SET walk_node=?').run(first.walk_node)
+        }
         else {
           const metadata=JSON.parse(corrupt.prepare("SELECT value FROM metadata WHERE key='bikeWalkAccess'").get().value)
           if (mutation==='version') metadata.version=99

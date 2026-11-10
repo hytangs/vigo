@@ -6,20 +6,19 @@ use crate::drive_attachment::{
 };
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
-use std::{
-    cmp::Ordering,
-    collections::{BinaryHeap, HashMap, HashSet},
-};
+use std::collections::{HashMap, HashSet};
+#[path = "bike_arrival_states.rs"]
+mod arrival_states;
 #[path = "bike_arrive.rs"]
 mod arrive;
-#[path = "bike_arrive_profile.rs"]
-mod arrive_profile;
-#[path = "bike_many.rs"]
-mod many;
-#[path = "bike_many_to.rs"]
-mod many_to;
+#[path = "bike_cache.rs"]
+mod cache;
+#[path = "bike_index.rs"]
+mod index;
 #[path = "bike_matrix.rs"]
 mod matrix;
+#[path = "bike_surface.rs"]
+mod surface;
 #[path = "bike_walk.rs"]
 mod walk;
 
@@ -45,10 +44,7 @@ impl std::hash::Hasher for OsmNodeHasher {
     }
 }
 pub(crate) type OsmNodeIds = HashMap<i64, u32, std::hash::BuildHasherDefault<OsmNodeHasher>>;
-// Above every edge's time cost, so the search's lower bounds stay admissible.
-const SHORTEST_COST_PER_METER: f64 = 1.;
-// Bounded by remaining distance and cost; a search this large rarely finishes.
-const MAX_CONSTRAINED_LABELS: usize = 500_000;
+
 // Runtime-only flags in spare attribute bits; never written into City tables.
 const TIMED_EDGE: u32 = 1 << 31;
 const NODE_TURN: u32 = 1 << 30;
@@ -63,10 +59,6 @@ pub(crate) enum Profile {
     Balanced,
     Fast,
     Quiet,
-    // Internal: prefers the fewest metres when a distance limit is too tight to
-    // search every trade-off. Requests cannot select it.
-    #[serde(skip)]
-    Shortest,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -106,17 +98,25 @@ impl BikeOptions {
     }
 }
 
+#[derive(Deserialize, Serialize)]
 pub(crate) struct BikeKernel {
+    #[serde(skip)]
     walking: Option<walk::WalkNetwork>,
-    lons: Vec<f64>,
-    lats: Vec<f64>,
-    offsets: Vec<u32>,
-    targets: Vec<u32>,
-    distances: Vec<u32>,
-    attributes: Vec<u32>,
-    ways: Vec<i64>,
-    // Attachment uses geometric distances; request-specific costs are computed
-    // only for the sparse search, with no per-profile graph copies.
+    #[serde(skip)]
+    cch_prepared: std::sync::Mutex<Option<surface::hierarchy::PreparedSlot>>,
+    #[serde(skip)]
+    cch_topology: std::sync::OnceLock<std::sync::Arc<surface::hierarchy::PreparedTopology>>,
+    #[serde(skip)]
+    cch_source: Option<index::Source>,
+    #[serde(skip)]
+    cch_index: std::sync::OnceLock<index::Store>,
+    lons: index::Column<f64>,
+    lats: index::Column<f64>,
+    offsets: index::Column<u32>,
+    targets: index::Column<u32>,
+    distances: index::Column<u32>,
+    attributes: index::Column<u32>,
+    ways: index::Column<i64>,
     turns: HashMap<(u32, i64), Vec<NodeTurn>>,
     windows: TurnWindows,
     edge_windows: HashMap<u32, u32>,
@@ -131,6 +131,7 @@ pub(crate) struct BikeKernel {
     pub unsupported_restrictions: u64,
 }
 
+#[derive(Deserialize, Serialize)]
 struct WayTurn {
     from: i64,
     via: Vec<i64>,
@@ -139,6 +140,7 @@ struct WayTurn {
     only: bool,
     independent: bool,
 }
+#[derive(Deserialize, Serialize)]
 struct NodeTurn {
     to: i64,
     window: u32,
@@ -147,7 +149,6 @@ struct NodeTurn {
 type TurnState = Vec<(u32, u32, u32)>;
 // Edge, fraction, start coordinate, end coordinate, waiting seconds.
 type BicyclePathPart = (u32, f64, [f64; 2], [f64; 2], f64);
-type CertifiedMetrics<T> = Result<(Option<T>, &'static str), String>;
 
 // The usual movement has one result and no allocation. A timed alternative
 // completion can produce a different via-way state after waiting; only those
@@ -176,48 +177,6 @@ fn same_point(a: [f64; 2], b: [f64; 2]) -> bool {
     (a[0] - b[0]).abs() < 1e-9 && (a[1] - b[1]).abs() < 1e-9
 }
 
-// Distance to a box enclosing destination nodes on the unit sphere is no
-// greater than their nearest chord, hence no greater than their geodesic.
-// This keeps large attachment sets from multiplying A* work by their size.
-struct TargetBounds {
-    low: [f64; 3],
-    high: [f64; 3],
-}
-fn sphere(point: [f64; 2]) -> [f64; 3] {
-    let (s, c) = point[0].to_radians().sin_cos();
-    let (z, r) = point[1].to_radians().sin_cos();
-    [r * c, r * s, z]
-}
-impl TargetBounds {
-    fn new(points: impl Iterator<Item = [f64; 2]>) -> Self {
-        let mut b = Self {
-            low: [f64::INFINITY; 3],
-            high: [f64::NEG_INFINITY; 3],
-        };
-        for p in points.map(sphere) {
-            for (i, value) in p.into_iter().enumerate() {
-                b.low[i] = b.low[i].min(value);
-                b.high[i] = b.high[i].max(value);
-            }
-        }
-        b
-    }
-    fn meters(&self, point: [f64; 2]) -> f64 {
-        sphere(point)
-            .into_iter()
-            .enumerate()
-            .map(|(i, value)| {
-                (self.low[i] - value)
-                    .max(value - self.high[i])
-                    .max(0.)
-                    .powi(2)
-            })
-            .sum::<f64>()
-            .sqrt()
-            * 6_371_008.8
-    }
-}
-
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct BikeLeg {
@@ -243,17 +202,12 @@ pub(crate) struct BikeResult {
     pub cost: Option<f64>,
     #[serde(skip_serializing_if = "zero_seconds")]
     pub end_wait_seconds: f64,
-    pub settled_labels: usize,
     pub origin_road_meters: Option<f64>,
     pub destination_road_meters: Option<f64>,
     pub unsupported_restrictions: u64,
     pub timing_policy: &'static str,
-    #[serde(skip)]
-    pub distance_limit_best_found: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_lts: Option<u8>,
-    #[serde(skip)]
-    temporal_valid: bool,
     #[serde(skip)]
     continuation: Option<BikeContinuation>,
 }
@@ -278,86 +232,43 @@ struct BikeContinuation {
 }
 
 #[derive(Clone, Copy)]
-struct Label {
-    node: u32,
-    // Valid CSR edges and bounded label ids are strictly below u32::MAX.
-    incoming: u32,
-    state: u32,
-    cost: f64,
-    meters: f64,
-    parent: u32,
-    start: u32,
-    active: bool,
-}
-impl Label {
-    fn incoming(&self) -> Option<u32> {
-        (self.incoming != u32::MAX).then_some(self.incoming)
-    }
-}
-struct Queue(f64, usize);
-#[derive(Clone, Copy)]
-enum SearchKind<'a> {
-    Normal,
-    Relaxed,
-    Earliest,
-    Frozen,
-    Scoped(&'a [Option<bool>]),
-    ArriveScoped(&'a [Option<bool>]),
-    ArriveConservative,
-}
-impl SearchKind<'_> {
-    fn relaxed(self) -> bool {
-        matches!(
-            self,
-            Self::Relaxed | Self::Scoped(_) | Self::ArriveScoped(_) | Self::ArriveConservative
-        )
-    }
-    fn variable(self, window: u32) -> bool {
-        match self {
-            Self::Relaxed => window != 0,
-            Self::Scoped(scope) | Self::ArriveScoped(scope) => scope[window as usize].is_none(),
-            _ => false,
-        }
-    }
-}
-#[derive(Clone, Copy)]
-struct SearchBounds {
-    upper_cost: f64,
-    earliest_arrival: f64,
-}
-impl Default for SearchBounds {
-    fn default() -> Self {
-        Self {
-            upper_cost: f64::INFINITY,
-            earliest_arrival: 0.,
-        }
-    }
-}
-impl PartialEq for Queue {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0 && self.1 == other.1
-    }
-}
-impl Eq for Queue {}
-impl PartialOrd for Queue {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-impl Ord for Queue {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other
-            .0
-            .total_cmp(&self.0)
-            .then_with(|| other.1.cmp(&self.1))
-    }
+enum MovementPolicy {
+    Wait,
+    Check,
 }
 
 impl BikeKernel {
     pub fn open(path: &str) -> Result<Self, String> {
-        Self::read(path).map_err(|e| format!("Cannot open bicycle graph: {e}"))
+        let started = std::time::Instant::now();
+        let source = index::Source::open(path);
+        let mut graph = cache::read(path).map_err(|e| format!("Cannot open bicycle graph: {e}"))?;
+        let graph_ms = started.elapsed().as_secs_f64() * 1000.;
+        graph.cch_source = source.filter(index::Source::current);
+        if let Some(walking) = &graph.walking {
+            let structure = crate::shared_streets::pedestrian_structure_for(&format!(
+                "{path}.street-accelerator-v7.bin"
+            ))?;
+            if let Some(store) = graph
+                .cch_source
+                .as_ref()
+                .and_then(|source| source.store(structure.as_deref()))
+            {
+                let _ = graph.cch_index.set(store);
+            }
+            walking.prepare_hierarchy(structure.as_deref())?;
+        }
+        if std::env::var_os("VIGO_BIKE_TRACE").is_some() {
+            eprintln!(
+                "BIKE_ADMISSION {}",
+                serde_json::json!({
+                    "graphMs": graph_ms,
+                    "walkingMs": started.elapsed().as_secs_f64() * 1000. - graph_ms,
+                })
+            );
+        }
+        Ok(graph)
     }
-    fn read(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    fn read_source(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
         // Only this call reads the connection, so SQLite need not lock every
         // column read of a few million rows.
         let db = Connection::open_with_flags(
@@ -683,13 +594,17 @@ impl BikeKernel {
         let walking = walk::WalkNetwork::load(&db, path, &ids, &lons, &lats)?;
         Ok(Self {
             walking,
-            lons,
-            lats,
-            offsets,
-            targets,
-            distances,
-            attributes,
-            ways,
+            cch_prepared: std::sync::Mutex::new(None),
+            cch_topology: std::sync::OnceLock::new(),
+            cch_source: None,
+            cch_index: std::sync::OnceLock::new(),
+            lons: lons.into(),
+            lats: lats.into(),
+            offsets: offsets.into(),
+            targets: targets.into(),
+            distances: distances.into(),
+            attributes: attributes.into(),
+            ways: ways.into(),
             turns,
             windows,
             edge_windows,
@@ -762,7 +677,7 @@ impl BikeKernel {
                 .attach_bicycle_matching(graph, point, maximum, speed, origin, nearest, eligible))
         }
     }
-    fn attach_bicycle_fallback(
+    fn attach_bicycle_full_radius(
         &self,
         graph: &DriveGraph<'_>,
         point: [f64; 2],
@@ -775,7 +690,7 @@ impl BikeKernel {
             walking.attach(self, point, maximum, speed, origin, eligible)
         } else {
             self.index
-                .attach_bicycle_fallback(graph, point, maximum, speed, origin, eligible)
+                .attach_bicycle_full_radius(graph, point, maximum, speed, origin, eligible)
         }
     }
 
@@ -805,6 +720,7 @@ impl BikeKernel {
             .map_or(&[][..], |turns| &turns[..]);
         self.allowed_turns_at(turns, incoming, outgoing, None, 0.)
     }
+    #[cfg(test)]
     fn allowed_turns_at(
         &self,
         turns: &[NodeTurn],
@@ -812,6 +728,17 @@ impl BikeKernel {
         outgoing: u32,
         clock: Option<BikeClock>,
         elapsed: f64,
+    ) -> bool {
+        self.allowed_turns_with(turns, incoming, outgoing, |window| {
+            self.windows.active(window, clock, elapsed)
+        })
+    }
+    fn allowed_turns_with(
+        &self,
+        turns: &[NodeTurn],
+        incoming: Option<u32>,
+        outgoing: u32,
+        active: impl Fn(u32) -> bool,
     ) -> bool {
         let Some(incoming) = incoming.filter(|_| !turns.is_empty()) else {
             return true;
@@ -821,7 +748,7 @@ impl BikeKernel {
         let mut only = false;
         let mut matches_only = false;
         for &NodeTurn { to, kind, window } in turns {
-            if !self.windows.active(window, clock, elapsed) {
+            if !active(window) {
                 continue;
             }
             let matches = to == way
@@ -860,7 +787,7 @@ impl BikeKernel {
         outgoing: u32,
         clock: Option<BikeClock>,
         elapsed: f64,
-        kind: SearchKind,
+        kind: MovementPolicy,
         alternatives: bool,
     ) -> Result<Movements, String> {
         if state.is_empty()
@@ -878,8 +805,7 @@ impl BikeKernel {
             .filter(|&edge| self.attributes[edge as usize] & NODE_TURN != 0)
             .and_then(|edge| self.turns.get(&(node, self.ways[edge as usize])))
             .map_or(&[][..], |turns| &turns[..]);
-        let relaxed = kind.relaxed();
-        let frozen = matches!(kind, SearchKind::Frozen);
+        let frozen = matches!(kind, MovementPolicy::Check);
         let window = (self.attributes[outgoing as usize] & TIMED_EDGE != 0)
             .then(|| self.edge_windows[&outgoing]);
         // Usually the next state is purely geometric. A conditional completion
@@ -888,7 +814,6 @@ impl BikeKernel {
         // waiting voluntarily; choosing just the earliest could lose a route.
         let variable_state = alternatives
             && clock.is_some()
-            && !relaxed
             && !frozen
             && self.timed_way_turns
             && state.iter().any(|&(id, step, _)| {
@@ -906,49 +831,23 @@ impl BikeKernel {
         // permitted interval. Keep the existing event/work bound as well.
         let mut cycle_end = elapsed + 8. * 86400.;
         for _ in 0..4096 {
-            let at = if frozen || relaxed { 0. } else { time };
-            let edge_open = window.is_none_or(|id| match kind {
-                SearchKind::Relaxed => true,
-                SearchKind::ArriveConservative => false,
-                SearchKind::Scoped(scope) | SearchKind::ArriveScoped(scope) => {
-                    scope[id as usize].unwrap_or(true)
-                }
-                _ => clock.is_some_and(|c| self.windows.active(id, Some(c), at)),
+            let at = if frozen { 0. } else { time };
+            let edge_open =
+                window.is_none_or(|id| clock.is_some_and(|c| self.windows.active(id, Some(c), at)));
+            let turn_open = self.allowed_turns_with(turns, incoming, outgoing, |window| {
+                self.windows.active(window, clock, at)
             });
-            let turn_open = turns.iter().any(|turn| kind.variable(turn.window))
-                || self.allowed_turns_at(
-                    turns,
-                    incoming,
-                    outgoing,
-                    if matches!(kind, SearchKind::Relaxed | SearchKind::ArriveConservative) {
-                        None
-                    } else {
-                        clock
-                    },
-                    at,
-                );
             if edge_open
                 && turn_open
-                && let Some(next) = self.next_turn_state_at(
-                    state,
-                    incoming,
-                    node,
-                    outgoing,
-                    if matches!(kind, SearchKind::ArriveConservative) {
-                        None
-                    } else {
-                        clock
-                    },
-                    at,
-                    kind,
-                )
+                && let Some(next) =
+                    self.next_turn_state_at(state, incoming, node, outgoing, clock, at)
             {
                 result.insert(time, next);
                 if !variable_state {
                     return Ok(result);
                 }
             }
-            if relaxed || frozen {
+            if frozen {
                 return Ok(result);
             }
             let Some(clock) = clock else {
@@ -1008,20 +907,8 @@ impl BikeKernel {
         node: u32,
         outgoing: u32,
     ) -> Option<TurnState> {
-        self.next_turn_state_at(
-            state,
-            incoming,
-            node,
-            outgoing,
-            None,
-            0.,
-            SearchKind::Normal,
-        )
+        self.next_turn_state_at(state, incoming, node, outgoing, None, 0.)
     }
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "Keep routing bounds and attachment policy explicit at the search boundary."
-    )]
     fn next_turn_state_at(
         &self,
         state: &TurnState,
@@ -1030,7 +917,6 @@ impl BikeKernel {
         outgoing: u32,
         clock: Option<BikeClock>,
         elapsed: f64,
-        kind: SearchKind,
     ) -> Option<TurnState> {
         if state.is_empty()
             && incoming.is_none_or(|edge| self.attributes[edge as usize] & WAY_TURN == 0)
@@ -1044,8 +930,7 @@ impl BikeKernel {
         let mut groups: HashMap<(u32, i64, u32), (bool, bool)> = HashMap::new();
         for &(id, step, start) in state {
             let rule = &self.way_turns[id as usize];
-            let variable = kind.variable(rule.window);
-            let active = !variable && self.windows.active(rule.window, clock, elapsed);
+            let active = self.windows.active(rule.window, clock, elapsed);
             let next_step = if way == rule.via[step as usize] {
                 Some(step)
             } else if rule.via.get(step as usize + 1) == Some(&way) {
@@ -1058,9 +943,7 @@ impl BikeKernel {
             if !rule.only && complete && active {
                 return None;
             }
-            // Relaxation removes conditional obligations but must retain their
-            // possible completion as an alternative to an unconditional rule.
-            if rule.only && (active || (variable && complete)) {
+            if rule.only && active {
                 let entry = groups
                     .entry((start, rule.from, if rule.independent { id + 1 } else { 0 }))
                     .or_default();
@@ -1089,15 +972,14 @@ impl BikeKernel {
             let mut allowed = false;
             for &id in ids {
                 let rule = &self.way_turns[id as usize];
-                let variable = kind.variable(rule.window);
-                let active = !variable && self.windows.active(rule.window, clock, elapsed);
+                let active = self.windows.active(rule.window, clock, elapsed);
                 if rule.independent && active && rule.via[0] != way {
                     return None;
                 }
                 only |= rule.only && !rule.independent && active;
                 if rule.via[0] == way {
                     next.push((id, 0, node));
-                    allowed |= rule.only && !rule.independent && (active || variable);
+                    allowed |= rule.only && !rule.independent && active;
                 }
             }
             if only && !allowed {
@@ -1124,9 +1006,6 @@ impl BikeKernel {
     fn metric(&self, edge: u32, opt: BikeOptions) -> (f64, f64) {
         let a = self.attributes[edge as usize];
         if self.dismount(edge, opt) {
-            if matches!(opt.profile, Profile::Shortest) {
-                return (3.6 / 4.0, SHORTEST_COST_PER_METER);
-            }
             return (
                 3.6 / 4.0,
                 3.6 / 4.0
@@ -1157,7 +1036,6 @@ impl BikeKernel {
             Profile::Fast => 1.,
             Profile::Balanced => 0.8 + stress + surface as f64 * 0.08,
             Profile::Quiet => 0.8 + stress * 2.5 + surface as f64 * 0.12,
-            Profile::Shortest => return (3.6 / speed, SHORTEST_COST_PER_METER),
         };
         let seconds = 3.6 / speed;
         (seconds, seconds * factor)
@@ -1169,7 +1047,7 @@ impl BikeKernel {
         meters: f64,
         continuation: Option<&BikeContinuation>,
         clock: Option<BikeClock>,
-        kind: SearchKind,
+        kind: MovementPolicy,
         alternatives: bool,
     ) -> Result<Movements, String> {
         let mut incoming = None;
@@ -1276,7 +1154,8 @@ impl BikeKernel {
         max_distance: f64,
         clock: Option<BikeClock>,
     ) -> Result<BikeResult, String> {
-        self.route_from(
+        surface::hierarchy::point::route(
+            self,
             origin,
             destination,
             opt,
@@ -1284,9 +1163,8 @@ impl BikeKernel {
             walk_speed,
             max_distance,
             clock,
-            None,
             false,
-            f64::INFINITY,
+            None,
         )
     }
 
@@ -1307,7 +1185,8 @@ impl BikeKernel {
         let mut results: Vec<BikeResult> = Vec::with_capacity(points.len() - 1);
         for (i, pair) in points.windows(2).enumerate() {
             let previous = results.last_mut().and_then(|r| r.continuation.take());
-            let result = self.route_from(
+            let result = surface::hierarchy::point::segment(
+                self,
                 pair[0],
                 pair[1],
                 opt,
@@ -1315,9 +1194,10 @@ impl BikeKernel {
                 walk_speed,
                 max_distance,
                 clock,
+                false,
+                None,
                 previous.as_ref(),
                 i + 2 < points.len(),
-                f64::INFINITY,
             )?;
             let ready = result.status == "ready";
             if let Some(clock) = &mut clock {
@@ -1374,1113 +1254,6 @@ impl BikeKernel {
         Ok(())
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "Keep routing bounds and attachment policy explicit at the search boundary."
-    )]
-    fn route_from(
-        &self,
-        origin: [f64; 2],
-        destination: [f64; 2],
-        opt: BikeOptions,
-        max_walk: f64,
-        walk_speed: f64,
-        max_distance: f64,
-        clock: Option<BikeClock>,
-        continuation: Option<&BikeContinuation>,
-        retain_continuation: bool,
-        maximum_cost: f64,
-    ) -> Result<BikeResult, String> {
-        self.validate_request(
-            origin,
-            destination,
-            opt,
-            max_walk,
-            walk_speed,
-            max_distance,
-            clock,
-        )?;
-        let graph = self.graph();
-        let eligible = |edge: u32| {
-            (clock.is_some() || self.attributes[edge as usize] & TIMED_EDGE == 0)
-                && self.allowed_edge(edge, opt)
-        };
-        let starts = self.attach_bicycle_matching(
-            &graph,
-            origin,
-            max_walk,
-            walk_speed / 3.6,
-            true,
-            false,
-            &eligible,
-        )?;
-        let ends = self.attach_bicycle_matching(
-            &graph,
-            destination,
-            max_walk,
-            walk_speed / 3.6,
-            false,
-            false,
-            &eligible,
-        )?;
-        let solve = |starts: &Attachment,
-                     ends: &Attachment,
-                     kind: SearchKind<'_>,
-                     mut bounds: SearchBounds| {
-            bounds.upper_cost = bounds.upper_cost.min(maximum_cost);
-            self.search_with_limit(
-                origin,
-                destination,
-                opt,
-                starts,
-                ends,
-                max_distance,
-                clock,
-                kind,
-                bounds,
-                continuation,
-                retain_continuation,
-            )
-        };
-        let run = |starts: &Attachment,
-                   ends: &Attachment,
-                   first: Option<BikeResult>|
-         -> Result<BikeResult, String> {
-            // A static relaxation is a lower bound on the timed optimum. If
-            // its path is legal at every actual arrival time, it already solves
-            // the dated query without a temporal frontier or clock array.
-            if let Some(query_clock) = clock.filter(|_| self.has_timing()) {
-                let mut relaxed = match first {
-                    Some(result) => result,
-                    None => solve(starts, ends, SearchKind::Relaxed, SearchBounds::default())?,
-                };
-                if relaxed.temporal_valid {
-                    return Ok(relaxed);
-                }
-                // A feasible route bounds the time of every cheaper route,
-                // because all preference costs are at least factor * time.
-                // Keep windows which can change in that horizon relaxed, but
-                // enforce windows that cannot change. An unrelated short
-                // window elsewhere in the City must not force every query into
-                // a large cost/time frontier.
-                let factor = if matches!(opt.profile, Profile::Fast) {
-                    1.
-                } else {
-                    0.8
-                };
-                let current_scope = self.windows.scope(query_clock, 0.);
-                let snapshot = solve(
-                    starts,
-                    ends,
-                    SearchKind::Scoped(&current_scope),
-                    SearchBounds::default(),
-                )?;
-                let work = relaxed.settled_labels + snapshot.settled_labels;
-                if snapshot.status == "ready"
-                    && snapshot.cost.unwrap() < relaxed.cost.unwrap_or(f64::INFINITY)
-                {
-                    relaxed = snapshot;
-                }
-                relaxed.settled_labels = work;
-                if let Some(upper) = relaxed.cost.filter(|_| relaxed.status == "ready") {
-                    let scope = self
-                        .windows
-                        .scope(query_clock, upper / factor * (1. + 1e-12));
-                    let mut scoped = solve(
-                        starts,
-                        ends,
-                        SearchKind::Scoped(&scope),
-                        SearchBounds::default(),
-                    )?;
-                    let work = relaxed.settled_labels + scoped.settled_labels;
-                    if scoped.status == "ready"
-                        && scoped.temporal_valid
-                        && scoped.cost.unwrap() <= upper
-                    {
-                        scoped.settled_labels = work;
-                        return Ok(scoped);
-                    }
-                    if scoped.status == "ready" && scoped.cost.unwrap() < upper {
-                        relaxed = scoped;
-                    }
-                    relaxed.settled_labels = work;
-                }
-                let mut bounds = SearchBounds::default();
-                // Earliest arrival has one best arrival per ordinary state.
-                // Its duration is a lower bound for every preference profile,
-                // including paths which must wait at an unavoidable turn.
-                if !matches!(opt.profile, Profile::Fast) {
-                    let mut fastest = self.search(
-                        origin,
-                        destination,
-                        opt,
-                        starts,
-                        ends,
-                        max_distance,
-                        false,
-                        clock,
-                        SearchKind::Earliest,
-                        SearchBounds::default(),
-                        continuation,
-                        retain_continuation,
-                    )?;
-                    if fastest.status != "ready" {
-                        fastest.settled_labels += relaxed.settled_labels;
-                        return Ok(fastest);
-                    }
-                    bounds.earliest_arrival = fastest
-                        .legs
-                        .iter()
-                        .map(|leg| leg.seconds + leg.wait_before_seconds)
-                        .sum::<f64>()
-                        * (1. - 1e-12);
-                    let work = relaxed.settled_labels + fastest.settled_labels;
-                    if fastest.cost.unwrap() < relaxed.cost.unwrap_or(f64::INFINITY)
-                        && fastest.legs.iter().map(|leg| leg.meters).sum::<f64>() <= max_distance
-                    {
-                        relaxed = fastest;
-                    }
-                    relaxed.settled_labels = work;
-                }
-                if relaxed.status == "ready" {
-                    bounds.upper_cost = relaxed.cost.unwrap();
-                }
-                // Every improving path has elapsed time <= cost / min_factor.
-                // If no schedule changes in that horizon, its permissions are
-                // fixed. A scalar static search is then exact, without a
-                // temporal cost/time frontier or reverse-bound scratch.
-                let factor = if matches!(opt.profile, Profile::Fast) {
-                    1.
-                } else {
-                    0.8
-                };
-                let kind = if self
-                    .windows
-                    .stable_until(query_clock, bounds.upper_cost / factor)
-                {
-                    SearchKind::Frozen
-                } else {
-                    SearchKind::Normal
-                };
-                let mut timed = solve(starts, ends, kind, bounds)?;
-                if timed.status != "ready" && relaxed.status == "ready" {
-                    relaxed.settled_labels += timed.settled_labels;
-                    return Ok(relaxed);
-                }
-                timed.settled_labels += relaxed.settled_labels;
-                Ok(timed)
-            } else {
-                solve(starts, ends, SearchKind::Normal, SearchBounds::default())
-            }
-        };
-        let first = if clock.is_some() && self.has_timing() {
-            let first = solve(&starts, &ends, SearchKind::Relaxed, SearchBounds::default())?;
-            if !first.temporal_valid && self.walking.is_none() {
-                // A timed restriction can make the nearest connection wait for
-                // hours. Admit all permitted endpoint alternatives before the
-                // temporal search, rather than treating that wait as success.
-                let wider_starts = self.attach_bicycle_fallback(
-                    &graph,
-                    origin,
-                    max_walk,
-                    walk_speed / 3.6,
-                    true,
-                    &eligible,
-                )?;
-                let wider_ends = self.attach_bicycle_fallback(
-                    &graph,
-                    destination,
-                    max_walk,
-                    walk_speed / 3.6,
-                    false,
-                    &eligible,
-                )?;
-                if wider_starts.candidates.len() != starts.candidates.len()
-                    || wider_ends.candidates.len() != ends.candidates.len()
-                {
-                    let mut result = run(&wider_starts, &wider_ends, None)?;
-                    result.settled_labels += first.settled_labels;
-                    return Ok(result);
-                }
-            }
-            Some(first)
-        } else {
-            None
-        };
-        let result = run(&starts, &ends, first)?;
-        // Weak connectivity does not detect a one-way dead end or a turn-
-        // restricted exit. Try the remaining permitted attachments only after
-        // the closer candidates fail, preserving successful nearby matches.
-        if result.status == "ready"
-            || self.walking.is_some()
-            || result.reason == Some("no_bike_attachment")
-            || ![result.origin_road_meters, result.destination_road_meters]
-                .into_iter()
-                .flatten()
-                .any(|d| max_walk > d + ALTERNATIVE_TOLERANCE_M)
-        {
-            return Ok(result);
-        }
-        let wider_starts = self.attach_bicycle_fallback(
-            &graph,
-            origin,
-            max_walk,
-            walk_speed / 3.6,
-            true,
-            &eligible,
-        )?;
-        let wider_ends = self.attach_bicycle_fallback(
-            &graph,
-            destination,
-            max_walk,
-            walk_speed / 3.6,
-            false,
-            &eligible,
-        )?;
-        // The full-radius sets contain every initial candidate. Avoid running
-        // the same failed graph search again when neither set gains an edge.
-        if wider_starts.candidates.len() == starts.candidates.len()
-            && wider_ends.candidates.len() == ends.candidates.len()
-        {
-            return Ok(result);
-        }
-        let mut fallback = run(&wider_starts, &wider_ends, None)?;
-        fallback.settled_labels += result.settled_labels;
-        Ok(fallback)
-    }
-
-    // Solve the ordinary preference optimum first; retain cost/distance
-    // alternatives only when that optimum exceeds the caller's distance cap.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "Keep routing bounds and attachment policy explicit at the search boundary."
-    )]
-    fn search_with_limit(
-        &self,
-        origin: [f64; 2],
-        destination: [f64; 2],
-        opt: BikeOptions,
-        starts: &Attachment,
-        ends: &Attachment,
-        max_distance: f64,
-        clock: Option<BikeClock>,
-        kind: SearchKind<'_>,
-        bounds: SearchBounds,
-        continuation: Option<&BikeContinuation>,
-        retain_continuation: bool,
-    ) -> Result<BikeResult, String> {
-        // A straight line longer than the limit needs no unconstrained search.
-        let straight_line_over_limit = starts.candidates.len() <= 16
-            && ends.candidates.len() <= 16
-            && starts.candidates.iter().all(|a| {
-                ends.candidates.iter().all(|b| {
-                    let (x, y) = (self.point(a.node), self.point(b.node));
-                    a.walk_meters
-                        + b.walk_meters
-                        + vigo_route::geo::haversine_m([x[0], x[1]], [y[0], y[1]])
-                            * self.minimum_length_ratio
-                            * (1. - 1e-9)
-                        > max_distance
-                })
-            });
-        let r = if straight_line_over_limit {
-            None
-        } else {
-            Some(self.search(
-                origin,
-                destination,
-                opt,
-                starts,
-                ends,
-                max_distance,
-                false,
-                clock,
-                kind,
-                bounds,
-                continuation,
-                retain_continuation,
-            )?)
-        };
-        let first_settled = match r {
-            Some(r) if r.legs.iter().map(|leg| leg.meters).sum::<f64>() <= max_distance => {
-                return Ok(r);
-            }
-            Some(r) => r.settled_labels,
-            None => 0,
-        };
-        let mut constrained = match self.search(
-            origin,
-            destination,
-            opt,
-            starts,
-            ends,
-            max_distance,
-            true,
-            clock,
-            kind,
-            bounds,
-            continuation,
-            retain_continuation,
-        ) {
-            Ok(result) => result,
-            // Too many trade-offs to prove the best route: a route within the
-            // limit still answers the request, and reports what it is.
-            Err(error) if error.contains("work limit") => {
-                let mut shortest = self.search(
-                    origin,
-                    destination,
-                    BikeOptions {
-                        profile: Profile::Shortest,
-                        ..opt
-                    },
-                    starts,
-                    ends,
-                    max_distance,
-                    false,
-                    clock,
-                    kind,
-                    bounds,
-                    continuation,
-                    retain_continuation,
-                )?;
-                if shortest.status != "ready"
-                    || shortest.legs.iter().map(|leg| leg.meters).sum::<f64>() > max_distance
-                {
-                    return Err(error);
-                }
-                shortest.distance_limit_best_found = true;
-                shortest
-            }
-            Err(error) => return Err(error),
-        };
-        constrained.settled_labels += first_settled;
-        Ok(constrained)
-    }
-
-    /// Exact remaining metres to the destination, ignoring turns and access,
-    /// which can only lower them. A label beyond this bound cannot finish
-    /// within the distance limit.
-    fn meters_to(&self, ends: &Attachment, max_distance: f64) -> Vec<f64> {
-        let mut head = vec![u32::MAX; self.lons.len()];
-        let mut next = vec![u32::MAX; self.targets.len()];
-        for (edge, &node) in self.targets.iter().enumerate() {
-            next[edge] = head[node as usize];
-            head[node as usize] = edge as u32;
-        }
-        let mut meters = vec![f64::INFINITY; self.lons.len()];
-        let mut queue = BinaryHeap::new();
-        for i in 0..ends.candidates.len() {
-            let b = ends.candidate(&self.graph(), i);
-            let value = b.walk_meters + b.drive_meters;
-            if value <= max_distance && value < meters[b.node as usize] {
-                meters[b.node as usize] = value;
-                queue.push(Queue(value, b.node as usize));
-            }
-        }
-        while let Some(Queue(value, node)) = queue.pop() {
-            if value > meters[node] {
-                continue;
-            }
-            let mut edge = head[node];
-            while edge != u32::MAX {
-                let source = self.source(edge) as usize;
-                let candidate = value + self.distances[edge as usize] as f64 / 100.;
-                if candidate <= max_distance && candidate < meters[source] {
-                    meters[source] = candidate;
-                    queue.push(Queue(candidate, source));
-                }
-                edge = next[edge as usize];
-            }
-        }
-        meters
-    }
-
-    // A dated search may retain cost/time alternatives. An exact lower bound
-    // on remaining static cost keeps those alternatives near a useful route.
-    // Ignore turns and destination-only permissions here: relaxing constraints
-    // can only lower the bound. The reverse links are temporary, not another
-    // resident graph or one graph per bicycle preference. A query only needs
-    // exact bounds below its incumbent/horizon. Clamp all larger costs to that
-    // ceiling instead of exploring the whole connected City: this remains a
-    // lower bound, including for unreachable nodes. Padding at the callers
-    // preserves boundary comparisons after the heuristic's rounding slack.
-    fn costs_to(
-        &self,
-        ends: &Attachment,
-        opt: BikeOptions,
-        excess: bool,
-        ceiling: f64,
-    ) -> Vec<f64> {
-        let wait_factor = if matches!(opt.profile, Profile::Fast) {
-            1.
-        } else {
-            0.8
-        };
-        let edge_cost = |edge, meters| {
-            let (seconds, cost) = self.metric(edge, opt);
-            meters
-                * if excess {
-                    (cost - wait_factor * seconds).max(0.)
-                } else {
-                    cost
-                }
-        };
-        let mut head = vec![u32::MAX; self.lons.len()];
-        let mut next = vec![u32::MAX; self.targets.len()];
-        for (edge, &node) in self.targets.iter().enumerate() {
-            next[edge] = head[node as usize];
-            head[node as usize] = edge as u32;
-        }
-        let mut costs = vec![ceiling; self.lons.len()];
-        let mut queue = BinaryHeap::new();
-        for i in 0..ends.candidates.len() {
-            let b = ends.candidate(&self.graph(), i);
-            let cost = b.walk_seconds * if excess { 1. - wait_factor } else { 1. }
-                + edge_cost(b.edge, b.drive_meters);
-            if cost < costs[b.node as usize] {
-                costs[b.node as usize] = cost;
-                queue.push(Queue(cost, b.node as usize));
-            }
-        }
-        while let Some(Queue(cost, node)) = queue.pop() {
-            if cost > costs[node] {
-                continue;
-            }
-            let mut edge = head[node];
-            while edge != u32::MAX {
-                let source = self.source(edge) as usize;
-                let candidate = cost + edge_cost(edge, self.distances[edge as usize] as f64 / 100.);
-                if candidate < costs[source] {
-                    costs[source] = candidate;
-                    queue.push(Queue(candidate, source));
-                }
-                edge = next[edge as usize];
-            }
-        }
-        costs
-    }
-
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "Keep routing bounds and attachment policy explicit at the search boundary."
-    )]
-    fn search(
-        &self,
-        origin: [f64; 2],
-        destination: [f64; 2],
-        opt: BikeOptions,
-        starts: &Attachment,
-        ends: &Attachment,
-        max_distance: f64,
-        constrained: bool,
-        clock: Option<BikeClock>,
-        kind: SearchKind,
-        search_bounds: SearchBounds,
-        continuation: Option<&BikeContinuation>,
-        retain_continuation: bool,
-    ) -> Result<BikeResult, String> {
-        let priced_opt = opt;
-        let earliest = matches!(kind, SearchKind::Earliest);
-        let relaxed = kind.relaxed();
-        let frozen = matches!(kind, SearchKind::Frozen);
-        let opt = if earliest {
-            BikeOptions {
-                profile: Profile::Fast,
-                ..opt
-            }
-        } else {
-            opt
-        };
-        let clock = clock.filter(|_| self.has_timing());
-        let timed = clock.is_some() && !relaxed && !frozen;
-        // Waiting has the same preference cost as the least-penalized cycling
-        // second. Circling cannot make waiting cheaper or defeat dominance.
-        let wait_factor = if matches!(opt.profile, Profile::Fast) {
-            1.
-        } else {
-            0.8
-        };
-        let max_distance = if constrained {
-            max_distance
-        } else {
-            f64::INFINITY
-        };
-        let mut result = BikeResult {
-            status: "blocked",
-            reason: Some("no_path"),
-            legs: vec![],
-            cost: None,
-            end_wait_seconds: 0.,
-            settled_labels: 0,
-            origin_road_meters: starts.nearest_meters,
-            destination_road_meters: ends.nearest_meters,
-            unsupported_restrictions: self.unsupported_restrictions,
-            timing_policy: if clock.is_some() {
-                if self.edge_windows.is_empty() {
-                    if self.timed_way_turns {
-                        "dated_turns"
-                    } else {
-                        "dated_node_turns"
-                    }
-                } else {
-                    "dated_roads_and_turns"
-                }
-            } else {
-                "conservative"
-            },
-            temporal_valid: true,
-            continuation: None,
-            max_lts: opt.max_lts,
-            distance_limit_best_found: false,
-        };
-        if starts.candidates.is_empty() || ends.candidates.is_empty() {
-            result.reason = Some("no_bike_attachment");
-            return Ok(result);
-        }
-        if !starts.candidates.iter().any(|a| {
-            ends.candidates
-                .iter()
-                .any(|b| self.index.connected_nodes(a.node, b.node))
-        }) {
-            return Ok(result);
-        }
-        let destination_access: HashSet<u32> = starts
-            .candidates
-            .iter()
-            .chain(&ends.candidates)
-            .filter(|c| self.attributes[c.edge as usize] & (1 << 22) != 0)
-            .map(|c| self.destination_components[self.source(c.edge) as usize])
-            .collect();
-        let mut best = search_bounds.upper_cost;
-        let end_ids: Vec<usize> = (0..ends.candidates.len()).collect();
-        let by_node = (end_ids.len() > 16).then(|| {
-            let mut index = HashMap::<u32, Vec<usize>>::new();
-            for &i in &end_ids {
-                index.entry(ends.candidates[i].node).or_default().push(i);
-            }
-            index
-        });
-        let ending = |node| {
-            by_node.as_ref().map_or(&end_ids[..], |index| {
-                index.get(&node).map_or(&[][..], Vec::as_slice)
-            })
-        };
-        // (label, start candidate, end candidate); None means a same-edge path.
-        let mut winner: Option<(Option<usize>, usize, usize)> = None;
-        let mut winner_wait = 0.;
-        for i in 0..starts.candidates.len() {
-            let a = starts.candidate(&self.graph(), i);
-            for &j in ending(self.source(a.edge)) {
-                let b = ends.candidate(&self.graph(), j);
-                if a.edge == b.edge && b.fraction >= a.fraction {
-                    let meters =
-                        (b.fraction - a.fraction) * self.distances[a.edge as usize] as f64 / 100.;
-                    let Some((departure, _)) = self
-                        .start_movements(&a, meters, continuation, clock, kind, false)?
-                        .first
-                    else {
-                        continue;
-                    };
-                    let cost = a.walk_seconds
-                        + b.walk_seconds
-                        + meters * self.metric(a.edge, opt).1
-                        + (departure - a.walk_seconds) * wait_factor;
-                    if meters + a.walk_meters + b.walk_meters <= max_distance && cost < best {
-                        best = cost;
-                        winner = Some((None, i, j));
-                        winner_wait = departure - a.walk_seconds;
-                    }
-                }
-            }
-        }
-        // Every graph edge costs at least 0.8 / 45 km/h per physical metre.
-        // Account for quantized lengths, and aim at the destination's graph
-        // attachment nodes (ignoring its nonnegative final partial edge).
-        // Triangle inequality then makes this an admissible A* lower bound.
-        let mut end_nodes: Vec<u32> = ends.candidates.iter().map(|b| b.node).collect();
-        end_nodes.sort_unstable();
-        end_nodes.dedup();
-        let bounds = (end_nodes.len() > 16)
-            .then(|| TargetBounds::new(end_nodes.iter().map(|&node| self.point(node))));
-        // Over the distance limit, cost and distance labels multiply across a
-        // City unless both are bounded. If no start can reach the destination
-        // within the limit, no route exists and no label search is needed.
-        let remaining_meters = constrained.then(|| self.meters_to(ends, max_distance));
-        let can_finish = |node: u32, meters: f64| {
-            remaining_meters
-                .as_ref()
-                .is_none_or(|bound| meters + bound[node as usize] * (1. - 1e-12) <= max_distance)
-        };
-        if winner.is_none()
-            && !starts.candidates.iter().enumerate().any(|(i, _)| {
-                let a = starts.candidate(&self.graph(), i);
-                can_finish(a.node, a.walk_meters + a.drive_meters)
-            })
-        {
-            return Ok(result);
-        }
-        let remaining_cost =
-            (timed || constrained).then(|| self.costs_to(ends, opt, false, best * (1. + 1e-12)));
-        let remaining_excess = (timed && search_bounds.earliest_arrival > 0.)
-            .then(|| self.costs_to(ends, opt, true, best * (1. + 2e-12)));
-        let heuristic = |node: u32| {
-            if let Some(costs) = &remaining_cost {
-                return costs[node as usize] * (1. - 1e-12);
-            }
-            bounds.as_ref().map_or_else(
-                || {
-                    end_nodes
-                        .iter()
-                        .map(|&end| {
-                            vigo_route::geo::haversine_m(
-                                [self.lons[node as usize], self.lats[node as usize]],
-                                [self.lons[end as usize], self.lats[end as usize]],
-                            )
-                        })
-                        .fold(f64::INFINITY, f64::min)
-                },
-                |bounds| bounds.meters(self.point(node)),
-            ) * self.minimum_length_ratio
-                * (0.8 * 3.6 / (opt.speed_kph * 1.24).clamp(3., 45.))
-                * (1. - 1e-12)
-        };
-        let mut labels = Vec::<Label>::new();
-        // Only temporal searches allocate arrival clocks.
-        // Ordinary bicycle labels and their retained graph remain unchanged.
-        let mut arrivals = Vec::<f64>::new();
-        let mut frontier = HashMap::<(u32, Option<u32>, u32), Vec<usize>>::new();
-        let mut states = vec![TurnState::new()];
-        let mut state_ids = HashMap::from([(TurnState::new(), 0u32)]);
-        let mut queue = BinaryHeap::new();
-        // Small urban graphs use direct query-local slots for ordinary states.
-        // Cap these two scratch arrays at 3 MiB; large graphs stay sparse.
-        // No workspace is retained or multiplied by bicycle preference.
-        let dense = !constrained && !timed && self.lons.len() <= 262_144;
-        let mut direct = vec![u32::MAX; if dense { self.lons.len() } else { 0 }];
-        let mut lower_bounds = vec![f64::NAN; direct.len()];
-        // Timed labels store excess cost above wait_factor * elapsed, built
-        // from nonnegative edge penalties. This makes temporal dominance a
-        // direct comparison, without subtracting large nearly equal clocks or
-        // preserving cycling loops because of floating-point cancellation.
-        // Distance remains a separate resource for constrained searches.
-        let mut insert = |label: Label,
-                          elapsed: f64,
-                          labels: &mut Vec<Label>,
-                          arrivals: &mut Vec<f64>,
-                          frontier: &mut HashMap<(u32, Option<u32>, u32), Vec<usize>>,
-                          queue: &mut BinaryHeap<Queue>| {
-            let turn_incoming = label
-                .incoming()
-                .filter(|&edge| self.attributes[edge as usize] & (NODE_TURN | WAY_TURN) != 0);
-            let id = labels.len();
-            if dense && turn_incoming.is_none() && label.state == 0 {
-                let previous = direct[label.node as usize];
-                if previous != u32::MAX {
-                    if labels[previous as usize].cost <= label.cost {
-                        return;
-                    }
-                    labels[previous as usize].active = false;
-                }
-                direct[label.node as usize] = id as u32;
-            } else {
-                let known = frontier
-                    .entry((label.node, turn_incoming, label.state))
-                    .or_default();
-                if known.iter().any(|&i| {
-                    (!timed || arrivals[i] <= elapsed)
-                        && labels[i].cost <= label.cost
-                        && (!constrained || labels[i].meters <= label.meters)
-                }) {
-                    return;
-                }
-                known.retain(|&i| {
-                    let keep = !((!timed || elapsed <= arrivals[i])
-                        && label.cost <= labels[i].cost
-                        && (!constrained || label.meters <= labels[i].meters));
-                    if !keep {
-                        labels[i].active = false;
-                    }
-                    keep
-                });
-                known.push(id);
-            }
-            let bound = if dense {
-                let entry = &mut lower_bounds[label.node as usize];
-                if entry.is_nan() {
-                    *entry = heuristic(label.node);
-                }
-                *entry
-            } else {
-                heuristic(label.node)
-            };
-            let remaining = if timed {
-                (wait_factor * elapsed + bound).max(
-                    wait_factor * search_bounds.earliest_arrival
-                        + remaining_excess
-                            .as_ref()
-                            .map_or(0., |costs| costs[label.node as usize] * (1. - 1e-12)),
-                )
-            } else {
-                bound
-            };
-            queue.push(Queue(label.cost + remaining, id));
-            labels.push(label);
-            if timed {
-                arrivals.push(elapsed);
-            }
-        };
-        for i in 0..starts.candidates.len() {
-            let a = starts.candidate(&self.graph(), i);
-            let meters = a.walk_meters + a.drive_meters;
-            let (seconds_per_meter, cost_per_meter) = self.metric(a.edge, opt);
-            for (departure, state) in self
-                .start_movements(&a, a.drive_meters, continuation, clock, kind, true)?
-                .into_iter()
-            {
-                let state = if state.is_empty() {
-                    0
-                } else {
-                    *state_ids.entry(state.clone()).or_insert_with(|| {
-                        let id = states.len() as u32;
-                        states.push(state);
-                        id
-                    })
-                };
-                let elapsed = departure + a.drive_meters * seconds_per_meter;
-                let cost = if timed {
-                    a.walk_seconds * (1. - wait_factor)
-                        + a.drive_meters
-                            * (cost_per_meter - wait_factor * seconds_per_meter).max(0.)
-                } else {
-                    a.walk_seconds + a.drive_meters * cost_per_meter
-                };
-                if meters <= max_distance
-                    && can_finish(a.node, meters)
-                    && cost + if timed { wait_factor * elapsed } else { 0. } < best
-                {
-                    insert(
-                        Label {
-                            node: a.node,
-                            incoming: if a.drive_meters > 1e-7 {
-                                a.edge
-                            } else {
-                                continuation
-                                    .filter(|c| same_point(c.road, a.road))
-                                    .and_then(|c| c.incoming)
-                                    .unwrap_or(u32::MAX)
-                            },
-                            state,
-                            cost,
-                            meters,
-                            parent: u32::MAX,
-                            start: i as u32,
-                            active: true,
-                        },
-                        elapsed,
-                        &mut labels,
-                        &mut arrivals,
-                        &mut frontier,
-                        &mut queue,
-                    );
-                }
-            }
-        }
-        while let Some(Queue(cost, id)) = queue.pop() {
-            if cost >= best {
-                break;
-            }
-            if !labels[id].active {
-                continue;
-            }
-            result.settled_labels += 1;
-            if labels.len()
-                > if timed {
-                    262_144
-                } else if constrained {
-                    MAX_CONSTRAINED_LABELS
-                } else {
-                    2_000_000
-                }
-            {
-                return Err(if timed {
-                    "Dated bicycle search exceeded its 262144-label work limit; shorten the route or distance limit"
-                } else {
-                    "Bicycle search exceeded its two-million-label work limit; shorten the route or distance limit"
-                }.into());
-            }
-            let label = labels[id];
-            let elapsed = if timed { arrivals[id] } else { 0. };
-            for &j in ending(label.node) {
-                let b = ends.candidate(&self.graph(), j);
-                if b.node != label.node {
-                    continue;
-                }
-                let departure = if b.drive_meters > 1e-7 {
-                    let Some((time, _)) = self
-                        .movements(
-                            &states[label.state as usize],
-                            label.incoming(),
-                            label.node,
-                            b.edge,
-                            clock,
-                            elapsed,
-                            kind,
-                            false,
-                        )?
-                        .first
-                    else {
-                        continue;
-                    };
-                    time
-                } else {
-                    elapsed
-                };
-                let cost = label.cost
-                    + if timed { wait_factor * departure } else { 0. }
-                    + b.walk_seconds
-                    + b.drive_meters * self.metric(b.edge, opt).1;
-                if label.meters + b.walk_meters + b.drive_meters <= max_distance && cost < best {
-                    best = cost;
-                    winner = Some((Some(id), label.start as usize, j));
-                    winner_wait = departure - elapsed;
-                }
-            }
-            for edge in self.offsets[label.node as usize]..self.offsets[label.node as usize + 1] {
-                if !self.allowed_edge(edge, opt) {
-                    continue;
-                }
-                if self.attributes[edge as usize] & (1 << 22) != 0
-                    && !destination_access
-                        .contains(&self.destination_components[label.node as usize])
-                {
-                    continue;
-                }
-                let movements = self.movements(
-                    &states[label.state as usize],
-                    label.incoming(),
-                    label.node,
-                    edge,
-                    clock,
-                    elapsed,
-                    kind,
-                    true,
-                )?;
-                for (departure, state) in movements.into_iter() {
-                    let state = if state.is_empty() {
-                        0
-                    } else {
-                        *state_ids.entry(state.clone()).or_insert_with(|| {
-                            let id = states.len() as u32;
-                            states.push(state);
-                            id
-                        })
-                    };
-                    let distance = self.distances[edge as usize] as f64 / 100.;
-                    let (seconds_per_meter, cost_per_meter) = self.metric(edge, opt);
-                    let next_elapsed = departure + distance * seconds_per_meter;
-                    let cost = label.cost
-                        + distance
-                            * if timed {
-                                (cost_per_meter - wait_factor * seconds_per_meter).max(0.)
-                            } else {
-                                cost_per_meter
-                            };
-                    let meters = label.meters + distance;
-                    if cost
-                        + if timed {
-                            wait_factor * next_elapsed
-                        } else {
-                            0.
-                        }
-                        >= best
-                        || meters > max_distance
-                        || !can_finish(self.targets[edge as usize], meters)
-                    {
-                        continue;
-                    }
-                    insert(
-                        Label {
-                            node: self.targets[edge as usize],
-                            incoming: edge,
-                            state,
-                            cost,
-                            meters,
-                            parent: id as u32,
-                            start: label.start,
-                            active: true,
-                        },
-                        next_elapsed,
-                        &mut labels,
-                        &mut arrivals,
-                        &mut frontier,
-                        &mut queue,
-                    );
-                }
-            }
-        }
-        let Some((label, start, end)) = winner else {
-            return Ok(result);
-        };
-        let a = starts.candidate(&self.graph(), start);
-        let b = ends.candidate(&self.graph(), end);
-        let mut parts = Vec::new();
-        if let Some(mut id) = label {
-            let mut middle = Vec::new();
-            while labels[id].parent != u32::MAX {
-                let parent = labels[id].parent;
-                let edge = labels[id].incoming().unwrap();
-                let wait = if timed {
-                    (arrivals[id]
-                        - arrivals[parent as usize]
-                        - self.distances[edge as usize] as f64 / 100. * self.metric(edge, opt).0)
-                        .max(0.)
-                } else {
-                    0.
-                };
-                middle.push((edge, if wait < 1e-7 { 0. } else { wait }));
-                id = parent as usize;
-            }
-            let start_wait = if timed {
-                (arrivals[id] - a.walk_seconds - a.drive_meters * self.metric(a.edge, opt).0)
-                    .max(0.)
-            } else {
-                0.
-            };
-            parts.push((
-                a.edge,
-                a.drive_meters,
-                a.road,
-                self.point(a.node),
-                if start_wait < 1e-7 { 0. } else { start_wait },
-            ));
-            for (edge, wait) in middle.into_iter().rev() {
-                parts.push((
-                    edge,
-                    self.distances[edge as usize] as f64 / 100.,
-                    self.point(self.source(edge)),
-                    self.point(self.targets[edge as usize]),
-                    wait,
-                ));
-            }
-            parts.push((
-                b.edge,
-                b.drive_meters,
-                self.point(b.node),
-                b.road,
-                winner_wait,
-            ));
-        } else {
-            parts.push((
-                a.edge,
-                (b.fraction - a.fraction) * self.distances[a.edge as usize] as f64 / 100.,
-                a.road,
-                b.road,
-                winner_wait,
-            ));
-        }
-        // An arrival certificate prices the same static relaxation, then checks
-        // its full edge/turn history at a departure derived from the deadline.
-        // It is a proof only when replay adds no waiting and rejects no move.
-        let replay_clock = if matches!(
-            kind,
-            SearchKind::ArriveScoped(_) | SearchKind::ArriveConservative
-        ) {
-            clock.map(|c| BikeClock {
-                epoch: c.epoch
-                    - a.walk_seconds
-                    - b.walk_seconds
-                    - parts
-                        .iter()
-                        .map(|&(edge, meters, _, _, _)| meters * self.metric(edge, opt).0)
-                        .sum::<f64>(),
-                ..c
-            })
-        } else {
-            clock
-        };
-        if relaxed || retain_continuation {
-            let mut elapsed = a.walk_seconds;
-            let mut incoming = continuation
-                .filter(|c| same_point(c.road, a.road))
-                .and_then(|c| c.incoming);
-            let mut state = continuation
-                .filter(|c| same_point(c.road, a.road))
-                .map_or_else(TurnState::new, |c| c.state.clone());
-            let mut first = a.drive_meters > 1e-7 || label.is_none();
-            for (edge, meters, _, _, wait) in &mut parts {
-                if *meters < 1e-7 {
-                    continue;
-                }
-                let movement = if first {
-                    let mut start = a;
-                    start.walk_seconds += if relaxed { 0. } else { *wait };
-                    self.start_movements(
-                        &start,
-                        *meters,
-                        continuation,
-                        replay_clock,
-                        SearchKind::Normal,
-                        false,
-                    )?
-                    .first
-                } else {
-                    self.movements(
-                        &state,
-                        incoming,
-                        self.source(*edge),
-                        *edge,
-                        replay_clock,
-                        elapsed + if relaxed { 0. } else { *wait },
-                        SearchKind::Normal,
-                        false,
-                    )?
-                    .first
-                };
-                let Some((departure, next)) = movement else {
-                    result.temporal_valid = false;
-                    return Ok(result);
-                };
-                if relaxed {
-                    *wait = departure - elapsed;
-                    result.temporal_valid &= *wait == 0.;
-                    best += *wait * wait_factor;
-                }
-                elapsed = departure + *meters * self.metric(*edge, opt).0;
-                incoming = Some(*edge);
-                state = next;
-                first = false;
-            }
-            if retain_continuation {
-                result.continuation = Some(BikeContinuation {
-                    incoming,
-                    state,
-                    road: b.road,
-                    walk_meters: b.walk_meters,
-                });
-            }
-        }
-        if earliest {
-            let factor = if matches!(priced_opt.profile, Profile::Fast) {
-                1.
-            } else {
-                0.8
-            };
-            best = a.walk_seconds
-                + b.walk_seconds
-                + parts
-                    .iter()
-                    .map(|&(edge, meters, _, _, wait)| {
-                        meters * self.metric(edge, priced_opt).1 + wait * factor
-                    })
-                    .sum::<f64>();
-        }
-        let legs = self.path_legs(origin, destination, opt, a, b, parts)?;
-        result.status = "ready";
-        result.reason = None;
-        result.cost = Some(best);
-        result.legs = legs;
-        Ok(result)
-    }
     fn path_legs(
         &self,
         origin: [f64; 2],
@@ -2809,58 +1582,7 @@ mod tests {
         ALTER TABLE bike_edges ADD COLUMN stress INTEGER NOT NULL DEFAULT 9;";
 
     #[test]
-    fn bounded_reverse_costs_preserve_every_useful_lower_bound() {
-        let nodes = [
-            [0., 0.],
-            [0.001, 0.],
-            [0.002, 0.],
-            [0.003, 0.],
-            [0.004, 0.],
-            [0.005, 0.],
-        ];
-        let k = fixture(
-            &nodes,
-            &[
-                (0, 1, 1_000_000, 10, MAJOR),
-                (1, 2, 10_000, 20, CYCLE),
-                (2, 3, 10_000, 30, MAJOR),
-                (3, 4, 10_000, 40, CYCLE),
-            ],
-            &[],
-        );
-        let ends = k.index.attach_bicycle_matching(
-            &k.graph(),
-            nodes[4],
-            0.,
-            4.8 / 3.6,
-            false,
-            false,
-            &|_| true,
-        );
-        assert!(!ends.candidates.is_empty());
-        for profile in [Profile::Fast, Profile::Balanced, Profile::Quiet] {
-            let opt = BikeOptions {
-                profile,
-                ..Default::default()
-            };
-            for excess in [false, true] {
-                let full = k.costs_to(&ends, opt, excess, f64::INFINITY);
-                for ceiling in [0., 1., 30., 100., 10_000.] {
-                    let bounded = k.costs_to(&ends, opt, excess, ceiling);
-                    for (node, (&actual, &unbounded)) in bounded.iter().zip(&full).enumerate() {
-                        assert_eq!(
-                            actual,
-                            unbounded.min(ceiling),
-                            "node={node} ceiling={ceiling} excess={excess}"
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn requests_cannot_select_the_internal_shortest_profile() {
+    fn requests_cannot_select_an_unknown_profile() {
         for profile in ["fast", "balanced", "quiet"] {
             assert!(serde_json::from_value::<Profile>(serde_json::json!(profile)).is_ok());
         }
@@ -3515,7 +2237,6 @@ mod tests {
             0.
         );
         assert_eq!(std::mem::size_of::<NodeTurn>(), 16);
-        assert_eq!(std::mem::size_of::<Label>(), 40);
     }
 
     #[test]
@@ -3571,10 +2292,6 @@ mod tests {
                             shared.seconds[0] == expected
                                 || (shared.seconds[0] - expected).abs() < 1e-7
                         );
-                        assert_eq!(
-                            shared.fallback_targets, 0,
-                            "A disconnected nearest road must not repeat a point search"
-                        );
                     }
                 }
             }
@@ -3613,7 +2330,6 @@ mod tests {
                     shared.seconds[0],
                     if cutoff < 640. { f64::INFINITY } else { 640. }
                 );
-                assert_eq!(shared.fallback_targets, 0);
             }
         }
     }
@@ -3660,10 +2376,6 @@ mod tests {
                 .many_from(nodes[0], &[nodes[4]], opt, 100., 4.8, 10000., None, 500.)
                 .unwrap();
             assert!((shared.seconds[0] - point.elapsed_seconds()).abs() < 1e-7);
-            assert_eq!(
-                shared.fallback_targets, 1,
-                "A private shortcut in the relaxed tree must not become a certificate"
-            );
         }
     }
 
@@ -3733,12 +2445,6 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(many.seconds, vec![400., 200., 400.]);
-            assert_eq!(
-                many.scoped_trees, 3,
-                "An attachment proof, snapshot and window group serve both waiting targets"
-            );
-            assert_eq!(many.attachment_certificates, 2);
-            assert_eq!(many.fallback_targets, 0);
         }
         // Opening within the improving-path horizon must remain available:
         // waiting is now cheaper than the open detour.
@@ -3786,10 +2492,6 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(many.seconds, vec![80., 200., 80.]);
-            assert_eq!(
-                many.fallback_targets, 2,
-                "Useful waits still use the exact temporal search"
-            );
         }
         // A legal equal-cost alternative prevents a proof that every original
         // optimum requires waiting. Preserve the point router's tie decision.
@@ -3819,8 +2521,6 @@ mod tests {
                 .unwrap();
             assert!((seconds(&route) - 20.).abs() < 1e-7);
             assert_eq!(many.seconds, vec![20.]);
-            assert!(many.scoped_trees > 0);
-            assert_eq!(many.attachment_certificates, 0);
         }
     }
 
@@ -3880,10 +2580,9 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(many.seconds, vec![60., 420., 60., 420.]);
-            assert_eq!(many.fallback_targets, 0);
             assert_eq!(many.access_groups, 2);
             assert!(many.access_group_key_bytes <= 512 * 1024);
-            // A one-off permission set still uses the exact point path.
+            // A one-off permission set uses the same exact surface search.
             let single = k
                 .many_from(
                     nodes[0],
@@ -3897,7 +2596,6 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(single.seconds, vec![60.]);
-            assert_eq!(single.fallback_targets, 1);
             // Shrinking the endpoint radius removes that permission; the
             // group must not retain it from another request or destination.
             let restricted = k
@@ -3947,7 +2645,6 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(result.seconds, vec![60., 20., 0.]);
-            assert_eq!(result.fallback_targets, 0);
         }
         let k = fixture(&nodes[..2], &[(0, 1, 10000, 1, CYCLE)], &[]);
         let result = k
@@ -3965,7 +2662,6 @@ mod tests {
             .unwrap();
         assert!((result.seconds[0] - 10.).abs() < 1e-7);
         assert!(result.seconds[1].is_infinite());
-        assert_eq!(result.fallback_targets, 0);
     }
 
     #[test]
@@ -4008,8 +2704,6 @@ mod tests {
             )
             .unwrap();
         assert_eq!(result.seconds, vec![60., 200., 60., 200.]);
-        assert_eq!(result.certified_targets, 2);
-        assert_eq!(result.fallback_reasons.get("destination_access"), Some(&2));
         assert_eq!(k.heap_bytes(), before);
     }
 
@@ -4044,7 +2738,6 @@ mod tests {
             )
             .unwrap();
         assert_eq!(result.seconds, vec![point.elapsed_seconds()]);
-        assert_eq!(result.fallback_reasons.get("duration_tie"), Some(&1));
     }
 
     #[test]
@@ -4244,6 +2937,26 @@ mod tests {
             .unwrap();
         assert_eq!(blocked.status, "blocked");
         assert_eq!(blocked.timing_policy, "dated_arrive_by_verified");
+        for (horizon, expected) in [
+            (None, early.elapsed_seconds()),
+            (Some(30.), 20.),
+            (Some(10.), f64::INFINITY),
+        ] {
+            let surface = k
+                .many_to(
+                    &[nodes[0]],
+                    nodes[2],
+                    opt,
+                    0.,
+                    4.8,
+                    1000.,
+                    clock,
+                    400.,
+                    horizon,
+                )
+                .unwrap();
+            assert_eq!(surface.seconds, vec![expected]);
+        }
     }
 
     #[test]
@@ -4293,15 +3006,11 @@ mod tests {
             };
             assert!((r.cost.unwrap() - factor * 3620.).abs() < 1e-6);
             assert!((distance(&r) - 200.).abs() < 1e-6);
-            assert!(
-                r.settled_labels < 200,
-                "Cycles should be dominated by waiting"
-            );
         }
     }
 
     #[test]
-    fn arrival_fallback_replays_conditional_only_alternatives() {
+    fn arrival_respects_conditional_only_alternatives() {
         let nodes = [[0., 0.], [0.001, 0.], [0.002, 0.], [0.001, 0.001]];
         let mut k = fixture(
             &nodes,
@@ -4396,6 +3105,176 @@ mod tests {
     }
 
     #[test]
+    fn arrival_turn_states_contain_every_forward_permission_transition() {
+        let nodes = [
+            [0., 0.],
+            [0.001, 0.],
+            [0.002, 0.],
+            [0.003, 0.],
+            [0.004, 0.],
+            [0.003, 0.001],
+            [0.004, 0.001],
+        ];
+        let edges = [
+            (0, 1, 10000, 1, CYCLE),
+            (1, 2, 10000, 2, CYCLE),
+            (2, 3, 10000, 3, CYCLE),
+            (3, 4, 10000, 4, CYCLE),
+            (2, 5, 10000, 5, CYCLE),
+            (5, 6, 10000, 6, CYCLE),
+            (3, 2, 10000, 3, CYCLE),
+            (4, 1, 10000, 7, CYCLE),
+        ];
+        let mut k = fixture_rules(
+            &nodes,
+            &edges,
+            &[(3, 3, 4, 0)],
+            &[(1, "[2,3]", 4, 1), (1, "[2,5]", 6, 1), (2, "[3]", 4, 0)],
+        );
+        k.windows.schedules = vec![vec![(480, 540)], vec![(510, 570)]];
+        k.way_turns[0].window = 1;
+        k.way_turns[1].window = 2;
+        let states = arrival_states::ArrivalStates::build(&k).unwrap();
+        assert!(!states.extra.is_empty());
+        let clock = Some(BikeClock::service("2026-11-02", "America/New_York", 8. * 3600.).unwrap());
+        for state_id in 0..(nodes.len() + states.extra.len()) as u32 {
+            let state = states.state(state_id);
+            assert!(states.variants(state.node).any(|id| id == state_id));
+            let history = &states.turns[state.turns as usize];
+            for edge in k.offsets[state.node as usize]..k.offsets[state.node as usize + 1] {
+                for clock in [None, clock] {
+                    for time in [-3600., 0., 1800., 3600., 5400.] {
+                        if let Some(next) = k.next_turn_state_at(
+                            history,
+                            (state.incoming != u32::MAX).then_some(state.incoming),
+                            state.node,
+                            edge,
+                            clock,
+                            time,
+                        ) {
+                            let next_id = states
+                                .turn_ids
+                                .get(&next)
+                                .expect("Every forward turn history must be represented");
+                            let incoming =
+                                if k.attributes[edge as usize] & (NODE_TURN | WAY_TURN) != 0 {
+                                    edge
+                                } else {
+                                    u32::MAX
+                                };
+                            if incoming != u32::MAX || *next_id != 0 {
+                                assert!(states.ids.contains_key(&(
+                                    k.targets[edge as usize],
+                                    incoming,
+                                    *next_id
+                                )));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn backward_movements_keep_forward_turns_and_half_open_windows() {
+        let nodes = [[0., 0.], [0.001, 0.], [0.002, 0.]];
+        let mut k = fixture(
+            &nodes,
+            &[(0, 1, 10000, 10, CYCLE), (1, 2, 10000, 20, CYCLE)],
+            &[(1, 10, 20, 0)],
+        );
+        k.windows.schedules = vec![vec![(480, 540)]];
+        k.turns.get_mut(&(1, 10)).unwrap()[0].window = 1;
+        k.timed_node_turns = true;
+        let incoming = k.ways.iter().position(|&w| w == 10).unwrap() as u32;
+        let outgoing = k.ways.iter().position(|&w| w == 20).unwrap() as u32;
+        let clock = BikeClock::service("2026-11-02", "America/New_York", 8. * 3600. + 30.).unwrap();
+        let time = k
+            .latest_arrival_movement(
+                &vec![],
+                Some(incoming),
+                1,
+                outgoing,
+                Some(&vec![]),
+                Some(clock),
+                0.,
+                -60.,
+            )
+            .unwrap()
+            .unwrap();
+        let boundary = clock.epoch - 30.;
+        assert_eq!(clock.epoch + time, boundary.next_down());
+        assert!(
+            k.latest_arrival_movement(
+                &vec![],
+                Some(incoming),
+                1,
+                outgoing,
+                Some(&vec![]),
+                Some(clock),
+                0.,
+                -29.,
+            )
+            .unwrap()
+            .is_none()
+        );
+        let before = BikeClock {
+            epoch: clock.epoch + time,
+            ..clock
+        };
+        assert!(
+            k.movements(
+                &vec![],
+                Some(incoming),
+                1,
+                outgoing,
+                Some(before),
+                0.,
+                MovementPolicy::Check,
+                false
+            )
+            .unwrap()
+            .first
+            .is_some()
+        );
+        let boundary = BikeClock {
+            epoch: boundary,
+            ..clock
+        };
+        assert!(
+            k.movements(
+                &vec![],
+                Some(incoming),
+                1,
+                outgoing,
+                Some(boundary),
+                0.,
+                MovementPolicy::Check,
+                false
+            )
+            .unwrap()
+            .first
+            .is_none()
+        );
+        // Without a preceding road the turn restriction cannot apply.
+        assert_eq!(
+            k.latest_arrival_movement(
+                &vec![],
+                None,
+                1,
+                outgoing,
+                Some(&vec![]),
+                Some(clock),
+                0.,
+                -60.,
+            )
+            .unwrap(),
+            Some(0.)
+        );
+    }
+
+    #[test]
     fn temporal_dominance_keeps_an_earlier_more_expensive_prefix() {
         let nodes = [
             [0., 0.],
@@ -4457,7 +3336,6 @@ mod tests {
         let mut seed = 470193u64;
         let mut arrival_verified = 0;
         let mut shared_arrival_certificates = 0;
-        let mut arrival_fallback = 0;
         for _ in 0..24 {
             let mut random = || {
                 seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
@@ -4531,7 +3409,6 @@ mod tests {
                                         Profile::Fast => 1.,
                                         Profile::Balanced => 0.8 + stress,
                                         Profile::Quiet => 0.8 + 2.5 * stress,
-                                        Profile::Shortest => unreachable!(),
                                     };
                                     time += seconds;
                                     cost += seconds * factor;
@@ -4597,7 +3474,6 @@ mod tests {
                                         Profile::Fast => 1.,
                                         Profile::Balanced => 0.8 + stress,
                                         Profile::Quiet => 0.8 + 2.5 * stress,
-                                        Profile::Shortest => unreachable!(),
                                     };
                                     time -= seconds;
                                     cost += seconds * factor;
@@ -4656,7 +3532,7 @@ mod tests {
                                     None,
                                 )
                                 .unwrap();
-                            shared_arrival_certificates += shared_arrivals.certified_targets;
+                            shared_arrival_certificates += shared_arrivals.seconds.len();
                             for seconds in shared_arrivals.seconds {
                                 if arrived.status == "ready" && arrived.elapsed_seconds() <= 400. {
                                     assert!(
@@ -4668,21 +3544,15 @@ mod tests {
                                     assert!(seconds.is_infinite());
                                 }
                             }
-                            if arrived.timing_policy == "dated_arrive_by_verified" {
-                                arrival_verified += 1;
-                                assert_eq!(arrived.status == "ready", arrival_expected.is_finite());
-                                assert!(
-                                    !arrival_expected.is_finite()
-                                        || (arrived.cost.unwrap() - arrival_expected).abs() < 1e-5,
-                                    "False arrival certificate: {profile:?}, rule={restriction}, end={end_minute}, deadline={arrival}, limit={limit}: {:?} != {arrival_expected}",
-                                    arrived.cost
-                                );
-                            } else {
-                                arrival_fallback += 1;
-                                if let Some(cost) = arrived.cost {
-                                    assert!(cost + 1e-5 >= arrival_expected);
-                                }
-                            }
+                            assert_eq!(arrived.timing_policy, "dated_arrive_by_verified");
+                            arrival_verified += 1;
+                            assert_eq!(arrived.status == "ready", arrival_expected.is_finite());
+                            assert!(
+                                !arrival_expected.is_finite()
+                                    || (arrived.cost.unwrap() - arrival_expected).abs() < 1e-5,
+                                "False arrival certificate: {profile:?}, rule={restriction}, end={end_minute}, deadline={arrival}, limit={limit}: {:?} != {arrival_expected}",
+                                arrived.cost
+                            );
                             if arrived.status == "ready" {
                                 assert!(distance(&arrived) <= limit + 1e-7);
                                 assert!(arrived.end_wait_seconds >= 0.);
@@ -4721,12 +3591,11 @@ mod tests {
             }
         }
         assert!(arrival_verified > 1000);
-        assert_eq!(arrival_fallback, 0);
         assert!(shared_arrival_certificates > 6000);
         println!(
             "Shared arrival oracle: {shared_arrival_certificates} certified cells out of 12960"
         );
-        println!("Arrival oracle: {arrival_verified} verified, {arrival_fallback} fallback cases");
+        println!("Arrival oracle: {arrival_verified} verified cases");
     }
 
     #[test]
@@ -5079,7 +3948,6 @@ mod tests {
             .unwrap();
         assert_eq!(r.status, "ready");
         assert!((r.cost.unwrap() - 0.8 * (28800. + 20.006)).abs() < 1e-7);
-        assert!(r.settled_labels < 20, "{}", r.settled_labels);
         assert!(!r.legs.iter().any(|leg| leg.coordinates.contains(&nodes[2])));
     }
 
@@ -5117,10 +3985,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(wider.status, "blocked");
-        assert_eq!(
-            wider.settled_labels, nearby.settled_labels,
-            "Do not repeat an identical failed search"
-        );
+        assert_eq!(nearby.status, "blocked");
     }
 
     #[test]
@@ -5381,7 +4246,6 @@ mod tests {
             .unwrap();
         assert_eq!(r.status, "ready");
         assert!((r.cost.unwrap() - 0.8 * (28800. + 20.)).abs() < 1e-7);
-        assert!(r.settled_labels < 512, "{} labels", r.settled_labels);
         let arrival = k
             .route_arrive_limited(
                 nodes[0],
@@ -5398,11 +4262,6 @@ mod tests {
         assert_eq!(arrival.status, "ready");
         assert_eq!(arrival.timing_policy, "dated_arrive_by_verified");
         assert!((arrival.cost.unwrap() - 0.8 * (riding + 280.)).abs() < 1e-6);
-        assert!(
-            arrival.settled_labels < 1000,
-            "{} arrival labels",
-            arrival.settled_labels
-        );
     }
 
     #[test]
@@ -5474,43 +4333,6 @@ mod tests {
                     .status,
                 "blocked"
             );
-        }
-    }
-
-    #[test]
-    fn spherical_target_bounds_never_exceed_nearest_geodesic() {
-        let mut seed = 972_481u64;
-        let mut random = || {
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-            (seed >> 11) as f64 / ((1u64 << 53) as f64)
-        };
-        for center in [
-            [0., 0.],
-            [179.999, 0.],
-            [-179.999, 0.],
-            [0., 89.999],
-            [0., -89.999],
-        ] {
-            let points: Vec<_> = (0..32)
-                .map(|_| {
-                    [
-                        (center[0] + random() * 0.1 - 0.05 + 180.).rem_euclid(360.) - 180.,
-                        (center[1] + random() * 0.1 - 0.05).clamp(-90., 90.),
-                    ]
-                })
-                .collect();
-            let bounds = TargetBounds::new(points.iter().copied());
-            for point in points
-                .iter()
-                .copied()
-                .chain((0..100).map(|_| [random() * 360. - 180., random() * 180. - 90.]))
-            {
-                let nearest = points
-                    .iter()
-                    .map(|p| vigo_route::geo::haversine_m([point[0], point[1]], [p[0], p[1]]))
-                    .fold(f64::INFINITY, f64::min);
-                assert!(bounds.meters(point) <= nearest + 1e-7);
-            }
         }
     }
 
@@ -5604,8 +4426,6 @@ mod tests {
             .unwrap();
         assert!((many.seconds[0] - seconds(&through)).abs() < 1e-7);
         assert!((many.seconds[1] - seconds(&access)).abs() < 1e-7);
-        assert_eq!(many.certified_targets, 1);
-        assert_eq!(many.fallback_targets, 1);
     }
 
     #[test]

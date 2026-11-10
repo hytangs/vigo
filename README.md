@@ -38,6 +38,8 @@ Note: Part of this journey uses inferred station access; physical passage is not
 
 Then choose the journey with fewer boardings and less walking. Leave at 08:00 or arrive by 09:00; add stops on the way, ask for alternatives, and get every walk, wait and ride with its clocks, stops, map geometry and published fare.
 
+Walk and Drive can compute a route and its duration without a departure clock. A dated Bike request also checks supported road and turn restrictions at the time you reach them.
+
 ## 02 — Reach
 
 **One origin. Every possibility.**
@@ -61,6 +63,10 @@ The paper’s frozen matched-request benchmark reports these median times for re
 | **0.67 ms** | **0.94 ms** | **1.32 ms** | **1.64 ms** | **1.69 ms** | **2.11 ms** |
 
 VIGO had the lowest median latency among the nine interfaces in that benchmark. These are historical transit point-query measurements; City loading, bicycle isochrones and Matrix workloads have different costs. The paper, benchmark code and measurement method are linked from [vigo.city](https://vigo.city/).
+
+Bicycle Route, Matrix and Reach use a turn-aware customizable contraction hierarchy (CCH). Reach shares rank sweeps across the grid in both time directions. A City can reopen source-checked hierarchy data from the local cache, which stores graph indexes and shortcut witnesses.
+
+When timing a current build, measure the first request separately from repeated requests against a resident City. Record the data revision, mode, bicycle profile where applicable, surface size, time budget and worker count alongside the result.
 
 ## Put VIGO to work
 

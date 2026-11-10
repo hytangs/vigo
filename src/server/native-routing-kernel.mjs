@@ -195,6 +195,11 @@ function loadNativeBinding() {
   throw nativeBindingError
 }
 
+/** Load the required result geometry binding while the selected City opens. */
+export function prepareNativeResultRendering() {
+  loadNativeBinding()
+}
+
 // Numeric materialization uses the same required Rust binding as routing.
 function packCoordinates(coordinates) {
   const packed = new Float64Array(coordinates.length * 2)

@@ -10,4 +10,4 @@
 
 - `python/` owns the independently versioned Python distribution, its dependencies, documentation and tests. Run its tools from that directory and follow `python/AGENTS.md`.
 - Native routing computation stays in the engine; Python wraps the public protocol. Source-wheel installation must not require npm or Rust.
-- Python integration and bundled wheels build the engine from this same checkout. Keep Python release tags (`python-v<VERSION>`) separate from engine tags (`v<VERSION>`).
+- Python integration and bundled wheels build the engine from this same checkout. One Release workflow and one `v<VERSION>` engine tag publish the engine and the Python package together; the Python version stays independently numbered.

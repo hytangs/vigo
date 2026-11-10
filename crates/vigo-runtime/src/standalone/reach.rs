@@ -239,15 +239,9 @@ impl City {
                     maximum * 60.,
                 )?
             };
-            let diagnostics = json!({"algorithm":if arrive {"shared_bicycle_arrival_tree_with_verified_paths"} else {"shared_bicycle_lower_bound_tree_with_verified_paths"},
-                "settledLabels":result.settled_labels,"certifiedTargets":result.certified_targets,
-                "exactFallbackTargets":result.fallback_targets,"treeLimited":result.tree_limited,
-                "fallbackReasons":result.fallback_reasons,
-                "scopedTrees":result.scoped_trees,
-                "timedAttachmentCertificates":result.attachment_certificates,
+            let diagnostics = json!({"algorithm":"bike_movement_cch_surface",
                 "timedAccessGroups":result.access_groups,
                 "accessGroupKeyBytes":result.access_group_key_bytes,
-                "accessGroupLimitTargets":result.access_group_limit_targets,
                 "profile":options.profile,"speedKph":options.speed_kph,"maxLts":options.max_lts,
                 "durationPolicy":if arrive {"deadline_elapsed_on_minimum_preference_cost_route"} else {"physical_seconds_on_minimum_preference_cost_route"},
                 "timingPolicy":if clock.is_some() {if arrive {"dated_arrive_by_verified"} else {"dated_roads_and_turns"}} else {"conservative"}});
@@ -308,15 +302,7 @@ impl City {
                     .unwrap_or(f64::INFINITY)
             }));
         }
-        Ok((
-            values,
-            if q["mode"] == "bike" {
-                json!({"algorithm":"bicycle_point_queries",
-            "timingPolicy":"conservative","durationPolicy":"physical_seconds_on_minimum_preference_cost_route"})
-            } else {
-                Value::Null
-            },
-        ))
+        Ok((values, Value::Null))
     }
 
     pub fn reach(&mut self, q: &Value) -> Result<Value> {

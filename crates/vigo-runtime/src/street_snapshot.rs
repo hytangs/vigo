@@ -382,11 +382,12 @@ impl Snapshot {
             return Ok(distances);
         }
         let distances = self.f64_array("edgeDistances")?;
-        let reversed = self
-            .u32_array("reverseEdgeIndices")?
-            .iter()
-            .map(|&edge| distances[edge as usize])
-            .collect();
-        Ok(self.reverse_edge_distances.get_or_init(|| reversed))
+        let reverse = self.u32_array("reverseEdgeIndices")?;
+        Ok(self.reverse_edge_distances.get_or_init(|| {
+            reverse
+                .iter()
+                .map(|&edge| distances[edge as usize])
+                .collect()
+        }))
     }
 }
