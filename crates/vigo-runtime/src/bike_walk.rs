@@ -3,10 +3,8 @@
 //! and path witnesses belong to the query, never to a profile or global cache.
 use super::*;
 use crate::drive_attachment::BikeCandidate;
-use crate::{IntegerHasher, SnapWorkspace, Snapshot};
+use crate::{SnapWorkspace, Snapshot};
 use rusqlite::OptionalExtension;
-use std::collections::hash_map::Entry;
-use std::hash::BuildHasherDefault;
 use std::sync::Arc;
 
 #[path = "bike_hierarchy_walk.rs"]
@@ -57,9 +55,7 @@ impl WalkLinks {
 #[derive(Default)]
 pub(super) struct WalkSearch {
     snap: SnapWorkspace,
-    // Keys are compact snapshot node ids, never external strings. Candidate
-    // order is sorted below, independent of hash-table iteration order.
-    labels: Vec<(u32, f64)>,
+    reached: Vec<(u32, f64)>,
     projection: [f64; 2],
     gap: f64,
     attached_bike_nodes: Vec<u32>,
@@ -261,7 +257,7 @@ impl WalkNetwork {
     }
     fn search(&self, point: [f64; 2], maximum: f64, origin: bool) -> Result<WalkSearch, String> {
         let mut walk = WalkSearch::default();
-        self.search_into(point, maximum, origin, &mut walk)?;
+        self.search_into(point, maximum, origin, false, &mut walk)?;
         Ok(walk)
     }
     fn search_into(
@@ -269,11 +265,12 @@ impl WalkNetwork {
         point: [f64; 2],
         maximum: f64,
         origin: bool,
+        collect_bike_nodes: bool,
         walk: &mut WalkSearch,
     ) -> Result<(), String> {
         // A batch reuses bounded allocations, never labels or answers from
         // another coordinate. Queue ordering and every relaxation stay intact.
-        walk.labels.clear();
+        walk.reached.clear();
         walk.attached_bike_nodes.clear();
         let snapshot = &self.snapshot;
         let (snaps, projection) = crate::street_attachment_with_workspace(
@@ -318,7 +315,11 @@ impl WalkNetwork {
                 maximum,
                 origin,
                 &mut walk.ranked,
-                &mut walk.labels,
+                |node, meters| {
+                    if collect_bike_nodes && let Some(bike_node) = self.bike_node(node) {
+                        walk.reached.push((bike_node, meters));
+                    }
+                },
             )?;
         walk.projection = projected;
         walk.gap = gap;
@@ -359,7 +360,7 @@ impl WalkNetwork {
         vertex_origins: bool,
         walk: &mut WalkSearch,
     ) -> Result<Attachment, String> {
-        self.search_into(point, maximum, origin, walk)?;
+        self.search_into(point, maximum, origin, true, walk)?;
         let graph = bike.graph();
         // A coordinate can choose a nearer bicycle road, but cannot jump over
         // its nearer pedestrian attachment to an unrelated road. Remaining
@@ -384,13 +385,8 @@ impl WalkNetwork {
                             || (c.fraction == 1. && walk.attached_bike_nodes[0] == to)))
             }
         });
-        let mut reached: Vec<_> = walk
-            .labels
-            .iter()
-            .filter_map(|&(node, meters)| self.bike_node(node).map(|b| (b, meters)))
-            .collect();
-        reached.sort_unstable_by_key(|&(node, _)| node);
-        for (node, meters) in reached {
+        walk.reached.sort_unstable_by_key(|&(node, _)| node);
+        for &(node, meters) in &walk.reached {
             let edges = bike.offsets[node as usize]..bike.offsets[node as usize + 1];
             let mut outgoing = edges.filter(|&e| eligible(e));
             if origin && vertex_origins {

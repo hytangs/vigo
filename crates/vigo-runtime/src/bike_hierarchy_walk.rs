@@ -4,12 +4,68 @@
 use super::*;
 
 const NONE: u32 = u32::MAX;
-type RankMap = HashMap<u32, RankLabel, BuildHasherDefault<IntegerHasher>>;
+const LIMIT: &str =
+    "Bicycle walking access exceeded its bounded hierarchy workspace; reduce maxWalkKm";
+const _: () = assert!(MAX_LABELS < u16::MAX as usize);
 
 #[derive(Clone, Copy)]
 struct RankLabel {
     meters: f64,
     parent: u32,
+    rank: u32,
+}
+
+// The rank column is direct-addressed, while distances and witnesses occupy
+// only visited slots. Reset exactly those slots between endpoint searches.
+#[derive(Default)]
+struct RankLabels {
+    slots: Vec<u16>,
+    labels: Vec<RankLabel>,
+}
+
+impl RankLabels {
+    fn reset(&mut self, nodes: usize) {
+        if self.slots.len() != nodes {
+            self.slots = vec![0; nodes];
+            self.labels.clear();
+            return;
+        }
+        for label in self.labels.drain(..) {
+            self.slots[label.rank as usize] = 0;
+        }
+    }
+
+    fn get(&self, rank: u32) -> Option<&RankLabel> {
+        let slot = self.slots[rank as usize];
+        (slot != 0).then(|| &self.labels[slot as usize - 1])
+    }
+
+    fn at(&self, rank: u32) -> &RankLabel {
+        &self.labels[self.slots[rank as usize] as usize - 1]
+    }
+
+    #[inline]
+    fn improve(&mut self, rank: u32, meters: f64, parent: u32) -> Result<bool, &'static str> {
+        let slot = &mut self.slots[rank as usize];
+        if *slot != 0 {
+            let label = &mut self.labels[*slot as usize - 1];
+            if meters < label.meters {
+                label.meters = meters;
+                label.parent = parent;
+            }
+            return Ok(false);
+        }
+        if self.labels.len() == MAX_LABELS {
+            return Err(LIMIT);
+        }
+        self.labels.push(RankLabel {
+            meters,
+            parent,
+            rank,
+        });
+        *slot = self.labels.len() as u16;
+        Ok(true)
+    }
 }
 
 struct Metric {
@@ -103,63 +159,80 @@ pub(super) struct WalkHierarchy {
 
 #[derive(Default)]
 pub(super) struct Scratch {
-    up: RankMap,
-    down: RankMap,
+    up: RankLabels,
+    down: RankLabels,
     ascending: RankQueue,
     descending: RankQueue,
 }
 
-// Both sweeps visit ranks monotonically. Bucket by the first differing
-// bit to retain rank order without a comparison at each relaxation.
+// Higher levels mark nonempty words in the level below. Find the next
+// rank without comparing labels or searching through empty City ranks.
+#[derive(Default)]
 struct RankQueue {
-    last: u32,
-    bins: [Vec<u32>; 33],
-}
-impl Default for RankQueue {
-    fn default() -> Self {
-        Self {
-            last: 0,
-            bins: std::array::from_fn(|_| Vec::new()),
-        }
-    }
+    levels: Vec<Box<[u64]>>,
+    nodes: usize,
 }
 impl RankQueue {
-    fn clear(&mut self) {
-        self.last = 0;
-        for bin in &mut self.bins {
-            bin.clear();
-        }
-    }
-    fn push(&mut self, value: u32) {
-        debug_assert!(value >= self.last);
-        self.bins[(u32::BITS - (value ^ self.last).leading_zeros()) as usize].push(value);
-    }
-    fn pop(&mut self) -> Option<u32> {
-        if self.bins[0].is_empty() {
-            let i = self.bins.iter().position(|bin| !bin.is_empty())?;
-            let mut values = std::mem::take(&mut self.bins[i]);
-            self.last = *values.iter().min().unwrap();
-            for value in values.drain(..) {
-                self.push(value);
+    fn reset(&mut self, nodes: usize) {
+        if self.nodes == nodes && !self.levels.is_empty() {
+            if self.levels.last().unwrap()[0] != 0 {
+                for level in &mut self.levels {
+                    level.fill(0);
+                }
             }
-            self.bins[i] = values;
+            return;
         }
-        self.bins[0].pop()
+        self.nodes = nodes;
+        self.levels.clear();
+        let mut words = nodes.div_ceil(64).max(1);
+        loop {
+            self.levels.push(vec![0; words].into_boxed_slice());
+            if words == 1 {
+                break;
+            }
+            words = words.div_ceil(64);
+        }
     }
-}
 
-fn improve(labels: &mut RankMap, rank: u32, meters: f64, parent: u32) -> bool {
-    match labels.entry(rank) {
-        Entry::Occupied(mut existing) => {
-            if meters < existing.get().meters {
-                existing.insert(RankLabel { meters, parent });
+    #[inline]
+    fn push(&mut self, rank: u32) {
+        let mut index = rank as usize;
+        for level in &mut self.levels {
+            let word = &mut level[index / 64];
+            let old = *word;
+            *word |= 1 << (index % 64);
+            if old != 0 {
+                break;
             }
-            false
+            index /= 64;
         }
-        Entry::Vacant(vacant) => {
-            vacant.insert(RankLabel { meters, parent });
-            true
+    }
+
+    #[inline]
+    fn pop<const DESCENDING: bool>(&mut self) -> Option<u32> {
+        if self.levels.last().unwrap()[0] == 0 {
+            return None;
         }
+        let mut index = 0;
+        for level in self.levels.iter().rev() {
+            let word = level[index];
+            let bit = if DESCENDING {
+                63 - word.leading_zeros()
+            } else {
+                word.trailing_zeros()
+            };
+            index = index * 64 + bit as usize;
+        }
+        let rank = index as u32;
+        for level in &mut self.levels {
+            let word = &mut level[index / 64];
+            *word &= !(1 << (index % 64));
+            if *word != 0 {
+                break;
+            }
+            index /= 64;
+        }
+        Some(rank)
     }
 }
 
@@ -326,7 +399,7 @@ impl WalkHierarchy {
         maximum: f64,
         origin: bool,
         scratch: &mut Scratch,
-        labels: &mut Vec<(u32, f64)>,
+        mut visit: impl FnMut(u32, f64),
     ) -> Result<(), String> {
         let view = self.structure.view();
         let (up_metric, down_metric) = if origin {
@@ -343,48 +416,42 @@ impl WalkHierarchy {
             ascending,
             descending,
         } = scratch;
-        up.clear();
-        down.clear();
-        ascending.clear();
-        descending.clear();
+        let size = view.rank.len();
+        up.reset(size);
+        down.reset(size);
+        ascending.reset(size);
+        descending.reset(size);
         for (node, meters) in seeds {
             let rank = view.rank[node as usize];
-            if improve(up, rank, meters, NONE) {
+            if up.improve(rank, meters, NONE)? {
                 ascending.push(rank);
             }
         }
         // Each relaxation increases rank, so a rank is final when visited.
-        while let Some(rank) = ascending.pop() {
-            let prefix = up[&rank].meters;
-            improve(down, rank, prefix, NONE);
-            descending.push(!rank);
+        while let Some(rank) = ascending.pop::<false>() {
+            let prefix = up.at(rank).meters;
+            down.improve(rank, prefix, NONE)?;
+            descending.push(rank);
             let x = rank as usize;
             let arcs = view.up_first_out[x] as usize..view.up_first_out[x + 1] as usize;
             for (&to, &distance) in view.up_head[arcs.clone()].iter().zip(&up_meters[arcs]) {
                 let meters = prefix + distance;
-                if meters <= maximum && improve(up, to, meters, rank) {
+                if meters <= maximum && up.improve(to, meters, rank)? {
                     ascending.push(to);
                 }
-            }
-            if up.len() > MAX_LABELS {
-                return Err("Bicycle walking access exceeded its bounded hierarchy workspace; reduce maxWalkKm".into());
             }
         }
         // Descending propagation only visits ranks reached within the
         // distance budget. Its order is topological, independent of weights.
-        while let Some(reverse) = descending.pop() {
-            let rank = !reverse;
-            let prefix = down[&rank].meters;
-            labels.push((nodes[rank as usize], prefix));
+        while let Some(rank) = descending.pop::<true>() {
+            let prefix = down.at(rank).meters;
+            visit(nodes[rank as usize], prefix);
             let x = rank as usize;
             for a in view.down_first_out[x] as usize..view.down_first_out[x + 1] as usize {
                 let meters = prefix + down_meters[view.down_to_up[a] as usize];
-                if meters <= maximum && improve(down, view.down_head[a], meters, rank) {
-                    descending.push(!view.down_head[a]);
+                if meters <= maximum && down.improve(view.down_head[a], meters, rank)? {
+                    descending.push(view.down_head[a]);
                 }
-            }
-            if down.len() > MAX_LABELS {
-                return Err("Bicycle walking access exceeded its bounded hierarchy workspace; reduce maxWalkKm".into());
             }
         }
         Ok(())
@@ -392,7 +459,7 @@ impl WalkHierarchy {
 
     pub fn distance(&self, target: u32, scratch: &Scratch) -> Option<f64> {
         let rank = self.structure.view().rank[target as usize];
-        scratch.down.get(&rank).map(|label| label.meters)
+        scratch.down.get(rank).map(|label| label.meters)
     }
 
     pub fn path(&self, target: u32, origin: bool, scratch: &Scratch) -> Vec<u32> {
@@ -400,7 +467,7 @@ impl WalkHierarchy {
         let mut rank = view.rank[target as usize];
         let mut path = vec![rank];
         loop {
-            let parent = scratch.down[&rank].parent;
+            let parent = scratch.down.at(rank).parent;
             if parent == NONE {
                 break;
             }
@@ -408,7 +475,7 @@ impl WalkHierarchy {
             path.push(rank);
         }
         loop {
-            let parent = scratch.up[&rank].parent;
+            let parent = scratch.up.at(rank).parent;
             if parent == NONE {
                 break;
             }
@@ -441,6 +508,9 @@ impl WalkHierarchy {
     }
 
     pub fn seed_meters(&self, node: u32, scratch: &Scratch) -> f64 {
-        scratch.up[&self.structure.view().rank[node as usize]].meters
+        scratch
+            .up
+            .at(self.structure.view().rank[node as usize])
+            .meters
     }
 }

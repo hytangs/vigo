@@ -522,19 +522,27 @@ impl BikeKernel {
         };
         let attachments: Vec<_> = if let Some(pool) = crate::ENDPOINT_ACCESS_POOL.as_ref() {
             use rayon::prelude::*;
-            let chunks: Vec<Vec<_>> = pool.install(|| {
-                targets
-                    .par_chunks(32)
-                    .map(|points| {
+            const CHUNK: usize = 32;
+            let count = targets.len().div_ceil(CHUNK);
+            let lanes = count.min(pool.current_num_threads());
+            let mut chunks: Vec<_> = pool.install(|| {
+                (0..lanes)
+                    .into_par_iter()
+                    .flat_map_iter(|lane| {
                         let mut scratch = walk::WalkSearch::default();
-                        points
-                            .iter()
-                            .map(|point| attach(point, &mut scratch))
-                            .collect()
+                        (lane..count).step_by(lanes).map(move |index| {
+                            let start = index * CHUNK;
+                            let rows: Vec<_> = targets[start..(start + CHUNK).min(targets.len())]
+                                .iter()
+                                .map(|point| attach(point, &mut scratch))
+                                .collect();
+                            (index, rows)
+                        })
                     })
                     .collect()
             });
-            chunks.into_iter().flatten().collect()
+            chunks.sort_unstable_by_key(|(index, _)| *index);
+            chunks.into_iter().flat_map(|(_, rows)| rows).collect()
         } else {
             let mut scratch = walk::WalkSearch::default();
             targets

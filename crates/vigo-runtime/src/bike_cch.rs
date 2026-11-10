@@ -509,17 +509,37 @@ impl Hierarchy {
         let first = &*self.graph.down_first_out;
         let heads = &*self.graph.down_head;
         let weights = &*self.graph.down_to_up;
-        for rank in (0..self.graph.node_count()).rev() {
-            let value = work.up_cost[rank].min(work.down_cost[rank]);
-            if value > maximum || !value.is_finite() {
-                continue;
+        let mut pending = vec![0u64; self.graph.node_count().div_ceil(64)];
+        for &rank in &work.source_space {
+            let rank = rank as usize;
+            let value = work.up_cost[rank];
+            if value <= maximum && value.is_finite() {
+                work.down_cost[rank] = value;
+                pending[rank / 64] |= 1 << (rank % 64);
             }
-            work.down_cost[rank] = value;
-            for arc in first[rank] as usize..first[rank + 1] as usize {
-                let candidate = value + costs.1.arc(weights[arc] as usize);
-                let to = heads[arc] as usize;
-                if candidate <= maximum && candidate < work.down_cost[to] {
-                    work.down_cost[to] = candidate;
+        }
+        for word in (0..pending.len()).rev() {
+            let mut active = pending[word];
+            while active != 0 {
+                let bit = 63 - active.leading_zeros() as usize;
+                active ^= 1 << bit;
+                let rank = word * 64 + bit;
+                let value = work.down_cost[rank];
+                for arc in first[rank] as usize..first[rank + 1] as usize {
+                    let candidate = value + costs.1.arc(weights[arc] as usize);
+                    let to = heads[arc] as usize;
+                    let prior = &mut work.down_cost[to];
+                    if candidate <= maximum && candidate.is_finite() && candidate < *prior {
+                        if !prior.is_finite() {
+                            let flag = 1 << (to % 64);
+                            if to / 64 == word {
+                                active |= flag;
+                            } else {
+                                pending[to / 64] |= flag;
+                            }
+                        }
+                        *prior = candidate;
+                    }
                 }
             }
         }
@@ -1324,7 +1344,6 @@ pub(super) fn measure(
         earliest_customization_ms,
         preferred_customization_ms,
     ] = if resident { [0.; 5] } else { prepared.timings };
-    let physical = prepared.physical(kernel, options);
     let graph = kernel.graph();
     let rate = if matches!(options.profile, Profile::Fast) {
         1.
@@ -1388,60 +1407,10 @@ pub(super) fn measure(
         .iter()
         .flat_map(|&node| movements.states.variants(node))
         .collect();
-    let mut workspace = Workspace::new(hierarchy.graph.node_count());
+    // A legal optimistic minimum settles the cell outright. Compute road
+    // entry clocks and permission bounds only for cells that need them.
+    let mut possible = vec![true; ends.attachments.len()];
     let before = Instant::now();
-    let event_states: Vec<_> = movements.timed.iter().map(|event| event.0).collect();
-    hierarchy.bounds(
-        &earliest_sources,
-        &mut workspace,
-        physical.directions(false),
-        cutoff_cap / rate,
-    );
-    let earliest_at: Vec<_> = event_states
-        .iter()
-        .map(|&state| {
-            workspace.down_cost[hierarchy.graph.rank[state as usize] as usize] * (1. - 1e-9)
-        })
-        .collect();
-    let lower_start: Vec<_> = workspace
-        .down_cost
-        .iter()
-        .map(|value| value * (1. - 1e-9))
-        .collect();
-    // If even the optimistic travel-time metric cannot reach a cell before
-    // the cutoff, that cell cannot constrain any preference path or gate.
-    let mut possible = vec![false; ends.attachments.len()];
-    for &node in &nodes {
-        let earliest = movements
-            .states
-            .variants(node)
-            .map(|state| lower_start[hierarchy.graph.rank[state as usize] as usize])
-            .fold(f64::INFINITY, f64::min);
-        for &end in &ends.entries
-            [ends.offsets[node as usize] as usize..ends.offsets[node as usize + 1] as usize]
-        {
-            let cell = end.target as usize;
-            let ride = if end.zero() {
-                0.
-            } else {
-                let b = ends.attachments[cell].candidate(&graph, end.index());
-                b.drive_meters * kernel.metric(b.edge, options).0
-            };
-            possible[cell] |= earliest + (ride + end.walk_seconds) * (1. - 1e-9) <= cutoff;
-        }
-    }
-    for &(cell, a, b) in &ends.direct {
-        let a = starts.candidate(&graph, a);
-        let b = ends.attachments[cell].candidate(&graph, b);
-        if a.fraction <= b.fraction {
-            let length =
-                (b.fraction - a.fraction) * kernel.distances[a.edge as usize] as f64 / 100.;
-            possible[cell] |=
-                (a.walk_seconds + b.walk_seconds + length * kernel.metric(a.edge, options).0)
-                    * (1. - 1e-9)
-                    <= cutoff;
-        }
-    }
     let preparing = Instant::now();
     let optimistic = prepared.optimistic(kernel, options);
     let optimistic_prep_ms = ms(preparing);
@@ -1468,6 +1437,87 @@ pub(super) fn measure(
     for (active, result) in possible.iter_mut().zip(&verified) {
         *active &= result.is_none();
     }
+    if certified == ends.attachments.len() {
+        trace("BIKE_HIERARCHY", || {
+            serde_json::json!({
+                "phase":"build","preparedBeforeRequest":resident,
+                "certificateMs":certificate_ms,"certifiedCells":certified,
+                "earliestScopeMs":ms(before),
+            })
+        });
+        trace("BIKE_HIERARCHY", || {
+            serde_json::json!({
+                "phase":"query","cells":ends.attachments.len(),"directHierarchyQuery":true,
+                "endpointMs":attachment_ms,"changingMovements":0,"postGateRoots":0,
+            })
+        });
+        return Ok(verified.into_iter().flatten().collect());
+    }
+    let earliest_scope_ms = ms(before);
+    let before = Instant::now();
+    let mut workspace = Workspace::new(hierarchy.graph.node_count());
+    let event_states: Vec<_> = movements.timed.iter().map(|event| event.0).collect();
+    hierarchy.bounds(
+        &earliest_sources,
+        &mut workspace,
+        prepared.physical(kernel, options).directions(false),
+        cutoff_cap / rate,
+    );
+    let earliest_at: Vec<_> = event_states
+        .iter()
+        .map(|&state| {
+            workspace.down_cost[hierarchy.graph.rank[state as usize] as usize] * (1. - 1e-9)
+        })
+        .collect();
+    let lower_start: Vec<_> = workspace
+        .down_cost
+        .iter()
+        .map(|value| value * (1. - 1e-9))
+        .collect();
+    // If even the optimistic travel-time metric cannot reach a cell before
+    // the cutoff, that cell cannot constrain any preference path or gate.
+    let mut physically_possible = vec![false; ends.attachments.len()];
+    for &node in &nodes {
+        let earliest = movements
+            .states
+            .variants(node)
+            .map(|state| lower_start[hierarchy.graph.rank[state as usize] as usize])
+            .fold(f64::INFINITY, f64::min);
+        for &end in &ends.entries
+            [ends.offsets[node as usize] as usize..ends.offsets[node as usize + 1] as usize]
+        {
+            let cell = end.target as usize;
+            if !possible[cell] || physically_possible[cell] {
+                continue;
+            }
+            let ride = if end.zero() {
+                0.
+            } else {
+                let b = ends.attachments[cell].candidate(&graph, end.index());
+                b.drive_meters * kernel.metric(b.edge, options).0
+            };
+            physically_possible[cell] |=
+                earliest + (ride + end.walk_seconds) * (1. - 1e-9) <= cutoff;
+        }
+    }
+    for &(cell, a, b) in &ends.direct {
+        if !possible[cell] || physically_possible[cell] {
+            continue;
+        }
+        let a = starts.candidate(&graph, a);
+        let b = ends.attachments[cell].candidate(&graph, b);
+        if a.fraction <= b.fraction {
+            let length =
+                (b.fraction - a.fraction) * kernel.distances[a.edge as usize] as f64 / 100.;
+            physically_possible[cell] |=
+                (a.walk_seconds + b.walk_seconds + length * kernel.metric(a.edge, options).0)
+                    * (1. - 1e-9)
+                    <= cutoff;
+        }
+    }
+    for (active, reachable) in possible.iter_mut().zip(physically_possible) {
+        *active &= reachable;
+    }
     nodes.retain(|&node| {
         ends.entries[ends.offsets[node as usize] as usize..ends.offsets[node as usize + 1] as usize]
             .iter()
@@ -1477,18 +1527,6 @@ pub(super) fn measure(
         .iter()
         .flat_map(|&node| movements.states.variants(node))
         .collect();
-    hierarchy.bounds(
-        &lower_sources,
-        &mut workspace,
-        optimistic.directions(hierarchy, false),
-        cutoff_cap,
-    );
-    let lower_start_price: Vec<_> = workspace
-        .down_cost
-        .iter()
-        .map(|value| value * (1. - 1e-9))
-        .collect();
-    let earliest_scope_ms = ms(before);
     let mut masks = SurfaceMasks::new(ends.permissions.len());
     let permissions = ends.permissions_for(origin_access, 0, ends.permissions.len(), &mut masks);
     let mut metric = scoped::Metric::new(hierarchy, &masks);
@@ -1505,7 +1543,6 @@ pub(super) fn measure(
                 .map(|scope| (index, scope))
         })
         .collect();
-    let before = Instant::now();
     let mut admitted: Vec<bool> = movements.dynamic.iter().map(|&dynamic| !dynamic).collect();
     let feasible = metric.solve(&sources, &targets, &mut masks);
     let feasible = reduce_terminals(
@@ -1526,6 +1563,17 @@ pub(super) fn measure(
         .zip(&possible)
         .filter_map(|(&cost, &active)| active.then_some(cost))
         .fold(0., f64::max);
+    hierarchy.bounds(
+        &lower_sources,
+        &mut workspace,
+        optimistic.directions(hierarchy, false),
+        cap,
+    );
+    let lower_start_price: Vec<_> = workspace
+        .down_cost
+        .iter()
+        .map(|value| value * (1. - 1e-9))
+        .collect();
     let horizon = cap / rate;
     let constrained = distance_limit < horizon * maximum_speed;
     let mut reverse_sources = Vec::new();
@@ -2065,6 +2113,55 @@ pub(super) fn measure(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bounded_sweep_matches_rank_minima_across_bitmap_words() {
+        let n = 145;
+        let mut input = cch::graph::Graph {
+            first_out: vec![0],
+            head: Vec::new(),
+            weight: Vec::new(),
+        };
+        for node in 0..n {
+            if node + 1 < n && node != 5 {
+                input.head.push(node + 1);
+            }
+            if node + 16 < n && node > 5 {
+                input.head.push(node + 16);
+            }
+            input.first_out.push(input.head.len() as u32);
+        }
+        let order: Vec<_> = (0..n).rev().collect();
+        let graph = RankGraph::from(cch::Cch::build(&input, &order));
+        let unused = || Arcs {
+            costs: Vec::new().into(),
+            witness: Vec::new().into(),
+        };
+        let hierarchy = Hierarchy {
+            graph: std::sync::Arc::new(graph),
+            up: unused(),
+            down: unused(),
+        };
+        let cost_up = vec![1.; hierarchy.graph.cch_arc_count()];
+        let cost_down = vec![2.; hierarchy.graph.cch_arc_count()];
+        let weights = (&cost_up[..], &cost_down[..]);
+        let mut work = Workspace::new(n as usize);
+        for (seeds, budget) in [
+            (vec![(143, 0.), (16, 5.)], 18.),
+            (vec![(30, 2.)], 6.),
+            (vec![(4, 1.)], 1.),
+            (vec![], 100.),
+        ] {
+            hierarchy.solve(&seeds, None, &mut work, weights);
+            let expected: Vec<_> = work
+                .down_cost
+                .iter()
+                .map(|&cost| if cost <= budget { cost } else { f64::INFINITY })
+                .collect();
+            hierarchy.bounds(&seeds, &mut work, weights, budget);
+            assert_eq!(work.down_cost, expected);
+        }
+    }
 
     #[test]
     fn patched_shortcuts_preserve_exact_costs_and_witnesses_across_pages() {
