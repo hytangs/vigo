@@ -337,7 +337,7 @@ try {
       cutoffsMinutes:[15,60],rasterSize:size,bounds,reachFormat:'surface',diagnostics:'trace'},reachCity)
     assert.equal(reach.status,'ok');assert.equal(reach.mode,'bike')
     assert.equal(reach.trace.surface.sampling,'cell-center')
-    assert.equal(reach.trace.diagnostics.bike.algorithm,'shared_bicycle_temporal_surface')
+    assert.equal(reach.trace.diagnostics.bike.algorithm,'bike_movement_cch_surface')
     assert.equal(reach.trace.diagnostics.bike.certifiedTargets,size*size)
     assert.equal(reach.trace.diagnostics.bike.exactFallbackTargets,0)
     if (!arrive) assert.equal(reach.trace.diagnostics.bike.timedAttachmentCertificates,0,

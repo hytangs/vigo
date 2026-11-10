@@ -156,7 +156,6 @@ impl Replay<'_> {
                     self.clock,
                     latest,
                     -self.horizon + a.walk_seconds,
-                    SearchKind::Normal,
                 )?
                 else {
                     return Ok(None);
@@ -181,7 +180,7 @@ impl Replay<'_> {
                     p.meters,
                     self.continuation,
                     self.clock,
-                    SearchKind::Normal,
+                    MovementPolicy::Wait,
                     true,
                 )?
             } else {
@@ -192,7 +191,7 @@ impl Replay<'_> {
                     p.edge,
                     self.clock,
                     at,
-                    SearchKind::Normal,
+                    MovementPolicy::Wait,
                     true,
                 )?
             };

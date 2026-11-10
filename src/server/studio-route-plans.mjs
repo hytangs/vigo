@@ -343,7 +343,7 @@ function streetPlan(raw, trace, body, context) {
       ...windowDiagnostics(trace, raw),
       scheduleMode: 'none', searchProfile: mode === 'bike' ? body.bike?.profile ?? 'balanced' : 'fastest', searchStrategy: 'exact',
       ...(mode === 'walk' ? { walkingPolicyId: 'vigo-national-direct-physical-walk' } : {}),
-      algorithm: mode === 'bike' ? 'bike_edge_state_astar' : mode === 'drive' ? 'rust_exact_drive_search' : 'rust_direct_walk',
+      algorithm: mode === 'bike' ? 'bike_movement_cch' : mode === 'drive' ? 'rust_exact_drive_search' : 'rust_direct_walk',
       ...(mode === 'bike' ? { bike: raw.diagnostics } : {}),
       optimality: mode === 'bike' ? 'exact_stored_bike_preference_cost' : mode === 'drive' ? 'exact_drive_time' : 'graph_verified_direct_walk',
       originStreetPathVerified: legs[0].streetPathVerified === true,

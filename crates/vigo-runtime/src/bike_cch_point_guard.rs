@@ -42,7 +42,7 @@ impl Point<'_> {
                         a.drive_meters,
                         self.continuation,
                         self.clock,
-                        SearchKind::Normal,
+                        MovementPolicy::Wait,
                         true,
                     )?
                     .into_iter()
@@ -85,7 +85,7 @@ impl Point<'_> {
                             (b.fraction - a.fraction) * k.distances[b.edge as usize] as f64 / 100.,
                             self.continuation,
                             self.clock,
-                            SearchKind::Normal,
+                            MovementPolicy::Wait,
                             false,
                         )?
                         .first

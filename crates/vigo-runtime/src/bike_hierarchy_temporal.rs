@@ -129,7 +129,7 @@ impl Profiles {
             return Ok(());
         }
         if self.paths.len() + list.len() > 6_000_000 {
-            return Err("Temporal contraction exceeded the experiment's path workspace".into());
+            return Err("Temporal contraction exceeded its path workspace".into());
         }
         let range = Range {
             start: self.paths.len() as u32,
@@ -488,7 +488,6 @@ impl Query<'_> {
                             self.clock,
                             latest,
                             -self.horizon,
-                            SearchKind::Normal,
                         )?
                     };
                     if let Some(entry) = entry {
@@ -517,7 +516,7 @@ impl Query<'_> {
                     candidate.drive_meters,
                     self.continuation,
                     self.clock,
-                    SearchKind::Normal,
+                    MovementPolicy::Wait,
                     true,
                 )?
                 .into_iter()
@@ -652,7 +651,7 @@ impl Query<'_> {
                     meters,
                     self.continuation,
                     self.clock,
-                    SearchKind::Normal,
+                    MovementPolicy::Wait,
                     false,
                 )?
                 .first
@@ -711,7 +710,7 @@ impl Query<'_> {
                                     candidate.edge,
                                     self.clock,
                                     label.elapsed,
-                                    SearchKind::Normal,
+                                    MovementPolicy::Wait,
                                     false,
                                 )?
                                 .first
@@ -785,7 +784,6 @@ impl Query<'_> {
                     self.clock,
                     latest,
                     -self.horizon + a.walk_seconds,
-                    SearchKind::Normal,
                 )?
             };
             if let Some(entry) = entry {
@@ -842,7 +840,6 @@ impl Query<'_> {
                             self.clock,
                             latest,
                             -self.horizon + a.walk_seconds,
-                            SearchKind::Normal,
                         )?
                     };
                     if let Some(entry) = entry {
@@ -908,7 +905,7 @@ impl Query<'_> {
         while !pending.is_empty() && !gates.is_empty() {
             rounds += 1;
             if rounds > 128 {
-                return Err("Dated gate propagation exceeded the experiment's workspace".into());
+                return Err("Dated gate propagation exceeded its workspace".into());
             }
             let reached = self.sweep(&profiles, &pending, masks, &mut trail);
             pending.clear();
@@ -947,7 +944,6 @@ impl Query<'_> {
                                 self.clock,
                                 -prefix.elapsed - seconds * meters,
                                 -self.horizon,
-                                SearchKind::Normal,
                             )?
                             .map(|entry| -entry)
                     } else {
@@ -959,7 +955,7 @@ impl Query<'_> {
                                 edge,
                                 self.clock,
                                 prefix.elapsed,
-                                SearchKind::Normal,
+                                MovementPolicy::Wait,
                                 true,
                             )?
                             .into_iter()
@@ -1031,8 +1027,7 @@ impl Query<'_> {
         } else {
             self.finish(&gate_prefixes, masks)?
         };
-        eprintln!(
-            "BIKE_TEMPORAL_HIERARCHY {}",
+        trace("BIKE_TEMPORAL_HIERARCHY", || {
             serde_json::json!({
                 "variableMovements":gates.len(),"rounds":rounds,"postGateRoots":roots.len(),
                 "profileVariants":profiles.paths.len(),
@@ -1040,7 +1035,7 @@ impl Query<'_> {
                 "profileCustomizationMs":customize_ms,"rankSweepMs":sweep_ms,
                 "partialGateTerminalsMs":ms(started),
             })
-        );
+        });
         let point = endings
             .first()
             .filter(|result| witness && result.value.0.is_finite())

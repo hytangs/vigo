@@ -2,7 +2,7 @@
 //! The topology is shared with Walk. This metric retains the snapshot's
 //! unrounded metres, including during candidate selection.
 use super::*;
-use std::cmp::Reverse;
+use std::{cmp::Reverse, collections::BinaryHeap};
 
 const NONE: u32 = u32::MAX;
 type RankMap = HashMap<u32, RankLabel, BuildHasherDefault<IntegerHasher>>;
@@ -43,8 +43,60 @@ fn arc(view: &cch::CchView<'_>, low: u32, high: u32) -> Option<usize> {
         .map(|i| first + i)
 }
 
+pub(super) enum Topology {
+    Mapped(Arc<cch::CchBundle>),
+    Owned(Box<cch::Cch>),
+}
+impl Topology {
+    fn view(&self) -> cch::CchView<'_> {
+        match self {
+            Self::Mapped(value) => value.view(),
+            Self::Owned(value) => value.view(),
+        }
+    }
+
+    pub fn build(snapshot: &Snapshot) -> Result<Self, String> {
+        let offsets = snapshot
+            .u32_array("edgeOffsets")
+            .map_err(|e| e.to_string())?;
+        let targets = snapshot
+            .u32_array("edgeTargets")
+            .map_err(|e| e.to_string())?;
+        let lons = snapshot.f64_array("nodeLons").map_err(|e| e.to_string())?;
+        let lats = snapshot.f64_array("nodeLats").map_err(|e| e.to_string())?;
+        let n = u32::try_from(lons.len()).map_err(|_| "Too many pedestrian nodes")?;
+        if offsets.len() != n as usize + 1
+            || lats.len() != n as usize
+            || offsets.first() != Some(&0)
+            || offsets.last().copied().map(|n| n as usize) != Some(targets.len())
+            || offsets.windows(2).any(|pair| pair[0] > pair[1])
+        {
+            return Err("Invalid pedestrian snapshot dimensions".into());
+        }
+        let mut tails = Vec::with_capacity(targets.len());
+        for (node, edges) in offsets.windows(2).enumerate() {
+            tails.extend(std::iter::repeat_n(
+                node as u32,
+                (edges[1] - edges[0]) as usize,
+            ));
+        }
+        if tails.len() != targets.len() || targets.iter().any(|&node| node >= n) {
+            return Err("Invalid pedestrian graph".into());
+        }
+        let lats = lats.iter().map(|&lat| lat as f32).collect::<Vec<_>>();
+        let lons = lons.iter().map(|&lon| lon as f32).collect::<Vec<_>>();
+        let order = cch::order::balanced_inertial_order(n, &tails, targets, &lats, &lons);
+        let graph = cch::graph::Graph {
+            first_out: offsets.to_vec(),
+            head: targets.to_vec(),
+            weight: vec![],
+        };
+        Ok(Self::Owned(Box::new(cch::Cch::build(&graph, &order))))
+    }
+}
+
 pub(super) struct WalkHierarchy {
-    structure: Arc<cch::CchBundle>,
+    structure: Topology,
     nodes: index::Column<u32>,
     forward: Metric,
     backward: Metric,
@@ -80,13 +132,18 @@ impl WalkHierarchy {
 
     pub fn prepare(
         snapshot: &Snapshot,
-        structure: Arc<cch::CchBundle>,
+        structure: Topology,
         store: Option<&index::Store>,
     ) -> Result<Self, String> {
         if let Some(store) = store
-            && let Ok(prepared) = Self::open(store, structure.clone())
+            && let Ok((nodes, forward, backward)) = Self::open(store, structure.view())
         {
-            return Ok(prepared);
+            return Ok(Self {
+                structure,
+                nodes,
+                forward,
+                backward,
+            });
         }
         let view = structure.view();
         let offsets = snapshot
@@ -159,10 +216,13 @@ impl WalkHierarchy {
         })
     }
 
-    fn open(store: &index::Store, structure: Arc<cch::CchBundle>) -> std::io::Result<Self> {
+    fn open(
+        store: &index::Store,
+        structure: cch::CchView<'_>,
+    ) -> std::io::Result<(index::Column<u32>, Metric, Metric)> {
         let mut reader = store.open("walk", &[])?;
-        let n = structure.node_count();
-        let arcs = structure.cch_arc_count();
+        let n = structure.rank.len();
+        let arcs = structure.up_head.len();
         let nodes = reader.column(Some(n))?;
         let mut read_metric = || {
             Ok::<_, std::io::Error>(Metric {
@@ -173,12 +233,7 @@ impl WalkHierarchy {
         let forward = read_metric()?;
         let backward = read_metric()?;
         reader.finish()?;
-        Ok(Self {
-            structure,
-            nodes,
-            forward,
-            backward,
-        })
+        Ok((nodes, forward, backward))
     }
 
     pub fn publish(&self, store: &index::Store) -> std::io::Result<()> {

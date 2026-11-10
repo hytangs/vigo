@@ -2100,10 +2100,10 @@ graph. Short coordinate-to-street snaps remain unverified and are limited to
 bicycle road. Authorized terminal-access overlays are not used for bike walks.
 
 Older Cities without the optional walking join retain their existing unverified
-straight connectors and wider-road retry policy; rebuild to enable network
+straight connectors and bounded endpoint matching policy; rebuild to enable network
 walks. Endpoint candidates use a compact array with a 512 KiB budget per endpoint.
 Coordinates and costs are recovered from the shared graph. Network walking also
-bounds each search to 32,768 labels and queued entries. These limits exclude
+bounds each rank sweep to 32,768 labels. These limits exclude
 other routing scratch; exceeding one returns an error asking for a smaller
 `maxWalkKm`, rather than returning a truncated route. A
 `bicycle=dismount` section is a walking leg. Public journeys report `bike` legs
@@ -2119,77 +2119,29 @@ is sequential and does not guarantee the best route over all waypoint choices.
 Conservative arrive-by searches carry history forward, then anchor the complete
 route at the requested arrival time.
 
-Bicycle Matrix deduplicates identical coordinates within each request. Depart-at
-rows with at least 64 distinct destinations share a verified search field;
-arrive-by columns do so with at least 64 distinct origins. Smaller batches use
-point routing. Time and physical distance retain the point router's semantics,
-including arrival-deadline slack. Ambiguous equal-cost paths fall back to point
-routing so a different distance cannot be silently substituted. Fields are
-bounded as described below and released between rows or columns. No new graph
-or endpoint cache is retained. Node requests with a cancellation callback or
-ordered waypoints retain their per-pair routing path. Diagnostics expose shared
-fields, certified pairs, point queries and unique endpoint counts.
-
-With verified pedestrian attachments, departure Reach can also
-group destinations whose endpoint-only road permissions match. A restricted
-search replaces repeated point searches only after verifying the chosen paths;
-timed waits and distance limits still fall back. Group
-keys have a 512 KiB query-local budget. Fields are released between groups and
-before point fallbacks, and ordinary transit queries do not allocate them.
-
-Forward fields release their static trees before full point fallbacks allocate
-search scratch. Field records use 32 bytes forward and 48 bytes in reverse;
-forward distance is recovered from the selected path instead of accumulated in
-every record. At 262,144 records this is 8 MiB and 12 MiB respectively, excluding
-queues, attachments, indexes and other scratch. These are temporary structures
-shared by bicycle Matrix and Reach, not additional resident graphs.
-Ordinary bicycle Route records use 40 bytes, with arrival clocks allocated only
-for searches that need them. Dated arrival-profile records reuse the same compact
-base while retaining their time-window bounds.
-
-Bicycle walking access uses 16-byte queue records, keeping physical distance
-once because it is also the search priority. The 32,768-entry queue limit uses
-at most 512 KiB of record storage, excluding labels and attachment scratch.
-Compact walking-node ids use the existing integer hash, and each improving
-label is looked up once. These buffers remain query-local; transit walking
-search and resident graph storage are unchanged.
+Bicycle Route, Matrix and Reach use one directed movement hierarchy. The
+hierarchy's states retain incoming roads and active via-way prefixes. Matrix
+attaches distinct coordinates once. A departure row with at least 64 unique
+destinations, or an arrival column with at least 64 unique origins, shares a
+rank sweep across those endpoints. Shorter batches use the same point hierarchy.
+The engine checks a minimum-cost witness for its physical distance and travel
+time before reporting it.
 
 Bicycle Reach uses the same `bike` preferences, estimated stress limits and
 physical travel times as Route. It routes to cell centers within the requested
 extent, with a 750 km distance cap, and supports surface, map and full output.
-Endpoint walks count toward time; the straight connectors remain unverified.
-It does not return pedestrian street/node evidence. Studio offers Bike under
-Analyze → Reach with an 8 km extent and matching point-inspection preferences.
+Endpoint walks count toward time; straight connectors remain unverified.
+Studio offers Bike under Analyze → Reach with an 8 km extent and matching
+point-inspection preferences. Both departure and arrival grids share ranked
+shortcut sweeps. Endpoint permission groups keep private roads available only
+where the endpoint permits them.
 
-Depart-at grids share a query-local lower-bound search tree. Each selected
-path is checked against actual timed permissions and destination access before
-use. Dated targets can share additional trees when their improving-path bounds
-have the same changing windows. Fixed permissions remain enforced; changing
-permissions are relaxed, and a path is accepted only when replay proves it
-attains the bound without waiting. A shared proof can authorize wider endpoint
-matching only when every nearest-attachment optimum requires waiting or violates
-a timed permission; ambiguous ties retain the point router's own decision.
-Uncertified paths, different attachments
-and constrained-distance choices use the exact point router. A second tree is built only when needed to prove
-that wider endpoint attachments cannot reach a cell within the cutoff.
-Each tree has a 262,144-label limit; unfinished
-parts fall back to exact queries rather than becoming unreachable cells.
-Window groups keep only target/cost pairs and release each tree before building
-the next. Dated targets with matching destination-access permissions can share
-trees too. Distinct permissions remain separate, and uncommon or over-budget
-groups use exact point routing. Permission-group keys have a 512 KiB budget,
-separate from endpoint arrays and search scratch.
-No tree or per-profile graph is retained between requests. Arrive-by grids share
-a destination-side cost tree that retains node-turn alternatives, then verify
-each path's full forward history, access permissions and dated entry times.
-Unverified paths, duration ties and binding distance limits use exact point
-queries. Wider attachments can prove absence, but cannot substitute a different
-endpoint policy. Reverse-link scratch is capped at 32 MiB and the field at
-262,144 labels; accelerator limits trigger point fallback. Shared fields are
-released before those exact searches allocate their own scratch. These budgets
-are not total-process-memory limits. The grid distance ceiling remains 750 km.
-Reported times are physical durations on preference-optimal paths, not inflated
-comfort costs or a claim that every possible faster path was selected.
+Preparing bicycle mode can retain the source-bound topology and customized
+weights in the local user cache. The cache stores no requests or answers. An
+existing City can still open and build the same hierarchy from its original
+data. Pedestrian connectors use a CCH with unrounded distance weights. Its
+bounded workspace and the 512 KiB endpoint candidate limit report an error if
+exhausted.
 
 Bike does not support live traffic, wheelchair requests, bike sharing
 or taking a bicycle aboard transit. Hill estimates use OSM `incline` tags,
@@ -2212,16 +2164,12 @@ date can still be used the following week. The existing event limit still
 bounds work and reports an error if exhausted.
 Waiting has the preference cost of the profile's least-penalized cycling second;
 reported duration always includes the actual waiting seconds.
-When a timed restriction invalidates the nearest candidate, the search considers other
-street connections within `maxWalkKm` before accepting a long wait. Those
-connectors remain unverified walks. A feasible route bounds the duration of every
-improving route. Permissions that stay fixed inside that horizon remain enforced
-in a relaxed search; changing permissions stay available. If actual-time replay
-attains that lower bound without waiting, it proves an optimal path without
-temporal label storage. Otherwise, temporal searches use
-temporary lower bounds and feasible routes to prune alternatives, with a 262,144-label work limit;
-exhausting it returns an error, never a false no-route result. This is a work
-bound, not a bound on total process memory.
+For Cities without a prepared walking join, the existing endpoint matching
+policy can admit roads farther within `maxWalkKm` when a nearer connection
+cannot be used. The Reach cutoff does not by itself authorize a wider match.
+A feasible CCH witness bounds the time and cost of competing paths. Fixed
+permissions apply inside that bound; changing movements preserve legal clock
+states in the hierarchy. Exceeding the bounded workspace returns an error.
 
 Supported conditions include weekday lists/ranges, comma-separated time windows
 and overnight windows. The last matching conditional value overrides the base
@@ -2239,15 +2187,11 @@ also bound a backward time interval: permissions fixed throughout that interval
 remain enforced in the lower-bound search. Costs are measured back from the
 deadline, including time that an earlier traversal would need to wait.
 
-When permissions change within that interval, a forward departure-profile search
-retains intervals of legal departure times and the full turn history. Waiting
-splits intervals and preserves distinct conditional `only_*` completion states.
-The search can improve the candidate or prove it optimal, using the same
-`dated_arrive_by_verified` policy. It adds query-local scratch, with at most
-262,144 labels, and no resident graph copy. A feasible-bound or work-limit
-failure returns an error, not an unproven no-route result. The native API also
-respects the available, potentially rebased service-day clock when optimizing;
-a cheaper trip outside that clock cannot hide a feasible trip inside it.
+When permissions change within that interval, the arrival sweep traverses
+the hierarchy in reverse while evaluating forward turns and legal entry times.
+The unpacked path is replayed forward. Necessary en-route waits stay with
+their movements; remaining time to the deadline is arrival slack. The
+available service-day clock bounds the search.
 
 A Route reports its actual arrival, which can precede the requested deadline.
 `earlyArrivalSeconds` and `arrivalDeadlineMinutes` in trace diagnostics explain
@@ -2255,11 +2199,7 @@ this slack. Matrix and arrive-by Reach include it in departure-to-deadline elaps
 time; Route does not invent a travel or waiting leg after arrival. Preference
 cost includes the slack at the ordinary waiting rate.
 Ordered arrive-by requests with via points and requests without a usable
-date/timezone retain the conservative policy. No forward wait is shifted past
-the arrival deadline. Exhausting the fully relaxed search over all permitted
-endpoint attachments can also certify a blocked result; exhausting a work limit
-cannot. Arrival-grid diagnostics distinguish certified cells, exact point
-fallbacks and the reasons for falling back.
+date/timezone retain the conservative policy. The arrival deadline remains binding. Only a completed hierarchy proof can certify an unreachable endpoint.
 
 Depart-at diagnostics report `timingPolicy` as `dated_roads_and_turns`,
 `dated_turns` (including via ways), `dated_node_turns`, or `conservative`.

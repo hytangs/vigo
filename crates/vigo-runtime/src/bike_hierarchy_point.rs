@@ -106,9 +106,7 @@ pub(in crate::bike) fn segment(
         destination_road_meters: ends.nearest_meters,
         unsupported_restrictions: kernel.unsupported_restrictions,
         timing_policy,
-        distance_limit_best_found: false,
         max_lts: options.max_lts,
-        temporal_valid: true,
         continuation: None,
     };
     if starts.candidates.is_empty() || ends.candidates.is_empty() {
@@ -127,7 +125,7 @@ pub(in crate::bike) fn segment(
             if !admit_wide {
                 return Ok(None);
             }
-            let a = kernel.attach_bicycle_fallback(
+            let a = kernel.attach_bicycle_full_radius(
                 &roads,
                 origin,
                 max_walk,
@@ -135,7 +133,7 @@ pub(in crate::bike) fn segment(
                 true,
                 &allowed,
             )?;
-            let b = kernel.attach_bicycle_fallback(
+            let b = kernel.attach_bicycle_full_radius(
                 &roads,
                 destination,
                 max_walk,
@@ -353,7 +351,7 @@ pub(in crate::bike) fn segment(
                 edge,
                 actual,
                 0.,
-                SearchKind::Frozen,
+                MovementPolicy::Check,
                 false,
             )?
             .first

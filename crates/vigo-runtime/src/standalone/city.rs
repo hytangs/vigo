@@ -1568,39 +1568,12 @@ impl City {
     }
     pub(crate) fn load_bike(&mut self) -> Result<()> {
         if self.bike.is_none() {
-            let started = std::time::Instant::now();
             let bike = Box::new(crate::bike::BikeKernel::open(
                 self.street_directory
                     .join("street-index.sqlite")
                     .to_str()
                     .ok_or("City path must be UTF-8")?,
             )?);
-            let graph_ms = started.elapsed().as_secs_f64() * 1000.;
-            if [
-                "VIGO_BIKE_CCH_WALK",
-                "VIGO_BIKE_CCH_QUERY",
-                "VIGO_BIKE_CCH_POINT",
-            ]
-            .into_iter()
-            .any(|flag| std::env::var_os(flag).is_some())
-            {
-                let (structure, _, _) = cch_files(
-                    &self
-                        .street_directory
-                        .join("street-index.sqlite.street-accelerator-v7.bin"),
-                    "street",
-                )?;
-                bike.prepare_walking_cch(&structure)?;
-            }
-            if std::env::var_os("VIGO_BIKE_HIERARCHY_PROBE").is_some() {
-                eprintln!(
-                    "BIKE_ADMISSION {}",
-                    json!({
-                        "graphMs": graph_ms,
-                        "walkingMs": started.elapsed().as_secs_f64() * 1000. - graph_ms,
-                    })
-                );
-            }
             self.bike = Some(bike);
         }
         Ok(())

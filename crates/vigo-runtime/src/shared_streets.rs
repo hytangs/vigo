@@ -78,6 +78,83 @@ pub(super) fn structure(path: &str) -> napi::Result<Arc<cch::CchBundle>> {
         cch::CchBundle::open(Path::new(path)).map_err(|e| Error::from_reason(e.to_string()))
     })
 }
+
+// The bicycle connector shares the prepared pedestrian topology when present.
+// Existing Cities need only their original street snapshot.
+pub(super) fn pedestrian_structure_for(path: &str) -> std::result::Result<Option<String>, String> {
+    let path = fs::canonicalize(path).map_err(|e| e.to_string())?;
+    let snapshot = vigo_format::Snapshot::open(&path, false).map_err(|e| e.to_string())?;
+    let directory = path
+        .parent()
+        .ok_or("Missing pedestrian snapshot directory")?;
+    let prefix = format!(
+        "{}.street-cch-v2-u10000.",
+        path.file_name()
+            .ok_or("Missing pedestrian snapshot name")?
+            .to_string_lossy()
+    );
+    let mut manifests = fs::read_dir(directory)
+        .map_err(|e| e.to_string())?
+        .filter_map(std::result::Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|name| name.starts_with(&prefix) && name.ends_with(".manifest.json"))
+        })
+        .collect::<Vec<_>>();
+    manifests.sort_unstable();
+    for path in manifests {
+        let Ok(file) = fs::File::open(path) else {
+            continue;
+        };
+        if !file.metadata().is_ok_and(|m| m.len() <= 64 * 1024) {
+            continue;
+        }
+        let Ok(manifest) = serde_json::from_reader::<_, serde_json::Value>(file) else {
+            continue;
+        };
+        if manifest["schemaVersion"] != "vigo.native-cch-manifest.v1"
+            || manifest["kind"] != "street"
+            || manifest["format"] != "street-cch-v2-u10000"
+            || [
+                "magic",
+                "version",
+                "identity",
+                "nodeCount",
+                "edgeCount",
+                "byteLength",
+            ]
+            .into_iter()
+            .any(|key| manifest["sourceSnapshot"][key] != snapshot.header[key])
+        {
+            continue;
+        }
+        let member = &manifest["structure"];
+        let name = member["file"]
+            .as_str()
+            .ok_or("Missing pedestrian CCH file")?;
+        let mut components = Path::new(name).components();
+        if !matches!(components.next(), Some(std::path::Component::Normal(_)))
+            || components.next().is_some()
+        {
+            return Err("Pedestrian CCH must be adjacent to its snapshot".into());
+        }
+        let expected = member["bytes"]
+            .as_u64()
+            .or_else(|| member["bytes"].as_str()?.parse().ok());
+        let file = fs::canonicalize(directory.join(name)).map_err(|e| e.to_string())?;
+        if !file.starts_with(directory) || fs::metadata(&file).ok().map(|m| m.len()) != expected {
+            return Err("Invalid pedestrian CCH file".into());
+        }
+        return file
+            .into_os_string()
+            .into_string()
+            .map(Some)
+            .map_err(|_| "Pedestrian CCH path must be UTF-8".into());
+    }
+    Ok(None)
+}
 pub(super) fn metric(path: &str) -> napi::Result<Arc<cch::MetricBundle>> {
     METRICS.open(path, || {
         cch::MetricBundle::open(Path::new(path)).map_err(|e| Error::from_reason(e.to_string()))

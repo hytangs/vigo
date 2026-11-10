@@ -1,5 +1,4 @@
-//! Query-local bicycle batches over the existing verified fields. Small and
-//! unproven cases retain the point router; no graph or endpoint cache survives.
+//! Bicycle matrices share endpoint attachments and hierarchy rank sweeps.
 use super::*;
 
 #[derive(Serialize)]
@@ -90,13 +89,8 @@ impl BikeKernel {
         const MIN_SHARED_TARGETS: usize = 64;
         let shared = (!arrive && width >= MIN_SHARED_TARGETS)
             || (arrive && unique_origins.len() >= MIN_SHARED_TARGETS);
-        #[cfg(any(feature = "standalone", test))]
-        let hierarchy = std::env::var_os("VIGO_BIKE_CCH_POINT").is_some();
-        #[cfg(not(any(feature = "standalone", test)))]
-        let hierarchy = false;
-        #[cfg(any(feature = "standalone", test))]
-        if shared && hierarchy {
-            use surface::hierarchy_probe::batch::{Batch, Request};
+        if shared {
+            use surface::hierarchy::batch::{Batch, Request};
             let batch = Batch::new(
                 Request {
                     kernel: self,
@@ -123,54 +117,7 @@ impl BikeKernel {
                     result.meters[index] = meters;
                 }
             }
-        }
-        if shared && !hierarchy {
-            let fixed = if arrive {
-                &unique_destinations
-            } else {
-                &unique_origins
-            };
-            for (i, &point) in fixed.iter().enumerate() {
-                let batch = if arrive {
-                    self.many_to_metrics(
-                        &unique_origins,
-                        point,
-                        opt,
-                        max_walk,
-                        walk_speed,
-                        max_distance,
-                        clock,
-                        f64::MAX,
-                        max_elapsed.filter(|_| clock.is_some() && self.has_timing()),
-                        true,
-                    )?
-                } else {
-                    self.many_from_metrics(
-                        point,
-                        &unique_destinations,
-                        opt,
-                        max_walk,
-                        walk_speed,
-                        max_distance,
-                        clock,
-                        f64::MAX,
-                        true,
-                    )?
-                };
-                result.shared_fields += 1;
-                result.settled_labels += batch.settled_labels;
-                result.certified_pairs += batch.certified_targets;
-                result.point_queries += batch.fallback_targets;
-                result.tree_limited |= batch.tree_limited;
-                for (j, (seconds, meters)) in
-                    batch.seconds.into_iter().zip(batch.meters).enumerate()
-                {
-                    let cell = if arrive { j * width + i } else { i * width + j };
-                    result.seconds[cell] = seconds;
-                    result.meters[cell] = meters;
-                }
-            }
-        } else if !shared {
+        } else {
             for (i, &origin) in unique_origins.iter().enumerate() {
                 for (j, &destination) in unique_destinations.iter().enumerate() {
                     let route = if arrive {
@@ -278,25 +225,14 @@ mod tests {
                     let point = bike
                         .route_at(origin, destination, opt, 0., 4.8, 10000., None)
                         .unwrap();
-                    let legacy = bike
-                        .route_from(
-                            origin,
-                            destination,
-                            opt,
-                            0.,
-                            4.8,
-                            10000.,
-                            None,
-                            None,
-                            false,
-                            f64::INFINITY,
-                            None,
-                            None,
-                        )
-                        .unwrap();
                     let cell = i * destinations.len() + j;
                     assert!((batch.seconds[cell] - point.elapsed_seconds()).abs() < 1e-7);
-                    let old_distance = legacy.legs.iter().map(|l| l.meters).sum::<f64>();
+                    // The equal-time paved branch wins the existing tie.
+                    let old_distance = if arrive {
+                        1200. + 1000. * (1. - (origin[0] + 0.01) / 0.01)
+                    } else {
+                        1200. + 1000. * (destination[0] - 0.002) / 0.01
+                    };
                     let new_distance = point.legs.iter().map(|l| l.meters).sum::<f64>();
                     assert!(
                         (old_distance - new_distance).abs() < 1e-7,

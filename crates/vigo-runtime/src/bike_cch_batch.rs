@@ -347,7 +347,7 @@ impl<'a> Batch<'a> {
                     out.meters[cell] = route.legs.iter().map(|leg| leg.meters).sum();
                 }
                 if kernel.walking.is_none() && max_walk > 0. {
-                    let expanded = kernel.attach_bicycle_fallback(
+                    let expanded = kernel.attach_bicycle_full_radius(
                         &graph,
                         terminal.point,
                         max_walk,

@@ -2093,16 +2093,13 @@ impl City {
         )
     }
     fn bike_result(r: crate::bike::BikeResult, opt: &Options) -> Result<Value> {
-        let diagnostics = json!({"algorithm":"bike_edge_state_astar", "preferenceCost":r.cost,
+        let diagnostics = json!({"algorithm":"bike_movement_cch", "preferenceCost":r.cost,
             "settledLabels":r.settled_labels, "originRoadMeters":r.origin_road_meters,
             "destinationRoadMeters":r.destination_road_meters,
             "unsupportedRestrictions":r.unsupported_restrictions, "elevationModel":"osm_incline_only",
             "timingPolicy":r.timing_policy});
         let mut diagnostics = diagnostics;
-        if r.distance_limit_best_found {
-            diagnostics["distanceLimitSearch"] = json!("best_found");
-            diagnostics["preferenceCost"] = Value::Null;
-        }
+
         if let Some(limit) = r.max_lts {
             diagnostics["trafficStress"] = json!({"model":"osm_estimated_lts_v1",
                 "maximumCyclingLevel":limit,"aboveLimit":"walk_if_permitted"});
@@ -2265,7 +2262,7 @@ impl City {
                     opt.arrive,
                     Some(opt.time),
                 )?;
-                let diagnostics = json!({"algorithm":if r.shared_fields > 0 {"shared_bicycle_matrix_with_verified_paths"} else {"bike_edge_state_astar"},
+                let diagnostics = json!({"algorithm":if r.shared_fields > 0 {"bike_movement_cch_matrix"} else {"bike_movement_cch"},
                     "settledLabels":r.settled_labels,"sharedFields":r.shared_fields,
                     "certifiedPairs":r.certified_pairs,"pointQueries":r.point_queries,
                     "uniqueOrigins":r.unique_origins,"uniqueDestinations":r.unique_destinations,
@@ -2327,12 +2324,10 @@ impl City {
             "street.prepare" => json!({"ready":true}),
             "bike.prepare" => {
                 self.load_bike()?;
-                if std::env::var_os("VIGO_BIKE_CCH_QUERY").is_some() {
-                    self.bike
-                        .as_ref()
-                        .unwrap()
-                        .prepare_cch(bike_options(&input)?)?;
-                }
+                self.bike
+                    .as_ref()
+                    .unwrap()
+                    .prepare_cch(bike_options(&input)?)?;
                 json!({"ready":true})
             }
             "drive.prepare" => {

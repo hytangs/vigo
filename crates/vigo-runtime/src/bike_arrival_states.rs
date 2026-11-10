@@ -187,7 +187,6 @@ impl BikeKernel {
         clock: Option<BikeClock>,
         latest: f64,
         earliest: f64,
-        kind: SearchKind<'_>,
     ) -> Result<Option<f64>, String> {
         if latest < earliest || (!latest.is_finite() || !earliest.is_finite()) {
             return Ok(None);
@@ -216,20 +215,21 @@ impl BikeKernel {
             }) {
                 return Err("Bicycle arrival exceeded the supported calendar range".into());
             }
-            let search = if kind.relaxed() {
-                kind
-            } else {
-                SearchKind::Frozen
-            };
             if let Some((_, next)) = self
-                .movements(history, incoming, node, edge, shifted, 0., search, false)?
+                .movements(
+                    history,
+                    incoming,
+                    node,
+                    edge,
+                    shifted,
+                    0.,
+                    MovementPolicy::Check,
+                    false,
+                )?
                 .first
                 && required.is_none_or(|state| *state == next)
             {
                 return Ok(Some(at));
-            }
-            if kind.relaxed() {
-                return Ok(None);
             }
             let Some(clock) = clock else {
                 return Ok(None);

@@ -215,7 +215,7 @@ pub(super) fn verify(
                     edge,
                     entered,
                     0.,
-                    SearchKind::Frozen,
+                    MovementPolicy::Check,
                     false,
                 )?
                 .first

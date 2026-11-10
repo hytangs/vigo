@@ -69,7 +69,6 @@ fn replay_with_wait(
                 query.clock,
                 latest,
                 -horizon + a.walk_seconds,
-                SearchKind::Normal,
             )?
         };
         let Some(departure) = departure else {
@@ -652,7 +651,6 @@ pub(in crate::bike::surface) fn measure(
                         clock,
                         latest,
                         -horizon,
-                        SearchKind::Normal,
                     )?;
                     Ok((
                         id,
@@ -766,7 +764,6 @@ pub(in crate::bike::surface) fn measure(
                     clock,
                     entry,
                     -horizon,
-                    SearchKind::Normal,
                 )?
                 else {
                     continue;
@@ -782,14 +779,13 @@ pub(in crate::bike::surface) fn measure(
                 useful_gates.push(gate);
             }
             let gates = useful_gates;
-            eprintln!(
-                "BIKE_TEMPORAL_HIERARCHY {}",
+            trace("BIKE_TEMPORAL_HIERARCHY", || {
                 serde_json::json!({
                     "phase":"reverse-gate-proof", "unresolvedCells":unresolved,
                     "feasibleCeilings":feasible.iter().filter(|value| value.is_some()).count(),
                     "remainingGates":gates.len(), "cap":cap, "horizonSeconds":horizon,
                 })
-            );
+            });
             let full_profile =
                 horizon < cap / rate || max_distance < horizon * (maximum_speed_kph.max(45.) / 3.6);
             let mut ports = Vec::new();
@@ -975,19 +971,17 @@ pub(in crate::bike::surface) fn measure(
             }
         }
     }
-    eprintln!(
-        "BIKE_HIERARCHY {}",
+    trace("BIKE_HIERARCHY", || {
         serde_json::json!({
             "phase":"build", "preparedBeforeRequest":resident, "hierarchyArcs":hierarchy.graph.cch_arc_count(),
         })
-    );
-    eprintln!(
-        "BIKE_HIERARCHY {}",
+    });
+    trace("BIKE_HIERARCHY", || {
         serde_json::json!({
             "phase":"query", "cells":result.len(), "directHierarchyQuery":true,
             "endpointMs":endpoint_ms, "reverseSweepAndProofMs":ms(started),
             "guardedCells":first_unresolved, "gateProfileCells":unresolved,
         })
-    );
+    });
     Ok(result)
 }

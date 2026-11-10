@@ -1,6 +1,5 @@
-//! Private experiment: a ranked bicycle movement graph. The topology includes
-//! every forward turn state and every possible weekly movement. Customize
-//! preference costs with a query's provable time bounds.
+//! Turn-aware bicycle contraction hierarchy. Stable movements are customized
+//! once per profile; query clocks constrain the dated movements.
 use super::*;
 use std::time::Instant;
 
@@ -169,7 +168,7 @@ fn possible_successors(
                 road,
                 local,
                 0.,
-                SearchKind::Frozen,
+                MovementPolicy::Check,
                 false,
             )?
             .first
@@ -539,6 +538,11 @@ impl Workspace {
     }
 }
 
+fn trace(label: &str, fields: impl FnOnce() -> serde_json::Value) {
+    if std::env::var_os("VIGO_BIKE_TRACE").is_some() {
+        eprintln!("{label} {}", fields());
+    }
+}
 fn ms(started: Instant) -> f64 {
     started.elapsed().as_secs_f64() * 1000.
 }
@@ -678,7 +682,6 @@ fn metric_key(options: BikeOptions) -> (&'static str, [u8; 9]) {
             Profile::Balanced => "balanced",
             Profile::Fast => "fast",
             Profile::Quiet => "quiet",
-            Profile::Shortest => "shortest",
         },
         key,
     )
@@ -1004,11 +1007,8 @@ pub(super) fn measure(
     distance_limit: f64,
     cutoff: f64,
     walk_speed_kph: f64,
-    reference: &[f64],
     attachment_ms: f64,
-    current_ms: f64,
 ) -> Result<Vec<f64>, String> {
-    let strict = reference.is_empty();
     let (prepared, resident) = kernel.hierarchy(options)?;
     let movements = &prepared.movements;
     let hierarchy = &prepared.hierarchy;
@@ -1045,7 +1045,7 @@ pub(super) fn measure(
         };
         let (seconds, price) = kernel.metric(a.edge, options);
         let first = kernel
-            .start_movements(&a, a.drive_meters, None, clock, SearchKind::Normal, false)?
+            .start_movements(&a, a.drive_meters, None, clock, MovementPolicy::Wait, false)?
             .first;
         if let Some((departure, history)) = first {
             sources.push((
@@ -1085,8 +1085,6 @@ pub(super) fn measure(
         .flat_map(|&node| movements.states.variants(node))
         .collect();
     let mut workspace = Workspace::new(hierarchy.graph.node_count());
-    let profile_requested =
-        strict || std::env::var_os("VIGO_BIKE_HIERARCHY_PORTAL_PROBE").is_some();
     let before = Instant::now();
     let event_states: Vec<_> = movements.timed.iter().map(|event| event.0).collect();
     hierarchy.bounds(
@@ -1144,27 +1142,23 @@ pub(super) fn measure(
     let (optimistic, dual) = prepared.gate_metrics(kernel, options);
     let optimistic_prep_ms = ms(preparing);
     let certifying = Instant::now();
-    let verified = if strict {
-        certify::Query {
-            kernel,
-            starts,
-            ends,
-            origin_access,
-            movements,
-            hierarchy,
-            weights: optimistic,
-            nodes: &nodes,
-            targets: &targets,
-            lower_sources: &lower_sources,
-            source_attachments: &lower_attachments,
-            clock,
-            options,
-            maximum_meters: distance_limit,
-        }
-        .certify(&possible, cutoff)?
-    } else {
-        vec![None; possible.len()]
-    };
+    let verified = certify::Query {
+        kernel,
+        starts,
+        ends,
+        origin_access,
+        movements,
+        hierarchy,
+        weights: optimistic,
+        nodes: &nodes,
+        targets: &targets,
+        lower_sources: &lower_sources,
+        source_attachments: &lower_attachments,
+        clock,
+        options,
+        maximum_meters: distance_limit,
+    }
+    .certify(&possible, cutoff)?;
     let certified = verified.iter().filter(|v| v.is_some()).count();
     let certificate_ms = ms(certifying);
     for (active, result) in possible.iter_mut().zip(&verified) {
@@ -1266,7 +1260,7 @@ pub(super) fn measure(
         let movement_cost = length * kernel.metric(*road, options).1;
         let node = movements.states.state(*from).node as usize;
         let mut partial = f64::INFINITY;
-        if profile_requested {
+        {
             for &terminal in
                 &ends.entries[ends.offsets[node] as usize..ends.offsets[node + 1] as usize]
             {
@@ -1307,7 +1301,7 @@ pub(super) fn measure(
                 } else {
                     all
                 };
-                if profile_requested && stable != Some(to) {
+                if stable != Some(to) {
                     admitted[index] = false;
                     if scope != 0 {
                         gates.push(temporal::Gate {
@@ -1347,11 +1341,10 @@ pub(super) fn measure(
     );
     let sparse_customization_ms = ms(before);
     let mut post_gate_roots = Vec::new();
-    let mut gate_error = None;
     let mut partial_gate_endings = vec![(f64::INFINITY, f64::INFINITY); ends.attachments.len()];
     let gates_before_proof = gates.len();
     let before = Instant::now();
-    if profile_requested && (!gates.is_empty() || constrained) {
+    if !gates.is_empty() || constrained {
         // Lower the price ceilings with the clock-stable paths already
         // computed by the hierarchy. No value from the oracle is used.
         let steady_values = metric.solve(&sources, &targets, &mut masks);
@@ -1462,7 +1455,7 @@ pub(super) fn measure(
                     edge,
                     clock,
                     earliest,
-                    SearchKind::Normal,
+                    MovementPolicy::Wait,
                     true,
                 )?
                 .into_iter()
@@ -1505,13 +1498,12 @@ pub(super) fn measure(
             .map(|(gate, suffix)| (gate.from, suffix))
             .collect();
         let proof_ms = ms(before);
-        eprintln!(
-            "BIKE_TEMPORAL_HIERARCHY {}",
+        trace("BIKE_TEMPORAL_HIERARCHY", || {
             serde_json::json!({
                 "phase":"gate-proof","initialGates":gates_before_proof,"remainingGates":gates.len(),
                 "proofMs":proof_ms,"optimisticMetricPreparationMs":optimistic_prep_ms,
             })
-        );
+        });
         if !gates.is_empty() || constrained {
             let before_gates: Vec<_> = if constrained {
                 lower_remaining.clone()
@@ -1560,19 +1552,9 @@ pub(super) fn measure(
                 lower_start_price: &lower_start_price,
                 lower_remaining: &before_gates,
             };
-            match query.run(&gates, &lower_remaining, &mut masks) {
-                Ok((roots, terminals)) => {
-                    post_gate_roots = roots;
-                    partial_gate_endings = terminals;
-                }
-                Err(error) => {
-                    eprintln!(
-                        "BIKE_TEMPORAL_HIERARCHY {}",
-                        serde_json::json!({"error":error,"gates":gates.len()})
-                    );
-                    gate_error = Some(error);
-                }
-            }
+            let (roots, terminals) = query.run(&gates, &lower_remaining, &mut masks)?;
+            post_gate_roots = roots;
+            partial_gate_endings = terminals;
         }
     }
     let mut scopes = vec![masks.all; sources.len()];
@@ -1582,8 +1564,7 @@ pub(super) fn measure(
     }
 
     let time_scope_ms = earliest_scope_ms + bound_ms;
-    eprintln!(
-        "BIKE_HIERARCHY {}",
+    trace("BIKE_HIERARCHY", || {
         serde_json::json!({
             "phase":"build","preparedBeforeRequest":resident,"nodes":hierarchy.graph.node_count(),"turnStates":movements.states.extra.len(),
             "roadEdges":kernel.targets.len(),"inputMovements":movements.roads.len(),
@@ -1596,22 +1577,11 @@ pub(super) fn measure(
             "certificateMs":certificate_ms,"certifiedCells":certified,
             "sparseCustomizationMs":sparse_customization_ms,"changedDirectedShortcuts":metric.changed(),
         })
-    );
-    let mut sweep_ms = Vec::new();
-    let mut solve = || {
-        let t = Instant::now();
-        let values = metric.solve_scoped(&sources, &scopes, &targets, &mut masks);
-        sweep_ms.push(ms(t));
-        values
-    };
-    let values = solve();
+    });
+    let swept = Instant::now();
+    let values = metric.solve_scoped(&sources, &scopes, &targets, &mut masks);
+    let sweep_ms = ms(swept);
     let t = Instant::now();
-    let mut match_seconds = 0usize;
-    let mut blocked_both = 0usize;
-    let mut differing_seconds = 0usize;
-    let mut no_witness = 0usize;
-    let mut rejected = std::collections::BTreeMap::<&str, usize>::new();
-    let mut timed_gates = std::collections::BTreeMap::<u32, (usize, f64, f64)>::new();
     let mut path = Vec::new();
     let winners = reduce_terminals(
         kernel, ends, options, &movements, &hierarchy, &nodes, &admitted, &values, &masks, None,
@@ -1622,24 +1592,23 @@ pub(super) fn measure(
     for (cell, attachment) in ends.attachments.iter().enumerate() {
         if let Some(value) = verified[cell] {
             seconds[cell] = value;
-            blocked_both += usize::from(!value.is_finite());
             continue;
         }
         if !possible[cell] {
-            blocked_both += 1;
             continue;
         }
-        if constrained && profile_requested {
+        if constrained {
             let (_, elapsed) = partial_gate_endings[cell];
             if elapsed <= cutoff {
                 seconds[cell] = elapsed;
             }
             continue;
         }
-        let ref_seconds = reference.get(cell).copied().unwrap_or(f64::INFINITY);
         let mut best = winners[cell];
         let mut direct = None;
-        for &(_, a_index, b_index) in ends.direct.iter().filter(|t| t.0 == cell) {
+        let first = ends.direct.partition_point(|&(target, _, _)| target < cell);
+        let end = first + ends.direct[first..].partition_point(|&(target, _, _)| target == cell);
+        for &(_, a_index, b_index) in &ends.direct[first..end] {
             let a = starts.candidate(&graph, a_index);
             let b = attachment.candidate(&graph, b_index);
             if b.fraction < a.fraction {
@@ -1648,7 +1617,7 @@ pub(super) fn measure(
             let meters =
                 (b.fraction - a.fraction) * kernel.distances[a.edge as usize] as f64 / 100.;
             let Some((departure, _)) = kernel
-                .start_movements(&a, meters, None, clock, SearchKind::Normal, false)?
+                .start_movements(&a, meters, None, clock, MovementPolicy::Wait, false)?
                 .first
             else {
                 continue;
@@ -1667,26 +1636,9 @@ pub(super) fn measure(
             if partial_elapsed <= cutoff {
                 seconds[cell] = partial_elapsed;
             }
-            if partial_elapsed > cutoff && !ref_seconds.is_finite() {
-                blocked_both += 1;
-            } else if partial_elapsed <= cutoff && partial_elapsed.round() == ref_seconds.round() {
-                match_seconds += 1;
-            } else {
-                differing_seconds += 1;
-            }
             continue;
         }
-        if !best.0.is_finite() {
-            if ref_seconds.is_finite() {
-                no_witness += 1;
-            } else {
-                blocked_both += 1;
-            }
-            continue;
-        }
-        if best.0 > cutoff_cap {
-            // No improving path under the price ceiling can reach this cell.
-            blocked_both += usize::from(!ref_seconds.is_finite());
+        if !best.0.is_finite() || best.0 > cutoff_cap {
             continue;
         }
         let b = attachment.candidate(&graph, best.2);
@@ -1759,7 +1711,7 @@ pub(super) fn measure(
                     edge,
                     clock,
                     elapsed,
-                    SearchKind::Normal,
+                    MovementPolicy::Wait,
                     expected.is_some(),
                 )?
                 .into_iter()
@@ -1774,10 +1726,6 @@ pub(super) fn measure(
                 break;
             };
             if departure != elapsed && (step != 0 || origin.is_none()) {
-                let gate = timed_gates.entry(edge).or_insert((0, f64::INFINITY, 0.));
-                gate.0 += 1;
-                gate.1 = gate.1.min(departure - elapsed);
-                gate.2 = gate.2.max(departure - elapsed);
                 reason = Some("dated_wait");
                 break;
             }
@@ -1790,42 +1738,21 @@ pub(super) fn measure(
             reason = Some("distance_limit");
         }
         if let Some(reason) = reason {
-            *rejected.entry(reason).or_default() += 1;
-        } else {
-            elapsed += b.walk_seconds;
-            if elapsed <= cutoff {
-                seconds[cell] = elapsed;
-            }
-            if elapsed > cutoff && !ref_seconds.is_finite() {
-                blocked_both += 1;
-            } else if elapsed <= cutoff && (elapsed.round() == ref_seconds.round()) {
-                match_seconds += 1;
-            } else {
-                differing_seconds += 1;
-            }
-        }
-    }
-    let read_and_replay_ms = ms(t);
-    eprintln!(
-        "BIKE_HIERARCHY {}",
-        serde_json::json!({
-            "phase":"query","cells":ends.attachments.len(),"directHierarchyQuery":strict,"endpointMs":attachment_ms,
-            "currentSurfaceMs":current_ms,"hierarchySweepMs":sweep_ms,
-            "attachmentReductionMs":attachment_reduction_ms,"replayMs":read_and_replay_ms,
-            "sameWholeSeconds":match_seconds,"changingMovements":gates.len(),"gatesBeforeProof":gates_before_proof,"postGateRoots":post_gate_roots.len(),
-            "blockedBoth":blocked_both,"differentWholeSeconds":(!strict).then_some(differing_seconds),
-            "noWitnessForReachable":no_witness,"unproved":rejected,"timedGates":timed_gates,"gateError":gate_error,
-        })
-    );
-    if strict {
-        if let Some(error) = gate_error {
-            return Err(error);
-        }
-        if !rejected.is_empty() {
             return Err(format!(
-                "Bicycle hierarchy has unresolved movements: {rejected:?}"
+                "Could not verify bicycle hierarchy terminal: {reason}"
             ));
         }
+        elapsed += b.walk_seconds;
+        if elapsed <= cutoff {
+            seconds[cell] = elapsed;
+        }
     }
+    trace("BIKE_HIERARCHY", || {
+        serde_json::json!({
+            "phase":"query","cells":ends.attachments.len(),"directHierarchyQuery":true,"endpointMs":attachment_ms,
+            "hierarchySweepMs":sweep_ms,"attachmentReductionMs":attachment_reduction_ms,"replayMs":ms(t),
+            "changingMovements":gates.len(),"gatesBeforeProof":gates_before_proof,"postGateRoots":post_gate_roots.len(),
+        })
+    });
     Ok(seconds)
 }
