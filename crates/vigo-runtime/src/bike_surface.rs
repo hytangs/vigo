@@ -5,6 +5,7 @@ use std::hash::BuildHasherDefault;
 #[path = "bike_cch.rs"]
 pub(super) mod hierarchy;
 
+#[cfg(any(feature = "standalone", test))]
 pub(crate) struct BikeSurface {
     pub seconds: Vec<f64>,
     pub access_groups: usize,
@@ -247,12 +248,14 @@ impl SurfaceTerminal {
 struct SurfaceEnds {
     attachments: Vec<Attachment>,
     groups: Vec<usize>,
+    #[cfg(any(feature = "standalone", test))]
     permissions: Vec<Vec<u32>>,
     offsets: Vec<u32>,
     entries: Vec<SurfaceTerminal>,
     direct: Vec<(usize, usize, usize)>,
 }
 impl SurfaceEnds {
+    #[cfg(any(feature = "standalone", test))]
     fn permissions_for(
         &self,
         origin_access: &HashSet<u32>,
@@ -550,6 +553,12 @@ impl BikeKernel {
                 .map(|point| attach(point, &mut scratch))
                 .collect()
         };
+        // Millions of terminal candidates are checked against a few start
+        // roads. Test a bitset before probing the exact start index.
+        let mut start_edges = vec![0u64; self.targets.len().div_ceil(64)];
+        for &edge in starts_by_edge.keys() {
+            start_edges[edge as usize / 64] |= 1 << (edge % 64);
+        }
         for attachment in attachments {
             let attachment = attachment?;
             let target = ends.attachments.len();
@@ -562,7 +571,10 @@ impl BikeKernel {
                         permission.push(component);
                     }
                 }
-                if let Some(ids) = starts_by_edge.get(&candidate.edge) {
+                let edge = candidate.edge as usize;
+                if start_edges[edge / 64] & (1 << (edge % 64)) != 0
+                    && let Some(ids) = starts_by_edge.get(&candidate.edge)
+                {
                     for &i in ids {
                         ends.direct.push((target, i, j));
                     }

@@ -6,15 +6,20 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::{
     fs::{self, File, OpenOptions},
-    io::{self, BufWriter, Seek, SeekFrom, Write},
+    io::{self, Write},
     marker::PhantomData,
-    mem::{align_of, size_of, size_of_val},
+    mem::{align_of, size_of},
     ops::{Deref, DerefMut},
     path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
     },
+};
+#[cfg(feature = "standalone")]
+use std::{
+    io::{BufWriter, Seek, SeekFrom},
+    mem::size_of_val,
 };
 
 const MAGIC: &[u8; 8] = b"VGBCCH01";
@@ -93,6 +98,7 @@ pub(super) struct Store {
     structure: Option<(PathBuf, [u8; 32])>,
 }
 impl Store {
+    #[cfg(feature = "standalone")]
     fn current(&self) -> bool {
         self.source.current()
             && self
@@ -120,6 +126,16 @@ impl Store {
         digest.update(kind.as_bytes());
         digest.update(key);
         digest.finalize().into()
+    }
+
+    /// Removes an index kind this version no longer reads, with its receipt.
+    #[cfg(feature = "standalone")]
+    pub(super) fn remove(&self, kind: &str) {
+        let file = self.file(kind);
+        let mut receipt = file.clone().into_os_string();
+        receipt.push(".verified");
+        let _ = fs::remove_file(file);
+        let _ = fs::remove_file(receipt);
     }
 
     pub(super) fn open(&self, kind: &str, key: &[u8]) -> io::Result<Reader> {
@@ -161,6 +177,7 @@ impl Store {
         })
     }
 
+    #[cfg(feature = "standalone")]
     pub(super) fn publish(
         &self,
         kind: &str,
@@ -481,11 +498,13 @@ impl Reader {
         }
     }
 }
+#[cfg(feature = "standalone")]
 pub(super) struct Writer {
     out: BufWriter<File>,
     digest: Sha256,
     bytes: usize,
 }
+#[cfg(feature = "standalone")]
 impl Writer {
     fn bytes(&mut self, data: &[u8]) -> io::Result<()> {
         if self.bytes.saturating_add(data.len()) > MAX_BYTES {

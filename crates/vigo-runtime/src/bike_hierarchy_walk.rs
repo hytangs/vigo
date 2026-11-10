@@ -236,26 +236,65 @@ impl RankQueue {
     }
 }
 
+/// Walking metric columns shared by one customization height.
+///
+/// Safety contract: within a height, `relax(x)` runs at most once per rank;
+/// it writes only x's upward arcs and reads arcs of x's strict descendants,
+/// completed at lower heights.
+#[derive(Clone, Copy)]
+struct WalkTriangles {
+    forward_meters: *mut f64,
+    forward_via: *mut u32,
+    backward_meters: *mut f64,
+    backward_via: *mut u32,
+}
+unsafe impl Send for WalkTriangles {}
+unsafe impl Sync for WalkTriangles {}
+
+impl WalkTriangles {
+    unsafe fn relax(self, view: &cch::CchView<'_>, x: usize) {
+        let first = view.up_first_out[x] as usize;
+        let row = &view.up_head[first..view.up_first_out[x + 1] as usize];
+        for a in view.down_first_out[x] as usize..view.down_first_out[x + 1] as usize {
+            let y = view.down_head[a] as usize;
+            let bottom = view.down_to_up[a] as usize;
+            for middle in (view.up_first_out[y] as usize..view.up_first_out[y + 1] as usize).rev() {
+                let z = view.up_head[middle];
+                if z as usize <= x {
+                    break;
+                }
+                let top = first
+                    + row
+                        .binary_search(&z)
+                        .expect("chordal hierarchy has every triangle arc");
+                unsafe {
+                    let forward =
+                        *self.backward_meters.add(bottom) + *self.forward_meters.add(middle);
+                    if forward < *self.forward_meters.add(top) {
+                        *self.forward_meters.add(top) = forward;
+                        *self.forward_via.add(top) = y as u32;
+                    }
+                    let backward =
+                        *self.forward_meters.add(bottom) + *self.backward_meters.add(middle);
+                    if backward < *self.backward_meters.add(top) {
+                        *self.backward_meters.add(top) = backward;
+                        *self.backward_via.add(top) = y as u32;
+                    }
+                }
+            }
+        }
+    }
+}
+
 impl WalkHierarchy {
     pub fn rank(&self) -> &[u32] {
         self.structure.view().rank
     }
 
-    pub fn prepare(
-        snapshot: &Snapshot,
-        structure: Topology,
-        store: Option<&index::Store>,
-    ) -> Result<Self, String> {
-        if let Some(store) = store
-            && let Ok((nodes, forward, backward)) = Self::open(store, structure.view())
-        {
-            return Ok(Self {
-                structure,
-                nodes,
-                forward,
-                backward,
-            });
-        }
+    /// Customizes unrounded walking metres on the shared pedestrian CCH.
+    /// The metric is derived from the City snapshot on open rather than
+    /// stored a second time beside the City's own walking metric.
+    pub fn prepare(snapshot: &Snapshot, structure: Topology) -> Result<Self, String> {
         let view = structure.view();
         let offsets = snapshot
             .u32_array("edgeOffsets")
@@ -291,32 +330,24 @@ impl WalkHierarchy {
         }
         // The same lower triangles that customize the street metric, with
         // unrounded weights and the winning contraction vertex as witness.
-        let mut top = vec![0; view.rank.len()];
-        for x in 0..view.rank.len() {
-            for a in view.up_first_out[x]..view.up_first_out[x + 1] {
-                top[view.up_head[a as usize] as usize] = a as usize;
-            }
-            for a in view.down_first_out[x] as usize..view.down_first_out[x + 1] as usize {
-                let y = view.down_head[a] as usize;
-                let bottom = view.down_to_up[a] as usize;
-                for middle in
-                    (view.up_first_out[y] as usize..view.up_first_out[y + 1] as usize).rev()
-                {
-                    let z = view.up_head[middle] as usize;
-                    if z <= x {
-                        break;
-                    }
-                    forward.reduce(
-                        top[z],
-                        backward.meters[bottom] + forward.meters[middle],
-                        y as u32,
-                    );
-                    backward.reduce(
-                        top[z],
-                        forward.meters[bottom] + backward.meters[middle],
-                        y as u32,
-                    );
-                }
+        // Ranks of equal elimination-tree height run in parallel: x writes
+        // only its own upward arcs and reads arcs of strict descendants, and
+        // keeps the serial loop order, so the result is bit-identical.
+        let shared = WalkTriangles {
+            forward_meters: forward.meters.as_mut_ptr(),
+            forward_via: forward.via.as_mut_ptr(),
+            backward_meters: backward.meters.as_mut_ptr(),
+            backward_via: backward.via.as_mut_ptr(),
+        };
+        let levels = cch::Levels::from_parents(view.elimination_tree_parent);
+        for level in levels.iter() {
+            // SAFETY: see WalkTriangles; each rank appears once per height.
+            let relax = |&x: &u32| unsafe { shared.relax(&view, x as usize) };
+            if level.len() < 256 {
+                level.iter().for_each(relax);
+            } else {
+                use rayon::prelude::*;
+                level.par_iter().for_each(relax);
             }
         }
         Ok(Self {
@@ -325,26 +356,6 @@ impl WalkHierarchy {
             forward,
             backward,
         })
-    }
-
-    fn open(
-        store: &index::Store,
-        structure: cch::CchView<'_>,
-    ) -> std::io::Result<(index::Column<u32>, Metric, Metric)> {
-        let mut reader = store.open("walk", &[])?;
-        let n = structure.rank.len();
-        let arcs = structure.up_head.len();
-        let nodes = reader.column(Some(n))?;
-        let mut read_metric = || {
-            Ok::<_, std::io::Error>(Metric {
-                meters: reader.column(Some(arcs))?,
-                via: reader.column(Some(arcs))?,
-            })
-        };
-        let forward = read_metric()?;
-        let backward = read_metric()?;
-        reader.finish()?;
-        Ok((nodes, forward, backward))
     }
 
     #[cfg(feature = "standalone")]
@@ -379,19 +390,12 @@ impl WalkHierarchy {
         )
     }
 
+    /// Walking metres are no longer persisted; remove an index written by
+    /// an earlier version so it stops occupying the cache.
     #[cfg(feature = "standalone")]
     pub fn publish(&self, store: &index::Store) -> std::io::Result<()> {
-        if self.nodes.mapped() {
-            return Ok(());
-        }
-        store.publish("walk", &[], |writer| {
-            writer.column(&self.nodes)?;
-            for metric in [&self.forward, &self.backward] {
-                writer.column(&metric.meters)?;
-                writer.column(&metric.via)?;
-            }
-            Ok(())
-        })
+        store.remove("walk");
+        Ok(())
     }
 
     pub fn within(

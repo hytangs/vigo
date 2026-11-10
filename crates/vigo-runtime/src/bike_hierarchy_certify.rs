@@ -3,6 +3,7 @@
 //! guarded shortcuts of the same hierarchy.
 use super::*;
 
+#[cfg(any(feature = "standalone", test))]
 pub(super) struct Query<'a> {
     pub kernel: &'a BikeKernel,
     pub starts: &'a Attachment,
@@ -27,12 +28,14 @@ pub(super) struct Metrics {
 }
 
 #[derive(Clone, Copy)]
+#[cfg(any(feature = "standalone", test))]
 pub(super) enum Proof {
     Exact(Metrics),
     Unreachable,
     NeedsGuards,
 }
 
+#[cfg(any(feature = "standalone", test))]
 impl Query<'_> {
     pub fn certify(&self, possible: &[bool], cutoff: f64) -> Result<Vec<Option<f64>>, String> {
         self.prove(possible).map(|proofs| {

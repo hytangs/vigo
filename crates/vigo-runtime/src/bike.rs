@@ -256,7 +256,7 @@ impl BikeKernel {
             {
                 let _ = graph.cch_index.set(store);
             }
-            walking.prepare_hierarchy(structure.as_deref(), graph.cch_index.get())?;
+            walking.prepare_hierarchy(structure.as_deref())?;
         }
         if std::env::var_os("VIGO_BIKE_TRACE").is_some() {
             eprintln!(

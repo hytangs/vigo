@@ -323,21 +323,8 @@ impl Query<'_> {
             for (i, arc) in (start..end).enumerate() {
                 let y = graph.up_head[arc] as usize;
                 index[y] = i;
-                let mut fwd = std::iter::once(graph.forward_input_arc_of_cch[arc]).chain(
-                    graph.extra_forward_input_arc_of_cch[graph.first_extra_forward_input_arc_of_cch
-                        [arc] as usize
-                        ..graph.first_extra_forward_input_arc_of_cch[arc + 1] as usize]
-                        .iter()
-                        .copied(),
-                );
-                let mut bwd = std::iter::once(graph.backward_input_arc_of_cch[arc]).chain(
-                    graph.extra_backward_input_arc_of_cch[graph
-                        .first_extra_backward_input_arc_of_cch[arc]
-                        as usize
-                        ..graph.first_extra_backward_input_arc_of_cch[arc + 1] as usize]
-                        .iter()
-                        .copied(),
-                );
+                let mut fwd = graph.arc_inputs(self.movements, x, y, true);
+                let mut bwd = graph.arc_inputs(self.movements, x, y, false);
                 if self.reversed {
                     std::mem::swap(&mut fwd, &mut bwd);
                 }
@@ -866,6 +853,7 @@ impl Query<'_> {
         Ok(results)
     }
 
+    #[cfg(any(feature = "standalone", test))]
     pub fn run(
         &self,
         gates: &[Gate],

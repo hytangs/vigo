@@ -79,11 +79,7 @@ fn push_candidate(candidates: &mut Vec<BikeCandidate>, candidate: BikeCandidate)
 }
 
 impl WalkNetwork {
-    pub(super) fn prepare_hierarchy(
-        &self,
-        path: Option<&str>,
-        store: Option<&index::Store>,
-    ) -> Result<(), String> {
+    pub(super) fn prepare_hierarchy(&self, path: Option<&str>) -> Result<(), String> {
         if self.hierarchy.get().is_none() {
             let structure = if let Some(path) = path {
                 hierarchy::Topology::Mapped(
@@ -92,7 +88,7 @@ impl WalkNetwork {
             } else {
                 hierarchy::Topology::build(&self.snapshot)?
             };
-            let prepared = hierarchy::WalkHierarchy::prepare(&self.snapshot, structure, store)?;
+            let prepared = hierarchy::WalkHierarchy::prepare(&self.snapshot, structure)?;
             let _ = self.hierarchy.set(prepared);
         }
         Ok(())
@@ -386,7 +382,8 @@ impl WalkNetwork {
                             || (c.fraction == 1. && walk.attached_bike_nodes[0] == to)))
             }
         });
-        walk.reached.sort_unstable_by_key(|&(node, _)| node);
+        // No pre-sort: candidates are fully ordered by (metres, road,
+        // fraction) below, and each road and fraction determines its node.
         for &(node, meters) in &walk.reached {
             let edges = bike.offsets[node as usize]..bike.offsets[node as usize + 1];
             let mut outgoing = edges.filter(|&e| eligible(e));

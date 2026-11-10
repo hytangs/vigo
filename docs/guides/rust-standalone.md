@@ -2136,8 +2136,9 @@ point-inspection preferences. Both departure and arrival grids share ranked
 shortcut sweeps. Endpoint permission groups keep private roads available only
 where the endpoint permits them.
 
-Preparing bicycle mode can retain the source-bound topology and customized
-weights in the local user cache. The cache stores no requests or answers. An
+Preparing bicycle mode can retain the source-bound upward topology and
+shortcut witnesses in the local user cache; opening rebuilds the remaining
+columns and weights exactly. The cache stores no requests or answers. An
 existing City can still open and build the same hierarchy from its original
 data. Pedestrian connectors use a CCH with unrounded distance weights. Its
 bounded workspace and the 512 KiB endpoint candidate limit report an error if

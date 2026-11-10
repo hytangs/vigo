@@ -241,6 +241,7 @@ impl<'a> Metric<'a> {
         }
     }
 
+    #[cfg(any(feature = "standalone", test))]
     pub fn reversed(base: &'a Hierarchy, masks: &SurfaceMasks) -> Self {
         Self {
             base_up: ArcView::new(&base.down, None),
@@ -295,16 +296,16 @@ impl<'a> Metric<'a> {
             if scope == 0 {
                 continue;
             }
-            let arc = graph.input_arc_to_cch_arc[input as usize];
-            let road = movements.roads[input as usize];
-            if arc == NONE || !kernel.allowed_edge(road, opt) {
-                continue;
-            }
             let from = movements
                 .input
                 .first_out
                 .partition_point(|&begin| begin <= input)
                 - 1;
+            let arc = graph.input_arc(movements, from, input as usize);
+            let road = movements.roads[input as usize];
+            if arc == NONE || !kernel.allowed_edge(road, opt) {
+                continue;
+            }
             let to = movements.input.head[input as usize] as usize;
             let cost = weight(road);
             let (from, to) = if self.reversed {
@@ -430,6 +431,7 @@ impl<'a> Metric<'a> {
         }
     }
 
+    #[cfg(any(feature = "standalone", test))]
     pub fn changed(&self) -> usize {
         self.up.values.len() + self.down.values.len()
     }
@@ -451,77 +453,67 @@ impl<'a> Metric<'a> {
         masks: &mut SurfaceMasks,
     ) -> RankedValues {
         let graph = &self.base.graph;
-        let source_space = self
-            .base
-            .search_space(sources.iter().map(|&(node, _)| node));
-        let target_space = self.base.search_space(targets.iter().copied());
-        let mut up = RankedLabels::new(graph.node_count(), source_space.len());
-        let mut down = RankedLabels::new(graph.node_count(), target_space.len());
+        let mut up = RankedLabels::new(self.base.rank_space(sources.iter().map(|&(node, _)| node)));
+        let mut down = RankedLabels::new(self.base.rank_space(targets.iter().copied()));
+        let source_space = up.space.ranks.clone();
+        let target_space = down.space.ranks.clone();
         if self.up.values.is_empty() && self.down.values.is_empty() && scopes.is_empty() {
             // All permission lanes share the same scalar minima. Avoid
-            // constructing temporary lane vectors at every arc.
-            let improve = |slots: &mut SingleSlots, rank, cost: f64, witness| {
-                let prior = slots.get(rank);
-                if cost.is_finite() && (prior.scope == 0 || cost < prior.cost) {
-                    slots.set(
-                        rank,
-                        Choice {
-                            cost,
-                            witness,
-                            scope: masks.all,
-                        },
-                    );
+            // constructing temporary lane vectors at every arc. Every upward
+            // CCH neighbour is an elimination-tree ancestor, so each label
+            // written here has a slot in its search space.
+            let all = masks.all;
+            #[inline]
+            fn improve(slot: &mut Choice, cost: f64, witness: u32, all: u32) {
+                if cost.is_finite() && (slot.scope == 0 || cost < slot.cost) {
+                    *slot = Choice {
+                        cost,
+                        witness,
+                        scope: all,
+                    };
                 }
-            };
-            for (i, &(node, cost)) in sources.iter().enumerate() {
-                improve(
-                    &mut up.single,
-                    graph.rank[node as usize],
-                    cost,
-                    i as u32 | VIA,
-                );
             }
-            for rank in source_space {
-                let value = up.single.get(rank);
+            for (i, &(node, cost)) in sources.iter().enumerate() {
+                let slot = up.slot_of(graph.rank[node as usize]);
+                improve(&mut up.single[slot], cost, i as u32 | VIA, all);
+            }
+            for (index, &rank) in source_space.iter().enumerate() {
+                let value = up.single[index];
                 if value.scope == 0 {
                     continue;
                 }
                 for arc in graph.up_first_out[rank as usize] as usize
                     ..graph.up_first_out[rank as usize + 1] as usize
                 {
+                    let slot = up.slot_of(graph.up_head[arc]);
                     improve(
-                        &mut up.single,
-                        graph.up_head[arc],
+                        &mut up.single[slot],
                         value.cost + self.base_up.arc(arc),
                         rank,
+                        all,
                     );
                 }
             }
-            for rank in target_space.into_iter().rev() {
-                let value = up.single.get(rank);
-                if value.scope != 0 {
-                    down.single.set(
-                        rank,
-                        Choice {
-                            witness: NONE,
-                            ..value
-                        },
-                    );
-                }
+            for (index, &rank) in target_space.iter().enumerate().rev() {
+                let value = up.single_get(rank);
+                let mut best = if value.scope != 0 {
+                    Choice {
+                        witness: NONE,
+                        ..value
+                    }
+                } else {
+                    EMPTY
+                };
                 for arc in graph.up_first_out[rank as usize] as usize
                     ..graph.up_first_out[rank as usize + 1] as usize
                 {
                     let parent = graph.up_head[arc];
-                    let value = down.single.get(parent);
+                    let value = down.single[down.slot_of(parent)];
                     if value.scope != 0 {
-                        improve(
-                            &mut down.single,
-                            rank,
-                            value.cost + self.base_down.arc(arc),
-                            parent,
-                        );
+                        improve(&mut best, value.cost + self.base_down.arc(arc), parent, all);
                     }
                 }
+                down.single[index] = best;
             }
             return RankedValues { up, down };
         }
@@ -645,50 +637,39 @@ const EMPTY: Choice = Choice {
     witness: 0,
     scope: 0,
 };
-enum SingleSlots {
-    Dense(Vec<Choice>),
-    Sparse(HashMap<u32, Choice, BuildHasherDefault<crate::IntegerHasher>>),
-}
-impl SingleSlots {
-    fn get(&self, rank: u32) -> Choice {
-        match self {
-            Self::Dense(values) => values[rank as usize],
-            Self::Sparse(values) => values.get(&rank).copied().unwrap_or(EMPTY),
-        }
-    }
-    fn set(&mut self, rank: u32, value: Choice) {
-        match self {
-            Self::Dense(values) => values[rank as usize] = value,
-            Self::Sparse(values) => {
-                if value == EMPTY {
-                    values.remove(&rank);
-                } else {
-                    values.insert(rank, value);
-                }
-            }
-        }
-    }
-}
+// Labels live in search-space order. A rank outside the space has no label.
 struct RankedLabels {
-    single: SingleSlots,
+    space: RankSpace,
+    single: Vec<Choice>,
     extra: Overrides,
 }
 impl RankedLabels {
-    fn new(n: usize, visited: usize) -> Self {
+    fn new(space: RankSpace) -> Self {
         Self {
-            single: if visited <= 65_536 && visited.saturating_mul(8) < n {
-                SingleSlots::Sparse(HashMap::with_capacity_and_hasher(
-                    visited,
-                    BuildHasherDefault::default(),
-                ))
-            } else {
-                SingleSlots::Dense(vec![EMPTY; n])
-            },
+            single: vec![EMPTY; space.len()],
+            space,
             extra: Overrides::default(),
         }
     }
+    #[inline]
+    fn slot_of(&self, rank: u32) -> usize {
+        self.space
+            .slot(rank)
+            .expect("bicycle hierarchy label outside its search space")
+    }
+    #[inline]
+    fn single_get(&self, rank: u32) -> Choice {
+        self.space
+            .slot(rank)
+            .map_or(EMPTY, |slot| self.single[slot])
+    }
+    #[inline]
+    fn single_set(&mut self, rank: u32, value: Choice) {
+        let slot = self.slot_of(rank);
+        self.single[slot] = value;
+    }
     fn get(&self, rank: u32) -> Choices {
-        let value = self.single.get(rank);
+        let value = self.single_get(rank);
         if value.scope != 0 {
             smallvec::smallvec![value]
         } else if value.witness == NONE {
@@ -698,14 +679,14 @@ impl RankedLabels {
         }
     }
     fn set(&mut self, rank: u32, mut values: Choices) {
-        let v = self.single.get(rank);
+        let v = self.single_get(rank);
         if values.len() <= 1 {
             if v.scope == 0 && v.witness == NONE {
                 self.extra.remove(&rank);
             }
-            self.single.set(rank, values.pop().unwrap_or(EMPTY));
+            self.single_set(rank, values.pop().unwrap_or(EMPTY));
         } else {
-            self.single.set(
+            self.single_set(
                 rank,
                 Choice {
                     cost: 0.,
@@ -717,7 +698,7 @@ impl RankedLabels {
         }
     }
     fn best(&self, rank: u32, group: usize, masks: &SurfaceMasks) -> Option<Choice> {
-        let v = self.single.get(rank);
+        let v = self.single_get(rank);
         if v.scope != 0 {
             (v.scope == masks.all || masks.contains(v.scope, group)).then_some(v)
         } else if v.witness == NONE {

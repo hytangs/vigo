@@ -343,6 +343,7 @@ impl Point<'_> {
                 self.walk_speed / 3.6,
                 self.reversed,
             )],
+            #[cfg(any(feature = "standalone", test))]
             permissions: vec![vec![]],
             groups: vec![0],
             offsets: vec![0; k.lons.len() + 1],
