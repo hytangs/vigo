@@ -621,7 +621,7 @@ impl BikeKernel {
         })
     }
 
-    #[cfg(test)]
+    #[cfg(any(feature = "standalone", test))]
     pub fn heap_bytes(&self) -> usize {
         self.walking
             .as_ref()
@@ -721,6 +721,7 @@ impl BikeKernel {
             .map_or(&[][..], |turns| &turns[..]);
         self.allowed_turns_at(turns, incoming, outgoing, None, 0.)
     }
+    #[cfg(test)]
     fn allowed_turns_at(
         &self,
         turns: &[NodeTurn],
@@ -909,10 +910,6 @@ impl BikeKernel {
     ) -> Option<TurnState> {
         self.next_turn_state_at(state, incoming, node, outgoing, None, 0.)
     }
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "Keep routing bounds and attachment policy explicit at the search boundary."
-    )]
     fn next_turn_state_at(
         &self,
         state: &TurnState,

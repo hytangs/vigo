@@ -199,7 +199,7 @@ pub(in crate::bike) fn segment(
     }
     let movement = &prepared.movements;
     let hierarchy = &prepared.hierarchy;
-    let (optimistic, _) = prepared.gate_metrics(kernel, options);
+    let optimistic = prepared.optimistic(kernel, options);
     let mut source_indices = Vec::new();
     let mut sources = Vec::new();
     let mut on_edge =

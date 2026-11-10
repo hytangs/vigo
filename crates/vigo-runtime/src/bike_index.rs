@@ -397,7 +397,15 @@ impl<T: Word> Column<T> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "standalone")]
+    pub(super) fn mapped_file_bytes(&self) -> usize {
+        match &self.storage {
+            Storage::Mapped { data, .. } => data.len(),
+            Storage::Owned(_) => 0,
+        }
+    }
+
+    #[cfg(any(feature = "standalone", test))]
     pub(super) fn capacity(&self) -> usize {
         match &self.storage {
             Storage::Owned(values) => values.capacity(),

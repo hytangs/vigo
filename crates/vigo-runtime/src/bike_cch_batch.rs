@@ -163,7 +163,7 @@ impl<'a> Batch<'a> {
         } = self.request;
         let moves = &self.prepared.movements;
         let hierarchy = &self.prepared.hierarchy;
-        let (optimistic, _) = self.prepared.gate_metrics(kernel, options);
+        let optimistic = self.prepared.optimistic(kernel, options);
         let graph = kernel.graph();
         let (fixed, varying) = if arrive {
             (&self.destinations[row], &self.origins)

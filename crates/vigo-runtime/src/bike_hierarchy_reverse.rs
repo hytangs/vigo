@@ -144,7 +144,7 @@ pub(in crate::bike::surface) fn measure(
     let graph = kernel.graph();
     let movements = &prepared.movements;
     let hierarchy = &prepared.hierarchy;
-    let (optimistic, _) = prepared.gate_metrics(kernel, options);
+    let optimistic = prepared.optimistic(kernel, options);
     let mut attachments = Vec::new();
     let mut sources = Vec::new();
     let mut physical_sources = Vec::new();
@@ -288,7 +288,7 @@ pub(in crate::bike::surface) fn measure(
         hierarchy.bounds(
             &physical_sources,
             physical,
-            (&prepared.physical.down.costs, &prepared.physical.up.costs),
+            prepared.physical(kernel, options).directions(true),
             max_elapsed.min(
                 limit * prepared.maximum_price_rate
                     / if matches!(options.profile, Profile::Fast) {
@@ -425,7 +425,7 @@ pub(in crate::bike::surface) fn measure(
         hierarchy.bounds(
             &sources,
             &mut physical,
-            (&optimistic.down.costs, &optimistic.up.costs),
+            optimistic.directions(hierarchy, true),
             cap,
         );
         let lower_start_price: Vec<_> =
@@ -433,7 +433,7 @@ pub(in crate::bike::surface) fn measure(
         hierarchy.bounds(
             &remaining_sources,
             &mut physical,
-            (&optimistic.up.costs, &optimistic.down.costs),
+            optimistic.directions(hierarchy, false),
             cap,
         );
         let remaining: Vec<_> = physical
@@ -721,7 +721,7 @@ pub(in crate::bike::surface) fn measure(
             hierarchy.bounds(
                 &remaining_sources,
                 &mut physical,
-                (&optimistic.up.costs, &optimistic.down.costs),
+                optimistic.directions(hierarchy, false),
                 cap,
             );
             let remaining: Vec<_> = physical
@@ -824,7 +824,7 @@ pub(in crate::bike::surface) fn measure(
                 hierarchy.bounds(
                     &ports,
                     &mut physical,
-                    (&optimistic.up.costs, &optimistic.down.costs),
+                    optimistic.directions(hierarchy, false),
                     cap,
                 );
                 Some(

@@ -59,7 +59,7 @@ pub(super) struct WalkSearch {
     snap: SnapWorkspace,
     // Keys are compact snapshot node ids, never external strings. Candidate
     // order is sorted below, independent of hash-table iteration order.
-    labels: HashMap<u32, (f64, u32), BuildHasherDefault<IntegerHasher>>,
+    labels: Vec<(u32, f64)>,
     projection: [f64; 2],
     gap: f64,
     attached_bike_nodes: Vec<u32>,
@@ -100,6 +100,13 @@ impl WalkNetwork {
             let _ = self.hierarchy.set(prepared);
         }
         Ok(())
+    }
+
+    #[cfg(feature = "standalone")]
+    pub(super) fn hierarchy_memory(&self) -> (usize, usize) {
+        self.hierarchy
+            .get()
+            .map_or((0, 0), hierarchy::WalkHierarchy::memory)
     }
 
     pub(super) fn publish_hierarchy(&self, store: &index::Store) -> std::io::Result<()> {
@@ -380,7 +387,7 @@ impl WalkNetwork {
         let mut reached: Vec<_> = walk
             .labels
             .iter()
-            .filter_map(|(&node, &(meters, _))| self.bike_node(node).map(|b| (b, meters)))
+            .filter_map(|&(node, meters)| self.bike_node(node).map(|b| (b, meters)))
             .collect();
         reached.sort_unstable_by_key(|&(node, _)| node);
         for (node, meters) in reached {
@@ -493,9 +500,12 @@ impl WalkNetwork {
             .links
             .walk_node(node)
             .ok_or("Missing bicycle walking join")?;
-        let (meters, _) = *walk
-            .labels
-            .get(&target)
+        let hierarchy = self
+            .hierarchy
+            .get()
+            .ok_or("Bicycle walking hierarchy was not opened")?;
+        let meters = hierarchy
+            .distance(target, &walk.ranked)
             .ok_or("Bicycle walking witness disappeared")?;
         if (meters - candidate.walk_meters).abs() > 1e-5 {
             return Err("Bicycle walking witness distance differs".into());
@@ -508,10 +518,6 @@ impl WalkNetwork {
             .snapshot
             .f64_array("nodeLats")
             .map_err(|e| e.to_string())?;
-        let hierarchy = self
-            .hierarchy
-            .get()
-            .ok_or("Bicycle walking hierarchy was not opened")?;
         let nodes = hierarchy.path(target, origin, &walk.ranked);
         // A shortcut groups metres differently from the original walk.
         // Report the unpacked witness with the original edge order.

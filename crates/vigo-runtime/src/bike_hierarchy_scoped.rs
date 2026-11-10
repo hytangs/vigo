@@ -95,12 +95,12 @@ impl ChoiceView<'_> {
     }
 }
 
-fn scalar(arcs: &Arcs, index: u32, all: u32) -> ChoiceView<'_> {
-    let i = index as usize;
-    if arcs.costs[i].is_finite() {
+fn scalar(arcs: ArcView<'_>, index: u32, all: u32) -> ChoiceView<'_> {
+    let (cost, witness) = arcs.values(index as usize);
+    if cost.is_finite() {
         ChoiceView::Single(Choice {
-            cost: arcs.costs[i],
-            witness: arcs.witness[i],
+            cost,
+            witness,
             scope: all,
         })
     } else {
@@ -185,8 +185,8 @@ fn merged(
 
 pub(super) struct Metric<'a> {
     pub base: &'a Hierarchy,
-    base_up: &'a Arcs,
-    base_down: &'a Arcs,
+    base_up: ArcView<'a>,
+    base_down: ArcView<'a>,
     up: Overlay,
     down: Overlay,
     all: u32,
@@ -197,8 +197,8 @@ impl<'a> Metric<'a> {
     pub fn new(base: &'a Hierarchy, masks: &SurfaceMasks) -> Self {
         Self {
             base,
-            base_up: &base.up,
-            base_down: &base.down,
+            base_up: ArcView::new(&base.up, None),
+            base_down: ArcView::new(&base.down, None),
             up: Overlay::new(base.graph.cch_arc_count()),
             down: Overlay::new(base.graph.cch_arc_count()),
             all: masks.all,
@@ -206,31 +206,45 @@ impl<'a> Metric<'a> {
         }
     }
 
-    pub fn optimistic(base: &'a Hierarchy, weights: &'a Weights, masks: &SurfaceMasks) -> Self {
+    pub fn optimistic(
+        base: &'a Hierarchy,
+        patches: &'a PreferencePatches,
+        masks: &SurfaceMasks,
+    ) -> Self {
+        let (base_up, base_down) = patches.directions(base, false);
         Self {
-            base_up: &weights.up,
-            base_down: &weights.down,
+            base_up,
+            base_down,
             ..Self::new(base, masks)
         }
     }
 
     pub fn optimistic_reversed(
         base: &'a Hierarchy,
-        weights: &'a Weights,
+        patches: &'a PreferencePatches,
         masks: &SurfaceMasks,
     ) -> Self {
+        let (base_up, base_down) = patches.directions(base, true);
         Self {
-            base_up: &weights.down,
-            base_down: &weights.up,
+            base_up,
+            base_down,
             reversed: true,
+            ..Self::new(base, masks)
+        }
+    }
+
+    pub fn weighted(base: &'a Hierarchy, weights: &'a Weights, masks: &SurfaceMasks) -> Self {
+        Self {
+            base_up: ArcView::new(&weights.up, None),
+            base_down: ArcView::new(&weights.down, None),
             ..Self::new(base, masks)
         }
     }
 
     pub fn reversed(base: &'a Hierarchy, masks: &SurfaceMasks) -> Self {
         Self {
-            base_up: &base.down,
-            base_down: &base.up,
+            base_up: ArcView::new(&base.down, None),
+            base_down: ArcView::new(&base.up, None),
             reversed: true,
             ..Self::new(base, masks)
         }
@@ -253,6 +267,10 @@ impl<'a> Metric<'a> {
         });
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep hierarchy query inputs explicit."
+    )]
     pub fn admit_weighted(
         &mut self,
         kernel: &BikeKernel,
@@ -474,7 +492,7 @@ impl<'a> Metric<'a> {
                     improve(
                         &mut up.single,
                         graph.up_head[arc],
-                        value.cost + self.base_up.costs[arc],
+                        value.cost + self.base_up.arc(arc),
                         rank,
                     );
                 }
@@ -499,7 +517,7 @@ impl<'a> Metric<'a> {
                         improve(
                             &mut down.single,
                             rank,
-                            value.cost + self.base_down.costs[arc],
+                            value.cost + self.base_down.arc(arc),
                             parent,
                         );
                     }

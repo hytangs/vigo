@@ -59,6 +59,10 @@ macro_rules! ranked_columns {
             fn read(reader: &mut index::Reader) -> std::io::Result<Self> {
                 Ok(Self { $($column: reader.column(None)?),+ })
             }
+            #[cfg(feature = "standalone")]
+            fn heap_bytes(&self) -> usize {
+                4 * (0 $(+ self.$column.capacity())+)
+            }
             fn write(&self, writer: &mut index::Writer) -> std::io::Result<()> {
                 $(writer.column(&self.$column)?;)+
                 Ok(())
@@ -138,6 +142,8 @@ fn state_id(
     }
 }
 
+type MovementSuccessors = (smallvec::SmallVec<[u32; 2]>, bool, Option<u32>);
+
 fn possible_successors(
     kernel: &BikeKernel,
     states: &arrival_states::ArrivalStates,
@@ -146,7 +152,7 @@ fn possible_successors(
     clock: Option<BikeClock>,
     mut at: f64,
     latest: f64,
-) -> Result<(smallvec::SmallVec<[u32; 2]>, bool, Option<u32>), String> {
+) -> Result<MovementSuccessors, String> {
     let start = states.state(from);
     let history = &states.turns[start.turns as usize];
     let incoming = (start.incoming != NONE).then_some(start.incoming);
@@ -252,13 +258,12 @@ impl MovementGraph {
         let private = roads
             .iter()
             .enumerate()
-            .filter_map(|(index, &road)| {
-                (kernel.attributes[road as usize] & (1 << 22) != 0).then(|| {
-                    (
-                        kernel.destination_components[kernel.source(road) as usize],
-                        index as u32,
-                    )
-                })
+            .filter(|(_, road)| kernel.attributes[**road as usize] & (1 << 22) != 0)
+            .map(|(index, &road)| {
+                (
+                    kernel.destination_components[kernel.source(road) as usize],
+                    index as u32,
+                )
             })
             .collect();
         let mut dynamic = vec![false; roads.len()];
@@ -339,6 +344,10 @@ fn projected_order(kernel: &BikeKernel, movements: &MovementGraph) -> Result<Vec
 }
 
 impl Hierarchy {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep hierarchy query inputs explicit."
+    )]
     fn customize_into(
         graph: &RankGraph,
         up: &mut Arcs,
@@ -421,7 +430,7 @@ impl Hierarchy {
         search_space
     }
 
-    fn ascend(&self, starts: &[(u32, f64)], work: &mut Workspace, costs: &[f64]) {
+    fn ascend<M: ArcCosts>(&self, starts: &[(u32, f64)], work: &mut Workspace, costs: M) {
         work.reset();
         let source_space = self.search_space(starts.iter().map(|&(node, _)| node));
         let first = &*self.graph.up_first_out;
@@ -439,7 +448,7 @@ impl Hierarchy {
             }
             for arc in first[rank as usize]..first[rank as usize + 1] {
                 let to = heads[arc as usize] as usize;
-                let cost = value + costs[arc as usize];
+                let cost = value + costs.arc(arc as usize);
                 if cost < work.up_cost[to] {
                     work.up_cost[to] = cost;
                 }
@@ -448,12 +457,12 @@ impl Hierarchy {
         work.source_space = source_space;
     }
 
-    fn solve(
+    fn solve<M: ArcCosts>(
         &self,
         starts: &[(u32, f64)],
         targets: Option<&[u32]>,
         work: &mut Workspace,
-        costs: (&[f64], &[f64]),
+        costs: (M, M),
     ) {
         self.ascend(starts, work, costs.0);
         let first = &*self.graph.up_first_out;
@@ -466,7 +475,7 @@ impl Hierarchy {
             let mut cost = work.up_cost[node];
             for arc in first[node]..first[node + 1] {
                 let to = heads[arc as usize];
-                let candidate = work.down_cost[to as usize] + costs.1[arc as usize];
+                let candidate = work.down_cost[to as usize] + costs.1.arc(arc as usize);
                 if candidate < cost {
                     cost = candidate;
                 }
@@ -487,11 +496,11 @@ impl Hierarchy {
     // Only ranks within this budget can constrain a terminal or a timed
     // movement. Push down from finite ranks instead of pulling every arc in
     // the City. Nonnegative weights make an out-of-budget bound conclusive.
-    fn bounds(
+    fn bounds<M: ArcCosts>(
         &self,
         starts: &[(u32, f64)],
         work: &mut Workspace,
-        costs: (&[f64], &[f64]),
+        costs: (M, M),
         maximum: f64,
     ) {
         self.ascend(starts, work, costs.0);
@@ -507,7 +516,7 @@ impl Hierarchy {
             }
             work.down_cost[rank] = value;
             for arc in first[rank] as usize..first[rank + 1] as usize {
-                let candidate = value + costs.1[weights[arc] as usize];
+                let candidate = value + costs.1.arc(weights[arc] as usize);
                 let to = heads[arc] as usize;
                 if candidate <= maximum && candidate < work.down_cost[to] {
                     work.down_cost[to] = candidate;
@@ -547,11 +556,240 @@ fn ms(started: Instant) -> f64 {
     started.elapsed().as_secs_f64() * 1000.
 }
 
+trait ArcCosts: Copy {
+    fn arc(self, index: usize) -> f64;
+}
+impl ArcCosts for &[f64] {
+    #[inline]
+    fn arc(self, index: usize) -> f64 {
+        self[index]
+    }
+}
+impl ArcCosts for &[u32] {
+    #[inline]
+    fn arc(self, index: usize) -> f64 {
+        let units = self[index];
+        if units == u32::MAX {
+            f64::INFINITY
+        } else {
+            f64::from(units) / 1024.
+        }
+    }
+}
+
+// Physical and wait-price bounds can only rule out routes. Quantize these
+// shortcut weights downward; the preference metrics that pick a path and
+// the original movement values that report its time remain unrounded.
+struct LowerBounds {
+    up: index::Column<u32>,
+    down: index::Column<u32>,
+}
+impl LowerBounds {
+    fn new(weights: Weights) -> Self {
+        let encode = |arcs: Arcs| {
+            arcs.costs
+                .iter()
+                .map(|&cost| {
+                    if cost.is_finite() {
+                        ((cost * 1024.) as u32).min(u32::MAX - 1)
+                    } else {
+                        u32::MAX
+                    }
+                })
+                .collect::<Vec<_>>()
+                .into()
+        };
+        Self {
+            up: encode(weights.up),
+            down: encode(weights.down),
+        }
+    }
+    fn directions(&self, reverse: bool) -> (&[u32], &[u32]) {
+        if reverse {
+            (&self.down, &self.up)
+        } else {
+            (&self.up, &self.down)
+        }
+    }
+    fn read(reader: &mut index::Reader, arcs: usize) -> std::io::Result<Self> {
+        Ok(Self {
+            up: reader.column(Some(arcs))?,
+            down: reader.column(Some(arcs))?,
+        })
+    }
+    #[cfg(feature = "standalone")]
+    fn write(&self, writer: &mut index::Writer) -> std::io::Result<()> {
+        writer.column(&self.up)?;
+        writer.column(&self.down)
+    }
+}
+
+// Allowing private and scheduled movements changes only some shortcuts.
+// Keep one exact scalar metric and store the differing minima and witnesses.
+#[derive(Clone, Copy, Default)]
+struct PatchPage {
+    bits: u64,
+    first: u32,
+}
+
+struct ArcPatches {
+    pages: Vec<PatchPage>,
+    ids: index::Column<u32>,
+    costs: index::Column<f64>,
+    witness: index::Column<u32>,
+}
+
+impl ArcPatches {
+    fn pack(base: &Arcs, allowed: Arcs) -> Self {
+        let n = base.costs.len();
+        let mut ids = Vec::new();
+        let mut costs = Vec::new();
+        let mut witness = Vec::new();
+        for i in 0..n {
+            if base.costs[i].to_bits() != allowed.costs[i].to_bits()
+                || base.witness[i] != allowed.witness[i]
+            {
+                ids.push(i as u32);
+                costs.push(allowed.costs[i]);
+                witness.push(allowed.witness[i]);
+            }
+        }
+        Self::layout(n, ids.into(), costs.into(), witness.into()).expect("ordered patch arcs")
+    }
+
+    fn layout(
+        n: usize,
+        ids: index::Column<u32>,
+        costs: index::Column<f64>,
+        witness: index::Column<u32>,
+    ) -> std::io::Result<Self> {
+        if ids.last().is_some_and(|&last| last as usize >= n)
+            || ids.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(std::io::Error::other(
+                "Invalid bicycle shortcut patch layout",
+            ));
+        }
+        let mut pages = if ids.is_empty() {
+            Vec::new()
+        } else {
+            vec![PatchPage::default(); n.div_ceil(64)]
+        };
+        for (i, &id) in ids.iter().enumerate() {
+            let page = &mut pages[id as usize / 64];
+            if page.bits == 0 {
+                page.first = i as u32;
+            }
+            page.bits |= 1 << (id % 64);
+        }
+        Ok(Self {
+            pages,
+            ids,
+            costs,
+            witness,
+        })
+    }
+
+    #[inline]
+    fn slot(&self, arc: usize) -> Option<usize> {
+        let page = self.pages[arc / 64];
+        let bit = 1 << (arc % 64);
+        (page.bits & bit != 0)
+            .then(|| page.first as usize + (page.bits & (bit - 1)).count_ones() as usize)
+    }
+
+    fn read(reader: &mut index::Reader, n: usize) -> std::io::Result<Self> {
+        let ids = reader.column(None)?;
+        let count = ids.len();
+        let costs = reader.column(Some(count))?;
+        let witness = reader.column(Some(count))?;
+        Self::layout(n, ids, costs, witness)
+    }
+
+    #[cfg(feature = "standalone")]
+    fn write(&self, writer: &mut index::Writer) -> std::io::Result<()> {
+        writer.column(&self.ids)?;
+        writer.column(&self.costs)?;
+        writer.column(&self.witness)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ArcView<'a> {
+    costs: &'a [f64],
+    witness: &'a [u32],
+    patches: Option<&'a ArcPatches>,
+}
+impl<'a> ArcView<'a> {
+    fn new(arcs: &'a Arcs, patches: Option<&'a ArcPatches>) -> Self {
+        Self {
+            costs: &arcs.costs,
+            witness: &arcs.witness,
+            patches: patches.filter(|p| !p.ids.is_empty()),
+        }
+    }
+    #[inline]
+    fn values(self, arc: usize) -> (f64, u32) {
+        if let Some(patch) = self.patches
+            && let Some(slot) = patch.slot(arc)
+        {
+            (patch.costs[slot], patch.witness[slot])
+        } else {
+            (self.costs[arc], self.witness[arc])
+        }
+    }
+}
+impl ArcCosts for ArcView<'_> {
+    #[inline]
+    fn arc(self, arc: usize) -> f64 {
+        if let Some(patch) = self.patches
+            && let Some(slot) = patch.slot(arc)
+        {
+            patch.costs[slot]
+        } else {
+            self.costs[arc]
+        }
+    }
+}
+
+struct PreferencePatches {
+    up: ArcPatches,
+    down: ArcPatches,
+}
+impl PreferencePatches {
+    fn new(base: &Hierarchy, allowed: Weights) -> Self {
+        Self {
+            up: ArcPatches::pack(&base.up, allowed.up),
+            down: ArcPatches::pack(&base.down, allowed.down),
+        }
+    }
+    fn directions<'a>(&'a self, base: &'a Hierarchy, reverse: bool) -> (ArcView<'a>, ArcView<'a>) {
+        let up = ArcView::new(&base.up, Some(&self.up));
+        let down = ArcView::new(&base.down, Some(&self.down));
+        if reverse { (down, up) } else { (up, down) }
+    }
+    fn read(reader: &mut index::Reader, n: usize) -> std::io::Result<Self> {
+        Ok(Self {
+            up: ArcPatches::read(reader, n)?,
+            down: ArcPatches::read(reader, n)?,
+        })
+    }
+    #[cfg(feature = "standalone")]
+    fn write(&self, writer: &mut index::Writer) -> std::io::Result<()> {
+        self.up.write(writer)?;
+        self.down.write(writer)
+    }
+}
+
 struct Weights {
     up: Arcs,
     down: Arcs,
 }
 impl Weights {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep hierarchy query inputs explicit."
+    )]
     fn prepare(
         kernel: &BikeKernel,
         movements: &MovementGraph,
@@ -590,14 +828,6 @@ impl Weights {
         Self::weighted(kernel, movements, graph, options, true, true, |road| {
             kernel.distances[road as usize] as f64 / 100.
         })
-    }
-
-    fn directions(&self, reverse: bool) -> (&[f64], &[f64]) {
-        if reverse {
-            (&self.down.costs, &self.up.costs)
-        } else {
-            (&self.up.costs, &self.down.costs)
-        }
     }
 
     fn weighted(
@@ -667,16 +897,18 @@ fn together<A: Send, B: Send>(
 struct Prepared {
     movements: std::sync::Arc<MovementGraph>,
     hierarchy: Hierarchy,
-    physical: Weights,
-    cost_bounds: std::sync::OnceLock<(Weights, Weights)>,
+    physical: std::sync::OnceLock<LowerBounds>,
+    optimistic: std::sync::OnceLock<PreferencePatches>,
+    dual: std::sync::OnceLock<LowerBounds>,
     timings: [f64; 5],
     maximum_price_rate: f64,
     published: std::sync::atomic::AtomicBool,
 }
-fn metric_key(options: BikeOptions) -> (&'static str, [u8; 9]) {
-    let mut key = [0; 9];
+fn metric_key(options: BikeOptions) -> (&'static str, [u8; 10]) {
+    let mut key = [0; 10];
     key[..8].copy_from_slice(&options.speed_kph.to_bits().to_le_bytes());
     key[8] = options.max_lts.unwrap_or(u8::MAX);
+    key[9] = 3; // packed bounds and exact shortcut patches
     (
         match options.profile {
             Profile::Balanced => "balanced",
@@ -737,22 +969,9 @@ impl Prepared {
         {
             return Ok(loaded);
         }
-        let ((physical, physical_ms), (steady, preferred_ms)) = together(
-            || {
-                let t = Instant::now();
-                (
-                    Weights::prepare(kernel, &movements, &graph, options, true, 0., false, false),
-                    ms(t),
-                )
-            },
-            || {
-                let t = Instant::now();
-                (
-                    Weights::prepare(kernel, &movements, &graph, options, false, 0., true, true),
-                    ms(t),
-                )
-            },
-        );
+        let t = Instant::now();
+        let steady = Weights::prepare(kernel, &movements, &graph, options, false, 0., true, true);
+        let preferred_ms = ms(t);
         let hierarchy = Hierarchy {
             graph,
             up: steady.up,
@@ -768,17 +987,12 @@ impl Prepared {
         Ok(Self {
             movements,
             hierarchy,
-            physical,
-            cost_bounds: std::sync::OnceLock::new(),
+            physical: std::sync::OnceLock::new(),
+            optimistic: std::sync::OnceLock::new(),
+            dual: std::sync::OnceLock::new(),
             maximum_price_rate,
             published: std::sync::atomic::AtomicBool::new(false),
-            timings: [
-                movement_ms,
-                order_ms,
-                topology_ms,
-                physical_ms,
-                preferred_ms,
-            ],
+            timings: [movement_ms, order_ms, topology_ms, 0., preferred_ms],
         })
     }
 
@@ -794,10 +1008,10 @@ impl Prepared {
         let n = graph.cch_arc_count();
         let mut reader = store.open(kind, &key)?;
         let maximum_price_rate = reader.column::<f64>(Some(1))?[0];
-        let physical = Weights::read(&mut reader, n, false)?;
+        let physical = LowerBounds::read(&mut reader, n)?;
         let steady = Weights::read(&mut reader, n, true)?;
-        let optimistic = Weights::read(&mut reader, n, true)?;
-        let dual = Weights::read(&mut reader, n, false)?;
+        let optimistic = PreferencePatches::read(&mut reader, n)?;
+        let dual = LowerBounds::read(&mut reader, n)?;
         reader.finish()?;
         timings[3] = ms(opened);
         Ok(Self {
@@ -807,8 +1021,9 @@ impl Prepared {
                 up: steady.up,
                 down: steady.down,
             },
-            physical,
-            cost_bounds: std::sync::OnceLock::from((optimistic, dual)),
+            physical: std::sync::OnceLock::from(physical),
+            optimistic: std::sync::OnceLock::from(optimistic),
+            dual: std::sync::OnceLock::from(dual),
             timings,
             maximum_price_rate,
             published: std::sync::atomic::AtomicBool::new(true),
@@ -832,13 +1047,17 @@ impl Prepared {
             topology.published.store(true, Ordering::Relaxed);
         }
         let (kind, key) = metric_key(options);
-        let (optimistic, dual) = self.gate_metrics(kernel, options);
+        let (physical, optimistic) = together(
+            || self.physical(kernel, options),
+            || self.optimistic(kernel, options),
+        );
+        let dual = self.dual(kernel, options);
         store.publish(kind, &key, |writer| {
             writer.column(&[self.maximum_price_rate])?;
-            Weights::write(&self.physical.up, &self.physical.down, writer)?;
+            physical.write(writer)?;
             Weights::write(&self.hierarchy.up, &self.hierarchy.down, writer)?;
-            Weights::write(&optimistic.up, &optimistic.down, writer)?;
-            Weights::write(&dual.up, &dual.down, writer)
+            optimistic.write(writer)?;
+            dual.write(writer)
         })?;
         self.published.store(true, Ordering::Relaxed);
         if let Some(walking) = &kernel.walking {
@@ -847,39 +1066,56 @@ impl Prepared {
         Ok(())
     }
 
-    fn gate_metrics(&self, kernel: &BikeKernel, options: BikeOptions) -> &(Weights, Weights) {
-        self.cost_bounds.get_or_init(|| {
+    fn physical(&self, kernel: &BikeKernel, options: BikeOptions) -> &LowerBounds {
+        self.physical.get_or_init(|| {
+            LowerBounds::new(Weights::prepare(
+                kernel,
+                &self.movements,
+                &self.hierarchy.graph,
+                options,
+                true,
+                0.,
+                false,
+                false,
+            ))
+        })
+    }
+
+    fn optimistic(&self, kernel: &BikeKernel, options: BikeOptions) -> &PreferencePatches {
+        self.optimistic.get_or_init(|| {
+            PreferencePatches::new(
+                &self.hierarchy,
+                Weights::prepare(
+                    kernel,
+                    &self.movements,
+                    &self.hierarchy.graph,
+                    options,
+                    false,
+                    0.,
+                    true,
+                    false,
+                ),
+            )
+        })
+    }
+
+    fn dual(&self, kernel: &BikeKernel, options: BikeOptions) -> &LowerBounds {
+        self.dual.get_or_init(|| {
             let rate = if matches!(options.profile, Profile::Fast) {
                 1.
             } else {
                 0.8
             };
-            together(
-                || {
-                    Weights::prepare(
-                        kernel,
-                        &self.movements,
-                        &self.hierarchy.graph,
-                        options,
-                        false,
-                        0.,
-                        true,
-                        false,
-                    )
-                },
-                || {
-                    Weights::prepare(
-                        kernel,
-                        &self.movements,
-                        &self.hierarchy.graph,
-                        options,
-                        false,
-                        rate * 0.5,
-                        false,
-                        false,
-                    )
-                },
-            )
+            LowerBounds::new(Weights::prepare(
+                kernel,
+                &self.movements,
+                &self.hierarchy.graph,
+                options,
+                false,
+                rate * 0.5,
+                false,
+                false,
+            ))
         })
     }
 }
@@ -921,10 +1157,68 @@ impl BikeKernel {
     }
 
     #[cfg(feature = "standalone")]
+    pub(crate) fn hierarchy_memory(&self) -> (usize, usize) {
+        let (mut heap, mut mapped) = self.cch_topology.get().map_or((0, 0), |topology| {
+            let graph = &topology.movements;
+            let movement_bytes = 4
+                * (graph.input.first_out.capacity()
+                    + graph.input.head.capacity()
+                    + graph.roads.capacity())
+                + graph.dynamic.capacity()
+                + graph.private.capacity() * std::mem::size_of::<(u32, u32)>()
+                + graph.timed.capacity()
+                    * std::mem::size_of::<(u32, u32, std::ops::Range<usize>)>()
+                + graph.states.extra.capacity()
+                    * std::mem::size_of::<arrival_states::ArrivalState>()
+                + graph.states.ids.capacity() * 17
+                + graph
+                    .states
+                    .turns
+                    .iter()
+                    .map(|turn| turn.capacity() * 12)
+                    .sum::<usize>();
+            (
+                topology.graph.heap_bytes() + movement_bytes,
+                topology.graph.rank.mapped_file_bytes(),
+            )
+        });
+        if let Ok(slot) = self.cch_prepared.lock()
+            && let Some(slot) = slot.as_ref()
+        {
+            let p = &slot.data;
+            heap += [&p.hierarchy.up, &p.hierarchy.down]
+                .into_iter()
+                .map(|arcs| 8 * arcs.costs.capacity() + 4 * arcs.witness.capacity())
+                .sum::<usize>();
+            heap += [p.physical.get(), p.dual.get()]
+                .into_iter()
+                .flatten()
+                .map(|bounds| 4 * (bounds.up.capacity() + bounds.down.capacity()))
+                .sum::<usize>();
+            if let Some(patches) = p.optimistic.get() {
+                heap += [&patches.up, &patches.down]
+                    .into_iter()
+                    .map(|arc| {
+                        arc.pages.capacity() * std::mem::size_of::<PatchPage>()
+                            + 4 * (arc.ids.capacity() + arc.witness.capacity())
+                            + 8 * arc.costs.capacity()
+                    })
+                    .sum::<usize>();
+            }
+            mapped += p.hierarchy.up.costs.mapped_file_bytes();
+        }
+        if let Some(walk) = &self.walking {
+            let (walk_heap, walk_mapped) = walk.hierarchy_memory();
+            heap += walk_heap;
+            mapped += walk_mapped;
+        }
+        (heap, mapped + self.lons.mapped_file_bytes())
+    }
+
+    #[cfg(feature = "standalone")]
     pub(crate) fn prepare_cch(&self, options: BikeOptions) -> Result<(), String> {
         options.validate()?;
         let (prepared, _) = self.hierarchy(options)?;
-        prepared.gate_metrics(self, options);
         // Preparing a City can publish a source-matched index. Read-only
         // cache directories do not change the routing algorithm or results.
         let _ = prepared.publish(self, options);
@@ -932,6 +1226,10 @@ impl BikeKernel {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Keep hierarchy query inputs explicit."
+)]
 fn reduce_terminals(
     kernel: &BikeKernel,
     ends: &SurfaceEnds,
@@ -1000,6 +1298,10 @@ fn reduce_terminals(
     winners
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Keep hierarchy query inputs explicit."
+)]
 pub(super) fn measure(
     kernel: &BikeKernel,
     starts: &Attachment,
@@ -1022,8 +1324,7 @@ pub(super) fn measure(
         earliest_customization_ms,
         preferred_customization_ms,
     ] = if resident { [0.; 5] } else { prepared.timings };
-    let physical_up = &prepared.physical.up.costs;
-    let physical_down = &prepared.physical.down.costs;
+    let physical = prepared.physical(kernel, options);
     let graph = kernel.graph();
     let rate = if matches!(options.profile, Profile::Fast) {
         1.
@@ -1093,7 +1394,7 @@ pub(super) fn measure(
     hierarchy.bounds(
         &earliest_sources,
         &mut workspace,
-        (physical_up, physical_down),
+        physical.directions(false),
         cutoff_cap / rate,
     );
     let earliest_at: Vec<_> = event_states
@@ -1142,7 +1443,7 @@ pub(super) fn measure(
         }
     }
     let preparing = Instant::now();
-    let (optimistic, dual) = prepared.gate_metrics(kernel, options);
+    let optimistic = prepared.optimistic(kernel, options);
     let optimistic_prep_ms = ms(preparing);
     let certifying = Instant::now();
     let verified = certify::Query {
@@ -1179,7 +1480,7 @@ pub(super) fn measure(
     hierarchy.bounds(
         &lower_sources,
         &mut workspace,
-        (&optimistic.up.costs, &optimistic.down.costs),
+        optimistic.directions(hierarchy, false),
         cutoff_cap,
     );
     let lower_start_price: Vec<_> = workspace
@@ -1190,7 +1491,7 @@ pub(super) fn measure(
     let earliest_scope_ms = ms(before);
     let mut masks = SurfaceMasks::new(ends.permissions.len());
     let permissions = ends.permissions_for(origin_access, 0, ends.permissions.len(), &mut masks);
-    let mut metric = scoped::Metric::new(&hierarchy, &masks);
+    let mut metric = scoped::Metric::new(hierarchy, &masks);
     let private: Vec<_> = movements
         .private
         .iter()
@@ -1208,7 +1509,7 @@ pub(super) fn measure(
     let mut admitted: Vec<bool> = movements.dynamic.iter().map(|&dynamic| !dynamic).collect();
     let feasible = metric.solve(&sources, &targets, &mut masks);
     let feasible = reduce_terminals(
-        kernel, ends, options, &movements, &hierarchy, &nodes, &admitted, &feasible, &masks, None,
+        kernel, ends, options, movements, hierarchy, &nodes, &admitted, &feasible, &masks, None,
     );
     let bounds: Vec<_> = feasible
         .iter()
@@ -1252,7 +1553,7 @@ pub(super) fn measure(
     hierarchy.bounds(
         &reverse_sources,
         &mut workspace,
-        (&optimistic.down.costs, &optimistic.up.costs),
+        optimistic.directions(hierarchy, true),
         cap,
     );
     let mut extra = Vec::new();
@@ -1336,7 +1637,7 @@ pub(super) fn measure(
     };
     metric.admit(
         kernel,
-        &movements,
+        movements,
         options,
         private.into_iter().chain(extra),
         &mut masks,
@@ -1355,8 +1656,8 @@ pub(super) fn measure(
             kernel,
             ends,
             options,
-            &movements,
-            &hierarchy,
+            movements,
+            hierarchy,
             &nodes,
             &admitted,
             &steady_values,
@@ -1408,6 +1709,7 @@ pub(super) fn measure(
         // For any prefix with elapsed t and excess X, both branches of
         // X + rate * max(t, opening) are bounded by
         // X + (rate - rebate) * t + rebate * opening.
+        let dual = prepared.dual(kernel, options);
         let rebate = rate * 0.5;
         let dual_sources: Vec<_> = sources
             .iter()
@@ -1426,7 +1728,7 @@ pub(super) fn measure(
             &dual_sources,
             Some(&origins),
             &mut workspace,
-            (&dual.up.costs, &dual.down.costs),
+            dual.directions(false),
         );
         let dual_cost: Vec<_> = origins
             .iter()
@@ -1438,7 +1740,7 @@ pub(super) fn measure(
             &sinks,
             Some(&exits),
             &mut workspace,
-            (&optimistic.down.costs, &optimistic.up.costs),
+            optimistic.directions(hierarchy, true),
         );
         let mut gate_remaining = Vec::with_capacity(gates.len());
         let mut surviving = Vec::new();
@@ -1514,7 +1816,7 @@ pub(super) fn measure(
                 hierarchy.bounds(
                     &port_seeds,
                     &mut workspace,
-                    (&optimistic.down.costs, &optimistic.up.costs),
+                    optimistic.directions(hierarchy, true),
                     cap,
                 );
                 workspace
@@ -1534,8 +1836,8 @@ pub(super) fn measure(
             drop(workspace);
             let query = temporal::Query {
                 kernel,
-                movements: &movements,
-                hierarchy: &hierarchy,
+                movements,
+                hierarchy,
                 starts,
                 ends,
                 target_nodes: &nodes,
@@ -1587,7 +1889,7 @@ pub(super) fn measure(
     let t = Instant::now();
     let mut path = Vec::new();
     let winners = reduce_terminals(
-        kernel, ends, options, &movements, &hierarchy, &nodes, &admitted, &values, &masks, None,
+        kernel, ends, options, movements, hierarchy, &nodes, &admitted, &values, &masks, None,
     );
     let attachment_reduction_ms = ms(t);
     let t = Instant::now();
@@ -1758,4 +2060,62 @@ pub(super) fn measure(
         })
     });
     Ok(seconds)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn patched_shortcuts_preserve_exact_costs_and_witnesses_across_pages() {
+        let mut source = Vec::new();
+        let mut chosen = Vec::new();
+        for i in 0..137 {
+            let cost = if i % 17 == 0 {
+                f64::INFINITY
+            } else {
+                f64::from(i) / 7.
+            };
+            source.push((cost, i));
+            chosen.push(match i {
+                9 | 66 => (0.125, 999),
+                63 | 64 | 136 => (cost, 777),
+                _ => (cost, i),
+            });
+        }
+        let columns = |items: &[(f64, u32)]| {
+            let (costs, witness): (Vec<_>, Vec<_>) = items.iter().copied().unzip();
+            Arcs {
+                costs: costs.into(),
+                witness: witness.into(),
+            }
+        };
+        let base = columns(&source);
+        let changes = ArcPatches::pack(&base, columns(&chosen));
+        assert_eq!(&*changes.ids, &[9, 63, 64, 66, 136]);
+        let view = ArcView::new(&base, Some(&changes));
+        for (i, &(cost, witness)) in chosen.iter().enumerate() {
+            assert_eq!(view.arc(i).to_bits(), cost.to_bits());
+            assert_eq!(view.values(i), (cost, witness));
+        }
+    }
+
+    #[test]
+    fn packed_pruning_weights_never_increase_a_bound_or_reopen_a_missing_arc() {
+        let source = vec![0., 0.001, 1. / 3., 90.000001, 4500000., f64::INFINITY];
+        let arcs = || Arcs {
+            costs: source.clone().into(),
+            witness: Vec::new().into(),
+        };
+        let packed = LowerBounds::new(Weights {
+            up: arcs(),
+            down: arcs(),
+        });
+        let (up, down) = packed.directions(false);
+        for (i, &value) in source.iter().enumerate() {
+            assert!(up.arc(i) <= value);
+            assert_eq!(up.arc(i), down.arc(i));
+        }
+        assert!(up.arc(source.len() - 1).is_infinite());
+    }
 }

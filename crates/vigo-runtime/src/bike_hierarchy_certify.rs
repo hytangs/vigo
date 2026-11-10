@@ -10,7 +10,7 @@ pub(super) struct Query<'a> {
     pub origin_access: &'a HashSet<u32>,
     pub movements: &'a MovementGraph,
     pub hierarchy: &'a Hierarchy,
-    pub weights: &'a Weights,
+    pub weights: &'a PreferencePatches,
     pub nodes: &'a [u32],
     pub targets: &'a [u32],
     pub lower_sources: &'a [(u32, f64)],
@@ -111,6 +111,10 @@ impl Query<'_> {
         Ok(result)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep hierarchy query inputs explicit."
+    )]
     pub(super) fn check(
         &self,
         cell: usize,
@@ -125,6 +129,10 @@ impl Query<'_> {
             .map(|value| value.map(|metrics| metrics.seconds))
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep hierarchy query inputs explicit."
+    )]
     pub(super) fn metrics(
         &self,
         cell: usize,

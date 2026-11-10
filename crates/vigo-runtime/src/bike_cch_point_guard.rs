@@ -65,11 +65,15 @@ impl Point<'_> {
                 sources.push((i, a.node, 0.));
             } else {
                 let from = k.source(a.edge) as usize;
-                for input in
-                    moves.input.first_out[from] as usize..moves.input.first_out[from + 1] as usize
+                let range =
+                    moves.input.first_out[from] as usize..moves.input.first_out[from + 1] as usize;
+                for ((&road, &state), &admitted) in moves.roads[range.clone()]
+                    .iter()
+                    .zip(&moves.input.head[range.clone()])
+                    .zip(&allowed[range])
                 {
-                    if moves.roads[input] == a.edge && allowed[input] {
-                        sources.push((i, moves.input.head[input], 0.));
+                    if road == a.edge && admitted {
+                        sources.push((i, state, 0.));
                     }
                 }
             }
@@ -301,7 +305,7 @@ impl Point<'_> {
         }
         if feasible.is_none() && self.max_elapsed.is_none() {
             let lengths = Weights::distance(k, moves, &h.graph, opt);
-            let mut metric = scoped::Metric::optimistic(h, &lengths, &masks);
+            let mut metric = scoped::Metric::weighted(h, &lengths, &masks);
             metric.admit_weighted(
                 k,
                 moves,
@@ -389,8 +393,8 @@ impl Point<'_> {
         } else {
             (&forward_time, &forward_price, &backward_price)
         };
-        let physical = &self.prepared.physical;
-        let (preferred, _) = self.prepared.gate_metrics(k, opt);
+        let physical = self.prepared.physical(k, opt);
+        let preferred = self.prepared.optimistic(k, opt);
         let mut work = Workspace::new(h.graph.node_count());
         h.solve(time, None, &mut work, physical.directions(self.reversed));
         let lower_start: Vec<_> = work
@@ -398,7 +402,12 @@ impl Point<'_> {
             .iter()
             .map(|cost| cost * (1. - 1e-9))
             .collect();
-        h.solve(price, None, &mut work, preferred.directions(self.reversed));
+        h.solve(
+            price,
+            None,
+            &mut work,
+            preferred.directions(h, self.reversed),
+        );
         let lower_start_price: Vec<_> = work
             .down_cost
             .iter()
@@ -408,7 +417,7 @@ impl Point<'_> {
             remaining,
             None,
             &mut work,
-            preferred.directions(!self.reversed),
+            preferred.directions(h, !self.reversed),
         );
         let lower_remaining: Vec<_> = work
             .down_cost

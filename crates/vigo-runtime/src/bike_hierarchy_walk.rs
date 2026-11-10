@@ -2,7 +2,6 @@
 //! The topology is shared with Walk. This metric retains the snapshot's
 //! unrounded metres, including during candidate selection.
 use super::*;
-use std::{cmp::Reverse, collections::BinaryHeap};
 
 const NONE: u32 = u32::MAX;
 type RankMap = HashMap<u32, RankLabel, BuildHasherDefault<IntegerHasher>>;
@@ -106,8 +105,47 @@ pub(super) struct WalkHierarchy {
 pub(super) struct Scratch {
     up: RankMap,
     down: RankMap,
-    ascending: BinaryHeap<Reverse<u32>>,
-    descending: BinaryHeap<u32>,
+    ascending: RankQueue,
+    descending: RankQueue,
+}
+
+// Both sweeps visit ranks monotonically. Bucket by the first differing
+// bit to retain rank order without a comparison at each relaxation.
+struct RankQueue {
+    last: u32,
+    bins: [Vec<u32>; 33],
+}
+impl Default for RankQueue {
+    fn default() -> Self {
+        Self {
+            last: 0,
+            bins: std::array::from_fn(|_| Vec::new()),
+        }
+    }
+}
+impl RankQueue {
+    fn clear(&mut self) {
+        self.last = 0;
+        for bin in &mut self.bins {
+            bin.clear();
+        }
+    }
+    fn push(&mut self, value: u32) {
+        debug_assert!(value >= self.last);
+        self.bins[(u32::BITS - (value ^ self.last).leading_zeros()) as usize].push(value);
+    }
+    fn pop(&mut self) -> Option<u32> {
+        if self.bins[0].is_empty() {
+            let i = self.bins.iter().position(|bin| !bin.is_empty())?;
+            let mut values = std::mem::take(&mut self.bins[i]);
+            self.last = *values.iter().min().unwrap();
+            for value in values.drain(..) {
+                self.push(value);
+            }
+            self.bins[i] = values;
+        }
+        self.bins[0].pop()
+    }
 }
 
 fn improve(labels: &mut RankMap, rank: u32, meters: f64, parent: u32) -> bool {
@@ -236,6 +274,38 @@ impl WalkHierarchy {
         Ok((nodes, forward, backward))
     }
 
+    #[cfg(feature = "standalone")]
+    pub fn memory(&self) -> (usize, usize) {
+        let metrics = [&self.forward, &self.backward]
+            .into_iter()
+            .map(|m| m.meters.capacity() * 8 + m.via.capacity() * 4)
+            .sum::<usize>();
+        let topology = match &self.structure {
+            Topology::Mapped(_) => 0,
+            Topology::Owned(cch) => {
+                4 * (cch.rank.capacity()
+                    + cch.elimination_tree_parent.capacity()
+                    + cch.up_first_out.capacity()
+                    + cch.up_head.capacity()
+                    + cch.up_tail.capacity()
+                    + cch.down_first_out.capacity()
+                    + cch.down_head.capacity()
+                    + cch.down_to_up.capacity()
+                    + cch.input_arc_to_cch_arc.capacity()
+                    + cch.forward_input_arc_of_cch.capacity()
+                    + cch.backward_input_arc_of_cch.capacity()
+                    + cch.first_extra_forward_input_arc_of_cch.capacity()
+                    + cch.first_extra_backward_input_arc_of_cch.capacity()
+                    + cch.extra_forward_input_arc_of_cch.capacity()
+                    + cch.extra_backward_input_arc_of_cch.capacity())
+            }
+        };
+        (
+            metrics + self.nodes.capacity() * 4 + topology,
+            self.nodes.mapped_file_bytes(),
+        )
+    }
+
     pub fn publish(&self, store: &index::Store) -> std::io::Result<()> {
         if self.nodes.mapped() {
             return Ok(());
@@ -256,7 +326,7 @@ impl WalkHierarchy {
         maximum: f64,
         origin: bool,
         scratch: &mut Scratch,
-        labels: &mut HashMap<u32, (f64, u32), BuildHasherDefault<IntegerHasher>>,
+        labels: &mut Vec<(u32, f64)>,
     ) -> Result<(), String> {
         let view = self.structure.view();
         let (up_metric, down_metric) = if origin {
@@ -280,19 +350,20 @@ impl WalkHierarchy {
         for (node, meters) in seeds {
             let rank = view.rank[node as usize];
             if improve(up, rank, meters, NONE) {
-                ascending.push(Reverse(rank));
+                ascending.push(rank);
             }
         }
         // Each relaxation increases rank, so a rank is final when visited.
-        while let Some(Reverse(rank)) = ascending.pop() {
+        while let Some(rank) = ascending.pop() {
             let prefix = up[&rank].meters;
             improve(down, rank, prefix, NONE);
-            descending.push(rank);
+            descending.push(!rank);
             let x = rank as usize;
-            for a in view.up_first_out[x] as usize..view.up_first_out[x + 1] as usize {
-                let meters = prefix + up_meters[a];
-                if meters <= maximum && improve(up, view.up_head[a], meters, rank) {
-                    ascending.push(Reverse(view.up_head[a]));
+            let arcs = view.up_first_out[x] as usize..view.up_first_out[x + 1] as usize;
+            for (&to, &distance) in view.up_head[arcs.clone()].iter().zip(&up_meters[arcs]) {
+                let meters = prefix + distance;
+                if meters <= maximum && improve(up, to, meters, rank) {
+                    ascending.push(to);
                 }
             }
             if up.len() > MAX_LABELS {
@@ -301,14 +372,15 @@ impl WalkHierarchy {
         }
         // Descending propagation only visits ranks reached within the
         // distance budget. Its order is topological, independent of weights.
-        while let Some(rank) = descending.pop() {
+        while let Some(reverse) = descending.pop() {
+            let rank = !reverse;
             let prefix = down[&rank].meters;
-            labels.insert(nodes[rank as usize], (prefix, NONE));
+            labels.push((nodes[rank as usize], prefix));
             let x = rank as usize;
             for a in view.down_first_out[x] as usize..view.down_first_out[x + 1] as usize {
                 let meters = prefix + down_meters[view.down_to_up[a] as usize];
                 if meters <= maximum && improve(down, view.down_head[a], meters, rank) {
-                    descending.push(view.down_head[a]);
+                    descending.push(!view.down_head[a]);
                 }
             }
             if down.len() > MAX_LABELS {
@@ -316,6 +388,11 @@ impl WalkHierarchy {
             }
         }
         Ok(())
+    }
+
+    pub fn distance(&self, target: u32, scratch: &Scratch) -> Option<f64> {
+        let rank = self.structure.view().rank[target as usize];
+        scratch.down.get(&rank).map(|label| label.meters)
     }
 
     pub fn path(&self, target: u32, origin: bool, scratch: &Scratch) -> Vec<u32> {

@@ -148,6 +148,10 @@ impl Profiles {
     }
 }
 
+type GateRoots = Vec<(u32, Label)>;
+type TerminalCosts = Vec<(f64, f64)>;
+type ProfileSweep = (GateRoots, TerminalCosts, Option<PointWitness>);
+
 pub(super) struct Query<'a> {
     pub kernel: &'a BikeKernel,
     pub movements: &'a MovementGraph,
@@ -447,8 +451,7 @@ impl Query<'_> {
                     && elapsed <= self.horizon
                     && self.rate * (elapsed + self.lower_remaining[rank]) + excess
                         <= self.cap * (1. + 1e-8)
-                {
-                    if self.put_label(
+                    && self.put_label(
                         labels,
                         Label {
                             elapsed,
@@ -458,9 +461,9 @@ impl Query<'_> {
                             ..*a
                         },
                         masks,
-                    ) {
-                        labels.last_mut().unwrap().trail = trail.step(a.trail, b.id);
-                    }
+                    )
+                {
+                    labels.last_mut().unwrap().trail = trail.step(a.trail, b.id);
                 }
             }
         }
@@ -868,7 +871,7 @@ impl Query<'_> {
         gates: &[Gate],
         final_remaining: &[f64],
         masks: &mut SurfaceMasks,
-    ) -> Result<(Vec<(u32, Label)>, Vec<(f64, f64)>), String> {
+    ) -> Result<(GateRoots, TerminalCosts), String> {
         self.run_profiles(gates, final_remaining, masks, false)
             .map(|(roots, values, _)| (roots, values))
     }
@@ -889,7 +892,7 @@ impl Query<'_> {
         final_remaining: &[f64],
         masks: &mut SurfaceMasks,
         witness: bool,
-    ) -> Result<(Vec<(u32, Label)>, Vec<(f64, f64)>, Option<PointWitness>), String> {
+    ) -> Result<ProfileSweep, String> {
         let mut trail = Trail {
             enabled: witness,
             legs: Vec::new(),
