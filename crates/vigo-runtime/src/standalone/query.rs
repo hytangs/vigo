@@ -2327,6 +2327,12 @@ impl City {
             "street.prepare" => json!({"ready":true}),
             "bike.prepare" => {
                 self.load_bike()?;
+                if std::env::var_os("VIGO_BIKE_CCH_QUERY").is_some() {
+                    self.bike
+                        .as_ref()
+                        .unwrap()
+                        .prepare_cch(bike_options(&input)?)?;
+                }
                 json!({"ready":true})
             }
             "drive.prepare" => {

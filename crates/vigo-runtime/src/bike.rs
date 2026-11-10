@@ -121,6 +121,12 @@ impl BikeOptions {
 pub(crate) struct BikeKernel {
     #[serde(skip)]
     walking: Option<walk::WalkNetwork>,
+    #[cfg(any(feature = "standalone", test))]
+    #[serde(skip)]
+    cch_prepared: std::sync::Mutex<Option<surface::hierarchy_probe::PreparedSlot>>,
+    #[cfg(any(feature = "standalone", test))]
+    #[serde(skip)]
+    cch_topology: std::sync::OnceLock<std::sync::Arc<surface::hierarchy_probe::PreparedTopology>>,
     lons: Vec<f64>,
     lats: Vec<f64>,
     offsets: Vec<u32>,
@@ -385,6 +391,14 @@ impl Ord for Queue {
 }
 
 impl BikeKernel {
+    #[cfg(feature = "standalone")]
+    pub(crate) fn prepare_walking_cch(&self, structure: &str) -> Result<(), String> {
+        if let Some(walking) = &self.walking {
+            walking.prepare_hierarchy(structure)?;
+        }
+        Ok(())
+    }
+
     pub fn open(path: &str) -> Result<Self, String> {
         cache::read(path).map_err(|e| format!("Cannot open bicycle graph: {e}"))
     }
@@ -714,6 +728,10 @@ impl BikeKernel {
         let walking = walk::WalkNetwork::load(&db, path, &ids, &lons, &lats)?;
         Ok(Self {
             walking,
+            #[cfg(any(feature = "standalone", test))]
+            cch_prepared: std::sync::Mutex::new(None),
+            #[cfg(any(feature = "standalone", test))]
+            cch_topology: std::sync::OnceLock::new(),
             lons,
             lats,
             offsets,
@@ -1319,6 +1337,21 @@ impl BikeKernel {
         max_distance: f64,
         clock: Option<BikeClock>,
     ) -> Result<BikeResult, String> {
+        #[cfg(any(feature = "standalone", test))]
+        if std::env::var_os("VIGO_BIKE_CCH_POINT").is_some() {
+            return surface::hierarchy_probe::point::route(
+                self,
+                origin,
+                destination,
+                opt,
+                max_walk,
+                walk_speed,
+                max_distance,
+                clock,
+                false,
+                None,
+            );
+        }
         self.route_from(
             origin,
             destination,

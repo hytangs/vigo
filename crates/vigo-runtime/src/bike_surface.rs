@@ -5,6 +5,9 @@ use super::*;
 use many::BikeManyResult;
 use std::hash::BuildHasherDefault;
 
+#[path = "bike_hierarchy_probe.rs"]
+pub(super) mod hierarchy_probe;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SurfacePass {
     Primary,
@@ -620,6 +623,12 @@ impl BikeKernel {
         expanded: Option<bool>,
         arrival: Option<&SurfaceArrival>,
     ) -> Result<BikeManyResult, String> {
+        let direct_hierarchy = std::env::var_os("VIGO_BIKE_CCH_QUERY").is_some();
+        let probe_started = (direct_hierarchy
+            || (std::env::var_os("VIGO_BIKE_HIERARCHY_PROBE").is_some()
+                && arrival.is_none()
+                && expanded.is_none()))
+        .then(std::time::Instant::now);
         self.validate_request(
             origin,
             origin,
@@ -799,6 +808,39 @@ impl BikeKernel {
             access_group_key_bytes: ends.permissions.iter().map(|v| v.capacity() * 4).sum(),
             access_group_limit_targets: 0,
         };
+        if direct_hierarchy {
+            if let Some(arrival) = arrival {
+                result.seconds = hierarchy_probe::reverse::measure(
+                    self,
+                    &starts,
+                    &ends,
+                    &origin_access,
+                    opt,
+                    clock,
+                    max_distance,
+                    maximum_seconds,
+                    arrival.max_elapsed,
+                    walk_speed,
+                    probe_started.unwrap().elapsed().as_secs_f64() * 1000.,
+                )?;
+                return Ok(result);
+            }
+            result.seconds = hierarchy_probe::measure(
+                self,
+                &starts,
+                &ends,
+                &origin_access,
+                opt,
+                clock,
+                max_distance,
+                maximum_seconds,
+                walk_speed,
+                &[],
+                probe_started.unwrap().elapsed().as_secs_f64() * 1000.,
+                0.,
+            )?;
+            return Ok(result);
+        }
         if self.walking.is_none() && expanded.is_none() && max_walk > 0. {
             // A long primary route must keep its nearest-road endpoints even
             // when it lies outside Reach. Prove primary existence and dated
@@ -891,6 +933,7 @@ impl BikeKernel {
                 return Ok(result);
             }
         }
+        let attachment_ms = probe_started.map(|start| start.elapsed().as_secs_f64() * 1000.);
         let departure_links = (arrival.is_none() && !matches!(opt.profile, Profile::Fast))
             .then(|| costs::Links::new(self));
         let reverse_links = arrival.map(|a| &a.links).or(departure_links.as_ref());
@@ -1104,6 +1147,22 @@ impl BikeKernel {
                     result.seconds[index] = value.seconds;
                 }
             }
+        }
+        if let (Some(started), Some(attachment_ms)) = (probe_started, attachment_ms) {
+            hierarchy_probe::measure(
+                self,
+                &starts,
+                &ends,
+                &origin_access,
+                opt,
+                clock,
+                max_distance,
+                maximum_seconds,
+                walk_speed,
+                &result.seconds,
+                attachment_ms,
+                started.elapsed().as_secs_f64() * 1000.,
+            )?;
         }
         Ok(result)
     }

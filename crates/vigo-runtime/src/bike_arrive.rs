@@ -49,6 +49,21 @@ impl BikeKernel {
         if max_elapsed.is_some_and(|seconds| !seconds.is_finite() || seconds < 0.) {
             return Err("Invalid bicycle arrival horizon".into());
         }
+        #[cfg(any(feature = "standalone", test))]
+        if std::env::var_os("VIGO_BIKE_CCH_POINT").is_some() {
+            return surface::hierarchy_probe::point::route(
+                self,
+                origin,
+                destination,
+                opt,
+                max_walk,
+                walk_speed,
+                max_distance,
+                clock,
+                true,
+                max_elapsed,
+            );
+        }
         self.validate_request(
             origin,
             destination,

@@ -9,11 +9,15 @@ use std::collections::hash_map::Entry;
 use std::hash::BuildHasherDefault;
 use std::sync::Arc;
 
+#[path = "bike_hierarchy_walk.rs"]
+mod hierarchy;
+
 pub(super) struct WalkNetwork {
     snapshot: Arc<Snapshot>,
     // Source-identity join, dense only when it occupies no more memory than
     // sorted pairs. Never join by coordinates.
     links: WalkLinks,
+    hierarchy: std::sync::OnceLock<hierarchy::WalkHierarchy>,
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(super) enum WalkLinks {
@@ -60,6 +64,7 @@ pub(super) struct WalkSearch {
     projection: [f64; 2],
     gap: f64,
     attached_bike_nodes: Vec<u32>,
+    ranked: hierarchy::Scratch,
 }
 
 // Walking access is Dijkstra search: priority is always the physical distance.
@@ -105,8 +110,23 @@ fn push_candidate(candidates: &mut Vec<BikeCandidate>, candidate: BikeCandidate)
 }
 
 impl WalkNetwork {
+    pub(crate) fn prepare_hierarchy(&self, path: &str) -> Result<(), String> {
+        if self.hierarchy.get().is_none() {
+            let structure =
+                crate::shared_streets::structure(path).map_err(|err| err.to_string())?;
+            let prepared = hierarchy::WalkHierarchy::prepare(&self.snapshot, structure)?;
+            let _ = self.hierarchy.set(prepared);
+        }
+        Ok(())
+    }
+
     pub(super) fn prepared_links(&self) -> &WalkLinks {
         &self.links
+    }
+
+    #[cfg(any(feature = "standalone", test))]
+    pub(super) fn prepared_rank(&self) -> Option<&[u32]> {
+        self.hierarchy.get().map(hierarchy::WalkHierarchy::rank)
     }
 
     pub(super) fn from_prepared(
@@ -142,7 +162,11 @@ impl WalkNetwork {
         if !matches {
             return Err("Invalid compiled bicycle walking node identity".into());
         }
-        Ok(Self { snapshot, links })
+        Ok(Self {
+            snapshot,
+            links,
+            hierarchy: std::sync::OnceLock::new(),
+        })
     }
 
     pub(super) fn load(
@@ -224,7 +248,11 @@ impl WalkNetwork {
                 return Err("Invalid bicycle walking node identity".into());
             }
         }
-        Ok(Some(Self { snapshot, links }))
+        Ok(Some(Self {
+            snapshot,
+            links,
+            hierarchy: std::sync::OnceLock::new(),
+        }))
     }
     #[cfg(any(feature = "standalone", test))]
     pub(super) fn heap_bytes(&self) -> usize {
@@ -282,6 +310,21 @@ impl WalkNetwork {
         );
         walk.attached_bike_nodes
             .extend(snaps.iter().filter_map(|s| self.bike_node(s.node)));
+        if let Some(hierarchy) = self.hierarchy.get() {
+            hierarchy.within(
+                snaps
+                    .into_iter()
+                    .filter(|s| gap <= crate::SNAP_RADIUS_M && s.distance_m <= maximum)
+                    .map(|snap| (snap.node, snap.distance_m)),
+                maximum,
+                origin,
+                &mut walk.ranked,
+                &mut walk.labels,
+            )?;
+            walk.projection = projected;
+            walk.gap = gap;
+            return Ok(());
+        }
         let labels = &mut walk.labels;
         let queue = &mut walk.queue;
         if gap <= crate::SNAP_RADIUS_M && gap <= maximum {
@@ -543,13 +586,51 @@ impl WalkNetwork {
             .snapshot
             .f64_array("nodeLats")
             .map_err(|e| e.to_string())?;
-        let mut nodes = vec![target];
-        let mut cursor = target;
-        while walk.labels[&cursor].1 != u32::MAX {
-            cursor = walk.labels[&cursor].1;
-            nodes.push(cursor)
-        }
-        nodes.reverse();
+        let nodes = if let Some(hierarchy) = self.hierarchy.get() {
+            hierarchy.path(target, origin, &walk.ranked)
+        } else {
+            let mut nodes = vec![target];
+            let mut cursor = target;
+            while walk.labels[&cursor].1 != u32::MAX {
+                cursor = walk.labels[&cursor].1;
+                nodes.push(cursor)
+            }
+            nodes.reverse();
+            nodes
+        };
+        // A shortcut groups metres differently from the original walk.
+        // Report the unpacked witness with the original edge order.
+        let meters = if let Some(hierarchy) = self.hierarchy.get() {
+            let offsets = self
+                .snapshot
+                .u32_array("edgeOffsets")
+                .map_err(|e| e.to_string())?;
+            let heads = self
+                .snapshot
+                .u32_array("edgeTargets")
+                .map_err(|e| e.to_string())?;
+            let lengths = self
+                .snapshot
+                .f64_array("edgeDistances")
+                .map_err(|e| e.to_string())?;
+            let mut exact = hierarchy.seed_meters(nodes[0], &walk.ranked);
+            for pair in nodes.windows(2) {
+                let (a, b) = if origin {
+                    (pair[0], pair[1])
+                } else {
+                    (pair[1], pair[0])
+                };
+                let length = (offsets[a as usize] as usize..offsets[a as usize + 1] as usize)
+                    .filter(|&edge| heads[edge] == b)
+                    .map(|edge| lengths[edge])
+                    .min_by(f64::total_cmp)
+                    .ok_or("Bicycle walking witness is missing a pedestrian edge")?;
+                exact += length;
+            }
+            exact
+        } else {
+            meters
+        };
         let mut coordinates = vec![walk.projection];
         coordinates.extend(nodes.into_iter().map(|n| [xs[n as usize], ys[n as usize]]));
         // Bicycle coordinates are quantized at import, while the shared walk

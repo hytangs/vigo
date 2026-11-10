@@ -1568,12 +1568,29 @@ impl City {
     }
     pub(crate) fn load_bike(&mut self) -> Result<()> {
         if self.bike.is_none() {
-            self.bike = Some(Box::new(crate::bike::BikeKernel::open(
+            let bike = Box::new(crate::bike::BikeKernel::open(
                 self.street_directory
                     .join("street-index.sqlite")
                     .to_str()
                     .ok_or("City path must be UTF-8")?,
-            )?));
+            )?);
+            if [
+                "VIGO_BIKE_CCH_WALK",
+                "VIGO_BIKE_CCH_QUERY",
+                "VIGO_BIKE_CCH_POINT",
+            ]
+            .into_iter()
+            .any(|flag| std::env::var_os(flag).is_some())
+            {
+                let (structure, _, _) = cch_files(
+                    &self
+                        .street_directory
+                        .join("street-index.sqlite.street-accelerator-v7.bin"),
+                    "street",
+                )?;
+                bike.prepare_walking_cch(&structure)?;
+            }
+            self.bike = Some(bike);
         }
         Ok(())
     }
