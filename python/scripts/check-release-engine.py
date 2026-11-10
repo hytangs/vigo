@@ -1,4 +1,4 @@
-"""Verify that a tagged Python release bundles the engine from the same repository commit."""
+"""Verify that a release tag bundles the engine and Python package from one repository commit."""
 from __future__ import annotations
 
 import argparse
@@ -14,8 +14,8 @@ def validate(pin: str, actual: str, engine_version: str, wrapper_version: str, t
         raise ValueError("ENGINE_REF must be the full tagged repository commit.")
     if pin.lower() != actual.lower():
         raise ValueError("Checked-out engine differs from the tagged repository commit.")
-    if tag != f"python-v{wrapper_version}":
-        raise ValueError("Release tag differs from the Python package version.")
+    if tag != f"v{engine_version}":
+        raise ValueError("Release tag differs from the Engine version.")
     if not re.fullmatch(r"1\.0\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?", engine_version):
         raise ValueError("Python 1.0 releases require an Engine 1.0 runtime.")
 

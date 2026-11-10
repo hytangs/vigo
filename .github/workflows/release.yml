@@ -23,11 +23,8 @@ permissions:
   actions: read
 
 jobs:
+  # Engine and Python ship together: one tag, one verified asset set.
   python-quality:
-    # GitHub validates permissions of the nested publisher even when skipped.
-    # The called quality jobs retain their workflow-level contents: read.
-    permissions:
-      contents: write
     uses: ./.github/workflows/python.yml
 
   deployment:
@@ -138,6 +135,13 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install './python[progress,speed]' pytest
+      - name: Verify the tag names this engine and commit
+        if: github.ref_type == 'tag'
+        working-directory: python
+        env:
+          ENGINE_REF: ${{ github.sha }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python scripts/check-release-engine.py --engine ..
       - run: node python/scripts/prepare-integration.mjs
       - name: Stage Python bundle from this job's compiled engine
         working-directory: python

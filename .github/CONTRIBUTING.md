@@ -62,4 +62,4 @@ Tests validate the declared model and interfaces, not observed service, passenge
 
 ## Python package
 
-The independently versioned Python distribution lives in [`python/`](../python/README.md). Follow its [contributor guide](../python/CONTRIBUTING.md) for Python-only tests and wheels. Engine and Python integration use the same repository commit. Python release tags are `python-v<VERSION>`; engine tags remain `v<VERSION>`. Python source installs do not require frontend dependencies.
+The independently versioned Python distribution lives in [`python/`](../python/README.md). Follow its [contributor guide](../python/CONTRIBUTING.md) for Python-only tests and wheels. Engine and Python integration use the same repository commit, and one Release workflow publishes both under the engine `v<VERSION>` tag. Python source installs do not require frontend dependencies.

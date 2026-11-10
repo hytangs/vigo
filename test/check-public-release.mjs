@@ -166,7 +166,7 @@ for (const file of workflowFiles) {
 }
 
 const releaseWorkflow = fs.readFileSync(
-  path.join(root, '.github', 'workflows', 'release-check.yml'),
+  path.join(root, '.github', 'workflows', 'release.yml'),
   'utf8',
 )
 assert.equal(releaseWorkflow.match(/release_tag:\s*\n(?:[^\n]*\n)*?\s+default: (\S+)/u)?.[1], `v${packageJson.version}`,
