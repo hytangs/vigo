@@ -8,7 +8,8 @@
  */
 
 .reach-analysis-switch > strong { margin-right: auto; }
-.reach-analysis-switch { flex-wrap: wrap; }
+/* The wrapped header keeps its height; a long query scrolls beneath it. */
+.reach-analysis-switch { flex-wrap: wrap; flex-shrink: 0; }
 .reach-analysis-switch > .reach-travel-mode { order: 1; flex: 1 0 100%; }
 
 
