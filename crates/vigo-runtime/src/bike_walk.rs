@@ -3,17 +3,19 @@
 //! and path witnesses belong to the query, never to a profile or global cache.
 use super::*;
 use crate::drive_attachment::BikeCandidate;
-use crate::{IntegerHasher, SnapWorkspace, Snapshot};
+use crate::{SnapWorkspace, Snapshot};
 use rusqlite::OptionalExtension;
-use std::collections::hash_map::Entry;
-use std::hash::BuildHasherDefault;
 use std::sync::Arc;
+
+#[path = "bike_hierarchy_walk.rs"]
+mod hierarchy;
 
 pub(super) struct WalkNetwork {
     snapshot: Arc<Snapshot>,
     // Source-identity join, dense only when it occupies no more memory than
     // sorted pairs. Never join by coordinates.
     links: WalkLinks,
+    hierarchy: std::sync::OnceLock<hierarchy::WalkHierarchy>,
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(super) enum WalkLinks {
@@ -52,42 +54,14 @@ impl WalkLinks {
 }
 #[derive(Default)]
 pub(super) struct WalkSearch {
-    queue: BinaryHeap<WalkQueue>,
     snap: SnapWorkspace,
-    // Keys are compact snapshot node ids, never external strings. Candidate
-    // order is sorted below, independent of hash-table iteration order.
-    labels: HashMap<u32, (f64, u32), BuildHasherDefault<IntegerHasher>>,
+    reached: Vec<(u32, f64)>,
     projection: [f64; 2],
     gap: f64,
     attached_bike_nodes: Vec<u32>,
+    ranked: hierarchy::Scratch,
 }
 
-// Walking access is Dijkstra search: priority is always the physical distance.
-// Keep it once, preserving the shared queue's distance-then-node tie order.
-#[derive(Clone, Copy)]
-struct WalkQueue {
-    node: u32,
-    meters: f64,
-}
-impl PartialEq for WalkQueue {
-    fn eq(&self, other: &Self) -> bool {
-        self.node == other.node && self.meters.to_bits() == other.meters.to_bits()
-    }
-}
-impl Eq for WalkQueue {}
-impl PartialOrd for WalkQueue {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-impl Ord for WalkQueue {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other
-            .meters
-            .total_cmp(&self.meters)
-            .then_with(|| other.node.cmp(&self.node))
-    }
-}
 const MAX_LABELS: usize = 32_768;
 const MAX_CANDIDATES: usize = 512 * 1024 / std::mem::size_of::<BikeCandidate>();
 const CANDIDATE_LIMIT: &str =
@@ -105,8 +79,42 @@ fn push_candidate(candidates: &mut Vec<BikeCandidate>, candidate: BikeCandidate)
 }
 
 impl WalkNetwork {
+    pub(super) fn prepare_hierarchy(&self, path: Option<&str>) -> Result<(), String> {
+        if self.hierarchy.get().is_none() {
+            let structure = if let Some(path) = path {
+                hierarchy::Topology::Mapped(
+                    crate::shared_streets::structure(path).map_err(|err| err.to_string())?,
+                )
+            } else {
+                hierarchy::Topology::build(&self.snapshot)?
+            };
+            let prepared = hierarchy::WalkHierarchy::prepare(&self.snapshot, structure)?;
+            let _ = self.hierarchy.set(prepared);
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "standalone")]
+    pub(super) fn hierarchy_memory(&self) -> (usize, usize) {
+        self.hierarchy
+            .get()
+            .map_or((0, 0), hierarchy::WalkHierarchy::memory)
+    }
+
+    #[cfg(feature = "standalone")]
+    pub(super) fn publish_hierarchy(&self, store: &index::Store) -> std::io::Result<()> {
+        if let Some(hierarchy) = self.hierarchy.get() {
+            hierarchy.publish(store)?;
+        }
+        Ok(())
+    }
+
     pub(super) fn prepared_links(&self) -> &WalkLinks {
         &self.links
+    }
+
+    pub(super) fn prepared_rank(&self) -> Option<&[u32]> {
+        self.hierarchy.get().map(hierarchy::WalkHierarchy::rank)
     }
 
     pub(super) fn from_prepared(
@@ -114,35 +122,42 @@ impl WalkNetwork {
         links: WalkLinks,
         lons: &[f64],
         lats: &[f64],
+        verified: bool,
     ) -> Result<Self, String> {
         let snapshot =
             crate::shared_streets::snapshot(&format!("{path}.street-accelerator-v7.bin"))
                 .map_err(|e| e.to_string())?;
-        let xs = snapshot.f64_array("nodeLons").map_err(|e| e.to_string())?;
-        let ys = snapshot.f64_array("nodeLats").map_err(|e| e.to_string())?;
-        let valid = |walk: usize, bike: u32| {
-            walk < xs.len()
-                && (bike as usize) < lons.len()
-                && (xs[walk] - lons[bike as usize]).abs() <= 1e-7
-                && (ys[walk] - lats[bike as usize]).abs() <= 1e-7
-        };
-        let matches = match &links {
-            WalkLinks::Dense(nodes) => {
-                nodes.len() == xs.len()
-                    && nodes
-                        .iter()
-                        .enumerate()
-                        .all(|(walk, &bike)| bike == u32::MAX || valid(walk, bike))
+        if !verified {
+            let xs = snapshot.f64_array("nodeLons").map_err(|e| e.to_string())?;
+            let ys = snapshot.f64_array("nodeLats").map_err(|e| e.to_string())?;
+            let valid = |walk: usize, bike: u32| {
+                walk < xs.len()
+                    && (bike as usize) < lons.len()
+                    && (xs[walk] - lons[bike as usize]).abs() <= 1e-7
+                    && (ys[walk] - lats[bike as usize]).abs() <= 1e-7
+            };
+            let matches = match &links {
+                WalkLinks::Dense(nodes) => {
+                    nodes.len() == xs.len()
+                        && nodes
+                            .iter()
+                            .enumerate()
+                            .all(|(walk, &bike)| bike == u32::MAX || valid(walk, bike))
+                }
+                WalkLinks::Sparse(nodes) => {
+                    nodes.windows(2).all(|pair| pair[0].0 < pair[1].0)
+                        && nodes.iter().all(|&(walk, bike)| valid(walk as usize, bike))
+                }
+            };
+            if !matches {
+                return Err("Invalid compiled bicycle walking node identity".into());
             }
-            WalkLinks::Sparse(nodes) => {
-                nodes.windows(2).all(|pair| pair[0].0 < pair[1].0)
-                    && nodes.iter().all(|&(walk, bike)| valid(walk as usize, bike))
-            }
-        };
-        if !matches {
-            return Err("Invalid compiled bicycle walking node identity".into());
         }
-        Ok(Self { snapshot, links })
+        Ok(Self {
+            snapshot,
+            links,
+            hierarchy: std::sync::OnceLock::new(),
+        })
     }
 
     pub(super) fn load(
@@ -224,7 +239,11 @@ impl WalkNetwork {
                 return Err("Invalid bicycle walking node identity".into());
             }
         }
-        Ok(Some(Self { snapshot, links }))
+        Ok(Some(Self {
+            snapshot,
+            links,
+            hierarchy: std::sync::OnceLock::new(),
+        }))
     }
     #[cfg(any(feature = "standalone", test))]
     pub(super) fn heap_bytes(&self) -> usize {
@@ -235,20 +254,23 @@ impl WalkNetwork {
     }
     fn search(&self, point: [f64; 2], maximum: f64, origin: bool) -> Result<WalkSearch, String> {
         let mut walk = WalkSearch::default();
-        self.search_into(point, maximum, origin, &mut walk)?;
+        self.search_into(point, maximum, maximum, origin, false, &mut walk)?;
         Ok(walk)
     }
+    /// `reach` limits the network search below `maximum` without changing
+    /// seeds; every bicycle node within `reach` keeps its exact distance.
     fn search_into(
         &self,
         point: [f64; 2],
         maximum: f64,
+        reach: f64,
         origin: bool,
+        collect_bike_nodes: bool,
         walk: &mut WalkSearch,
     ) -> Result<(), String> {
         // A batch reuses bounded allocations, never labels or answers from
         // another coordinate. Queue ordering and every relaxation stay intact.
-        walk.labels.clear();
-        walk.queue.clear();
+        walk.reached.clear();
         walk.attached_bike_nodes.clear();
         let snapshot = &self.snapshot;
         let (snaps, projection) = crate::street_attachment_with_workspace(
@@ -282,72 +304,28 @@ impl WalkNetwork {
         );
         walk.attached_bike_nodes
             .extend(snaps.iter().filter_map(|s| self.bike_node(s.node)));
-        let labels = &mut walk.labels;
-        let queue = &mut walk.queue;
-        if gap <= crate::SNAP_RADIUS_M && gap <= maximum {
-            for snap in snaps.into_iter().filter(|s| s.distance_m <= maximum) {
-                labels.insert(snap.node, (snap.distance_m, u32::MAX));
-                queue.push(WalkQueue {
-                    node: snap.node,
-                    meters: snap.distance_m,
-                });
-            }
-        }
-        let offsets = snapshot
-            .u32_array(if origin {
-                "edgeOffsets"
-            } else {
-                "reverseOffsets"
-            })
-            .map_err(|e| e.to_string())?;
-        let targets = snapshot
-            .u32_array(if origin {
-                "edgeTargets"
-            } else {
-                "reverseSources"
-            })
-            .map_err(|e| e.to_string())?;
-        // Endpoint walks reuse the snapshot's exact reverse-order distances.
-        // Gathering them once removes an indirect graph read from every
-        // reverse relaxation, shared by all cells and later queries.
-        let distances = if origin {
-            snapshot.f64_array("edgeDistances")
-        } else {
-            snapshot.reverse_edge_distances()
-        }
-        .map_err(|e| e.to_string())?;
-        while let Some(current) = queue.pop() {
-            if labels[&current.node].0 != current.meters {
-                continue;
-            }
-            for edge in
-                offsets[current.node as usize] as usize..offsets[current.node as usize + 1] as usize
-            {
-                let next = targets[edge];
-                let length = distances[edge];
-                let distance = current.meters + length;
-                if distance > maximum {
-                    continue;
-                }
-                let full = labels.len() >= MAX_LABELS;
-                let entry = labels.entry(next);
-                if let Entry::Occupied(known) = &entry
-                    && known.get().0 <= distance
-                {
-                    continue;
-                }
-                if (full && matches!(&entry, Entry::Vacant(_))) || queue.len() >= MAX_LABELS {
-                    return Err("Bicycle walking access exceeded its bounded search workspace; reduce maxWalkKm".into());
-                }
-                entry
-                    .and_modify(|label| *label = (distance, current.node))
-                    .or_insert((distance, current.node));
-                queue.push(WalkQueue {
-                    node: next,
-                    meters: distance,
-                });
-            }
-        }
+        self.hierarchy
+            .get()
+            .ok_or("Bicycle walking hierarchy was not opened")?
+            .within(
+                snaps
+                    .into_iter()
+                    .filter(|s| gap <= crate::SNAP_RADIUS_M && s.distance_m <= maximum)
+                    .map(|snap| (snap.node, snap.distance_m)),
+                reach,
+                origin,
+                &mut walk.ranked,
+                |node, meters| {
+                    // A pruned search can label a seed above its reach; such a
+                    // label is not necessarily its full-radius distance.
+                    if collect_bike_nodes
+                        && meters <= reach
+                        && let Some(bike_node) = self.bike_node(node)
+                    {
+                        walk.reached.push((bike_node, meters));
+                    }
+                },
+            )?;
         walk.projection = projected;
         walk.gap = gap;
         Ok(())
@@ -365,6 +343,7 @@ impl WalkNetwork {
             bike,
             point,
             maximum,
+            maximum,
             speed,
             origin,
             eligible,
@@ -376,18 +355,21 @@ impl WalkNetwork {
         clippy::too_many_arguments,
         reason = "Batch scratch must not change endpoint policy."
     )]
+    /// Candidates within `maximum` walking metres, or only those within
+    /// `reach <= maximum` (an exact prefix of the full candidate order).
     pub(super) fn attach_with_workspace(
         &self,
         bike: &BikeKernel,
         point: [f64; 2],
         maximum: f64,
+        reach: f64,
         speed: f64,
         origin: bool,
         eligible: &impl Fn(u32) -> bool,
         vertex_origins: bool,
         walk: &mut WalkSearch,
     ) -> Result<Attachment, String> {
-        self.search_into(point, maximum, origin, walk)?;
+        self.search_into(point, maximum, reach, origin, true, walk)?;
         let graph = bike.graph();
         // A coordinate can choose a nearer bicycle road, but cannot jump over
         // its nearer pedestrian attachment to an unrelated road. Remaining
@@ -412,13 +394,9 @@ impl WalkNetwork {
                             || (c.fraction == 1. && walk.attached_bike_nodes[0] == to)))
             }
         });
-        let mut reached: Vec<_> = walk
-            .labels
-            .iter()
-            .filter_map(|(&node, &(meters, _))| self.bike_node(node).map(|b| (b, meters)))
-            .collect();
-        reached.sort_unstable_by_key(|&(node, _)| node);
-        for (node, meters) in reached {
+        // No pre-sort: candidates are fully ordered by (metres, road,
+        // fraction) below, and each road and fraction determines its node.
+        for &(node, meters) in &walk.reached {
             let edges = bike.offsets[node as usize]..bike.offsets[node as usize + 1];
             let mut outgoing = edges.filter(|&e| eligible(e));
             if origin && vertex_origins {
@@ -528,9 +506,12 @@ impl WalkNetwork {
             .links
             .walk_node(node)
             .ok_or("Missing bicycle walking join")?;
-        let (meters, _) = *walk
-            .labels
-            .get(&target)
+        let hierarchy = self
+            .hierarchy
+            .get()
+            .ok_or("Bicycle walking hierarchy was not opened")?;
+        let meters = hierarchy
+            .distance(target, &walk.ranked)
             .ok_or("Bicycle walking witness disappeared")?;
         if (meters - candidate.walk_meters).abs() > 1e-5 {
             return Err("Bicycle walking witness distance differs".into());
@@ -543,13 +524,38 @@ impl WalkNetwork {
             .snapshot
             .f64_array("nodeLats")
             .map_err(|e| e.to_string())?;
-        let mut nodes = vec![target];
-        let mut cursor = target;
-        while walk.labels[&cursor].1 != u32::MAX {
-            cursor = walk.labels[&cursor].1;
-            nodes.push(cursor)
-        }
-        nodes.reverse();
+        let nodes = hierarchy.path(target, origin, &walk.ranked);
+        // A shortcut groups metres differently from the original walk.
+        // Report the unpacked witness with the original edge order.
+        let meters = {
+            let offsets = self
+                .snapshot
+                .u32_array("edgeOffsets")
+                .map_err(|e| e.to_string())?;
+            let heads = self
+                .snapshot
+                .u32_array("edgeTargets")
+                .map_err(|e| e.to_string())?;
+            let lengths = self
+                .snapshot
+                .f64_array("edgeDistances")
+                .map_err(|e| e.to_string())?;
+            let mut exact = hierarchy.seed_meters(nodes[0], &walk.ranked);
+            for pair in nodes.windows(2) {
+                let (a, b) = if origin {
+                    (pair[0], pair[1])
+                } else {
+                    (pair[1], pair[0])
+                };
+                let length = (offsets[a as usize] as usize..offsets[a as usize + 1] as usize)
+                    .filter(|&edge| heads[edge] == b)
+                    .map(|edge| lengths[edge])
+                    .min_by(f64::total_cmp)
+                    .ok_or("Bicycle walking witness is missing a pedestrian edge")?;
+                exact += length;
+            }
+            exact
+        };
         let mut coordinates = vec![walk.projection];
         coordinates.extend(nodes.into_iter().map(|n| [xs[n as usize], ys[n as usize]]));
         // Bicycle coordinates are quantized at import, while the shared walk
@@ -602,31 +608,5 @@ mod tests {
             assert_eq!(dense.walk_node(node), sparse.walk_node(node));
         }
         assert!(dense.heap_bytes() <= sparse.heap_bytes());
-    }
-
-    #[test]
-    fn compact_walk_queue_preserves_distance_and_node_ties() {
-        assert_eq!(std::mem::size_of::<WalkQueue>(), 16);
-        assert_eq!(std::mem::size_of::<crate::PointHeapEntry>(), 24);
-        let mut compact = BinaryHeap::new();
-        let mut reference = BinaryHeap::new();
-        // Repeated improvements leave stale entries in the queue. Include
-        // equal distances, fractional lengths and the full compact-id range.
-        for node in [u32::MAX - 1, 19, 0, 1, 32768] {
-            for meters in [32.5, 0., 32.5, 0.125, 1e-6, 10000.] {
-                compact.push(WalkQueue { node, meters });
-                reference.push(crate::PointHeapEntry {
-                    node,
-                    distance_m: meters,
-                    priority_m: meters,
-                });
-            }
-        }
-        while let Some(expected) = reference.pop() {
-            let actual = compact.pop().unwrap();
-            assert_eq!(actual.node, expected.node);
-            assert_eq!(actual.meters.to_bits(), expected.distance_m.to_bits());
-        }
-        assert!(compact.is_empty());
     }
 }

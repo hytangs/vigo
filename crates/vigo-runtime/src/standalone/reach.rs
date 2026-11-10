@@ -239,15 +239,9 @@ impl City {
                     maximum * 60.,
                 )?
             };
-            let diagnostics = json!({"algorithm":"shared_bicycle_temporal_surface",
-                "settledLabels":result.settled_labels,"certifiedTargets":result.certified_targets,
-                "exactFallbackTargets":result.fallback_targets,"treeLimited":result.tree_limited,
-                "fallbackReasons":result.fallback_reasons,
-                "scopedTrees":result.scoped_trees,
-                "timedAttachmentCertificates":result.attachment_certificates,
+            let diagnostics = json!({"algorithm":"bike_movement_cch_surface",
                 "timedAccessGroups":result.access_groups,
                 "accessGroupKeyBytes":result.access_group_key_bytes,
-                "accessGroupLimitTargets":result.access_group_limit_targets,
                 "profile":options.profile,"speedKph":options.speed_kph,"maxLts":options.max_lts,
                 "durationPolicy":if arrive {"deadline_elapsed_on_minimum_preference_cost_route"} else {"physical_seconds_on_minimum_preference_cost_route"},
                 "timingPolicy":if clock.is_some() {if arrive {"dated_arrive_by_verified"} else {"dated_roads_and_turns"}} else {"conservative"}});

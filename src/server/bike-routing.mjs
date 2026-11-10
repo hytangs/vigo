@@ -42,8 +42,8 @@ function bikeSegment(result, time, arrive) {
   const earlyArrivalSeconds = arrive ? result.endWaitSeconds ?? 0 : 0
   const departureMinutes = arrive ? time - earlyArrivalSeconds / 60 - durationMinutes : time
   let clock = departureMinutes
-  const diagnostics = { algorithm: 'bike_edge_state_astar', preferenceCost: result.cost,
-    settledLabels: result.settledLabels, originRoadMeters: result.originRoadMeters,
+  const diagnostics = { algorithm: 'bike_movement_cch', preferenceCost: result.cost,
+    originRoadMeters: result.originRoadMeters,
     destinationRoadMeters: result.destinationRoadMeters, unsupportedRestrictions: result.unsupportedRestrictions,
     elevationModel: 'osm_incline_only', timingPolicy: result.timingPolicy,
     ...(earlyArrivalSeconds > 0 ? { arrivalDeadlineMinutes:time, earlyArrivalSeconds } : {}),
@@ -70,7 +70,7 @@ export function bikeMatrix(kernel, request, origins, destinations, isCancelled) 
   const via = request.waypoints ?? request.via ?? []
   if (!Array.isArray(via) || via.length > 16) throw new Error('Bike supports an array of at most 16 via points.')
   // Keep per-pair cancellation and ordered-waypoint semantics on their existing
-  // path. Ordinary batches share the native field and exact fallback policy.
+  // path. Ordinary batches share native hierarchy sweeps.
   if (!isCancelled && !via.length) {
     if (request.traffic || request.trafficSnapshot || request.wheelchair) throw new Error('Bike does not support traffic or wheelchair requests.')
     const arrive = ['arrive', 'arrive_by'].includes(request.timePreference)
@@ -92,11 +92,10 @@ export function bikeMatrix(kernel, request, origins, destinations, isCancelled) 
       durationMinutes: seconds === null ? null : seconds / 60,
     }))
     return { schemaVersion: 'vigo.routing.street-matrix.v1', mode: 'bike', rows,
-      diagnostics: { owner: 'rust_bike_kernel', matrixEngine: result.sharedFields > 0 ? 'shared_bicycle_matrix_with_verified_paths' : 'bike_edge_state_astar',
+      diagnostics: { owner: 'rust_bike_kernel', matrixEngine: result.sharedFields > 0 ? 'bike_movement_cch_matrix' : 'bike_movement_cch',
         pairs: rows.length, readyPairs: rows.filter(row => row.status === 'ready').length,
         sharedFields: result.sharedFields, certifiedPairs: result.certifiedPairs, pointQueries: result.pointQueries,
-        uniqueOrigins: result.uniqueOrigins, uniqueDestinations: result.uniqueDestinations,
-        settledLabels: result.settledLabels, treeLimited: result.treeLimited } }
+        uniqueOrigins: result.uniqueOrigins, uniqueDestinations: result.uniqueDestinations } }
   }
   const rows = []
   for (const [originIndex, origin] of origins.entries()) {
@@ -109,6 +108,6 @@ export function bikeMatrix(kernel, request, origins, destinations, isCancelled) 
     }
   }
   return { schemaVersion: 'vigo.routing.street-matrix.v1', mode: 'bike', rows,
-    diagnostics: { owner: 'rust_bike_kernel', matrixEngine: 'bike_edge_state_astar',
+    diagnostics: { owner: 'rust_bike_kernel', matrixEngine: 'bike_movement_cch',
       pairs: rows.length, readyPairs: rows.filter(row => row.status === 'ready').length } }
 }

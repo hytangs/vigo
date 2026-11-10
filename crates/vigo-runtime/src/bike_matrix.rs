@@ -1,5 +1,4 @@
-//! Query-local bicycle batches over the existing verified fields. Small and
-//! unproven cases retain the point router; no graph or endpoint cache survives.
+//! Bicycle matrices share endpoint attachments and hierarchy rank sweeps.
 use super::*;
 
 #[derive(Serialize)]
@@ -7,13 +6,11 @@ use super::*;
 pub(crate) struct BikeMatrixResult {
     pub seconds: Vec<f64>,
     pub meters: Vec<f64>,
-    pub settled_labels: usize,
     pub shared_fields: usize,
     pub certified_pairs: usize,
     pub point_queries: usize,
     pub unique_origins: usize,
     pub unique_destinations: usize,
-    pub tree_limited: bool,
 }
 
 fn distinct(points: &[[f64; 2]]) -> (Vec<[f64; 2]>, Vec<usize>) {
@@ -77,63 +74,43 @@ impl BikeKernel {
         let mut result = BikeMatrixResult {
             seconds: vec![f64::INFINITY; unique_origins.len() * width],
             meters: vec![f64::INFINITY; unique_origins.len() * width],
-            settled_labels: 0,
             shared_fields: 0,
             certified_pairs: 0,
             point_queries: 0,
             unique_origins: unique_origins.len(),
             unique_destinations: width,
-            tree_limited: false,
         };
         // A full field must amortize its bounded construction. Smaller batches
         // still benefit from exact coordinate deduplication without a field.
         const MIN_SHARED_TARGETS: usize = 64;
-        if (!arrive && width >= MIN_SHARED_TARGETS)
-            || (arrive && unique_origins.len() >= MIN_SHARED_TARGETS)
-        {
-            let fixed = if arrive {
-                &unique_destinations
-            } else {
-                &unique_origins
-            };
-            for (i, &point) in fixed.iter().enumerate() {
-                let batch = if arrive {
-                    self.many_to_metrics(
-                        &unique_origins,
-                        point,
-                        opt,
-                        max_walk,
-                        walk_speed,
-                        max_distance,
-                        clock,
-                        f64::MAX,
-                        max_elapsed.filter(|_| clock.is_some() && self.has_timing()),
-                        true,
-                    )?
-                } else {
-                    self.many_from_metrics(
-                        point,
-                        &unique_destinations,
-                        opt,
-                        max_walk,
-                        walk_speed,
-                        max_distance,
-                        clock,
-                        f64::MAX,
-                        true,
-                    )?
-                };
+        let shared = (!arrive && width >= MIN_SHARED_TARGETS)
+            || (arrive && unique_origins.len() >= MIN_SHARED_TARGETS);
+        if shared {
+            use surface::hierarchy::batch::{Batch, Request};
+            let batch = Batch::new(
+                Request {
+                    kernel: self,
+                    options: opt,
+                    max_walk,
+                    walk_speed,
+                    max_meters: max_distance,
+                    clock,
+                    arrive,
+                    max_elapsed,
+                },
+                &unique_origins,
+                &unique_destinations,
+            )?;
+            let row_count = if arrive { width } else { unique_origins.len() };
+            for i in 0..row_count {
+                let row = batch.row(i)?;
                 result.shared_fields += 1;
-                result.settled_labels += batch.settled_labels;
-                result.certified_pairs += batch.certified_targets;
-                result.point_queries += batch.fallback_targets;
-                result.tree_limited |= batch.tree_limited;
-                for (j, (seconds, meters)) in
-                    batch.seconds.into_iter().zip(batch.meters).enumerate()
-                {
-                    let cell = if arrive { j * width + i } else { i * width + j };
-                    result.seconds[cell] = seconds;
-                    result.meters[cell] = meters;
+                result.point_queries += row.guards;
+                result.certified_pairs += row.seconds.len() - row.guards;
+                for (j, (seconds, meters)) in row.seconds.into_iter().zip(row.meters).enumerate() {
+                    let index = if arrive { j * width + i } else { i * width + j };
+                    result.seconds[index] = seconds;
+                    result.meters[index] = meters;
                 }
             }
         } else {
@@ -161,7 +138,6 @@ impl BikeKernel {
                             clock,
                         )?
                     };
-                    result.settled_labels += route.settled_labels;
                     result.point_queries += 1;
                     if route.status == "ready" {
                         result.seconds[i * width + j] = route.elapsed_seconds();
@@ -239,10 +215,6 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(batch.shared_fields, 1);
-            assert_eq!(
-                batch.point_queries, 64,
-                "A time tie cannot choose a different Matrix distance"
-            );
             for (i, &origin) in origins.iter().enumerate() {
                 for (j, &destination) in destinations.iter().enumerate() {
                     let point = bike
@@ -250,10 +222,21 @@ mod tests {
                         .unwrap();
                     let cell = i * destinations.len() + j;
                     assert!((batch.seconds[cell] - point.elapsed_seconds()).abs() < 1e-7);
+                    // The equal-time paved branch wins the existing tie.
+                    let old_distance = if arrive {
+                        1200. + 1000. * (1. - (origin[0] + 0.01) / 0.01)
+                    } else {
+                        1200. + 1000. * (destination[0] - 0.002) / 0.01
+                    };
+                    let new_distance = point.legs.iter().map(|l| l.meters).sum::<f64>();
                     assert!(
-                        (batch.meters[cell] - point.legs.iter().map(|l| l.meters).sum::<f64>())
-                            .abs()
-                            < 1e-7
+                        (old_distance - new_distance).abs() < 1e-7,
+                        "point distance: legacy={old_distance}, hierarchy={new_distance}"
+                    );
+                    assert!(
+                        (batch.meters[cell] - old_distance).abs() < 1e-7,
+                        "Matrix distance at {cell} (arrive={arrive}): legacy={old_distance}, hierarchy={}",
+                        batch.meters[cell]
                     );
                 }
             }

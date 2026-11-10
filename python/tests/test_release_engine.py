@@ -8,14 +8,14 @@ validate = runpy.run_path(str(Path(__file__).resolve().parents[1] / "scripts/che
 
 
 def test_exact_release_pin() -> None:
-    validate("a" * 40, "a" * 40, "1.0.0-rc.3", "1.0.0rc3", "python-v1.0.0rc3")
+    validate("a" * 40, "a" * 40, "1.0.0-rc.3", "1.0.0rc3", "v1.0.0-rc.3")
 
 
 @pytest.mark.parametrize("pin,actual,engine,tag", [
-    ("main", "a" * 40, "1.0.0-rc.3", "python-v1.0.0rc3"),
-    ("a" * 40, "b" * 40, "1.0.0-rc.3", "python-v1.0.0rc3"),
-    ("a" * 40, "a" * 40, "2.0.0", "python-v1.0.0rc3"),
-    ("a" * 40, "a" * 40, "1.0.0-rc.3", "python-v0.5.0"),
+    ("main", "a" * 40, "1.0.0-rc.3", "v1.0.0-rc.3"),
+    ("a" * 40, "b" * 40, "1.0.0-rc.3", "v1.0.0-rc.3"),
+    ("a" * 40, "a" * 40, "2.0.0", "v1.0.0-rc.3"),
+    ("a" * 40, "a" * 40, "1.0.0-rc.3", "v0.5.0"),
 ])
 def test_rejects_unintended_release_engine(pin: str, actual: str, engine: str, tag: str) -> None:
     with pytest.raises(ValueError):
@@ -23,9 +23,9 @@ def test_rejects_unintended_release_engine(pin: str, actual: str, engine: str, t
 
 
 def test_python_patch_version_is_independent() -> None:
-    validate("a" * 40, "a" * 40, "1.0.1", "1.0.0rc3", "python-v1.0.0rc3")
+    validate("a" * 40, "a" * 40, "1.0.1", "1.0.0rc3", "v1.0.1")
 
 
-def test_engine_tag_cannot_publish_python() -> None:
+def test_python_tag_no_longer_publishes() -> None:
     with pytest.raises(ValueError):
-        validate("a" * 40, "a" * 40, "1.0.0-rc.3", "1.0.0rc3", "v1.0.0rc3")
+        validate("a" * 40, "a" * 40, "1.0.0-rc.3", "1.0.0rc3", "python-v1.0.0rc3")

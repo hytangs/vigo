@@ -159,7 +159,6 @@ impl BikeAttachment {
         }
     }
 
-    #[cfg(any(feature = "standalone", test))]
     pub fn walk_seconds(&self, index: usize) -> f64 {
         self.candidates[index].walk_meters / self.speed
     }
@@ -352,10 +351,6 @@ impl RoadIndex {
     pub fn byte_length(&self) -> usize {
         (self.cell_offsets.capacity() + self.cell_edges.capacity() + self.component.capacity())
             * std::mem::size_of::<u32>()
-    }
-
-    pub(crate) fn connected_nodes(&self, a: u32, b: u32) -> bool {
-        self.component[a as usize] == self.component[b as usize]
     }
 
     fn segment_cells(
@@ -566,7 +561,7 @@ impl RoadIndex {
     /// Failed bicycle searches can consider the entire permitted connector
     /// radius. Bound query-local storage; never report an incomplete scan as
     /// a valid no-path answer. Ordinary driving keeps its existing matching.
-    pub(crate) fn attach_bicycle_fallback(
+    pub(crate) fn attach_bicycle_full_radius(
         &self,
         graph: &DriveGraph<'_>,
         point: [f64; 2],
@@ -860,7 +855,7 @@ mod tests {
             for origin in [true, false] {
                 let expected = index.segments_within(&graph, point, 1200.);
                 let compact = index
-                    .attach_bicycle_fallback(&graph, point, 1200., 4.8 / 3.6, origin, &|_| true)
+                    .attach_bicycle_full_radius(&graph, point, 1200., 4.8 / 3.6, origin, &|_| true)
                     .unwrap();
                 assert_eq!(compact.candidates.len(), expected.len());
                 for (i, projection) in expected.into_iter().enumerate() {
@@ -933,7 +928,7 @@ mod tests {
             let graph = view(&parts);
             let index = RoadIndex::build(&graph);
             for origin in [true, false] {
-                let result = index.attach_bicycle_fallback(
+                let result = index.attach_bicycle_full_radius(
                     &graph,
                     [0.0005, 0.0001],
                     1200.,

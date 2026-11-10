@@ -181,9 +181,119 @@ impl Cch {
         // C++ line 314: up_first_out = invert_vector(up_tail, node_count).
         let up_first_out = invert_vector(&up_tail, node_count);
 
-        // Part A — input-arc → CCH-arc mapping (C++ lines 325–376, 555–640).
-        let mapping = build_input_arc_mapping(&orig_tail, &orig_head, &up_first_out, &up_head);
+        Self::assemble(
+            rank,
+            order.to_vec(),
+            &orig_tail,
+            &orig_head,
+            up_first_out,
+            up_head,
+            up_tail,
+        )
+    }
 
+    /// Derives the elimination tree, the downward graph and the input-arc
+    /// mapping from the sorted upward graph.
+    fn assemble(
+        rank: Vec<u32>,
+        order: Vec<u32>,
+        orig_tail: &[u32],
+        orig_head: &[u32],
+        up_first_out: Vec<u32>,
+        up_head: Vec<u32>,
+        up_tail: Vec<u32>,
+    ) -> Cch {
+        let node_count = rank.len();
+        // Part A — input-arc → CCH-arc mapping (C++ lines 325–376, 555–640).
+        let mapping = build_input_arc_mapping(orig_tail, orig_head, &up_first_out, &up_head);
+
+        let Downward {
+            elimination_tree_parent,
+            up_tail,
+            down_first_out,
+            down_head,
+            down_to_up,
+        } = Downward::from_sorted(node_count, &up_first_out, &up_head, up_tail);
+
+        Cch {
+            rank,
+            order,
+            elimination_tree_parent,
+            up_first_out,
+            up_head,
+            up_tail,
+            down_first_out,
+            down_head,
+            down_to_up,
+            input_arc_to_cch_arc: mapping.input_arc_to_cch_arc,
+            forward_input_arc_of_cch: mapping.forward_input_arc_of_cch,
+            backward_input_arc_of_cch: mapping.backward_input_arc_of_cch,
+            first_extra_forward_input_arc_of_cch: mapping.first_extra_forward_input_arc_of_cch,
+            extra_forward_input_arc_of_cch: mapping.extra_forward_input_arc_of_cch,
+            first_extra_backward_input_arc_of_cch: mapping.first_extra_backward_input_arc_of_cch,
+            extra_backward_input_arc_of_cch: mapping.extra_backward_input_arc_of_cch,
+        }
+    }
+}
+
+/// The query columns [`Cch::build`] derives from the sorted upward graph.
+/// A persisted hierarchy can store only `rank`, `up_first_out` and `up_head`
+/// and recover these columns exactly.
+pub struct Downward {
+    /// Elimination-tree parent of each rank, or [`INVALID_ID`] for a root.
+    pub elimination_tree_parent: Vec<u32>,
+    /// Tail rank of each upward arc.
+    pub up_tail: Vec<u32>,
+    /// CSR row pointers into `down_head`.
+    pub down_first_out: Vec<u32>,
+    /// Head (lower rank) of each downward arc.
+    pub down_head: Vec<u32>,
+    /// Upward arc id of each downward arc.
+    pub down_to_up: Vec<u32>,
+}
+
+impl Downward {
+    /// Validates a persisted upward graph (rows ascending, every head above
+    /// its tail) and derives the remaining columns as [`Cch::build`] does.
+    #[must_use]
+    pub fn derive(up_first_out: &[u32], up_head: &[u32]) -> Option<Self> {
+        let node_count = up_first_out.len().checked_sub(1)?;
+        if up_first_out.first() != Some(&0) || up_first_out[node_count] as usize != up_head.len() {
+            return None;
+        }
+        let mut up_tail = Vec::with_capacity(up_head.len());
+        for x in 0..node_count {
+            let (start, end) = (up_first_out[x] as usize, up_first_out[x + 1] as usize);
+            if start > end || end > up_head.len() {
+                return None;
+            }
+            let row = &up_head[start..end];
+            if row.first().is_some_and(|&h| h as usize <= x)
+                || row.last().is_some_and(|&h| h as usize >= node_count)
+                || row.windows(2).any(|pair| pair[0] >= pair[1])
+            {
+                return None;
+            }
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "x < node_count <= u32::MAX (CCH limit)"
+            )]
+            up_tail.extend(std::iter::repeat_n(x as u32, end - start));
+        }
+        Some(Self::from_sorted(
+            node_count,
+            up_first_out,
+            up_head,
+            up_tail,
+        ))
+    }
+
+    fn from_sorted(
+        node_count: usize,
+        up_first_out: &[u32],
+        up_head: &[u32],
+        up_tail: Vec<u32>,
+    ) -> Self {
         // C++ lines 390–396: elimination tree parent.
         let mut elimination_tree_parent = vec![0u32; node_count];
         for x in 0..node_count {
@@ -200,30 +310,16 @@ impl Cch {
         //                    down_tail, down_head)  (also sorts down_tail);
         //   down_head = apply_permutation(down_to_up, down_head);
         //   down_first_out = invert_vector(down_tail, node_count);
-        let mut down_tail = up_head.clone();
-        let down_head_unsorted = up_tail.clone();
-        let down_to_up =
-            compute_sort_perm_by_tail_then_head(node_count, &mut down_tail, &down_head_unsorted);
-        let down_head = apply_permutation(&down_to_up, &down_head_unsorted);
+        let mut down_tail = up_head.to_vec();
+        let down_to_up = compute_sort_perm_by_tail_then_head(node_count, &mut down_tail, &up_tail);
+        let down_head = apply_permutation(&down_to_up, &up_tail);
         let down_first_out = invert_vector(&down_tail, node_count);
-
-        Cch {
-            rank,
-            order: order.to_vec(),
+        Self {
             elimination_tree_parent,
-            up_first_out,
-            up_head,
             up_tail,
             down_first_out,
             down_head,
             down_to_up,
-            input_arc_to_cch_arc: mapping.input_arc_to_cch_arc,
-            forward_input_arc_of_cch: mapping.forward_input_arc_of_cch,
-            backward_input_arc_of_cch: mapping.backward_input_arc_of_cch,
-            first_extra_forward_input_arc_of_cch: mapping.first_extra_forward_input_arc_of_cch,
-            extra_forward_input_arc_of_cch: mapping.extra_forward_input_arc_of_cch,
-            first_extra_backward_input_arc_of_cch: mapping.first_extra_backward_input_arc_of_cch,
-            extra_backward_input_arc_of_cch: mapping.extra_backward_input_arc_of_cch,
         }
     }
 }

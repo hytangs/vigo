@@ -120,8 +120,7 @@ try {
           ...cells.map(destination => ({ ...common, kind: 'route', origin: fixed, destination })),
         ])
         assert.equal(reach.status, 'ok')
-        assert.equal(reach.trace.diagnostics.bike.exactFallbackTargets, 0)
-        assert.equal(reach.trace.diagnostics.bike.algorithm, 'shared_bicycle_temporal_surface')
+        assert.equal(reach.trace.diagnostics.bike.algorithm, 'bike_movement_cch_surface')
         // Empty permission sets need no component keys in the shared frontier.
         assert(reach.trace.diagnostics.bike.accessGroupKeyBytes >= 0)
         assert(reach.trace.diagnostics.bike.accessGroupKeyBytes <= 512 * 1024)

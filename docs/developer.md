@@ -84,9 +84,9 @@ orchestration, and public interfaces.
 | --- | --- |
 | Transit Route | Native forward or reverse timetable search, directed street access, then selected-journey reconstruction |
 | Walk / Drive Route | Native directed street search, CCH acceleration, and path geometry |
-| Bike Route / Matrix | One optional native bicycle graph, turn-aware A* and path geometry |
+| Bike Route / Matrix | Turn-aware bicycle CCH, shared rank sweeps and verified path geometry |
 | Transit Matrix | Shared native forward scans per origin or reverse scans per destination; optional selected witnesses |
-| Reach | Native timetable propagation and walking surface; JavaScript contours and Result shaping |
+| Reach | Native timetable propagation and walk, drive, and bicycle surfaces; JavaScript contours and Result shaping |
 | Scenario | JavaScript validation and compilation of supported changes; native routing applies the compiled overlay |
 
 JavaScript owns request validation, identity resolution, orchestration, cancellation, and presentation. Rust owns active-timetable departure/transfer indexing, GTFS-Realtime overlays (trip updates, Service Alerts and timetable reconstruction, shared with the standalone engine), station path compilation, graph search, and timetable propagation; see the [kernel implementation map](../crates/vigo-runtime/README.md). Source-feature omissions remain explicit in results; shared implementation alone does not prove correctness. [Independent checks](#checking-routing-accuracy) validate the declared model.
@@ -1104,24 +1104,39 @@ readers ignore these tables; no existing field, snapshot or format identifier
 changes. CLI builds opt in with `--street-modes=walk,bike` or
 `--street-modes=walk,drive,bike`. Studio OSM imports include bike streets.
 
-The graph loads only on a bike query. Attributes use one packed integer per
-directed edge; all three preference profiles share one topology. Search is
-A* over directed edges and active via-way restriction states. Its lower bound
-uses the fastest possible profile speed and the minimum ratio of stored edge
-length to geodesic distance. Ordinary searches retain one cost label per
-equivalent state; nondominated cost/distance labels are needed only if the
-unconstrained optimum exceeds the distance cap. Exceeding the work limit returns an error, not a
-false no-path answer. Endpoint projection reuses the road segment index.
+The bicycle engine customizes one turn-aware contraction hierarchy for the
+selected profile, speed and stress limit. Ordinary movements use scalar
+shortcuts. Dated entries and endpoint-only permissions narrow the shortcut
+choices. When time or metres constrain a path, the same rank sweeps retain
+the necessary undominated travel time, preference cost and distance states.
+Endpoint projection uses the road segment index, and verified pedestrian
+connectors share the pedestrian hierarchy with unrounded distance weights.
+
+A source-bound hierarchy cache can reuse the upward topology and shortcut
+witnesses on process start; opening it rebuilds the remaining columns and
+weights exactly. It contains graph data only. The original City remains the
+source of truth; its prepared files and portable layout do not change.
+
+Bicycle Reach first bounds every cell's walking access with one relaxed
+hierarchy sweep from the fixed endpoint: a cell searches only as far as a
+bicycle node could still beat its best candidate. Cells whose minimum the
+path certificate cannot settle repeat with every walking candidate.
 
 Preference cost is distinct from physical travel seconds. The default
 `balanced` and `quiet` profiles penalize traffic exposure; `fast` minimizes
 estimated travel time. Mapped surfaces and incline change speed. Dismount
 segments use walking time and are materialized as `walk` legs with
 `geometrySource: "osm-dismount"`. Off-network coordinate connectors remain
-unverified walks. Bikes-on-transit, bike sharing, elevation rasters, bicycle
-Reach and time-dependent conditional access are not implemented. Conditional
-ways are excluded; conditional turn restrictions are applied conservatively
-at all times. Unhandled relation shapes are counted in diagnostics.
+unverified walks. Bicycle Reach supports both departure and arrival queries.
+Bikes-on-transit, bike sharing and elevation rasters are outside this model.
+Unhandled relation shapes are counted in diagnostics.
+
+All street modes estimate travel duration. A dated bicycle request also uses
+the City's time zone to evaluate supported weekly road and turn permissions
+at the moment of entry. When the request has no usable service clock, the
+engine excludes timed roads and applies conditional turn restrictions
+conservatively. Walk uses a static pedestrian graph; Drive can apply an
+admitted traffic snapshot to its static road metric.
 
 The importer follows the [OSM access hierarchy](https://wiki.openstreetmap.org/wiki/Key:access).
 Trunk roads retain explicit bicycle restrictions and motorroad exclusions;

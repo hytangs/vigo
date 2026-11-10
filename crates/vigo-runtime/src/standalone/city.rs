@@ -1568,12 +1568,13 @@ impl City {
     }
     pub(crate) fn load_bike(&mut self) -> Result<()> {
         if self.bike.is_none() {
-            self.bike = Some(Box::new(crate::bike::BikeKernel::open(
+            let bike = Box::new(crate::bike::BikeKernel::open(
                 self.street_directory
                     .join("street-index.sqlite")
                     .to_str()
                     .ok_or("City path must be UTF-8")?,
-            )?));
+            )?);
+            self.bike = Some(bike);
         }
         Ok(())
     }

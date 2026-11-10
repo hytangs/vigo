@@ -2,9 +2,9 @@
 
 ## 1.0.0 — 2026-11-09
 
-- Reuse exact lower-bound work across timed bicycle Reach fallbacks, skip unreachable directed components, and bound independent fallback workers by CPU and memory availability. Preserve route costs, physical durations and prepared City compatibility.
+- Route, Matrix and Reach share a bicycle contraction hierarchy that enforces timed roads, turns and endpoint access. Walking connectors use the pedestrian hierarchy. Source-bound local indexes keep only the upward hierarchy and shortcut witnesses and rebuild exact weights on open; existing Cities remain readable. Reach bounds each cell's walking search with one relaxed hierarchy sweep.
+- Release the engine and the Python package from one workflow and one `v<VERSION>` tag.
 - Load bicycle walking identities without an external SQLite sort, retaining coordinate and duplicate-identity validation for dense and sparse links.
-- Stop shared bicycle destination-group searches after all requested optima are settled, retain exact fallback behavior, accelerate walking-node identity lookup within the existing memory footprint, and reduce graph-loading scans. Existing Cities remain readable.
 - Constrain Studio address suggestions to the selected City’s prepared street or timetable coverage, including after switching Cities and replacing data.
 - Clarify the README’s historical transit benchmark boundary and link the live route planner.
 
@@ -24,7 +24,6 @@
 - Studio: an edit that keeps a branch's departures divides each trip's running time between kept stops along the published shape or traced road path, as its supplied runtimes describe, rather than by straight-line distance.
 
 
-- Answer bicycle routes when a tight distance limit leaves too many trade-offs to prove the preferred route: return the shortest route within the limit with a `distance_limit_shortest_route` warning instead of an error. Report no route at once when no start can finish within the limit.
 - Start constrained drives from the feasible shortest path with exact remaining bounds. Long limits no longer search for seconds and report a false `not_found`; short limits keep their earlier speed.
 - Load the bicycle graph without an on-disk sort, about halving cold load time with identical answers.
 - Add a new stop to the end of a journey (A, B, then C) instead of before the destination.
