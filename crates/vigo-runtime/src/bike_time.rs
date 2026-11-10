@@ -165,59 +165,6 @@ impl TurnWindows {
                 .sum::<usize>()
     }
 
-    #[cfg(test)]
-    pub fn stable_until(&self, clock: BikeClock, horizon: f64) -> bool {
-        horizon.is_finite()
-            && horizon >= 0.
-            && (1..=self.schedules.len() as u32).all(|id| {
-                self.next_change(id, clock, 0.)
-                    .is_none_or(|next| next > horizon)
-            })
-    }
-
-    /// Constant permissions inside a proven improving-path horizon. A changing
-    /// window remains unknown, so a relaxed search admits every possibility.
-    #[cfg(test)]
-    pub fn scope(&self, clock: BikeClock, horizon: f64) -> Vec<Option<bool>> {
-        std::iter::once(Some(true))
-            .chain((1..=self.schedules.len() as u32).map(|id| {
-                self.next_change(id, clock, 0.)
-                    .is_none_or(|next| next > horizon)
-                    .then(|| self.active(id, Some(clock), 0.))
-            }))
-            .collect()
-    }
-
-    /// Horizons between the same two events have identical scoped permissions.
-    /// Compute once per shared search instead of retaining one window vector
-    /// per target group.
-    #[cfg(test)]
-    pub fn scope_events(&self, clock: BikeClock) -> Vec<f64> {
-        let mut events: Vec<_> = (1..=self.schedules.len() as u32)
-            .filter_map(|id| self.next_change(id, clock, 0.))
-            .collect();
-        events.sort_unstable_by(f64::total_cmp);
-        events.dedup();
-        events
-    }
-
-    /// Permissions that cannot change between a departure and its arrival
-    /// deadline. A boundary exactly at the deadline remains unknown: the
-    /// preceding segment may have entered immediately before it.
-    #[cfg(test)]
-    pub fn scope_before(&self, clock: BikeClock, horizon: f64) -> Vec<Option<bool>> {
-        std::iter::once(Some(true))
-            .chain((1..=self.schedules.len() as u32).map(|id| {
-                (horizon.is_finite()
-                    && horizon >= 0.
-                    && self
-                        .previous_change(id, clock, 0.)
-                        .is_none_or(|previous| previous < -horizon))
-                .then(|| self.active(id, Some(clock), 0.))
-            }))
-            .collect()
-    }
-
     pub fn active(&self, id: u32, clock: Option<BikeClock>, elapsed: f64) -> bool {
         let Some(clock) = clock.filter(|_| id != 0) else {
             return true;
@@ -378,20 +325,9 @@ mod tests {
             assert!(windows.active(1, Some(c), 0.));
             assert!(!windows.active(1, Some(c), 600.));
             assert_eq!(windows.next_change(1, c, 0.), Some(600.));
-            assert!(windows.stable_until(c, 599.));
-            assert!(!windows.stable_until(c, 600.));
-            assert!(!windows.stable_until(c, f64::INFINITY));
-            assert_eq!(windows.scope(c, 599.), vec![Some(true), Some(true)]);
-            assert_eq!(windows.scope(c, 600.), vec![Some(true), None]);
-            let events = windows.scope_events(c);
-            assert_eq!(events, vec![600.]);
-            assert_eq!(events.partition_point(|&event| event <= 599.), 0);
-            assert_eq!(events.partition_point(|&event| event <= 600.), 1);
         }
         let between = clock("2026-11-01T05:50:00Z");
         assert!(!windows.active(1, Some(between), 0.));
-        assert_eq!(windows.scope(between, 599.), vec![Some(true), Some(false)]);
-        assert_eq!(windows.scope(between, 600.), vec![Some(true), None]);
         assert_eq!(windows.next_change(1, between, 0.), Some(600.));
         assert!(!windows.active(1, Some(between), 600.));
         assert_eq!(windows.next_change(1, between, 600.), Some(2400.));
@@ -402,11 +338,6 @@ mod tests {
         assert!(!gap.active(1, Some(spring), 0.));
         assert!(!gap.active(1, Some(spring), 60.));
         assert_eq!(gap.next_change(1, spring, 0.), Some(60.));
-        assert!(gap.stable_until(spring, 59.));
-        assert_eq!(gap.scope(spring, 59.), vec![Some(true), Some(false)]);
-        assert_eq!(gap.scope(spring, 60.), vec![Some(true), None]);
-        assert_eq!(gap.scope_events(spring), vec![60.]);
-        assert!(!gap.stable_until(spring, 60.));
         assert!(windows.active(1, None, 0.));
         assert!(windows.active(0, Some(first), 0.));
         let spans_fold = TurnWindows {
@@ -549,65 +480,11 @@ mod tests {
             windows.previous_change(1, c, -3600.25),
             Some(preceding_close.epoch - c.epoch)
         );
-        let inside = BikeClock {
-            epoch: c.epoch - 120.25,
-            ..c
-        };
-        assert_eq!(
-            windows.scope_before(inside, 3479.),
-            vec![Some(true), Some(true), Some(false)]
-        );
-        assert_eq!(
-            windows.scope_before(inside, 3480.),
-            vec![Some(true), None, Some(false)]
-        );
-        assert_eq!(windows.scope_before(c, 0.)[1], None);
-        assert_eq!(windows.scope_before(c, -1.)[1], None);
-        assert_eq!(windows.scope_before(c, f64::INFINITY)[1], None);
         let monday = BikeClock::service("2026-11-02", "UTC", 0.).unwrap();
         assert_eq!(windows.previous_change(2, monday, 0.), Some(0.));
         assert_eq!(windows.previous_change(2, monday, -0.25), Some(-60.));
         assert!(windows.active(2, Some(monday), -0.25));
         assert!(windows.active(2, Some(monday), 0.25));
         assert_eq!(windows.previous_change(0, monday, 0.), None);
-    }
-
-    #[test]
-    fn backward_scopes_never_certify_a_changing_permission() {
-        for (zone, end) in [
-            ("America/New_York", "2026-11-01T08:00:00Z"),
-            ("America/New_York", "2026-03-08T09:00:00Z"),
-            ("Australia/Lord_Howe", "2026-04-04T18:00:00Z"),
-            ("Africa/Monrovia", "1972-01-07T04:00:00Z"),
-        ] {
-            let c = BikeClock {
-                zone: zone.parse().unwrap(),
-                ..clock(end)
-            };
-            let day = chrono::DateTime::from_timestamp(c.epoch as i64, 0)
-                .unwrap()
-                .with_timezone(&c.zone)
-                .weekday()
-                .num_days_from_monday() as u16
-                * 1440;
-            for start in [0, 30, 60, 90, 105, 120, 135, 150, 180] {
-                for length in [15, 30, 60, 120] {
-                    let windows = TurnWindows {
-                        schedules: vec![vec![(day + start, day + start + length)]],
-                    };
-                    for horizon in [0., 900., 3600., 7200., 14400.] {
-                        if let Some(active) = windows.scope_before(c, horizon)[1] {
-                            for elapsed in -(horizon as i64)..=0 {
-                                assert_eq!(
-                                    windows.active(1, Some(c), elapsed as f64),
-                                    active,
-                                    "{zone}: false backward certificate {start}/{length}, {horizon}, {elapsed}"
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 }

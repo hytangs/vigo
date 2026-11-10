@@ -174,7 +174,12 @@ mod tests {
         kernel.attributes[edge as usize] |= TIMED_EDGE;
         kernel.edge_windows.insert(edge, 1);
         let clock = BikeClock::service("2026-11-02", "America/New_York", 28_800.).unwrap();
-        assert!(!kernel.windows.stable_until(clock, 600.));
+        assert!(
+            kernel
+                .windows
+                .next_change(1, clock, 0.)
+                .is_some_and(|next| next <= 600.)
+        );
         for profile in [Profile::Fast, Profile::Balanced, Profile::Quiet] {
             let options = BikeOptions {
                 profile,
@@ -212,6 +217,100 @@ mod tests {
             )
             .unwrap();
         assert!((surface.seconds[0] - 70.).abs() < 1e-7);
+    }
+
+    #[test]
+    fn cells_reached_only_through_closed_timed_roads_are_bounded_or_unreachable() {
+        // Node 2 is reached directly over a road closed until 10:00, or
+        // over a longer open detour through node 3. Before the detour exists
+        // the cell has no clock-stable path at all: it must neither widen
+        // every cell's dated search nor be reported reachable in time.
+        let nodes = [[0., 0.], [0.01, 0.], [0.02, 0.], [0.01, 0.008]];
+        let direct = [(0, 1, 100_000, 1, 30 << 8), (1, 2, 100_000, 2, 30 << 8)];
+        let detour = [(0, 3, 128_000, 3, 30 << 8), (3, 2, 128_000, 4, 30 << 8)];
+        let depart = BikeClock::service("2026-11-02", "America/New_York", 28_800.).unwrap();
+        let deadline = BikeClock::service("2026-11-02", "America/New_York", 29_400.).unwrap();
+        for open_detour in [false, true] {
+            let edges: Vec<_> = direct
+                .iter()
+                .chain(open_detour.then_some(&detour[..]).into_iter().flatten())
+                .copied()
+                .collect();
+            let mut kernel = super::super::tests::fixture(&nodes, &edges, &[]);
+            kernel.windows.schedules = vec![vec![(600, 1440)]];
+            let timed = kernel.ways.iter().position(|&way| way == 2).unwrap() as u32;
+            kernel.attributes[timed as usize] |= TIMED_EDGE;
+            kernel.edge_windows.insert(timed, 1);
+            for profile in [Profile::Fast, Profile::Balanced, Profile::Quiet] {
+                let options = BikeOptions {
+                    profile,
+                    ..Default::default()
+                };
+                let point = kernel
+                    .route_at(nodes[0], nodes[2], options, 0., 4.8, 10_000., Some(depart))
+                    .unwrap();
+                let surface = kernel
+                    .many_from(
+                        nodes[0],
+                        &[nodes[2], nodes[1]],
+                        options,
+                        0.,
+                        4.8,
+                        10_000.,
+                        Some(depart),
+                        600.,
+                    )
+                    .unwrap();
+                let arrival = kernel
+                    .route_arrive_at(
+                        nodes[0],
+                        nodes[2],
+                        options,
+                        0.,
+                        4.8,
+                        10_000.,
+                        Some(deadline),
+                    )
+                    .unwrap();
+                let arrivals = kernel
+                    .many_to(
+                        &[nodes[0], nodes[1]],
+                        nodes[2],
+                        options,
+                        0.,
+                        4.8,
+                        10_000.,
+                        Some(deadline),
+                        600.,
+                        None,
+                    )
+                    .unwrap();
+                assert!(surface.seconds[1].is_finite(), "{profile:?}: the open road");
+                if open_detour {
+                    assert!(point.elapsed_seconds() < 600., "{profile:?}");
+                    assert!(
+                        (surface.seconds[0] - point.elapsed_seconds()).abs() < 1e-7,
+                        "{profile:?}: {} != {}",
+                        surface.seconds[0],
+                        point.elapsed_seconds()
+                    );
+                    assert!(
+                        (arrivals.seconds[0] - arrival.elapsed_seconds()).abs() < 1e-7,
+                        "{profile:?}: {} != {}",
+                        arrivals.seconds[0],
+                        arrival.elapsed_seconds()
+                    );
+                } else {
+                    assert!(
+                        point.elapsed_seconds() > 600.,
+                        "{profile:?}: waits for 10:00"
+                    );
+                    assert!(surface.seconds[0].is_infinite(), "{profile:?}");
+                    assert!(arrivals.seconds[0].is_infinite(), "{profile:?}");
+                    assert!(arrivals.seconds[1].is_infinite(), "{profile:?}");
+                }
+            }
+        }
     }
 }
 // The high bit marks an endpoint with no road segment. Bicycle attachment

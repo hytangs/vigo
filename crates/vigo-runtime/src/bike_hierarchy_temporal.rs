@@ -9,6 +9,36 @@ pub(super) struct Gate {
     pub scope: u32,
 }
 type CompactMap<V> = HashMap<u32, V, BuildHasherDefault<crate::IntegerHasher>>;
+/// Above this many hierarchy ranks inside the price corridor, dated gates
+/// are resolved by searching movements instead of customizing profiles.
+/// Profile work grows much faster than the corridor: retained grids with
+/// 1,500–2,600 corridor ranks customize in milliseconds, while a 44,000-rank
+/// corridor took 14 s against 3 s for the movement search.
+const CUSTOMIZED_CORRIDOR_RANKS: usize = 16_384;
+/// Tests resolve every dated query with the movement search when set.
+#[cfg(test)]
+pub(in crate::bike) static SEARCH_MOVEMENTS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+/// Settled labels one dated movement search may hold.
+const SEARCHED_LABELS: usize = 16_000_000;
+/// Profile variants one customization may hold before the movement search
+/// takes over. Retained grids stay near 10,000.
+const PROFILE_PATHS: usize = 500_000;
+
+/// Elapsed seconds in heap order.
+#[derive(PartialEq)]
+struct Earliest(f64);
+impl Eq for Earliest {}
+impl PartialOrd for Earliest {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for Earliest {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.total_cmp(&other.0)
+    }
+}
 
 #[derive(Clone)]
 struct Path {
@@ -128,7 +158,7 @@ impl Profiles {
         if list.is_empty() {
             return Ok(());
         }
-        if self.paths.len() + list.len() > 6_000_000 {
+        if self.paths.len() + list.len() > PROFILE_PATHS {
             return Err("Temporal contraction exceeded its path workspace".into());
         }
         let range = Range {
@@ -188,7 +218,8 @@ impl Query<'_> {
                 <= self.cap * (1. + 1e-8)
     }
 
-    fn constrained(&self) -> bool {
+    /// Whether the distance limit can bind inside the horizon.
+    pub(super) fn constrained(&self) -> bool {
         self.distance_limit < self.horizon * self.maximum_speed
     }
 
@@ -604,17 +635,23 @@ impl Query<'_> {
         down
     }
 
+    /// Each cell's cheapest ending, or with `earliest` its earliest one.
     fn finish(
         &self,
         values: &CompactMap<Vec<Label>>,
         masks: &SurfaceMasks,
+        earliest: bool,
     ) -> Result<Vec<Ending>, String> {
         let graph = self.kernel.graph();
         let mut results = vec![Ending::default(); self.ends.attachments.len()];
         let mut improve =
             |cell: usize, cost: f64, elapsed, meters, label: Option<Label>, seed, terminal| {
-                if cost < results[cell].value.0
-                    && cost <= self.cap * (1. + 1e-8)
+                let (best, value) = results[cell].value;
+                if (if earliest {
+                    elapsed < value
+                } else {
+                    cost < best
+                }) && cost <= self.cap * (1. + 1e-8)
                     && meters <= self.distance_limit
                 {
                     results[cell] = Ending {
@@ -730,17 +767,24 @@ impl Query<'_> {
         Ok(results)
     }
 
+    /// Each cell's cheapest ending, or with `earliest` its earliest one.
     fn finish_arrival(
         &self,
         values: &CompactMap<Vec<Label>>,
         masks: &SurfaceMasks,
+        earliest: bool,
     ) -> Result<Vec<Ending>, String> {
         let graph = self.kernel.graph();
         let mut results = vec![Ending::default(); self.ends.attachments.len()];
         let mut improve =
             |cell: usize, cost: f64, elapsed, meters, label: Option<Label>, seed, terminal| {
+                let (best, value) = results[cell].value;
                 if cost <= self.cap * (1. + 1e-8)
-                    && cost < results[cell].value.0
+                    && (if earliest {
+                        elapsed < value
+                    } else {
+                        cost < best
+                    })
                     && elapsed <= self.horizon
                     && meters <= self.distance_limit
                 {
@@ -874,6 +918,531 @@ impl Query<'_> {
             .map(|(_, _, point)| point)
     }
 
+    /// Movements by head state, for searches that walk the movement graph
+    /// backwards from an arrival. Tails are found in the forward offsets.
+    pub(super) fn reverse_movements(&self) -> (Vec<u32>, Vec<u32>) {
+        let input = &self.movements.input;
+        let states = input.first_out.len() - 1;
+        let mut first = vec![0u32; states + 1];
+        for &head in &input.head {
+            first[head as usize + 1] += 1;
+        }
+        for state in 0..states {
+            first[state + 1] += first[state];
+        }
+        let mut next = first.clone();
+        let mut movements = vec![0u32; input.head.len()];
+        for (movement, &head) in input.head.iter().enumerate() {
+            movements[next[head as usize] as usize] = movement as u32;
+            next[head as usize] += 1;
+        }
+        (first, movements)
+    }
+
+    /// Movements one search step crosses from `state`, with the state each
+    /// reaches: heads forwards, tails backwards.
+    fn steps(
+        &self,
+        reverse: Option<&(Vec<u32>, Vec<u32>)>,
+        state: u32,
+        steps: &mut Vec<(u32, u32)>,
+    ) {
+        let input = &self.movements.input;
+        steps.clear();
+        if let Some((first, movements)) = reverse {
+            steps.extend(
+                movements[first[state as usize] as usize..first[state as usize + 1] as usize]
+                    .iter()
+                    .map(|&movement| {
+                        let tail = input
+                            .first_out
+                            .partition_point(|&offset| offset <= movement)
+                            - 1;
+                        (movement, tail as u32)
+                    }),
+            );
+        } else {
+            steps.extend(
+                (input.first_out[state as usize]..input.first_out[state as usize + 1])
+                    .map(|movement| (movement, input.head[movement as usize])),
+            );
+        }
+    }
+
+    /// The earliest arrival, or for an arrival query the latest departure,
+    /// over the movements open to one permission group. Every dated movement
+    /// is taken at its actual time, waiting where it must, so each path found
+    /// is legal for the group's cells and its price bounds their optimum.
+    /// Without `by_price`, each cell reports its earliest legal ending; an
+    /// ending later than the horizon, or none, proves the cell unreachable in
+    /// time when the distance limit cannot bind (a faster prefix may use
+    /// distance a slower one would save).
+    /// With `by_price`, each state keeps its cheapest prefix instead. Waiting
+    /// can reorder prices, so that search is not exhaustive, but every path it
+    /// finds is legal and its price is often far below the fastest path's.
+    /// An arrival query walks movements backwards through `reverse`, which
+    /// `reverse_movements` builds once per query.
+    pub(super) fn earliest(
+        &self,
+        masks: &mut SurfaceMasks,
+        group: usize,
+        by_price: bool,
+        reverse: Option<&(Vec<u32>, Vec<u32>)>,
+    ) -> Result<Vec<(f64, f64)>, String> {
+        let key = |label: &Label| {
+            if by_price {
+                self.rate * label.elapsed + label.excess
+            } else {
+                label.elapsed
+            }
+        };
+        let built;
+        let reverse = match reverse {
+            Some(reverse) => Some(reverse),
+            None if self.reversed => {
+                built = self.reverse_movements();
+                Some(&built)
+            }
+            None => None,
+        };
+        let mut best = CompactMap::<Label>::default();
+        let mut queue = std::collections::BinaryHeap::new();
+        let mut order = 0u32;
+        let mut offer = |best: &mut CompactMap<Label>,
+                         queue: &mut std::collections::BinaryHeap<_>,
+                         state: u32,
+                         label: Label| {
+            if label.elapsed > self.horizon
+                || label.meters > self.distance_limit
+                || best
+                    .get(&state)
+                    .is_some_and(|known| key(known) <= key(&label))
+            {
+                return;
+            }
+            best.insert(state, label);
+            order += 1;
+            queue.push(std::cmp::Reverse((Earliest(key(&label)), order, state)));
+        };
+        for (state, label) in self.initial(masks)? {
+            offer(&mut best, &mut queue, state, label);
+        }
+        let mut steps = Vec::new();
+        while let Some(std::cmp::Reverse((Earliest(settled), _, state))) = queue.pop() {
+            let label = best[&state];
+            if key(&label) < settled {
+                continue;
+            }
+            self.steps(reverse, state, &mut steps);
+            for &(movement, next_state) in &steps {
+                if self.steady[movement as usize] {
+                    let Some(path) = self.direct(movement, masks) else {
+                        continue;
+                    };
+                    if !masks.contains(path.scope, group) {
+                        continue;
+                    }
+                    let next = Label {
+                        elapsed: label.elapsed + path.seconds,
+                        excess: label.excess + path.excess,
+                        meters: label.meters + path.meters,
+                        scope: masks.intersect(label.scope, path.scope),
+                        trail: NONE,
+                        ..label
+                    };
+                    offer(&mut best, &mut queue, next_state, next);
+                    continue;
+                }
+                let edge = self.movements.roads[movement as usize];
+                if !self.kernel.allowed_edge(edge, self.options) {
+                    continue;
+                }
+                let mut scope = label.scope;
+                if self.kernel.attributes[edge as usize] & (1 << 22) != 0 {
+                    let component =
+                        self.kernel.destination_components[self.kernel.source(edge) as usize];
+                    let open = self.permissions.get(&component).copied().unwrap_or(0);
+                    if !masks.contains(open, group) {
+                        continue;
+                    }
+                    scope = masks.intersect(scope, open);
+                }
+                let (tail, head) = if self.reversed {
+                    (next_state, state)
+                } else {
+                    (state, next_state)
+                };
+                let origin = self.movements.states.state(tail);
+                let incoming = (origin.incoming != NONE).then_some(origin.incoming);
+                let history = &self.movements.states.turns[origin.turns as usize];
+                let required =
+                    &self.movements.states.turns[self.movements.states.state(head).turns as usize];
+                let meters = self.kernel.distances[edge as usize] as f64 / 100.;
+                let (seconds, price) = self.kernel.metric(edge, self.options);
+                let elapsed = if self.reversed {
+                    self.kernel
+                        .latest_arrival_movement(
+                            history,
+                            incoming,
+                            origin.node,
+                            edge,
+                            Some(required),
+                            self.clock,
+                            -label.elapsed - seconds * meters,
+                            -self.horizon,
+                        )?
+                        .map(|entry| -entry)
+                } else {
+                    self.kernel
+                        .movements(
+                            history,
+                            incoming,
+                            origin.node,
+                            edge,
+                            self.clock,
+                            label.elapsed,
+                            MovementPolicy::Wait,
+                            true,
+                        )?
+                        .into_iter()
+                        .find(|(_, turns)| turns == required)
+                        .map(|(departure, _)| departure + seconds * meters)
+                };
+                let Some(elapsed) = elapsed else {
+                    continue;
+                };
+                let next = Label {
+                    elapsed,
+                    excess: label.excess + (price - self.rate * seconds).max(0.) * meters,
+                    meters: label.meters + meters,
+                    scope,
+                    trail: NONE,
+                    ..label
+                };
+                offer(&mut best, &mut queue, next_state, next);
+            }
+        }
+        let ranks = &self.hierarchy.graph.rank;
+        let values: CompactMap<Vec<Label>> = best
+            .into_iter()
+            .map(|(state, label)| (ranks[state as usize], vec![label]))
+            .collect();
+        let endings = if self.reversed {
+            self.finish_arrival(&values, masks, !by_price)?
+        } else {
+            self.finish(&values, masks, !by_price)?
+        };
+        Ok(endings.into_iter().map(|ending| ending.value).collect())
+    }
+
+    /// Hierarchy ranks inside the price corridor.
+    fn corridor_ranks(&self) -> usize {
+        let ceiling = self.cap * (1. + 1e-8);
+        self.lower_start_price
+            .iter()
+            .zip(self.lower_remaining)
+            .filter(|&(start, remaining)| start + self.rate * remaining <= ceiling)
+            .count()
+    }
+
+    /// Inserts a label into one state's undominated set, as `put_label`
+    /// does, where the set holds indices into `arena`.
+    fn admit(
+        &self,
+        arena: &mut Vec<Label>,
+        set: &mut Vec<u32>,
+        mut candidate: Label,
+        masks: &mut SurfaceMasks,
+    ) -> Option<u32> {
+        for &index in set.iter() {
+            let prior = &mut arena[index as usize];
+            if prior.elapsed <= candidate.elapsed
+                && prior.excess <= candidate.excess
+                && (!self.constrained() || prior.meters <= candidate.meters)
+            {
+                candidate.scope = masks.subtract(candidate.scope, prior.scope);
+            } else if candidate.elapsed <= prior.elapsed
+                && candidate.excess <= prior.excess
+                && (!self.constrained() || candidate.meters <= prior.meters)
+            {
+                prior.scope = masks.subtract(prior.scope, candidate.scope);
+            }
+            if candidate.scope == 0 {
+                break;
+            }
+        }
+        set.retain(|&index| arena[index as usize].scope != 0);
+        if candidate.scope == 0 {
+            return None;
+        }
+        let index = arena.len() as u32;
+        arena.push(candidate);
+        set.push(index);
+        Some(index)
+    }
+
+    /// The labels the profile sweep reaches, found by one time-dependent
+    /// search over the movement graph itself. Each label is settled in order
+    /// of elapsed time, every dated gate is applied at the label's actual
+    /// time, and roots and endings are reported as `run_profiles` reports them.
+    fn search_movements(
+        &self,
+        gates: &[Gate],
+        final_remaining: &[f64],
+        masks: &mut SurfaceMasks,
+        witness: bool,
+        corridor: usize,
+    ) -> Result<ProfileSweep, String> {
+        #[derive(PartialEq)]
+        struct Next(f64, u32, u32);
+        impl Eq for Next {}
+        impl PartialOrd for Next {
+            fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+        impl Ord for Next {
+            // A min-heap on elapsed time, then on settling order.
+            fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+                other
+                    .0
+                    .total_cmp(&self.0)
+                    .then_with(|| other.2.cmp(&self.2))
+            }
+        }
+        let started = Instant::now();
+        let mut trail = Trail {
+            enabled: witness,
+            legs: Vec::new(),
+        };
+        let ranks = &self.hierarchy.graph.rank;
+        let mut crossing = CompactMap::<Vec<usize>>::default();
+        for (index, gate) in gates.iter().enumerate() {
+            crossing.entry(gate.input).or_default().push(index);
+        }
+        // An arrival search walks movements backwards: (movement, tail) by head.
+        let reverse = self.reversed.then(|| self.reverse_movements());
+        let ceiling = self.cap * (1. + 1e-8);
+        let mut arena = Vec::<Label>::new();
+        let mut sets = CompactMap::<Vec<u32>>::default();
+        let mut queue = std::collections::BinaryHeap::new();
+        for (state, label) in self.initial(masks)? {
+            let rank = ranks[state as usize];
+            if let Some(index) = self.admit(&mut arena, sets.entry(rank).or_default(), label, masks)
+            {
+                queue.push(Next(label.elapsed, state, index));
+            }
+        }
+        let mut gate_prefixes = CompactMap::<Vec<Label>>::default();
+        let mut gate_exits = CompactMap::<Vec<Label>>::default();
+        let mut settled = 0usize;
+        let mut steps = Vec::new();
+        while let Some(Next(_, state, index)) = queue.pop() {
+            let prefix = arena[index as usize];
+            if prefix.scope == 0 {
+                continue;
+            }
+            settled += 1;
+            if settled > SEARCHED_LABELS {
+                return Err("Dated movement search exceeded its label workspace".into());
+            }
+            self.steps(reverse.as_ref(), state, &mut steps);
+            for &(movement, to) in &steps {
+                if self.steady[movement as usize] {
+                    let Some(path) = self.direct(movement, masks) else {
+                        continue;
+                    };
+                    let scope = masks.intersect(prefix.scope, path.scope);
+                    if scope == 0 {
+                        continue;
+                    }
+                    let rank = ranks[to as usize] as usize;
+                    let next = Label {
+                        elapsed: prefix.elapsed + path.seconds,
+                        excess: prefix.excess + path.excess,
+                        meters: prefix.meters + path.meters,
+                        scope,
+                        ..prefix
+                    };
+                    // The profile corridor's bound: to a gate, or to a target
+                    // when targets are the query's own endings.
+                    let remaining = self.lower_remaining[rank];
+                    if next.meters > self.distance_limit
+                        || next.elapsed > self.horizon
+                        || self.rate * (next.elapsed + remaining) + next.excess > ceiling
+                    {
+                        continue;
+                    }
+                    if let Some(added) = self.admit(
+                        &mut arena,
+                        sets.entry(rank as u32).or_default(),
+                        next,
+                        masks,
+                    ) {
+                        arena[added as usize].trail = trail.step(prefix.trail, movement | VIA);
+                        queue.push(Next(next.elapsed, to, added));
+                    }
+                    continue;
+                }
+                for &gate in crossing.get(&movement).into_iter().flatten() {
+                    let gate = &gates[gate];
+                    if gate.from != state {
+                        continue;
+                    }
+                    let scope = masks.intersect(prefix.scope, gate.scope);
+                    if scope == 0 {
+                        continue;
+                    }
+                    let rank = ranks[gate.from as usize];
+                    self.put_label(gate_prefixes.entry(rank).or_default(), prefix, masks);
+                    let original = self.movements.states.state(gate.original_from);
+                    let incoming = (original.incoming != NONE).then_some(original.incoming);
+                    let history = &self.movements.states.turns[original.turns as usize];
+                    let edge = self.movements.roads[gate.input as usize];
+                    let next_forward = self.movements.input.head[gate.input as usize];
+                    let exit = if self.reversed {
+                        gate.original_from
+                    } else {
+                        next_forward
+                    };
+                    let required = self.movements.states.state(next_forward).turns as usize;
+                    let meters = self.kernel.distances[edge as usize] as f64 / 100.;
+                    let (seconds, price) = self.kernel.metric(edge, self.options);
+                    let elapsed = if self.reversed {
+                        self.kernel
+                            .latest_arrival_movement(
+                                history,
+                                incoming,
+                                original.node,
+                                edge,
+                                Some(&self.movements.states.turns[required]),
+                                self.clock,
+                                -prefix.elapsed - seconds * meters,
+                                -self.horizon,
+                            )?
+                            .map(|entry| -entry)
+                    } else {
+                        self.kernel
+                            .movements(
+                                history,
+                                incoming,
+                                original.node,
+                                edge,
+                                self.clock,
+                                prefix.elapsed,
+                                MovementPolicy::Wait,
+                                true,
+                            )?
+                            .into_iter()
+                            .find(|(_, turns)| *turns == self.movements.states.turns[required])
+                            .map(|(departure, _)| departure + seconds * meters)
+                    };
+                    let Some(elapsed) = elapsed else {
+                        continue;
+                    };
+                    let next = Label {
+                        elapsed,
+                        excess: prefix.excess + (price - self.rate * seconds).max(0.) * meters,
+                        meters: prefix.meters + meters,
+                        scope,
+                        ..prefix
+                    };
+                    let exit_rank = ranks[exit as usize] as usize;
+                    if next.meters > self.distance_limit
+                        || next.elapsed > self.horizon
+                        || self.rate * (next.elapsed + final_remaining[exit_rank]) + next.excess
+                            > ceiling
+                    {
+                        continue;
+                    }
+                    let previous = gate_exits.entry(exit).or_default();
+                    let known = previous.iter().fold(next.scope, |mut unknown, known| {
+                        if known.elapsed <= next.elapsed
+                            && known.excess <= next.excess
+                            && (!self.constrained() || known.meters <= next.meters)
+                        {
+                            unknown = masks.subtract(unknown, known.scope);
+                        }
+                        unknown
+                    });
+                    if known == 0 {
+                        continue;
+                    }
+                    let next = Label {
+                        scope: known,
+                        trail: trail.step(prefix.trail, gate.input | VIA),
+                        ..next
+                    };
+                    self.put_label(previous, next, masks);
+                    if let Some(added) = self.admit(
+                        &mut arena,
+                        sets.entry(exit_rank as u32).or_default(),
+                        next,
+                        masks,
+                    ) {
+                        queue.push(Next(next.elapsed, exit, added));
+                    }
+                }
+            }
+        }
+        let search_ms = ms(started);
+        let roots: Vec<_> = gate_exits
+            .into_iter()
+            .flat_map(|(state, labels)| labels.into_iter().map(move |label| (state, label)))
+            .collect();
+        let started = Instant::now();
+        let endings = if self.constrained() || self.reversed || witness {
+            let values: CompactMap<Vec<Label>> = sets
+                .into_iter()
+                .map(|(rank, set)| {
+                    let labels = set.into_iter().map(|index| arena[index as usize]).collect();
+                    (rank, labels)
+                })
+                .collect();
+            if self.reversed {
+                self.finish_arrival(&values, masks, false)?
+            } else {
+                self.finish(&values, masks, false)?
+            }
+        } else {
+            self.finish(&gate_prefixes, masks, false)?
+        };
+        trace("BIKE_TEMPORAL_HIERARCHY", || {
+            serde_json::json!({
+                "variableMovements":gates.len(),"movementSearch":true,"corridorRanks":corridor,"postGateRoots":roots.len(),
+                "settledLabels":settled,"movementSearchMs":search_ms,
+                "portalLabelCount":gate_prefixes.values().map(Vec::len).sum::<usize>(),
+                "partialGateTerminalsMs":ms(started),
+            })
+        });
+        let empty = Profiles {
+            up: CompactMap::default(),
+            down: CompactMap::default(),
+            paths: Vec::new(),
+        };
+        let point = endings
+            .first()
+            .filter(|result| witness && result.value.0.is_finite())
+            .map(|result| {
+                let (a, b) = (result.seed as usize, result.terminal as usize);
+                PointWitness {
+                    cost: result.value.0,
+                    elapsed: result.value.1,
+                    origin: if self.reversed { b } else { a },
+                    destination: if self.reversed { a } else { b },
+                    seed_state: result.label.map(|label| label.state),
+                    steps: result.label.map_or_else(Vec::new, |label| {
+                        trail.movements(label.trail, &empty, self.reversed)
+                    }),
+                }
+            });
+        Ok((
+            roots,
+            endings.into_iter().map(|ending| ending.value).collect(),
+            point,
+        ))
+    }
+
     fn run_profiles(
         &self,
         gates: &[Gate],
@@ -881,12 +1450,23 @@ impl Query<'_> {
         masks: &mut SurfaceMasks,
         witness: bool,
     ) -> Result<ProfileSweep, String> {
+        let corridor = self.corridor_ranks();
+        let wide = corridor > CUSTOMIZED_CORRIDOR_RANKS;
+        #[cfg(test)]
+        let wide = wide || SEARCH_MOVEMENTS.load(std::sync::atomic::Ordering::Relaxed);
+        if wide {
+            return self.search_movements(gates, final_remaining, masks, witness, corridor);
+        }
         let mut trail = Trail {
             enabled: witness,
             legs: Vec::new(),
         };
         let started = Instant::now();
-        let profiles = self.customize(masks)?;
+        // A corridor whose profiles outgrow their workspace is resolved by the
+        // movement search instead.
+        let Ok(profiles) = self.customize(masks) else {
+            return self.search_movements(gates, final_remaining, masks, witness, corridor);
+        };
         let customize_ms = ms(started);
         let started = Instant::now();
         let mut pending = self.initial(masks)?;
@@ -896,7 +1476,7 @@ impl Query<'_> {
         while !pending.is_empty() && !gates.is_empty() {
             rounds += 1;
             if rounds > 128 {
-                return Err("Dated gate propagation exceeded its workspace".into());
+                return self.search_movements(gates, final_remaining, masks, witness, corridor);
             }
             let reached = self.sweep(&profiles, &pending, masks, &mut trail);
             pending.clear();
@@ -1011,16 +1591,16 @@ impl Query<'_> {
             seeds.extend_from_slice(&roots);
             let values = self.sweep(&profiles, &seeds, masks, &mut trail);
             if self.reversed {
-                self.finish_arrival(&values, masks)?
+                self.finish_arrival(&values, masks, false)?
             } else {
-                self.finish(&values, masks)?
+                self.finish(&values, masks, false)?
             }
         } else {
-            self.finish(&gate_prefixes, masks)?
+            self.finish(&gate_prefixes, masks, false)?
         };
         trace("BIKE_TEMPORAL_HIERARCHY", || {
             serde_json::json!({
-                "variableMovements":gates.len(),"rounds":rounds,"postGateRoots":roots.len(),
+                "variableMovements":gates.len(),"rounds":rounds,"corridorRanks":corridor,"postGateRoots":roots.len(),
                 "profileVariants":profiles.paths.len(),
                 "portalLabelCount":gate_prefixes.values().map(Vec::len).sum::<usize>(),
                 "profileCustomizationMs":customize_ms,"rankSweepMs":sweep_ms,

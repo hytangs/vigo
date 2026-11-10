@@ -327,11 +327,11 @@ impl Point<'_> {
             }
         }
         drop(metric);
-        let cap = feasible
+        let mut cap = feasible
             .as_ref()
             .map_or(hard_time * self.prepared.maximum_price_rate, |r| r.cost)
             * (1. + 1e-8);
-        let horizon = (cap / rate).min(hard_time);
+        let mut horizon = (cap / rate).min(hard_time);
         let (fixed, variable) = if self.reversed {
             (self.end, self.start)
         } else {
@@ -372,6 +372,47 @@ impl Point<'_> {
         }
         for i in 1..ends.offsets.len() {
             ends.offsets[i] += ends.offsets[i - 1];
+        }
+        if self.clock.is_some() && !moves.timed.is_empty() {
+            // The relaxed path may wait for a dated road to reopen, which
+            // widens the horizon and dated gates. A legal earliest arrival, or
+            // latest departure, bounds the optimum more tightly.
+            let free: Vec<_> = moves.dynamic.iter().map(|&dynamic| !dynamic).collect();
+            let query = temporal::Query {
+                kernel: k,
+                movements: moves,
+                hierarchy: h,
+                starts: fixed,
+                ends: &ends,
+                target_nodes: &nodes,
+                target_states: &[],
+                options: opt,
+                clock: self.clock,
+                rate,
+                cap: f64::INFINITY,
+                horizon,
+                distance_limit: self.meters,
+                maximum_speed: self.walk_speed.max(45.) / 3.6,
+                permissions: &permission,
+                lower_start: &[],
+                lower_start_price: &[],
+                lower_remaining: &[],
+                steady: &free,
+                reversed: self.reversed,
+                continuation: self.continuation,
+            };
+            let backwards = self.reversed.then(|| query.reverse_movements());
+            let fastest = query.earliest(&mut masks, 0, false, backwards.as_ref())?;
+            let cheapest = query.earliest(&mut masks, 0, true, backwards.as_ref())?;
+            if let Some(cost) = fastest
+                .first()
+                .zip(cheapest.first())
+                .map(|(&(fast, _), &(cheap, _))| fast.min(cheap))
+                && cost * (1. + 1e-8) < cap
+            {
+                cap = cost * (1. + 1e-8);
+                horizon = (cap / rate).min(hard_time);
+            }
         }
         let mut forward_time = Vec::new();
         let mut forward_price = Vec::new();
