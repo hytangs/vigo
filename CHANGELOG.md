@@ -1,5 +1,9 @@
 # Version history
 
+## Unreleased
+
+- A single-City `stream` or `serve` worker opens its bicycle network and prepares the default hierarchy in the background as soon as it opens a City with bicycle data, so the first bicycle request no longer waits for it. A request that arrives earlier waits only for what remains, and answers are unchanged. Set `VIGO_PREPARE_BIKE=0` to prepare on the first bicycle request instead. Bicycle caches remove temporary files that an interrupted process left for over an hour.
+
 ## 1.0.0 — 2026-11-09
 
 - Route, Matrix and Reach share a bicycle contraction hierarchy that enforces timed roads, turns and endpoint access. Walking connectors use the pedestrian hierarchy. Source-bound local indexes keep only the upward hierarchy and shortcut witnesses and rebuild exact weights on open; existing Cities remain readable. Reach bounds each cell's walking search with one relaxed hierarchy sweep.

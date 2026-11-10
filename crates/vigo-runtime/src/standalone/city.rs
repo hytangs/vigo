@@ -314,7 +314,9 @@ pub struct City {
     pending_pedestrian_profile: Option<(PathBuf, String)>,
     pub(crate) drive: Option<Drive>,
     // Keep unused bicycle bookkeeping out of every transit-only City.
-    pub(crate) bike: Option<Box<crate::bike::BikeKernel>>,
+    pub(crate) bike: Option<Arc<crate::bike::BikeKernel>>,
+    /// The bicycle network a background preparation is opening, if any.
+    bike_opening: Option<std::sync::mpsc::Receiver<Option<Arc<crate::bike::BikeKernel>>>>,
     pub(crate) polling_enabled: bool,
     pub(crate) timetable: Option<Timetable>,
     /// What the active scenario view adds: new stops and planned services.
@@ -727,6 +729,7 @@ impl City {
             pending_pedestrian_profile,
             drive: None,
             bike: None,
+            bike_opening: None,
             polling_enabled: false,
             timetable: None,
             scenario_view: None,
@@ -1566,16 +1569,72 @@ impl City {
                 .map(|t| t.kernel.take_query_workspace())
         })
     }
+    fn bike_source(&self) -> Result<String> {
+        Ok(self
+            .street_directory
+            .join("street-index.sqlite")
+            .to_str()
+            .ok_or("City path must be UTF-8")?
+            .to_owned())
+    }
     pub(crate) fn load_bike(&mut self) -> Result<()> {
-        if self.bike.is_none() {
-            let bike = Box::new(crate::bike::BikeKernel::open(
-                self.street_directory
-                    .join("street-index.sqlite")
-                    .to_str()
-                    .ok_or("City path must be UTF-8")?,
-            )?);
-            self.bike = Some(bike);
+        if self.bike.is_some() {
+            return Ok(());
         }
+        // A background preparation that opened the network hands it over; one
+        // that failed leaves the error to this open, as without preparation.
+        if let Some(Ok(Some(bike))) = self.bike_opening.take().map(|opening| opening.recv()) {
+            self.bike = Some(bike);
+            return Ok(());
+        }
+        self.bike = Some(Arc::new(crate::bike::BikeKernel::open(
+            &self.bike_source()?,
+        )?));
+        Ok(())
+    }
+    /// Takes over a bicycle network the background preparation has opened,
+    /// so the memory ledger counts it from the first request after it is
+    /// ready. A failed preparation leaves the next bicycle query to open it.
+    pub(crate) fn adopt_prepared_bike(&mut self) {
+        let Some(opening) = &self.bike_opening else {
+            return;
+        };
+        match opening.try_recv() {
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Ok(bike) => {
+                self.bike = bike;
+                self.bike_opening = None;
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => self.bike_opening = None,
+        }
+    }
+    /// Opens the bicycle network and prepares its default hierarchy on a
+    /// background thread, so the first bicycle request finds it ready or
+    /// waits only for what remains. Results are those of an on-demand open.
+    pub(crate) fn prepare_bike_in_background(&mut self) -> Result<()> {
+        // A built City declares its modes. A Studio project's derived manifest
+        // never lists bicycles, so its street index decides.
+        let without_bike = self.manifest["kind"] != "studio-project"
+            && self.manifest["modes"]
+                .as_array()
+                .is_some_and(|modes| !modes.iter().any(|mode| mode == "bike"));
+        if without_bike || self.bike.is_some() || self.bike_opening.is_some() {
+            return Ok(());
+        }
+        let source = self.bike_source()?;
+        let (opened, opening) = std::sync::mpsc::sync_channel(1);
+        std::thread::Builder::new()
+            .name("vigo-bike-prepare".into())
+            .spawn(move || {
+                let Ok(bike) = crate::bike::BikeKernel::open(&source).map(Arc::new) else {
+                    let _ = opened.send(None);
+                    return;
+                };
+                let _ = opened.send(Some(bike.clone()));
+                // Best effort: a failure here reappears on the bicycle query.
+                let _ = bike.prepare_cch(crate::bike::BikeOptions::default());
+            })?;
+        self.bike_opening = Some(opening);
         Ok(())
     }
     pub(crate) fn load_drive(&mut self) -> Result<()> {
