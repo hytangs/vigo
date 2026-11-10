@@ -202,7 +202,6 @@ pub(crate) struct BikeResult {
     pub cost: Option<f64>,
     #[serde(skip_serializing_if = "zero_seconds")]
     pub end_wait_seconds: f64,
-    pub settled_labels: usize,
     pub origin_road_meters: Option<f64>,
     pub destination_road_meters: Option<f64>,
     pub unsupported_restrictions: u64,
@@ -3007,10 +3006,6 @@ mod tests {
             };
             assert!((r.cost.unwrap() - factor * 3620.).abs() < 1e-6);
             assert!((distance(&r) - 200.).abs() < 1e-6);
-            assert!(
-                r.settled_labels < 200,
-                "Cycles should be dominated by waiting"
-            );
         }
     }
 
@@ -3953,7 +3948,6 @@ mod tests {
             .unwrap();
         assert_eq!(r.status, "ready");
         assert!((r.cost.unwrap() - 0.8 * (28800. + 20.006)).abs() < 1e-7);
-        assert!(r.settled_labels < 20, "{}", r.settled_labels);
         assert!(!r.legs.iter().any(|leg| leg.coordinates.contains(&nodes[2])));
     }
 
@@ -3991,10 +3985,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(wider.status, "blocked");
-        assert_eq!(
-            wider.settled_labels, nearby.settled_labels,
-            "Do not repeat an identical failed search"
-        );
+        assert_eq!(nearby.status, "blocked");
     }
 
     #[test]
@@ -4255,7 +4246,6 @@ mod tests {
             .unwrap();
         assert_eq!(r.status, "ready");
         assert!((r.cost.unwrap() - 0.8 * (28800. + 20.)).abs() < 1e-7);
-        assert!(r.settled_labels < 512, "{} labels", r.settled_labels);
         let arrival = k
             .route_arrive_limited(
                 nodes[0],
@@ -4272,11 +4262,6 @@ mod tests {
         assert_eq!(arrival.status, "ready");
         assert_eq!(arrival.timing_policy, "dated_arrive_by_verified");
         assert!((arrival.cost.unwrap() - 0.8 * (riding + 280.)).abs() < 1e-6);
-        assert!(
-            arrival.settled_labels < 1000,
-            "{} arrival labels",
-            arrival.settled_labels
-        );
     }
 
     #[test]

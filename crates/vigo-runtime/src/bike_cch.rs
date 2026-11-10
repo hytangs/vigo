@@ -1689,7 +1689,8 @@ pub(super) fn measure(
     cutoff: f64,
     walk_speed_kph: f64,
     attachment_ms: f64,
-) -> Result<Vec<f64>, String> {
+    first_pass: bool,
+) -> Result<Vec<Option<f64>>, String> {
     let (prepared, resident) = kernel.hierarchy(options)?;
     let movements = &prepared.movements;
     let hierarchy = &prepared.hierarchy;
@@ -1728,22 +1729,10 @@ pub(super) fn measure(
             // Preserve the origin attachment index for witness replay.
             sources.push((a.node, f64::INFINITY));
         }
-        let mut push_lower = |state| {
+        for state in start_states(kernel, movements, a) {
             earliest_sources.push((state, a.walk_seconds + a.drive_meters * seconds));
             lower_sources.push((state, a.walk_seconds + a.drive_meters * price));
             lower_attachments.push(index);
-        };
-        if a.drive_meters > 1e-7 {
-            let start = kernel.source(a.edge) as usize;
-            for input in movements.input.first_out[start] as usize
-                ..movements.input.first_out[start + 1] as usize
-            {
-                if movements.roads[input] == a.edge {
-                    push_lower(movements.input.head[input]);
-                }
-            }
-        } else {
-            push_lower(a.node);
         }
     }
     let mut nodes: Vec<_> = ends
@@ -1800,7 +1789,11 @@ pub(super) fn measure(
                 "endpointMs":attachment_ms,"changingMovements":0,"postGateRoots":0,
             })
         });
-        return Ok(verified.into_iter().flatten().collect());
+        return Ok(verified);
+    }
+    if first_pass {
+        // The caller resolves the remaining cells with full endpoint sets.
+        return Ok(verified);
     }
     let earliest_scope_ms = ms(before);
     let before = Instant::now();
@@ -2454,7 +2447,91 @@ pub(super) fn measure(
             "changingMovements":gates.len(),"gatesBeforeProof":gates_before_proof,"postGateRoots":post_gate_roots.len(),
         })
     });
-    Ok(seconds)
+    Ok(seconds.into_iter().map(Some).collect())
+}
+
+#[cfg(any(feature = "standalone", test))]
+/// Hierarchy states a departure attachment enters: the movements along its
+/// first road, or its node when the attachment starts at the node.
+fn start_states<'a>(
+    kernel: &BikeKernel,
+    movements: &'a MovementGraph,
+    a: RoadCandidate,
+) -> impl Iterator<Item = u32> + 'a {
+    let (range, road, at_node) = if a.drive_meters > 1e-7 {
+        let start = kernel.source(a.edge) as usize;
+        (
+            movements.input.first_out[start] as usize
+                ..movements.input.first_out[start + 1] as usize,
+            a.edge,
+            None,
+        )
+    } else {
+        (0..0, NONE, Some(a.node))
+    };
+    at_node.into_iter().chain(
+        range
+            .filter(move |&input| movements.roads[input] == road)
+            .map(|input| movements.input.head[input]),
+    )
+}
+
+/// Relaxed (optimistic) preference costs between an endpoint attachment and
+/// every bicycle node: the minimum over the node's turn states, and the cost
+/// at its base state. This is the metric and source set the surface
+/// certificate uses, so the minimum lower-bounds every terminal through the
+/// node and the base value equals a zero-length terminal's certified cost.
+#[cfg(any(feature = "standalone", test))]
+pub(super) struct NodeBounds {
+    pub minimum: Vec<f64>,
+    pub base: Vec<f64>,
+}
+
+#[cfg(any(feature = "standalone", test))]
+pub(super) fn node_bounds(
+    kernel: &BikeKernel,
+    endpoint: &Attachment,
+    options: BikeOptions,
+    arrive: bool,
+) -> Result<NodeBounds, String> {
+    let (prepared, _) = kernel.hierarchy(options)?;
+    let movements = &prepared.movements;
+    let hierarchy = &prepared.hierarchy;
+    let graph = kernel.graph();
+    let mut sources = Vec::new();
+    for index in 0..endpoint.candidates.len() {
+        let a = endpoint.candidate(&graph, index);
+        let price = kernel.metric(a.edge, options).1;
+        let cost = a.walk_seconds + a.drive_meters * price;
+        if arrive {
+            sources.extend(reverse::destination_states(movements, a).map(|s| (s, cost)));
+        } else {
+            sources.extend(start_states(kernel, movements, a).map(|s| (s, cost)));
+        }
+    }
+    let optimistic = prepared.optimistic(kernel, options);
+    let mut work = Workspace::new(hierarchy.graph.node_count());
+    hierarchy.solve(
+        &sources,
+        None,
+        &mut work,
+        optimistic.directions(hierarchy, arrive),
+    );
+    let rank = &hierarchy.graph.rank;
+    let value = |state: u32| work.down_cost[rank[state as usize] as usize];
+    let nodes = kernel.lons.len() as u32;
+    Ok(NodeBounds {
+        minimum: (0..nodes)
+            .map(|node| {
+                movements
+                    .states
+                    .variants(node)
+                    .map(value)
+                    .fold(f64::INFINITY, f64::min)
+            })
+            .collect(),
+        base: (0..nodes).map(value).collect(),
+    })
 }
 
 #[cfg(test)]

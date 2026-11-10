@@ -240,12 +240,8 @@ impl City {
                 )?
             };
             let diagnostics = json!({"algorithm":"bike_movement_cch_surface",
-                "settledLabels":0,"certifiedTargets":result.seconds.len(),
-                "exactFallbackTargets":0,"treeLimited":false,"fallbackReasons":{},
-                "scopedTrees":0,"timedAttachmentCertificates":0,
                 "timedAccessGroups":result.access_groups,
                 "accessGroupKeyBytes":result.access_group_key_bytes,
-                "accessGroupLimitTargets":0,
                 "profile":options.profile,"speedKph":options.speed_kph,"maxLts":options.max_lts,
                 "durationPolicy":if arrive {"deadline_elapsed_on_minimum_preference_cost_route"} else {"physical_seconds_on_minimum_preference_cost_route"},
                 "timingPolicy":if clock.is_some() {if arrive {"dated_arrive_by_verified"} else {"dated_roads_and_turns"}} else {"conservative"}});

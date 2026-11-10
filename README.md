@@ -64,7 +64,7 @@ The paper’s frozen matched-request benchmark reports these median times for re
 
 VIGO had the lowest median latency among the nine interfaces in that benchmark. These are historical transit point-query measurements; City loading, bicycle isochrones and Matrix workloads have different costs. The paper, benchmark code and measurement method are linked from [vigo.city](https://vigo.city/).
 
-Bicycle Route, Matrix and Reach use a turn-aware customizable contraction hierarchy (CCH). Reach shares rank sweeps across the grid in both time directions. A City can reopen source-checked hierarchy data from the local cache, which stores graph indexes and weights.
+Bicycle Route, Matrix and Reach use a turn-aware customizable contraction hierarchy (CCH). Reach shares rank sweeps across the grid in both time directions. A City can reopen source-checked hierarchy data from the local cache, which stores graph indexes and shortcut witnesses.
 
 When timing a current build, measure the first request separately from repeated requests against a resident City. Record the data revision, mode, bicycle profile where applicable, surface size, time budget and worker count alongside the result.
 

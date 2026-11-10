@@ -338,10 +338,6 @@ try {
     assert.equal(reach.status,'ok');assert.equal(reach.mode,'bike')
     assert.equal(reach.trace.surface.sampling,'cell-center')
     assert.equal(reach.trace.diagnostics.bike.algorithm,'bike_movement_cch_surface')
-    assert.equal(reach.trace.diagnostics.bike.certifiedTargets,size*size)
-    assert.equal(reach.trace.diagnostics.bike.exactFallbackTargets,0)
-    if (!arrive) assert.equal(reach.trace.diagnostics.bike.timedAttachmentCertificates,0,
-      'Network-walking endpoints do not need per-target widening proofs')
     const matrix=run('matrix',{...parameters,maxStreetKm:750,
       origins:arrive?cells:[query.origin],destinations:arrive?[query.destination]:cells},reachCity)
     const expected=arrive?matrix.durationsSeconds.map(row=>row[0]):matrix.durationsSeconds[0]

@@ -6,13 +6,11 @@ use super::*;
 pub(crate) struct BikeMatrixResult {
     pub seconds: Vec<f64>,
     pub meters: Vec<f64>,
-    pub settled_labels: usize,
     pub shared_fields: usize,
     pub certified_pairs: usize,
     pub point_queries: usize,
     pub unique_origins: usize,
     pub unique_destinations: usize,
-    pub tree_limited: bool,
 }
 
 fn distinct(points: &[[f64; 2]]) -> (Vec<[f64; 2]>, Vec<usize>) {
@@ -76,13 +74,11 @@ impl BikeKernel {
         let mut result = BikeMatrixResult {
             seconds: vec![f64::INFINITY; unique_origins.len() * width],
             meters: vec![f64::INFINITY; unique_origins.len() * width],
-            settled_labels: 0,
             shared_fields: 0,
             certified_pairs: 0,
             point_queries: 0,
             unique_origins: unique_origins.len(),
             unique_destinations: width,
-            tree_limited: false,
         };
         // A full field must amortize its bounded construction. Smaller batches
         // still benefit from exact coordinate deduplication without a field.
@@ -142,7 +138,6 @@ impl BikeKernel {
                             clock,
                         )?
                     };
-                    result.settled_labels += route.settled_labels;
                     result.point_queries += 1;
                     if route.status == "ready" {
                         result.seconds[i * width + j] = route.elapsed_seconds();

@@ -226,11 +226,7 @@ impl SurfaceTerminal {
     fn new(target: usize, end: usize, attachment: &Attachment, arrive: bool) -> Self {
         debug_assert!(end < 1 << 31);
         let candidate = attachment.candidates[end];
-        let zero = if arrive {
-            candidate.fraction == 1. || candidate.fraction == 3. || candidate.fraction == 4.
-        } else {
-            candidate.fraction == 0. || candidate.fraction == 2.
-        };
+        let zero = zero_terminal(candidate.fraction, arrive);
         Self {
             target: target as u32,
             end: end as u32 | (u32::from(zero) << 31),
@@ -483,14 +479,8 @@ impl BikeKernel {
             .filter(|c| self.attributes[c.edge as usize] & (1 << 22) != 0)
             .map(|c| self.destination_components[self.source(c.edge) as usize])
             .collect();
-        let mut ends = SurfaceEnds {
-            attachments: Vec::with_capacity(targets.len()),
-            groups: vec![],
-            permissions: vec![],
-            offsets: vec![0; self.lons.len() + 1],
-            entries: vec![],
-            direct: vec![],
-        };
+        let arrive = arrival_limit.is_some();
+        let speed = walk_speed / 3.6;
         let mut starts_by_edge = HashMap::<
             u32,
             smallvec::SmallVec<[usize; 2]>,
@@ -499,60 +489,198 @@ impl BikeKernel {
         for (i, c) in starts.candidates.iter().enumerate() {
             starts_by_edge.entry(c.edge).or_default().push(i);
         }
-        let mut groups = HashMap::<Vec<u32>, usize>::new();
-        let attach = |&point: &[f64; 2], scratch: &mut walk::WalkSearch| {
+        let attach = |point: [f64; 2], reach: f64, scratch: &mut walk::WalkSearch| {
             if let Some(walking) = &self.walking {
                 return walking.attach_with_workspace(
-                    self,
-                    point,
-                    max_walk,
-                    walk_speed / 3.6,
-                    arrival_limit.is_some(),
-                    &eligible,
-                    arrival_limit.is_some(),
-                    scratch,
+                    self, point, max_walk, reach, speed, arrive, &eligible, arrive, scratch,
                 );
             }
-            self.attach_bicycle_matching(
-                &graph,
-                point,
-                max_walk,
-                walk_speed / 3.6,
-                arrival_limit.is_some(),
-                false,
-                &eligible,
-            )
+            self.attach_bicycle_matching(&graph, point, max_walk, speed, arrive, false, &eligible)
         };
-        let attachments: Vec<_> = if let Some(pool) = crate::ENDPOINT_ACCESS_POOL.as_ref() {
-            use rayon::prelude::*;
-            const CHUNK: usize = 32;
-            let count = targets.len().div_ceil(CHUNK);
-            let lanes = count.min(pool.current_num_threads());
-            let mut chunks: Vec<_> = pool.install(|| {
-                (0..lanes)
-                    .into_par_iter()
-                    .flat_map_iter(|lane| {
-                        let mut scratch = walk::WalkSearch::default();
-                        (lane..count).step_by(lanes).map(move |index| {
-                            let start = index * CHUNK;
-                            let rows: Vec<_> = targets[start..(start + CHUNK).min(targets.len())]
-                                .iter()
-                                .map(|point| attach(point, &mut scratch))
-                                .collect();
-                            (index, rows)
-                        })
-                    })
-                    .collect()
+        let ends_of = |attachments: Vec<Result<Attachment, String>>| {
+            self.surface_ends(attachments, &starts_by_edge, &origin_access, arrive)
+        };
+        let run = |ends: &SurfaceEnds, first_pass: bool| {
+            let attachment_ms = started.elapsed().as_secs_f64() * 1000.;
+            if let Some(limit) = arrival_limit {
+                hierarchy::reverse::measure(
+                    self,
+                    &starts,
+                    ends,
+                    &origin_access,
+                    opt,
+                    clock,
+                    max_distance,
+                    maximum_seconds,
+                    limit,
+                    walk_speed,
+                    attachment_ms,
+                    first_pass,
+                )
+            } else {
+                hierarchy::measure(
+                    self,
+                    &starts,
+                    ends,
+                    &origin_access,
+                    opt,
+                    clock,
+                    max_distance,
+                    maximum_seconds,
+                    walk_speed,
+                    attachment_ms,
+                    first_pass,
+                )
+            }
+        };
+        let complete = |values: Vec<Option<f64>>| {
+            values
+                .into_iter()
+                .map(|value| value.ok_or("Bicycle surface left a cell unresolved"))
+                .collect::<Result<Vec<_>, _>>()
+        };
+        if self.walking.is_none() {
+            let ends = ends_of(in_parallel(targets.len(), |i, scratch| {
+                attach(targets[i], max_walk, scratch)
+            }))?;
+            if std::iter::once(&starts)
+                .chain(&ends.attachments)
+                .any(|attachment| {
+                    attachment
+                        .nearest_meters
+                        .is_some_and(|meters| max_walk > meters + ALTERNATIVE_TOLERANCE_M)
+                })
+            {
+                // Select the endpoint scope using the uncut CCH minimum.
+                // Reach's display cutoff must not change which roads match.
+                let (from, to) = if arrive {
+                    (targets, std::slice::from_ref(&origin))
+                } else {
+                    (std::slice::from_ref(&origin), targets)
+                };
+                let batch = hierarchy::batch::Batch::new(
+                    hierarchy::batch::Request {
+                        kernel: self,
+                        options: opt,
+                        max_walk,
+                        walk_speed,
+                        max_meters: max_distance,
+                        clock,
+                        arrive,
+                        max_elapsed: arrival_limit,
+                    },
+                    from,
+                    to,
+                )?
+                .row(0)?;
+                let cutoff = maximum_seconds.min(arrival_limit.unwrap_or(f64::INFINITY));
+                let seconds = batch
+                    .seconds
+                    .into_iter()
+                    .map(|s| if s <= cutoff { s } else { f64::INFINITY })
+                    .collect();
+                return Ok(BikeSurface {
+                    seconds,
+                    access_groups: batch.access_groups,
+                    access_group_key_bytes: batch.access_group_key_bytes,
+                });
+            }
+            return Ok(BikeSurface {
+                seconds: complete(run(&ends, false)?)?,
+                access_groups: ends.permissions.len(),
+                access_group_key_bytes: ends.permissions.iter().map(|v| v.capacity() * 4).sum(),
             });
-            chunks.sort_unstable_by_key(|(index, _)| *index);
-            chunks.into_iter().flat_map(|(_, rows)| rows).collect()
-        } else {
-            let mut scratch = walk::WalkSearch::default();
-            targets
+        }
+        // First pass: each cell searches only as far as a walking candidate
+        // could still beat the best one it has found. Every candidate in
+        // this prefix keeps its exact full-radius distance and order, so a
+        // certified minimum is the full-radius minimum. Cells the
+        // certificate cannot settle repeat with every candidate below.
+        let bounds = hierarchy::node_bounds(self, &starts, opt, arrive)?;
+        let tiles = Tiles::new(self, &bounds.minimum, targets, max_walk);
+        let near = self.near_endpoint(&starts, origin, targets, max_walk);
+        let first = in_parallel(targets.len(), |i, scratch| {
+            let point = targets[i];
+            if near[i] {
+                return attach(point, max_walk, scratch);
+            }
+            let probe = PROBE_REACH_M.min(max_walk);
+            let found = attach(point, probe, scratch)?;
+            let best = found
+                .candidates
                 .iter()
-                .map(|point| attach(point, &mut scratch))
-                .collect()
+                .filter(|c| zero_terminal(c.fraction, arrive))
+                .map(|c| {
+                    let prefix = if arrive {
+                        bounds.base[c.node as usize]
+                    } else {
+                        bounds.minimum[c.node as usize]
+                    };
+                    prefix * (1. + 1e-9) + 1e-9 + c.walk_meters / speed
+                })
+                .fold(f64::INFINITY, f64::min);
+            let reach = match tiles.reach(point, best, speed) {
+                Some(reach) if best.is_finite() => {
+                    (reach * (1. + 1e-6) + 1.).clamp(probe, max_walk)
+                }
+                _ => max_walk,
+            };
+            if reach > probe {
+                attach(point, reach, scratch)
+            } else {
+                Ok(found)
+            }
+        });
+        let ends = ends_of(first)?;
+        let mut seconds = run(&ends, true)?;
+        let pending: Vec<_> = (0..seconds.len())
+            .filter(|&i| seconds[i].is_none())
+            .collect();
+        let mut access_groups = ends.permissions.len();
+        let mut access_group_key_bytes = ends.permissions.iter().map(|v| v.capacity() * 4).sum();
+        if !pending.is_empty() {
+            let full = ends_of(in_parallel(pending.len(), |k, scratch| {
+                attach(targets[pending[k]], max_walk, scratch)
+            }))?;
+            for (&cell, value) in pending.iter().zip(run(&full, false)?) {
+                seconds[cell] = value;
+            }
+            access_groups = access_groups.max(full.permissions.len());
+            access_group_key_bytes += full
+                .permissions
+                .iter()
+                .map(|v| v.capacity() * 4)
+                .sum::<usize>();
+        }
+        Ok(BikeSurface {
+            seconds: complete(seconds)?,
+            access_groups,
+            access_group_key_bytes,
+        })
+    }
+
+    /// Groups endpoint candidates by bicycle node, interns each cell's
+    /// private-access permissions and records same-road start pairs.
+    fn surface_ends(
+        &self,
+        attachments: Vec<Result<Attachment, String>>,
+        starts_by_edge: &HashMap<
+            u32,
+            smallvec::SmallVec<[usize; 2]>,
+            std::hash::BuildHasherDefault<crate::IntegerHasher>,
+        >,
+        origin_access: &HashSet<u32>,
+        arrive: bool,
+    ) -> Result<SurfaceEnds, String> {
+        let mut ends = SurfaceEnds {
+            attachments: Vec::with_capacity(attachments.len()),
+            groups: vec![],
+            permissions: vec![],
+            offsets: vec![0; self.lons.len() + 1],
+            entries: vec![],
+            direct: vec![],
         };
+        let mut groups = HashMap::<Vec<u32>, usize>::new();
         // Millions of terminal candidates are checked against a few start
         // roads. Test a bitset before probing the exact start index.
         let mut start_edges = vec![0u64; self.targets.len().div_ceil(64)];
@@ -603,90 +731,192 @@ impl BikeKernel {
             for (end, candidate) in attachment.candidates.iter().enumerate() {
                 let slot = &mut next[candidate.node as usize];
                 ends.entries[*slot as usize] =
-                    SurfaceTerminal::new(target, end, attachment, arrival_limit.is_some());
+                    SurfaceTerminal::new(target, end, attachment, arrive);
                 *slot += 1;
             }
         }
-        drop(next);
-        let access_groups = ends.permissions.len();
-        let access_group_key_bytes = ends.permissions.iter().map(|v| v.capacity() * 4).sum();
-        if self.walking.is_none()
-            && std::iter::once(&starts)
-                .chain(&ends.attachments)
-                .any(|attachment| {
-                    attachment
-                        .nearest_meters
-                        .is_some_and(|meters| max_walk > meters + ALTERNATIVE_TOLERANCE_M)
-                })
-        {
-            // Select the endpoint scope using the uncut CCH minimum.
-            // Reach's display cutoff must not change which roads match.
-            let arrive = arrival_limit.is_some();
-            let (from, to) = if arrive {
-                (targets, std::slice::from_ref(&origin))
-            } else {
-                (std::slice::from_ref(&origin), targets)
-            };
-            let batch = hierarchy::batch::Batch::new(
-                hierarchy::batch::Request {
-                    kernel: self,
-                    options: opt,
-                    max_walk,
-                    walk_speed,
-                    max_meters: max_distance,
-                    clock,
-                    arrive,
-                    max_elapsed: arrival_limit,
-                },
-                from,
-                to,
-            )?
-            .row(0)?;
-            let cutoff = maximum_seconds.min(arrival_limit.unwrap_or(f64::INFINITY));
-            let seconds = batch
-                .seconds
-                .into_iter()
-                .map(|s| if s <= cutoff { s } else { f64::INFINITY })
-                .collect();
-            return Ok(BikeSurface {
-                seconds,
-                access_groups: batch.access_groups,
-                access_group_key_bytes: batch.access_group_key_bytes,
-            });
-        }
-        let attachment_ms = started.elapsed().as_secs_f64() * 1000.;
-        let seconds = if let Some(limit) = arrival_limit {
-            hierarchy::reverse::measure(
-                self,
-                &starts,
-                &ends,
-                &origin_access,
-                opt,
-                clock,
-                max_distance,
-                maximum_seconds,
-                limit,
-                walk_speed,
-                attachment_ms,
-            )?
-        } else {
-            hierarchy::measure(
-                self,
-                &starts,
-                &ends,
-                &origin_access,
-                opt,
-                clock,
-                max_distance,
-                maximum_seconds,
-                walk_speed,
-                attachment_ms,
-            )?
-        };
-        Ok(BikeSurface {
-            seconds,
-            access_groups,
-            access_group_key_bytes,
-        })
+        Ok(ends)
     }
+
+    /// Cells close enough to share a road with the fixed endpoint. Their
+    /// same-road pairs bypass the hierarchy, so they keep a full search.
+    fn near_endpoint(
+        &self,
+        endpoint: &Attachment,
+        point: [f64; 2],
+        targets: &[[f64; 2]],
+        max_walk: f64,
+    ) -> Vec<bool> {
+        let longest = endpoint
+            .candidates
+            .iter()
+            .map(|c| f64::from(self.distances[c.edge as usize]) / 100.)
+            .fold(0., f64::max);
+        let limit = 2. * (max_walk * 1.02 + 30.) + longest + 100.;
+        let (ky, kx) = (110_574., 111_320. * point[1].to_radians().cos());
+        targets
+            .iter()
+            .map(|p| {
+                let (dx, dy) = ((p[0] - point[0]) * kx, (p[1] - point[1]) * ky);
+                // Equirectangular distance underestimates by far less than
+                // the 2% margin at Reach extents.
+                (dx * dx + dy * dy).sqrt() <= limit * 1.02
+            })
+            .collect()
+    }
+}
+
+/// The least relaxed node cost in each map tile around the grid. A walking
+/// candidate in a tile costs at least that minimum plus the walk to the
+/// tile's nearest point, which bounds how far a cell must search.
+#[cfg(any(feature = "standalone", test))]
+struct Tiles {
+    minimum: Vec<f64>,
+    columns: usize,
+    rows: usize,
+    west: f64,
+    south: f64,
+    kx: f64,
+    ky: f64,
+    radius: f64,
+}
+
+#[cfg(any(feature = "standalone", test))]
+impl Tiles {
+    const SIZE_M: f64 = 100.;
+
+    fn new(kernel: &BikeKernel, node_minimum: &[f64], targets: &[[f64; 2]], max_walk: f64) -> Self {
+        // Walks follow network edges, so they are never shorter than the
+        // straight-line distance; the margin covers projection error.
+        let radius = max_walk * 1.02 + 30.;
+        let latitude = targets.iter().map(|p| p[1]).sum::<f64>() / targets.len().max(1) as f64;
+        let (ky, kx) = (110_574., 111_320. * latitude.to_radians().cos().max(1e-6));
+        let (mut west, mut south, mut east, mut north) = (
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        );
+        for p in targets {
+            west = west.min(p[0]);
+            east = east.max(p[0]);
+            south = south.min(p[1]);
+            north = north.max(p[1]);
+        }
+        west -= radius / kx;
+        east += radius / kx;
+        south -= radius / ky;
+        north += radius / ky;
+        let columns = (((east - west) * kx / Self::SIZE_M).ceil() as usize).max(1);
+        let rows = (((north - south) * ky / Self::SIZE_M).ceil() as usize).max(1);
+        let mut minimum = vec![f64::INFINITY; columns * rows];
+        for (node, &cost) in node_minimum.iter().enumerate() {
+            let (x, y) = (kernel.lons[node], kernel.lats[node]);
+            if cost.is_finite() && x >= west && x < east && y >= south && y < north {
+                let column = (((x - west) * kx / Self::SIZE_M) as usize).min(columns - 1);
+                let row = (((y - south) * ky / Self::SIZE_M) as usize).min(rows - 1);
+                let tile = &mut minimum[row * columns + column];
+                *tile = tile.min(cost);
+            }
+        }
+        Self {
+            minimum,
+            columns,
+            rows,
+            west,
+            south,
+            kx,
+            ky,
+            radius,
+        }
+    }
+
+    /// The walking distance beyond which no candidate around `point` can
+    /// cost at most `best`, or `None` when that needs the full radius.
+    fn reach(&self, point: [f64; 2], best: f64, speed: f64) -> Option<f64> {
+        let (px, py) = (
+            (point[0] - self.west) * self.kx,
+            (point[1] - self.south) * self.ky,
+        );
+        let size = Self::SIZE_M;
+        let span = |v: f64, n: usize| {
+            let low = ((v - self.radius) / size).floor();
+            let high = ((v + self.radius) / size).floor();
+            (low >= 0. && high < n as f64).then_some((low as usize, high as usize))
+        };
+        // A cell whose search disk leaves the tiled area needs every tile.
+        let (top, bottom) = span(py, self.rows)?;
+        let (left, right) = span(px, self.columns)?;
+        let mut reach: f64 = 0.;
+        for row in top..=bottom {
+            let dy = (row as f64 * size - py)
+                .max(py - (row + 1) as f64 * size)
+                .max(0.);
+            for column in left..=right {
+                let dx = (column as f64 * size - px)
+                    .max(px - (column + 1) as f64 * size)
+                    .max(0.);
+                let distance = (dx * dx + dy * dy).sqrt();
+                let cost = self.minimum[row * self.columns + column];
+                if distance > self.radius || !cost.is_finite() {
+                    continue;
+                }
+                // Undercount the walk to this tile so the bound stays safe.
+                let walk = (distance / 1.02 - 30.).max(0.);
+                if cost + walk / speed <= best {
+                    reach = reach.max((best - cost) * speed);
+                }
+            }
+        }
+        Some(reach)
+    }
+}
+
+#[cfg(any(feature = "standalone", test))]
+/// The first walking radius a cell searches before its bound is known.
+const PROBE_REACH_M: f64 = 150.;
+
+/// Whether a candidate ends at a node without riding part of a road; its
+/// certified cost is then the node's hierarchy value plus its walk.
+fn zero_terminal(fraction: f64, arrive: bool) -> bool {
+    if arrive {
+        fraction == 1. || fraction == 3. || fraction == 4.
+    } else {
+        fraction == 0. || fraction == 2.
+    }
+}
+
+#[cfg(any(feature = "standalone", test))]
+/// Runs `work` for `0..count` on the endpoint pool, in index order, with one
+/// walking scratch per lane.
+fn in_parallel<T: Send>(
+    count: usize,
+    work: impl Fn(usize, &mut walk::WalkSearch) -> T + Sync,
+) -> Vec<T> {
+    let Some(pool) = crate::ENDPOINT_ACCESS_POOL.as_ref() else {
+        let mut scratch = walk::WalkSearch::default();
+        return (0..count).map(|i| work(i, &mut scratch)).collect();
+    };
+    use rayon::prelude::*;
+    const CHUNK: usize = 32;
+    let chunks = count.div_ceil(CHUNK);
+    let lanes = chunks.min(pool.current_num_threads()).max(1);
+    let mut done: Vec<_> = pool.install(|| {
+        (0..lanes)
+            .into_par_iter()
+            .flat_map_iter(|lane| {
+                let mut scratch = walk::WalkSearch::default();
+                let work = &work;
+                (lane..chunks).step_by(lanes).map(move |chunk| {
+                    let start = chunk * CHUNK;
+                    let rows: Vec<_> = (start..(start + CHUNK).min(count))
+                        .map(|i| work(i, &mut scratch))
+                        .collect();
+                    (chunk, rows)
+                })
+            })
+            .collect()
+    });
+    done.sort_unstable_by_key(|(chunk, _)| *chunk);
+    done.into_iter().flat_map(|(_, rows)| rows).collect()
 }

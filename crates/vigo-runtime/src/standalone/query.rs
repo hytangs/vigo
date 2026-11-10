@@ -2094,7 +2094,7 @@ impl City {
     }
     fn bike_result(r: crate::bike::BikeResult, opt: &Options) -> Result<Value> {
         let diagnostics = json!({"algorithm":"bike_movement_cch", "preferenceCost":r.cost,
-            "settledLabels":r.settled_labels, "originRoadMeters":r.origin_road_meters,
+            "originRoadMeters":r.origin_road_meters,
             "destinationRoadMeters":r.destination_road_meters,
             "unsupportedRestrictions":r.unsupported_restrictions, "elevationModel":"osm_incline_only",
             "timingPolicy":r.timing_policy});
@@ -2263,10 +2263,10 @@ impl City {
                     Some(opt.time),
                 )?;
                 let diagnostics = json!({"algorithm":if r.shared_fields > 0 {"bike_movement_cch_matrix"} else {"bike_movement_cch"},
-                    "settledLabels":r.settled_labels,"sharedFields":r.shared_fields,
+                    "sharedFields":r.shared_fields,
                     "certifiedPairs":r.certified_pairs,"pointQueries":r.point_queries,
                     "uniqueOrigins":r.unique_origins,"uniqueDestinations":r.unique_destinations,
-                    "treeLimited":r.tree_limited,"unsupportedRestrictions":bike.unsupported_restrictions,
+                    "unsupportedRestrictions":bike.unsupported_restrictions,
                     "elevationModel":"osm_incline_only",
                     "timingPolicy":if clock.is_some() { if opt.arrive {"dated_arrive_by"} else {"dated_roads_and_turns"} } else {"conservative"}});
                 (

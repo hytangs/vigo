@@ -1112,9 +1112,15 @@ the necessary undominated travel time, preference cost and distance states.
 Endpoint projection uses the road segment index, and verified pedestrian
 connectors share the pedestrian hierarchy with unrounded distance weights.
 
-A source-bound hierarchy cache can reuse topology and customized weights on
-process start. It contains graph data only. The original City remains the
+A source-bound hierarchy cache can reuse the upward topology and shortcut
+witnesses on process start; opening it rebuilds the remaining columns and
+weights exactly. It contains graph data only. The original City remains the
 source of truth; its prepared files and portable layout do not change.
+
+Bicycle Reach first bounds every cell's walking access with one relaxed
+hierarchy sweep from the fixed endpoint: a cell searches only as far as a
+bicycle node could still beat its best candidate. Cells whose minimum the
+path certificate cannot settle repeat with every walking candidate.
 
 Preference cost is distinct from physical travel seconds. The default
 `balanced` and `quiet` profiles penalize traffic exposure; `fast` minimizes

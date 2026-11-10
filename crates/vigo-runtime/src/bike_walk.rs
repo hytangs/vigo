@@ -254,13 +254,16 @@ impl WalkNetwork {
     }
     fn search(&self, point: [f64; 2], maximum: f64, origin: bool) -> Result<WalkSearch, String> {
         let mut walk = WalkSearch::default();
-        self.search_into(point, maximum, origin, false, &mut walk)?;
+        self.search_into(point, maximum, maximum, origin, false, &mut walk)?;
         Ok(walk)
     }
+    /// `reach` limits the network search below `maximum` without changing
+    /// seeds; every bicycle node within `reach` keeps its exact distance.
     fn search_into(
         &self,
         point: [f64; 2],
         maximum: f64,
+        reach: f64,
         origin: bool,
         collect_bike_nodes: bool,
         walk: &mut WalkSearch,
@@ -309,11 +312,16 @@ impl WalkNetwork {
                     .into_iter()
                     .filter(|s| gap <= crate::SNAP_RADIUS_M && s.distance_m <= maximum)
                     .map(|snap| (snap.node, snap.distance_m)),
-                maximum,
+                reach,
                 origin,
                 &mut walk.ranked,
                 |node, meters| {
-                    if collect_bike_nodes && let Some(bike_node) = self.bike_node(node) {
+                    // A pruned search can label a seed above its reach; such a
+                    // label is not necessarily its full-radius distance.
+                    if collect_bike_nodes
+                        && meters <= reach
+                        && let Some(bike_node) = self.bike_node(node)
+                    {
                         walk.reached.push((bike_node, meters));
                     }
                 },
@@ -335,6 +343,7 @@ impl WalkNetwork {
             bike,
             point,
             maximum,
+            maximum,
             speed,
             origin,
             eligible,
@@ -346,18 +355,21 @@ impl WalkNetwork {
         clippy::too_many_arguments,
         reason = "Batch scratch must not change endpoint policy."
     )]
+    /// Candidates within `maximum` walking metres, or only those within
+    /// `reach <= maximum` (an exact prefix of the full candidate order).
     pub(super) fn attach_with_workspace(
         &self,
         bike: &BikeKernel,
         point: [f64; 2],
         maximum: f64,
+        reach: f64,
         speed: f64,
         origin: bool,
         eligible: &impl Fn(u32) -> bool,
         vertex_origins: bool,
         walk: &mut WalkSearch,
     ) -> Result<Attachment, String> {
-        self.search_into(point, maximum, origin, true, walk)?;
+        self.search_into(point, maximum, reach, origin, true, walk)?;
         let graph = bike.graph();
         // A coordinate can choose a nearer bicycle road, but cannot jump over
         // its nearer pedestrian attachment to an unrelated road. Remaining

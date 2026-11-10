@@ -101,7 +101,6 @@ pub(in crate::bike) fn segment(
         legs: vec![],
         cost: None,
         end_wait_seconds: 0.,
-        settled_labels: 0,
         origin_road_meters: starts.nearest_meters,
         destination_road_meters: ends.nearest_meters,
         unsupported_restrictions: kernel.unsupported_restrictions,
@@ -233,16 +232,6 @@ pub(in crate::bike) fn segment(
     let mut masks = SurfaceMasks::new(1);
     let metric = scoped::Metric::optimistic(hierarchy, optimistic, &masks);
     let values = metric.solve(&sources, &targets, &mut masks);
-    trace("BIKE_POINT", || {
-        serde_json::json!({
-            "startCandidates": starts.candidates.len(),
-            "endCandidates": ends.candidates.len(),
-            "sources": sources.len(),
-            "targets": targets.len(),
-            "sourceSpace": hierarchy.search_space(sources.iter().map(|s| s.0)).len(),
-            "targetSpace": hierarchy.search_space(targets.iter().copied()).len(),
-        })
-    });
     let mut best = f64::INFINITY;
     let mut winner = None;
     for (j, _) in ends.candidates.iter().enumerate() {

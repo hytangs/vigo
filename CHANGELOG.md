@@ -2,7 +2,8 @@
 
 ## 1.0.0 — 2026-11-09
 
-- Route, Matrix and Reach share a bicycle contraction hierarchy that enforces timed roads, turns and endpoint access. Walking connectors use the pedestrian hierarchy. Source-bound local indexes reuse graph data and exact shortcut weights across processes; existing Cities remain readable.
+- Route, Matrix and Reach share a bicycle contraction hierarchy that enforces timed roads, turns and endpoint access. Walking connectors use the pedestrian hierarchy. Source-bound local indexes keep only the upward hierarchy and shortcut witnesses and rebuild exact weights on open; existing Cities remain readable. Reach bounds each cell's walking search with one relaxed hierarchy sweep.
+- Release the engine and the Python package from one workflow and one `v<VERSION>` tag.
 - Load bicycle walking identities without an external SQLite sort, retaining coordinate and duplicate-identity validation for dense and sparse links.
 - Constrain Studio address suggestions to the selected City’s prepared street or timetable coverage, including after switching Cities and replacing data.
 - Clarify the README’s historical transit benchmark boundary and link the live route planner.

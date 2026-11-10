@@ -43,7 +43,7 @@ function bikeSegment(result, time, arrive) {
   const departureMinutes = arrive ? time - earlyArrivalSeconds / 60 - durationMinutes : time
   let clock = departureMinutes
   const diagnostics = { algorithm: 'bike_movement_cch', preferenceCost: result.cost,
-    settledLabels: result.settledLabels, originRoadMeters: result.originRoadMeters,
+    originRoadMeters: result.originRoadMeters,
     destinationRoadMeters: result.destinationRoadMeters, unsupportedRestrictions: result.unsupportedRestrictions,
     elevationModel: 'osm_incline_only', timingPolicy: result.timingPolicy,
     ...(earlyArrivalSeconds > 0 ? { arrivalDeadlineMinutes:time, earlyArrivalSeconds } : {}),
@@ -95,8 +95,7 @@ export function bikeMatrix(kernel, request, origins, destinations, isCancelled) 
       diagnostics: { owner: 'rust_bike_kernel', matrixEngine: result.sharedFields > 0 ? 'bike_movement_cch_matrix' : 'bike_movement_cch',
         pairs: rows.length, readyPairs: rows.filter(row => row.status === 'ready').length,
         sharedFields: result.sharedFields, certifiedPairs: result.certifiedPairs, pointQueries: result.pointQueries,
-        uniqueOrigins: result.uniqueOrigins, uniqueDestinations: result.uniqueDestinations,
-        settledLabels: result.settledLabels, treeLimited: result.treeLimited } }
+        uniqueOrigins: result.uniqueOrigins, uniqueDestinations: result.uniqueDestinations } }
   }
   const rows = []
   for (const [originIndex, origin] of origins.entries()) {

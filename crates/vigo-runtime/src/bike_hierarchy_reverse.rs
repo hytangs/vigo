@@ -138,7 +138,8 @@ pub(in crate::bike::surface) fn measure(
     max_elapsed: f64,
     maximum_speed_kph: f64,
     endpoint_ms: f64,
-) -> Result<Vec<f64>, String> {
+    first_pass: bool,
+) -> Result<Vec<Option<f64>>, String> {
     let started = Instant::now();
     let (prepared, resident) = kernel.hierarchy(options)?;
     let graph = kernel.graph();
@@ -151,14 +152,7 @@ pub(in crate::bike::surface) fn measure(
     for (i, _) in destination.candidates.iter().enumerate() {
         let a = destination.candidate(&graph, i);
         let (seconds, cost) = kernel.metric(a.edge, options);
-        for state in movements.states.variants(a.node) {
-            if a.drive_meters > 1e-7
-                && !movements.roads[movements.input.first_out[state as usize] as usize
-                    ..movements.input.first_out[state as usize + 1] as usize]
-                    .contains(&a.edge)
-            {
-                continue;
-            }
+        for state in destination_states(movements, a) {
             attachments.push(i);
             sources.push((state, a.walk_seconds + a.drive_meters * cost));
             physical_sources.push((state, a.walk_seconds + a.drive_meters * seconds));
@@ -279,6 +273,14 @@ pub(in crate::bike::surface) fn measure(
             unresolved += 1;
             active[cell] = true;
         }
+    }
+    if first_pass {
+        // The caller resolves unsettled cells with full endpoint sets.
+        return Ok(result
+            .into_iter()
+            .zip(active)
+            .map(|(value, unresolved)| (!unresolved).then_some(value))
+            .collect());
     }
     let first_unresolved = unresolved;
     let mut physical = (unresolved > 0).then(|| Workspace::new(hierarchy.graph.node_count()));
@@ -983,5 +985,19 @@ pub(in crate::bike::surface) fn measure(
             "guardedCells":first_unresolved, "gateProfileCells":unresolved,
         })
     });
-    Ok(result)
+    Ok(result.into_iter().map(Some).collect())
+}
+
+/// Hierarchy states that reach an arrival attachment: the turn states of its
+/// node, restricted to those leaving along its last road when it is partial.
+pub(super) fn destination_states<'a>(
+    movements: &'a MovementGraph,
+    a: RoadCandidate,
+) -> impl Iterator<Item = u32> + 'a {
+    movements.states.variants(a.node).filter(move |&state| {
+        a.drive_meters <= 1e-7
+            || movements.roads[movements.input.first_out[state as usize] as usize
+                ..movements.input.first_out[state as usize + 1] as usize]
+                .contains(&a.edge)
+    })
 }
