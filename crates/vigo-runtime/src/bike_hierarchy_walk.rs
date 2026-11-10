@@ -379,6 +379,7 @@ impl WalkHierarchy {
         )
     }
 
+    #[cfg(feature = "standalone")]
     pub fn publish(&self, store: &index::Store) -> std::io::Result<()> {
         if self.nodes.mapped() {
             return Ok(());

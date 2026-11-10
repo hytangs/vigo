@@ -63,6 +63,7 @@ macro_rules! ranked_columns {
             fn heap_bytes(&self) -> usize {
                 4 * (0 $(+ self.$column.capacity())+)
             }
+            #[cfg(feature = "standalone")]
             fn write(&self, writer: &mut index::Writer) -> std::io::Result<()> {
                 $(writer.column(&self.$column)?;)+
                 Ok(())
@@ -890,6 +891,7 @@ impl Weights {
         })
     }
 
+    #[cfg(feature = "standalone")]
     fn write(up: &Arcs, down: &Arcs, writer: &mut index::Writer) -> std::io::Result<()> {
         for arc in [up, down] {
             writer.column(&arc.costs)?;
@@ -902,6 +904,7 @@ impl Weights {
 pub(crate) struct PreparedTopology {
     movements: std::sync::Arc<MovementGraph>,
     graph: std::sync::Arc<RankGraph>,
+    #[cfg(feature = "standalone")]
     published: std::sync::atomic::AtomicBool,
 }
 fn together<A: Send, B: Send>(
@@ -922,6 +925,7 @@ struct Prepared {
     dual: std::sync::OnceLock<LowerBounds>,
     timings: [f64; 5],
     maximum_price_rate: f64,
+    #[cfg(feature = "standalone")]
     published: std::sync::atomic::AtomicBool,
 }
 fn metric_key(options: BikeOptions) -> (&'static str, [u8; 10]) {
@@ -966,11 +970,13 @@ impl Prepared {
                         ms(t),
                     )
                 };
+                #[cfg(feature = "standalone")]
                 let mapped = graph.rank.mapped();
                 let graph = std::sync::Arc::new(graph);
                 let topology = std::sync::Arc::new(PreparedTopology {
                     movements,
                     graph,
+                    #[cfg(feature = "standalone")]
                     published: std::sync::atomic::AtomicBool::new(mapped),
                 });
                 let _ = kernel.cch_topology.set(topology.clone());
@@ -1011,6 +1017,7 @@ impl Prepared {
             optimistic: std::sync::OnceLock::new(),
             dual: std::sync::OnceLock::new(),
             maximum_price_rate,
+            #[cfg(feature = "standalone")]
             published: std::sync::atomic::AtomicBool::new(false),
             timings: [movement_ms, order_ms, topology_ms, 0., preferred_ms],
         })
@@ -1046,10 +1053,12 @@ impl Prepared {
             dual: std::sync::OnceLock::from(dual),
             timings,
             maximum_price_rate,
+            #[cfg(feature = "standalone")]
             published: std::sync::atomic::AtomicBool::new(true),
         })
     }
 
+    #[cfg(feature = "standalone")]
     fn publish(&self, kernel: &BikeKernel, options: BikeOptions) -> std::io::Result<()> {
         use std::sync::atomic::Ordering;
         let Some(store) = kernel.cch_index() else {

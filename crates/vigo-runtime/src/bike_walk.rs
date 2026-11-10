@@ -105,6 +105,7 @@ impl WalkNetwork {
             .map_or((0, 0), hierarchy::WalkHierarchy::memory)
     }
 
+    #[cfg(feature = "standalone")]
     pub(super) fn publish_hierarchy(&self, store: &index::Store) -> std::io::Result<()> {
         if let Some(hierarchy) = self.hierarchy.get() {
             hierarchy.publish(store)?;
