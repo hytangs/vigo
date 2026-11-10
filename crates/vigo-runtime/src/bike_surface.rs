@@ -568,6 +568,7 @@ impl BikeKernel {
             maximum_seconds,
             None,
             None,
+            None,
         )
     }
 
@@ -587,10 +588,15 @@ impl BikeKernel {
         if max_elapsed.is_some_and(|v| !v.is_finite() || v < 0.) {
             return Err("Invalid bicycle arrival limit".into());
         }
-        let arrival = SurfaceArrival {
-            states: arrival_states::ArrivalStates::build(self)?,
-            links: costs::Links::new(self),
-            max_elapsed: max_elapsed.unwrap_or(f64::MAX / 4.),
+        let limit = max_elapsed.unwrap_or(f64::MAX / 4.);
+        let arrival = if std::env::var_os("VIGO_BIKE_CCH_QUERY").is_none() {
+            Some(SurfaceArrival {
+                states: arrival_states::ArrivalStates::build(self)?,
+                links: costs::Links::new(self),
+                max_elapsed: limit,
+            })
+        } else {
+            None
         };
         self.surface_policy(
             destination,
@@ -602,7 +608,8 @@ impl BikeKernel {
             clock,
             maximum_seconds,
             None,
-            Some(&arrival),
+            arrival.as_ref(),
+            Some(limit),
         )
     }
 
@@ -622,11 +629,12 @@ impl BikeKernel {
         maximum_seconds: f64,
         expanded: Option<bool>,
         arrival: Option<&SurfaceArrival>,
+        arrival_limit: Option<f64>,
     ) -> Result<BikeManyResult, String> {
         let direct_hierarchy = std::env::var_os("VIGO_BIKE_CCH_QUERY").is_some();
         let probe_started = (direct_hierarchy
             || (std::env::var_os("VIGO_BIKE_HIERARCHY_PROBE").is_some()
-                && arrival.is_none()
+                && arrival_limit.is_none()
                 && expanded.is_none()))
         .then(std::time::Instant::now);
         self.validate_request(
@@ -656,7 +664,7 @@ impl BikeKernel {
                 origin,
                 max_walk,
                 walk_speed / 3.6,
-                arrival.is_none(),
+                arrival_limit.is_none(),
                 &eligible,
             )?
         } else {
@@ -665,7 +673,7 @@ impl BikeKernel {
                 origin,
                 max_walk,
                 walk_speed / 3.6,
-                arrival.is_none(),
+                arrival_limit.is_none(),
                 false,
                 &eligible,
             )?
@@ -700,9 +708,9 @@ impl BikeKernel {
                     point,
                     max_walk,
                     walk_speed / 3.6,
-                    arrival.is_some(),
+                    arrival_limit.is_some(),
                     &eligible,
-                    arrival.is_some(),
+                    arrival_limit.is_some(),
                     scratch,
                 );
             }
@@ -712,7 +720,7 @@ impl BikeKernel {
                     point,
                     max_walk,
                     walk_speed / 3.6,
-                    arrival.is_some(),
+                    arrival_limit.is_some(),
                     &eligible,
                 );
             }
@@ -721,7 +729,7 @@ impl BikeKernel {
                 point,
                 max_walk,
                 walk_speed / 3.6,
-                arrival.is_some(),
+                arrival_limit.is_some(),
                 false,
                 &eligible,
             )
@@ -789,7 +797,7 @@ impl BikeKernel {
             for (end, candidate) in attachment.candidates.iter().enumerate() {
                 let slot = &mut next[candidate.node as usize];
                 ends.entries[*slot as usize] =
-                    SurfaceTerminal::new(target, end, attachment, arrival.is_some());
+                    SurfaceTerminal::new(target, end, attachment, arrival_limit.is_some());
                 *slot += 1;
             }
         }
@@ -809,7 +817,7 @@ impl BikeKernel {
             access_group_limit_targets: 0,
         };
         if direct_hierarchy {
-            if let Some(arrival) = arrival {
+            if let Some(limit) = arrival_limit {
                 result.seconds = hierarchy_probe::reverse::measure(
                     self,
                     &starts,
@@ -819,7 +827,7 @@ impl BikeKernel {
                     clock,
                     max_distance,
                     maximum_seconds,
-                    arrival.max_elapsed,
+                    limit,
                     walk_speed,
                     probe_started.unwrap().elapsed().as_secs_f64() * 1000.,
                 )?;
@@ -922,6 +930,7 @@ impl BikeKernel {
                         maximum_seconds,
                         Some(expanded),
                         arrival,
+                        arrival_limit,
                     )?;
                     for (i, seconds) in indices.into_iter().zip(part.seconds) {
                         result.seconds[i] = seconds;

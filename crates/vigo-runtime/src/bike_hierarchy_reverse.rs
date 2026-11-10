@@ -186,13 +186,6 @@ pub(in crate::bike::surface) fn measure(
     let mut masks = SurfaceMasks::new(1);
     let metric = scoped::Metric::optimistic_reversed(hierarchy, optimistic, &masks);
     let values = metric.solve(&sources, &targets, &mut masks);
-    let mut physical = Workspace::new(hierarchy.graph.node_count());
-    hierarchy.solve(
-        &physical_sources,
-        Some(&targets),
-        &mut physical,
-        (&prepared.physical.down.costs, &prepared.physical.up.costs),
-    );
     let limit = cutoff.min(max_elapsed);
     let mut minimum_seconds = vec![f64::INFINITY; origins.attachments.len()];
     let mut winners = vec![(f64::INFINITY, 0, NONE, None); origins.attachments.len()];
@@ -215,9 +208,7 @@ pub(in crate::bike::surface) fn measure(
         for (i, _) in origin.candidates.iter().enumerate() {
             let a = origin.candidate(&graph, i);
             let rank = hierarchy.graph.rank[origin_state(a) as usize];
-            let (seconds, price) = kernel.metric(a.edge, options);
-            minimum_seconds[cell] = minimum_seconds[cell]
-                .min(physical.down_cost[rank as usize] + a.walk_seconds + a.drive_meters * seconds);
+            let (_, price) = kernel.metric(a.edge, options);
             let cost = values.cost(rank, 0, &masks) + a.walk_seconds + a.drive_meters * price;
             if cost < winners[cell].0 {
                 winners[cell] = (cost, i, rank, None);
@@ -245,7 +236,7 @@ pub(in crate::bike::surface) fn measure(
     let mut unresolved = 0;
     let mut active = vec![false; winners.len()];
     for (cell, (cost, start, rank, direct)) in winners.into_iter().enumerate() {
-        if !cost.is_finite() || minimum_seconds[cell] * (1. - 1e-9) > limit {
+        if !cost.is_finite() {
             continue;
         }
         let a = origins.attachments[cell].candidate(&graph, start);
@@ -291,7 +282,36 @@ pub(in crate::bike::surface) fn measure(
         }
     }
     let first_unresolved = unresolved;
+    let mut physical = (unresolved > 0).then(|| Workspace::new(hierarchy.graph.node_count()));
+    if let Some(physical) = &mut physical {
+        // Resolve legal minima first. One physical sweep then bounds both
+        // unresolved terminals and entry clocks at all guarded roads.
+        hierarchy.solve(
+            &physical_sources,
+            None,
+            physical,
+            (&prepared.physical.down.costs, &prepared.physical.up.costs),
+        );
+        for (cell, attachment) in origins.attachments.iter().enumerate() {
+            if !active[cell] {
+                continue;
+            }
+            for i in 0..attachment.candidates.len() {
+                let a = attachment.candidate(&graph, i);
+                let rank = hierarchy.graph.rank[origin_state(a) as usize] as usize;
+                let seconds = physical.down_cost[rank]
+                    + a.walk_seconds
+                    + a.drive_meters * kernel.metric(a.edge, options).0;
+                minimum_seconds[cell] = minimum_seconds[cell].min(seconds);
+            }
+            if minimum_seconds[cell] * (1. - 1e-9) > limit {
+                active[cell] = false;
+                unresolved -= 1;
+            }
+        }
+    }
     if unresolved > 0 {
+        let mut physical = physical.unwrap();
         let rate = if matches!(options.profile, Profile::Fast) {
             1.
         } else {
@@ -395,12 +415,6 @@ pub(in crate::bike::surface) fn measure(
                 ));
             }
         }
-        hierarchy.solve(
-            &physical_sources,
-            None,
-            &mut physical,
-            (&prepared.physical.down.costs, &prepared.physical.up.costs),
-        );
         let lower_start: Vec<_> = physical.down_cost.iter().map(|v| v * (1. - 1e-9)).collect();
         hierarchy.solve(
             &sources,
