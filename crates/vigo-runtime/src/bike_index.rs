@@ -16,7 +16,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
     },
 };
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", test))]
 use std::{
     io::{BufWriter, Seek, SeekFrom},
     mem::size_of_val,
@@ -98,7 +98,7 @@ pub(super) struct Store {
     structure: Option<(PathBuf, [u8; 32])>,
 }
 impl Store {
-    #[cfg(feature = "standalone")]
+    #[cfg(any(feature = "standalone", test))]
     fn current(&self) -> bool {
         self.source.current()
             && self
@@ -177,7 +177,7 @@ impl Store {
         })
     }
 
-    #[cfg(feature = "standalone")]
+    #[cfg(any(feature = "standalone", test))]
     pub(super) fn publish(
         &self,
         kind: &str,
@@ -498,13 +498,13 @@ impl Reader {
         }
     }
 }
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", test))]
 pub(super) struct Writer {
     out: BufWriter<File>,
     digest: Sha256,
     bytes: usize,
 }
-#[cfg(feature = "standalone")]
+#[cfg(any(feature = "standalone", test))]
 impl Writer {
     fn bytes(&mut self, data: &[u8]) -> io::Result<()> {
         if self.bytes.saturating_add(data.len()) > MAX_BYTES {
