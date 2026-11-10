@@ -12,6 +12,23 @@ import tarfile
 import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
+# Each extracted-package suite finishes in seconds; a stalled one must name
+# itself instead of holding the release job until its timeout.
+SUITE_SECONDS = 3600
+
+
+def run_bounded(command, **options):
+    process = subprocess.Popen(command, **options)
+    try:
+        code = process.wait(timeout=SUITE_SECONDS)
+    except subprocess.TimeoutExpired:
+        if os.name != "nt":
+            subprocess.run(["ps", "-A", "-o", "pid,ppid,etime,state,command"], check=False)
+        process.kill()
+        process.wait()
+        raise SystemExit(f"Stalled after {SUITE_SECONDS} s: {' '.join(map(str, command))}")
+    if code:
+        raise subprocess.CalledProcessError(code, command)
 
 
 def main():
@@ -68,19 +85,19 @@ def main():
         assert manifest["binarySha256"] == hashlib.sha256(binary.read_bytes()).hexdigest()
         assert len(manifest["sourceTreeSha256"]) == 64
         env = {**os.environ, "PATH": "", "NODE_PATH": ""}
-        capabilities = json.loads(subprocess.check_output([str(binary), "capabilities"], cwd=directory, env=env))
+        capabilities = json.loads(subprocess.check_output([str(binary), "capabilities"], cwd=directory, env=env, timeout=SUITE_SECONDS))
         assert capabilities["standalone"] is True
         assert args.node, "Node is required only for building test fixtures and running comparison checks"
         node = str(Path(args.node).resolve())
         audit_module = (ROOT / "scripts/lib/package-audit.mjs").as_uri()
-        subprocess.run([node, "--input-type=module", "-e",
-                        f"import {{ auditPackageFiles }} from {json.dumps(audit_module)}; "
-                        "console.log(JSON.stringify(await auditPackageFiles(process.argv[1], "
-                        "{ forbiddenRoots: [process.argv[2]] })));", directory, str(ROOT)], check=True)
+        run_bounded([node, "--input-type=module", "-e",
+                     f"import {{ auditPackageFiles }} from {json.dumps(audit_module)}; "
+                     "console.log(JSON.stringify(await auditPackageFiles(process.argv[1], "
+                     "{ forbiddenRoots: [process.argv[2]] })));", directory, str(ROOT)])
         for suite in ("check-standalone.mjs", "check-standalone-prepared.mjs", "check-standalone-parity.mjs", "check-standalone-station-access.mjs", "check-standalone-http.mjs", "check-standalone-docs.mjs"):
-            subprocess.run([node, str(ROOT / "test" / suite)], cwd=ROOT,
-                           env={**os.environ, "VIGO_STANDALONE_PATH": str(binary),
-                                "VIGO_STANDALONE_DOCS_DIR": str(destination)}, check=True)
+            run_bounded([node, str(ROOT / "test" / suite)], cwd=ROOT,
+                        env={**os.environ, "VIGO_STANDALONE_PATH": str(binary),
+                             "VIGO_STANDALONE_DOCS_DIR": str(destination)})
     print(json.dumps({"archive": str(archive), "sha256": expected, "payloadFiles": len(allowed),
                       "extractedRuntimeChecks": "passed", "runtime": "rust"}, indent=2))
 
