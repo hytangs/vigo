@@ -16,6 +16,8 @@ struct Path {
     excess: f64,
     meters: f64,
     scope: u32,
+    id: u32,
+    parts: [u32; 2],
 }
 
 #[derive(Clone, Copy)]
@@ -24,6 +26,82 @@ pub(super) struct Label {
     pub excess: f64,
     pub meters: f64,
     pub scope: u32,
+    seed: u32,
+    state: u32,
+    trail: u32,
+}
+
+struct Trail {
+    enabled: bool,
+    legs: Vec<(u32, u32)>,
+}
+impl Trail {
+    fn step(&mut self, parent: u32, step: u32) -> u32 {
+        if !self.enabled {
+            return NONE;
+        }
+        let id = self.legs.len() as u32;
+        self.legs.push((parent, step));
+        id
+    }
+
+    fn movements(&self, mut trail: u32, profiles: &Profiles, reversed: bool) -> Vec<u32> {
+        let mut parts = Vec::new();
+        while trail != NONE {
+            let (parent, step) = self.legs[trail as usize];
+            parts.push(step);
+            trail = parent;
+        }
+        let mut movements = Vec::new();
+        let mut stack = Vec::new();
+        for step in parts.into_iter().rev() {
+            stack.push(step);
+            while let Some(part) = stack.pop() {
+                if part & VIA != 0 {
+                    movements.push(part & !VIA);
+                } else {
+                    let [left, right] = profiles.paths[part as usize].parts;
+                    if right != NONE {
+                        stack.push(right);
+                    }
+                    stack.push(left);
+                }
+            }
+        }
+        if reversed {
+            movements.reverse();
+        }
+        movements
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Ending {
+    value: (f64, f64),
+    label: Option<Label>,
+    seed: u32,
+    terminal: u32,
+}
+impl Default for Ending {
+    fn default() -> Self {
+        Self {
+            value: (f64::INFINITY, f64::INFINITY),
+            label: None,
+            seed: NONE,
+            terminal: NONE,
+        }
+    }
+}
+
+pub(super) struct PointWitness {
+    pub cost: f64,
+    pub elapsed: f64,
+    pub origin: usize,
+    pub destination: usize,
+    // Forward state after the first partial edge, or reverse state before
+    // the final partial edge. Direct partials have neither state.
+    pub seed_state: Option<u32>,
+    pub steps: Vec<u32>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -62,6 +140,9 @@ impl Profiles {
         } else {
             self.down.insert(arc as u32, range);
         }
+        for (i, path) in list.iter_mut().enumerate() {
+            path.id = range.start + i as u32;
+        }
         self.paths.append(list);
         Ok(())
     }
@@ -88,6 +169,7 @@ pub(super) struct Query<'a> {
     pub lower_remaining: &'a [f64],
     pub steady: &'a [bool],
     pub reversed: bool,
+    pub continuation: Option<&'a BikeContinuation>,
 }
 
 impl Query<'_> {
@@ -171,6 +253,8 @@ impl Query<'_> {
                         excess,
                         meters,
                         scope,
+                        id: NONE,
+                        parts: [a.id, b.id],
                     },
                     masks,
                 );
@@ -202,6 +286,8 @@ impl Query<'_> {
             meters,
             excess: ((price - self.rate * seconds) * meters).max(0.),
             scope,
+            id: NONE,
+            parts: [input | VIA, NONE],
         })
     }
 
@@ -308,7 +394,12 @@ impl Query<'_> {
         Ok(result)
     }
 
-    fn put_label(&self, labels: &mut Vec<Label>, mut candidate: Label, masks: &mut SurfaceMasks) {
+    fn put_label(
+        &self,
+        labels: &mut Vec<Label>,
+        mut candidate: Label,
+        masks: &mut SurfaceMasks,
+    ) -> bool {
         for prior in labels.iter_mut() {
             if prior.elapsed <= candidate.elapsed
                 && prior.excess <= candidate.excess
@@ -328,6 +419,9 @@ impl Query<'_> {
         labels.retain(|label| label.scope != 0);
         if candidate.scope != 0 {
             labels.push(candidate);
+            true
+        } else {
+            false
         }
     }
 
@@ -338,6 +432,7 @@ impl Query<'_> {
         paths: &[Path],
         rank: usize,
         masks: &mut SurfaceMasks,
+        trail: &mut Trail,
     ) {
         for a in from {
             for b in paths {
@@ -353,16 +448,19 @@ impl Query<'_> {
                     && self.rate * (elapsed + self.lower_remaining[rank]) + excess
                         <= self.cap * (1. + 1e-8)
                 {
-                    self.put_label(
+                    if self.put_label(
                         labels,
                         Label {
                             elapsed,
                             excess,
                             meters,
                             scope,
+                            ..*a
                         },
                         masks,
-                    );
+                    ) {
+                        labels.last_mut().unwrap().trail = trail.step(a.trail, b.id);
+                    }
                 }
             }
         }
@@ -403,6 +501,9 @@ impl Query<'_> {
                                         * (price - self.rate * seconds).max(0.),
                                 meters: candidate.walk_meters + candidate.drive_meters,
                                 scope: masks.all,
+                                seed: i as u32,
+                                state: id,
+                                trail: NONE,
                             },
                         ));
                     }
@@ -414,7 +515,7 @@ impl Query<'_> {
                 .start_movements(
                     &candidate,
                     candidate.drive_meters,
-                    None,
+                    self.continuation,
                     self.clock,
                     SearchKind::Normal,
                     true,
@@ -424,7 +525,10 @@ impl Query<'_> {
                 let incoming = if candidate.drive_meters > 1e-7 {
                     incoming_state(self.kernel, candidate.edge)
                 } else {
-                    NONE
+                    self.continuation
+                        .filter(|c| same_point(c.road, candidate.road))
+                        .and_then(|c| c.incoming)
+                        .map_or(NONE, |edge| incoming_state(self.kernel, edge))
                 };
                 let state = state_id(&self.movements.states, candidate.node, incoming, &turns);
                 sources.push((
@@ -435,6 +539,9 @@ impl Query<'_> {
                             + candidate.drive_meters * (price - self.rate * seconds).max(0.),
                         meters: candidate.walk_meters + candidate.drive_meters,
                         scope: masks.all,
+                        seed: i as u32,
+                        state,
+                        trail: NONE,
                     },
                 ));
             }
@@ -447,6 +554,7 @@ impl Query<'_> {
         profiles: &Profiles,
         seeds: &[(u32, Label)],
         masks: &mut SurfaceMasks,
+        trail: &mut Trail,
     ) -> CompactMap<Vec<Label>> {
         let hierarchy = self.hierarchy;
         let graph = &hierarchy.graph;
@@ -473,6 +581,7 @@ impl Query<'_> {
                     paths,
                     to as usize,
                     masks,
+                    trail,
                 );
             }
         }
@@ -496,6 +605,7 @@ impl Query<'_> {
                     profiles.get(arc, false),
                     rank as usize,
                     masks,
+                    trail,
                 );
             }
             if !values.is_empty() {
@@ -509,17 +619,23 @@ impl Query<'_> {
         &self,
         values: &CompactMap<Vec<Label>>,
         masks: &SurfaceMasks,
-    ) -> Result<Vec<(f64, f64)>, String> {
+    ) -> Result<Vec<Ending>, String> {
         let graph = self.kernel.graph();
-        let mut results = vec![(f64::INFINITY, f64::INFINITY); self.ends.attachments.len()];
-        let mut improve = |cell: usize, cost: f64, elapsed, meters| {
-            if cost < results[cell].0
-                && cost <= self.cap * (1. + 1e-8)
-                && meters <= self.distance_limit
-            {
-                results[cell] = (cost, elapsed);
-            }
-        };
+        let mut results = vec![Ending::default(); self.ends.attachments.len()];
+        let mut improve =
+            |cell: usize, cost: f64, elapsed, meters, label: Option<Label>, seed, terminal| {
+                if cost < results[cell].value.0
+                    && cost <= self.cap * (1. + 1e-8)
+                    && meters <= self.distance_limit
+                {
+                    results[cell] = Ending {
+                        value: (cost, elapsed),
+                        label,
+                        seed,
+                        terminal,
+                    };
+                }
+            };
         for &(cell, i, j) in &self.ends.direct {
             let a = self.starts.candidate(&graph, i);
             let b = self.ends.attachments[cell].candidate(&graph, j);
@@ -531,7 +647,14 @@ impl Query<'_> {
             let (seconds, price) = self.kernel.metric(a.edge, self.options);
             if let Some((departure, _)) = self
                 .kernel
-                .start_movements(&a, meters, None, self.clock, SearchKind::Normal, false)?
+                .start_movements(
+                    &a,
+                    meters,
+                    self.continuation,
+                    self.clock,
+                    SearchKind::Normal,
+                    false,
+                )?
                 .first
             {
                 improve(
@@ -542,6 +665,9 @@ impl Query<'_> {
                         + self.rate * (departure - a.walk_seconds),
                     departure + seconds * meters + b.walk_seconds,
                     a.walk_meters + b.walk_meters + meters,
+                    None,
+                    i as u32,
+                    j as u32,
                 );
             }
         }
@@ -569,6 +695,9 @@ impl Query<'_> {
                                 self.rate * label.elapsed + label.excess + terminal.walk_seconds,
                                 label.elapsed + terminal.walk_seconds,
                                 label.meters + walk,
+                                Some(*label),
+                                label.seed,
+                                terminal.index() as u32,
                             );
                         } else {
                             let candidate =
@@ -600,6 +729,9 @@ impl Query<'_> {
                                     + seconds * candidate.drive_meters
                                     + terminal.walk_seconds,
                                 label.meters + candidate.drive_meters + walk,
+                                Some(*label),
+                                label.seed,
+                                terminal.index() as u32,
                             );
                         }
                     }
@@ -613,18 +745,24 @@ impl Query<'_> {
         &self,
         values: &CompactMap<Vec<Label>>,
         masks: &SurfaceMasks,
-    ) -> Result<Vec<(f64, f64)>, String> {
+    ) -> Result<Vec<Ending>, String> {
         let graph = self.kernel.graph();
-        let mut results = vec![(f64::INFINITY, f64::INFINITY); self.ends.attachments.len()];
-        let mut improve = |cell: usize, cost: f64, elapsed, meters| {
-            if cost <= self.cap * (1. + 1e-8)
-                && cost < results[cell].0
-                && elapsed <= self.horizon
-                && meters <= self.distance_limit
-            {
-                results[cell] = (cost, elapsed);
-            }
-        };
+        let mut results = vec![Ending::default(); self.ends.attachments.len()];
+        let mut improve =
+            |cell: usize, cost: f64, elapsed, meters, label: Option<Label>, seed, terminal| {
+                if cost <= self.cap * (1. + 1e-8)
+                    && cost < results[cell].value.0
+                    && elapsed <= self.horizon
+                    && meters <= self.distance_limit
+                {
+                    results[cell] = Ending {
+                        value: (cost, elapsed),
+                        label,
+                        seed,
+                        terminal,
+                    };
+                }
+            };
         for &(cell, end, start) in &self.ends.direct {
             let a = self.ends.attachments[cell].candidate(&graph, start);
             let b = self.starts.candidate(&graph, end);
@@ -659,6 +797,9 @@ impl Query<'_> {
                         + (latest - entry).max(0.) * self.rate,
                     -entry + a.walk_seconds,
                     a.walk_meters + b.walk_meters + meters,
+                    None,
+                    end as u32,
+                    start as u32,
                 );
             }
         }
@@ -714,6 +855,9 @@ impl Query<'_> {
                                 + (latest - entry).max(0.) * self.rate,
                             -entry + a.walk_seconds,
                             label.meters + a.walk_meters + a.drive_meters,
+                            Some(*label),
+                            label.seed,
+                            terminal.index() as u32,
                         );
                     }
                 }
@@ -728,6 +872,31 @@ impl Query<'_> {
         final_remaining: &[f64],
         masks: &mut SurfaceMasks,
     ) -> Result<(Vec<(u32, Label)>, Vec<(f64, f64)>), String> {
+        self.run_profiles(gates, final_remaining, masks, false)
+            .map(|(roots, values, _)| (roots, values))
+    }
+
+    pub fn point(
+        &self,
+        gates: &[Gate],
+        final_remaining: &[f64],
+        masks: &mut SurfaceMasks,
+    ) -> Result<Option<PointWitness>, String> {
+        self.run_profiles(gates, final_remaining, masks, true)
+            .map(|(_, _, point)| point)
+    }
+
+    fn run_profiles(
+        &self,
+        gates: &[Gate],
+        final_remaining: &[f64],
+        masks: &mut SurfaceMasks,
+        witness: bool,
+    ) -> Result<(Vec<(u32, Label)>, Vec<(f64, f64)>, Option<PointWitness>), String> {
+        let mut trail = Trail {
+            enabled: witness,
+            legs: Vec::new(),
+        };
         let started = Instant::now();
         let profiles = self.customize(masks)?;
         let customize_ms = ms(started);
@@ -741,7 +910,7 @@ impl Query<'_> {
             if rounds > 128 {
                 return Err("Dated gate propagation exceeded the experiment's workspace".into());
             }
-            let reached = self.sweep(&profiles, &pending, masks);
+            let reached = self.sweep(&profiles, &pending, masks, &mut trail);
             pending.clear();
             for gate in gates {
                 let rank = self.hierarchy.graph.rank[gate.from as usize];
@@ -805,6 +974,7 @@ impl Query<'_> {
                         excess: prefix.excess + (price - self.rate * seconds).max(0.) * meters,
                         meters: prefix.meters + meters,
                         scope,
+                        ..*prefix
                     };
                     let remaining =
                         final_remaining[self.hierarchy.graph.rank[to as usize] as usize];
@@ -829,6 +999,7 @@ impl Query<'_> {
                     if known != 0 {
                         let next = Label {
                             scope: known,
+                            trail: trail.step(prefix.trail, gate.input | VIA),
                             ..next
                         };
                         self.put_label(previous, next, masks);
@@ -845,13 +1016,13 @@ impl Query<'_> {
             .flat_map(|(node, labels)| labels.into_iter().map(move |label| (node, label)))
             .collect();
         let started = Instant::now();
-        let endings = if self.constrained() || self.reversed {
+        let endings = if self.constrained() || self.reversed || witness {
             // The scalar minimum cannot certify a binding distance limit.
             // Keep all undominated metres, price and time on the same
             // ranked shortcuts through the terminal sweep.
             let mut seeds = self.initial(masks)?;
             seeds.extend_from_slice(&roots);
-            let values = self.sweep(&profiles, &seeds, masks);
+            let values = self.sweep(&profiles, &seeds, masks, &mut trail);
             if self.reversed {
                 self.finish_arrival(&values, masks)?
             } else {
@@ -870,6 +1041,26 @@ impl Query<'_> {
                 "partialGateTerminalsMs":ms(started),
             })
         );
-        Ok((roots, endings))
+        let point = endings
+            .first()
+            .filter(|result| witness && result.value.0.is_finite())
+            .map(|result| {
+                let (a, b) = (result.seed as usize, result.terminal as usize);
+                PointWitness {
+                    cost: result.value.0,
+                    elapsed: result.value.1,
+                    origin: if self.reversed { b } else { a },
+                    destination: if self.reversed { a } else { b },
+                    seed_state: result.label.map(|label| label.state),
+                    steps: result.label.map_or_else(Vec::new, |label| {
+                        trail.movements(label.trail, &profiles, self.reversed)
+                    }),
+                }
+            });
+        Ok((
+            roots,
+            endings.into_iter().map(|ending| ending.value).collect(),
+            point,
+        ))
     }
 }

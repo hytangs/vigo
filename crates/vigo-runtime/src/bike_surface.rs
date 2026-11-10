@@ -817,6 +817,49 @@ impl BikeKernel {
             access_group_limit_targets: 0,
         };
         if direct_hierarchy {
+            if self.walking.is_none()
+                && expanded.is_none()
+                && std::iter::once(&starts)
+                    .chain(&ends.attachments)
+                    .any(|attachment| {
+                        attachment
+                            .nearest_meters
+                            .is_some_and(|meters| max_walk > meters + ALTERNATIVE_TOLERANCE_M)
+                    })
+            {
+                // Select the endpoint scope using the uncut CCH minimum.
+                // Reach's display cutoff must not change which roads match.
+                let arrive = arrival_limit.is_some();
+                let (from, to) = if arrive {
+                    (targets, std::slice::from_ref(&origin))
+                } else {
+                    (std::slice::from_ref(&origin), targets)
+                };
+                let batch = hierarchy_probe::batch::Batch::new(
+                    hierarchy_probe::batch::Request {
+                        kernel: self,
+                        options: opt,
+                        max_walk,
+                        walk_speed,
+                        max_meters: max_distance,
+                        clock,
+                        arrive,
+                        max_elapsed: arrival_limit,
+                    },
+                    from,
+                    to,
+                )?
+                .row(0)?;
+                let cutoff = maximum_seconds.min(arrival_limit.unwrap_or(f64::INFINITY));
+                result.seconds = batch
+                    .seconds
+                    .into_iter()
+                    .map(|s| if s <= cutoff { s } else { f64::INFINITY })
+                    .collect();
+                result.access_groups = batch.access_groups;
+                result.access_group_key_bytes = batch.access_group_key_bytes;
+                return Ok(result);
+            }
             if let Some(limit) = arrival_limit {
                 result.seconds = hierarchy_probe::reverse::measure(
                     self,

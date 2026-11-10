@@ -286,11 +286,18 @@ pub(in crate::bike::surface) fn measure(
     if let Some(physical) = &mut physical {
         // Resolve legal minima first. One physical sweep then bounds both
         // unresolved terminals and entry clocks at all guarded roads.
-        hierarchy.solve(
+        hierarchy.bounds(
             &physical_sources,
-            None,
             physical,
             (&prepared.physical.down.costs, &prepared.physical.up.costs),
+            max_elapsed.min(
+                limit * prepared.maximum_price_rate
+                    / if matches!(options.profile, Profile::Fast) {
+                        1.
+                    } else {
+                        0.8
+                    },
+            ),
         );
         for (cell, attachment) in origins.attachments.iter().enumerate() {
             if !active[cell] {
@@ -416,19 +423,19 @@ pub(in crate::bike::surface) fn measure(
             }
         }
         let lower_start: Vec<_> = physical.down_cost.iter().map(|v| v * (1. - 1e-9)).collect();
-        hierarchy.solve(
+        hierarchy.bounds(
             &sources,
-            None,
             &mut physical,
             (&optimistic.down.costs, &optimistic.up.costs),
+            cap,
         );
         let lower_start_price: Vec<_> =
             physical.down_cost.iter().map(|v| v * (1. - 1e-9)).collect();
-        hierarchy.solve(
+        hierarchy.bounds(
             &remaining_sources,
-            None,
             &mut physical,
             (&optimistic.up.costs, &optimistic.down.costs),
+            cap,
         );
         let remaining: Vec<_> = physical
             .down_cost
@@ -713,11 +720,11 @@ pub(in crate::bike::surface) fn measure(
                     ));
                 }
             }
-            hierarchy.solve(
+            hierarchy.bounds(
                 &remaining_sources,
-                None,
                 &mut physical,
                 (&optimistic.up.costs, &optimistic.down.costs),
+                cap,
             );
             let remaining: Vec<_> = physical
                 .down_cost
@@ -818,11 +825,11 @@ pub(in crate::bike::surface) fn measure(
             let port_bounds = if full_profile {
                 None
             } else {
-                hierarchy.solve(
+                hierarchy.bounds(
                     &ports,
-                    None,
                     &mut physical,
                     (&optimistic.up.costs, &optimistic.down.costs),
+                    cap,
                 );
                 Some(
                     physical
@@ -862,6 +869,7 @@ pub(in crate::bike::surface) fn measure(
                 lower_remaining: port_bounds.as_deref().unwrap_or(&remaining),
                 steady: &admitted,
                 reversed: true,
+                continuation: None,
             };
             let (roots, mut endings) = query.run(&gates, &remaining, &mut masks)?;
             if !full_profile {

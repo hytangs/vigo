@@ -30,13 +30,13 @@ struct FileStamp {
     identity: (u64, u64, i64, i64),
 }
 
-#[derive(PartialEq, Eq)]
-struct Binding {
-    key: String,
-    digest: [u8; 32],
+#[derive(Clone, PartialEq, Eq)]
+pub(super) struct Binding {
+    pub(super) key: String,
+    pub(super) digest: [u8; 32],
 }
 impl Binding {
-    fn read(path: &str) -> Result<Self> {
+    pub(super) fn read(path: &str) -> Result<Self> {
         let canonical = fs::canonicalize(path)?;
         let path_bytes = canonical.as_os_str().as_encoded_bytes();
         let key = format!("{:x}", Sha256::digest(path_bytes));
@@ -89,7 +89,7 @@ struct Stored {
     walking: Option<walk::WalkLinks>,
 }
 
-fn directory() -> Option<PathBuf> {
+pub(super) fn directory() -> Option<PathBuf> {
     let root = if cfg!(target_os = "windows") {
         std::env::var_os("LOCALAPPDATA")
             .map(PathBuf::from)

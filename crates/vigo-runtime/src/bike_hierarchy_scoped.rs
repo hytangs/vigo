@@ -248,6 +248,21 @@ impl<'a> Metric<'a> {
         masks: &mut SurfaceMasks,
         corridor: &Corridor<'_>,
     ) {
+        self.admit_weighted(kernel, movements, opt, inputs, masks, corridor, |road| {
+            kernel.distances[road as usize] as f64 / 100. * kernel.metric(road, opt).1
+        });
+    }
+
+    pub fn admit_weighted(
+        &mut self,
+        kernel: &BikeKernel,
+        movements: &MovementGraph,
+        opt: BikeOptions,
+        inputs: impl Iterator<Item = (u32, u32)>,
+        masks: &mut SurfaceMasks,
+        corridor: &Corridor<'_>,
+        weight: impl Fn(u32) -> f64,
+    ) {
         let graph = &self.base.graph;
         const UP: u8 = 1;
         const DOWN: u8 = 2;
@@ -273,7 +288,7 @@ impl<'a> Metric<'a> {
                 .partition_point(|&begin| begin <= input)
                 - 1;
             let to = movements.input.head[input as usize] as usize;
-            let cost = kernel.distances[road as usize] as f64 / 100. * kernel.metric(road, opt).1;
+            let cost = weight(road);
             let (from, to) = if self.reversed {
                 (graph.rank[to], graph.rank[from])
             } else {

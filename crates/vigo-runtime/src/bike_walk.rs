@@ -110,12 +110,23 @@ fn push_candidate(candidates: &mut Vec<BikeCandidate>, candidate: BikeCandidate)
 }
 
 impl WalkNetwork {
-    pub(crate) fn prepare_hierarchy(&self, path: &str) -> Result<(), String> {
+    pub(super) fn prepare_hierarchy(
+        &self,
+        path: &str,
+        store: Option<&index::Store>,
+    ) -> Result<(), String> {
         if self.hierarchy.get().is_none() {
             let structure =
                 crate::shared_streets::structure(path).map_err(|err| err.to_string())?;
-            let prepared = hierarchy::WalkHierarchy::prepare(&self.snapshot, structure)?;
+            let prepared = hierarchy::WalkHierarchy::prepare(&self.snapshot, structure, store)?;
             let _ = self.hierarchy.set(prepared);
+        }
+        Ok(())
+    }
+
+    pub(super) fn publish_hierarchy(&self, store: &index::Store) -> std::io::Result<()> {
+        if let Some(hierarchy) = self.hierarchy.get() {
+            hierarchy.publish(store)?;
         }
         Ok(())
     }

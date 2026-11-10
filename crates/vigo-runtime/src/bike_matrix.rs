@@ -88,9 +88,43 @@ impl BikeKernel {
         // A full field must amortize its bounded construction. Smaller batches
         // still benefit from exact coordinate deduplication without a field.
         const MIN_SHARED_TARGETS: usize = 64;
-        if (!arrive && width >= MIN_SHARED_TARGETS)
-            || (arrive && unique_origins.len() >= MIN_SHARED_TARGETS)
-        {
+        let shared = (!arrive && width >= MIN_SHARED_TARGETS)
+            || (arrive && unique_origins.len() >= MIN_SHARED_TARGETS);
+        #[cfg(any(feature = "standalone", test))]
+        let hierarchy = std::env::var_os("VIGO_BIKE_CCH_POINT").is_some();
+        #[cfg(not(any(feature = "standalone", test)))]
+        let hierarchy = false;
+        #[cfg(any(feature = "standalone", test))]
+        if shared && hierarchy {
+            use surface::hierarchy_probe::batch::{Batch, Request};
+            let batch = Batch::new(
+                Request {
+                    kernel: self,
+                    options: opt,
+                    max_walk,
+                    walk_speed,
+                    max_meters: max_distance,
+                    clock,
+                    arrive,
+                    max_elapsed,
+                },
+                &unique_origins,
+                &unique_destinations,
+            )?;
+            let row_count = if arrive { width } else { unique_origins.len() };
+            for i in 0..row_count {
+                let row = batch.row(i)?;
+                result.shared_fields += 1;
+                result.point_queries += row.guards;
+                result.certified_pairs += row.seconds.len() - row.guards;
+                for (j, (seconds, meters)) in row.seconds.into_iter().zip(row.meters).enumerate() {
+                    let index = if arrive { j * width + i } else { i * width + j };
+                    result.seconds[index] = seconds;
+                    result.meters[index] = meters;
+                }
+            }
+        }
+        if shared && !hierarchy {
             let fixed = if arrive {
                 &unique_destinations
             } else {
@@ -136,7 +170,7 @@ impl BikeKernel {
                     result.meters[cell] = meters;
                 }
             }
-        } else {
+        } else if !shared {
             for (i, &origin) in unique_origins.iter().enumerate() {
                 for (j, &destination) in unique_destinations.iter().enumerate() {
                     let route = if arrive {
@@ -239,21 +273,39 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(batch.shared_fields, 1);
-            assert_eq!(
-                batch.point_queries, 64,
-                "A time tie cannot choose a different Matrix distance"
-            );
             for (i, &origin) in origins.iter().enumerate() {
                 for (j, &destination) in destinations.iter().enumerate() {
                     let point = bike
                         .route_at(origin, destination, opt, 0., 4.8, 10000., None)
                         .unwrap();
+                    let legacy = bike
+                        .route_from(
+                            origin,
+                            destination,
+                            opt,
+                            0.,
+                            4.8,
+                            10000.,
+                            None,
+                            None,
+                            false,
+                            f64::INFINITY,
+                            None,
+                            None,
+                        )
+                        .unwrap();
                     let cell = i * destinations.len() + j;
                     assert!((batch.seconds[cell] - point.elapsed_seconds()).abs() < 1e-7);
+                    let old_distance = legacy.legs.iter().map(|l| l.meters).sum::<f64>();
+                    let new_distance = point.legs.iter().map(|l| l.meters).sum::<f64>();
                     assert!(
-                        (batch.meters[cell] - point.legs.iter().map(|l| l.meters).sum::<f64>())
-                            .abs()
-                            < 1e-7
+                        (old_distance - new_distance).abs() < 1e-7,
+                        "point distance: legacy={old_distance}, hierarchy={new_distance}"
+                    );
+                    assert!(
+                        (batch.meters[cell] - old_distance).abs() < 1e-7,
+                        "Matrix distance at {cell} (arrive={arrive}): legacy={old_distance}, hierarchy={}",
+                        batch.meters[cell]
                     );
                 }
             }

@@ -14,15 +14,15 @@ struct RankLabel {
 }
 
 struct Metric {
-    meters: Vec<f64>,
-    via: Vec<u32>,
+    meters: index::Column<f64>,
+    via: index::Column<u32>,
 }
 
 impl Metric {
     fn new(arcs: usize) -> Self {
         Self {
-            meters: vec![f64::INFINITY; arcs],
-            via: vec![NONE; arcs],
+            meters: vec![f64::INFINITY; arcs].into(),
+            via: vec![NONE; arcs].into(),
         }
     }
 
@@ -45,7 +45,7 @@ fn arc(view: &cch::CchView<'_>, low: u32, high: u32) -> Option<usize> {
 
 pub(super) struct WalkHierarchy {
     structure: Arc<cch::CchBundle>,
-    nodes: Vec<u32>,
+    nodes: index::Column<u32>,
     forward: Metric,
     backward: Metric,
 }
@@ -78,7 +78,16 @@ impl WalkHierarchy {
         self.structure.view().rank
     }
 
-    pub fn prepare(snapshot: &Snapshot, structure: Arc<cch::CchBundle>) -> Result<Self, String> {
+    pub fn prepare(
+        snapshot: &Snapshot,
+        structure: Arc<cch::CchBundle>,
+        store: Option<&index::Store>,
+    ) -> Result<Self, String> {
+        if let Some(store) = store
+            && let Ok(prepared) = Self::open(store, structure.clone())
+        {
+            return Ok(prepared);
+        }
         let view = structure.view();
         let offsets = snapshot
             .u32_array("edgeOffsets")
@@ -144,9 +153,45 @@ impl WalkHierarchy {
         }
         Ok(Self {
             structure,
+            nodes: nodes.into(),
+            forward,
+            backward,
+        })
+    }
+
+    fn open(store: &index::Store, structure: Arc<cch::CchBundle>) -> std::io::Result<Self> {
+        let mut reader = store.open("walk", &[])?;
+        let n = structure.node_count();
+        let arcs = structure.cch_arc_count();
+        let nodes = reader.column(Some(n))?;
+        let mut read_metric = || {
+            Ok::<_, std::io::Error>(Metric {
+                meters: reader.column(Some(arcs))?,
+                via: reader.column(Some(arcs))?,
+            })
+        };
+        let forward = read_metric()?;
+        let backward = read_metric()?;
+        reader.finish()?;
+        Ok(Self {
+            structure,
             nodes,
             forward,
             backward,
+        })
+    }
+
+    pub fn publish(&self, store: &index::Store) -> std::io::Result<()> {
+        if self.nodes.mapped() {
+            return Ok(());
+        }
+        store.publish("walk", &[], |writer| {
+            writer.column(&self.nodes)?;
+            for metric in [&self.forward, &self.backward] {
+                writer.column(&metric.meters)?;
+                writer.column(&metric.via)?;
+            }
+            Ok(())
         })
     }
 
@@ -164,6 +209,9 @@ impl WalkHierarchy {
         } else {
             (&self.backward, &self.forward)
         };
+        let up_meters = &*up_metric.meters;
+        let down_meters = &*down_metric.meters;
+        let nodes = &*self.nodes;
         let Scratch {
             up,
             down,
@@ -187,7 +235,7 @@ impl WalkHierarchy {
             descending.push(rank);
             let x = rank as usize;
             for a in view.up_first_out[x] as usize..view.up_first_out[x + 1] as usize {
-                let meters = prefix + up_metric.meters[a];
+                let meters = prefix + up_meters[a];
                 if meters <= maximum && improve(up, view.up_head[a], meters, rank) {
                     ascending.push(Reverse(view.up_head[a]));
                 }
@@ -200,10 +248,10 @@ impl WalkHierarchy {
         // distance budget. Its order is topological, independent of weights.
         while let Some(rank) = descending.pop() {
             let prefix = down[&rank].meters;
-            labels.insert(self.nodes[rank as usize], (prefix, NONE));
+            labels.insert(nodes[rank as usize], (prefix, NONE));
             let x = rank as usize;
             for a in view.down_first_out[x] as usize..view.down_first_out[x + 1] as usize {
-                let meters = prefix + down_metric.meters[view.down_to_up[a] as usize];
+                let meters = prefix + down_meters[view.down_to_up[a] as usize];
                 if meters <= maximum && improve(down, view.down_head[a], meters, rank) {
                     descending.push(view.down_head[a]);
                 }

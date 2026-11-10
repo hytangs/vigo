@@ -21,6 +21,8 @@ mod arrive_profile;
 mod cache;
 #[path = "bike_costs.rs"]
 mod costs;
+#[path = "bike_index.rs"]
+mod index;
 #[path = "bike_many.rs"]
 mod many;
 #[path = "bike_many_to.rs"]
@@ -127,6 +129,10 @@ pub(crate) struct BikeKernel {
     #[cfg(any(feature = "standalone", test))]
     #[serde(skip)]
     cch_topology: std::sync::OnceLock<std::sync::Arc<surface::hierarchy_probe::PreparedTopology>>,
+    #[serde(skip)]
+    cch_source: Option<index::Source>,
+    #[serde(skip)]
+    cch_index: std::sync::OnceLock<index::Store>,
     lons: Vec<f64>,
     lats: Vec<f64>,
     offsets: Vec<u32>,
@@ -393,14 +399,22 @@ impl Ord for Queue {
 impl BikeKernel {
     #[cfg(feature = "standalone")]
     pub(crate) fn prepare_walking_cch(&self, structure: &str) -> Result<(), String> {
+        if let Some(source) = &self.cch_source
+            && let Some(store) = source.store(Some(structure))
+        {
+            let _ = self.cch_index.set(store);
+        }
         if let Some(walking) = &self.walking {
-            walking.prepare_hierarchy(structure)?;
+            walking.prepare_hierarchy(structure, self.cch_index.get())?;
         }
         Ok(())
     }
 
     pub fn open(path: &str) -> Result<Self, String> {
-        cache::read(path).map_err(|e| format!("Cannot open bicycle graph: {e}"))
+        let source = index::Source::open(path);
+        let mut graph = cache::read(path).map_err(|e| format!("Cannot open bicycle graph: {e}"))?;
+        graph.cch_source = source.filter(index::Source::current);
+        Ok(graph)
     }
     fn read_source(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
         // Only this call reads the connection, so SQLite need not lock every
@@ -732,6 +746,8 @@ impl BikeKernel {
             cch_prepared: std::sync::Mutex::new(None),
             #[cfg(any(feature = "standalone", test))]
             cch_topology: std::sync::OnceLock::new(),
+            cch_source: None,
+            cch_index: std::sync::OnceLock::new(),
             lons,
             lats,
             offsets,
@@ -1385,20 +1401,43 @@ impl BikeKernel {
         let mut results: Vec<BikeResult> = Vec::with_capacity(points.len() - 1);
         for (i, pair) in points.windows(2).enumerate() {
             let previous = results.last_mut().and_then(|r| r.continuation.take());
-            let result = self.route_from(
-                pair[0],
-                pair[1],
-                opt,
-                max_walk,
-                walk_speed,
-                max_distance,
-                clock,
-                previous.as_ref(),
-                i + 2 < points.len(),
-                f64::INFINITY,
-                None,
-                None,
-            )?;
+            let legacy = || {
+                self.route_from(
+                    pair[0],
+                    pair[1],
+                    opt,
+                    max_walk,
+                    walk_speed,
+                    max_distance,
+                    clock,
+                    previous.as_ref(),
+                    i + 2 < points.len(),
+                    f64::INFINITY,
+                    None,
+                    None,
+                )
+            };
+            #[cfg(any(feature = "standalone", test))]
+            let result = if std::env::var_os("VIGO_BIKE_CCH_POINT").is_some() {
+                surface::hierarchy_probe::point::segment(
+                    self,
+                    pair[0],
+                    pair[1],
+                    opt,
+                    max_walk,
+                    walk_speed,
+                    max_distance,
+                    clock,
+                    false,
+                    None,
+                    previous.as_ref(),
+                    i + 2 < points.len(),
+                )
+            } else {
+                legacy()
+            }?;
+            #[cfg(not(any(feature = "standalone", test)))]
+            let result = legacy()?;
             let ready = result.status == "ready";
             if let Some(clock) = &mut clock {
                 clock.epoch += result

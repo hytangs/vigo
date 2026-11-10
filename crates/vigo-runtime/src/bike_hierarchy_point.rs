@@ -18,6 +18,40 @@ pub(in crate::bike) fn route(
     arrival: bool,
     max_elapsed: Option<f64>,
 ) -> Result<BikeResult, String> {
+    segment(
+        kernel,
+        origin,
+        destination,
+        options,
+        max_walk,
+        walk_speed,
+        max_meters,
+        clock,
+        arrival,
+        max_elapsed,
+        None,
+        false,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Preserve waypoint and point query bounds."
+)]
+pub(in crate::bike) fn segment(
+    kernel: &BikeKernel,
+    origin: [f64; 2],
+    destination: [f64; 2],
+    options: BikeOptions,
+    max_walk: f64,
+    walk_speed: f64,
+    max_meters: f64,
+    clock: Option<BikeClock>,
+    arrival: bool,
+    max_elapsed: Option<f64>,
+    continuation: Option<&BikeContinuation>,
+    retain_continuation: bool,
+) -> Result<BikeResult, String> {
     kernel.validate_request(
         origin,
         destination,
@@ -82,6 +116,89 @@ pub(in crate::bike) fn route(
         return Ok(result);
     }
     let (prepared, _) = kernel.hierarchy(options)?;
+    let solve_guarded = |mut result: BikeResult, timed_expansion| -> Result<BikeResult, String> {
+        let mut wide = None;
+        let admit_wide = kernel.walking.is_none()
+            && [starts.nearest_meters, ends.nearest_meters]
+                .into_iter()
+                .flatten()
+                .any(|m| max_walk > m + ALTERNATIVE_TOLERANCE_M);
+        let widen = || -> Result<Option<(Attachment, Attachment)>, String> {
+            if !admit_wide {
+                return Ok(None);
+            }
+            let a = kernel.attach_bicycle_fallback(
+                &roads,
+                origin,
+                max_walk,
+                walk_speed / 3.6,
+                true,
+                &allowed,
+            )?;
+            let b = kernel.attach_bicycle_fallback(
+                &roads,
+                destination,
+                max_walk,
+                walk_speed / 3.6,
+                false,
+                &allowed,
+            )?;
+            Ok((a.candidates.len() != starts.candidates.len()
+                || b.candidates.len() != ends.candidates.len())
+            .then_some((a, b)))
+        };
+        let dated = clock.filter(|_| kernel.has_timing());
+        let compute = |start: &Attachment, end: &Attachment| {
+            point_guard::Point {
+                kernel,
+                prepared: &prepared,
+                start,
+                end,
+                origin,
+                destination,
+                options,
+                clock: dated,
+                reversed: arrival && dated.is_some(),
+                meters: max_meters,
+                max_elapsed: max_elapsed.filter(|_| dated.is_some()),
+                walk_speed,
+                continuation,
+            }
+            .solve()
+        };
+        if timed_expansion && dated.is_some() {
+            wide = widen()?;
+        }
+        let mut selected = if let Some((a, b)) = &wide {
+            compute(a, b)?
+        } else {
+            compute(&starts, &ends)?
+        };
+        if selected.is_none() && wide.is_none() {
+            wide = widen()?;
+            if let Some((a, b)) = &wide {
+                selected = compute(a, b)?;
+            }
+        }
+        if let Some((a, b)) = &wide {
+            result.origin_road_meters = a.nearest_meters;
+            result.destination_road_meters = b.nearest_meters;
+        }
+        if let Some(path) = selected {
+            result.status = "ready";
+            result.reason = None;
+            result.cost = Some(path.cost);
+            result.legs = path.legs;
+            result.end_wait_seconds = path.end_wait;
+            if retain_continuation {
+                result.continuation = Some(path.continuation);
+            }
+        }
+        Ok(result)
+    };
+    if continuation.is_some() {
+        return solve_guarded(result, false);
+    }
     let movement = &prepared.movements;
     let hierarchy = &prepared.hierarchy;
     let (optimistic, _) = prepared.gate_metrics(kernel, options);
@@ -156,7 +273,7 @@ pub(in crate::bike) fn route(
         }
     }
     let Some((end, direct, rank)) = winner else {
-        return Ok(result);
+        return solve_guarded(result, false);
     };
     let mut path = Vec::new();
     let (start, expected) = match direct {
@@ -197,9 +314,7 @@ pub(in crate::bike) fn route(
             .sum::<f64>();
     let total_meters = a.walk_meters + b.walk_meters + parts.iter().map(|part| part.1).sum::<f64>();
     if total_meters > max_meters || max_elapsed.is_some_and(|maximum| duration > maximum) {
-        return Err(
-            "The CCH point witness needs distance or time constrained customization".into(),
-        );
+        return solve_guarded(result, false);
     }
     let access: HashSet<_> = starts
         .candidates
@@ -224,7 +339,7 @@ pub(in crate::bike) fn route(
         if kernel.attributes[edge as usize] & (1 << 22) != 0
             && !access.contains(&kernel.destination_components[node as usize])
         {
-            return Err("The CCH point witness needs endpoint access customization".into());
+            return solve_guarded(result, false);
         }
         let actual = replay.map(|c| BikeClock {
             epoch: c.epoch + elapsed,
@@ -243,7 +358,7 @@ pub(in crate::bike) fn route(
             )?
             .first
         else {
-            return Err("The CCH point witness needs calendar customization".into());
+            return solve_guarded(result, true);
         };
         let turn = if i == 0 {
             expected
@@ -256,7 +371,7 @@ pub(in crate::bike) fn route(
             })
         };
         if turn.is_some_and(|turn| movement.states.turns[turn as usize] != state) {
-            return Err("The CCH point witness needs turn-state customization".into());
+            return solve_guarded(result, true);
         }
         let (seconds, price) = kernel.metric(edge, options);
         elapsed += meters * seconds;
@@ -268,5 +383,13 @@ pub(in crate::bike) fn route(
     result.status = "ready";
     result.reason = None;
     result.cost = Some(cost + b.walk_seconds);
+    if retain_continuation {
+        result.continuation = Some(BikeContinuation {
+            incoming,
+            state: history,
+            road: b.road,
+            walk_meters: b.walk_meters,
+        });
+    }
     Ok(result)
 }

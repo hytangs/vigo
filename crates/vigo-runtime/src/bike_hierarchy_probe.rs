@@ -4,10 +4,16 @@
 use super::*;
 use std::time::Instant;
 
+#[path = "bike_cch_batch.rs"]
+pub(in crate::bike) mod batch;
 #[path = "bike_hierarchy_certify.rs"]
 mod certify;
 #[path = "bike_hierarchy_point.rs"]
 pub(in crate::bike) mod point;
+#[path = "bike_cch_point_guard.rs"]
+mod point_guard;
+#[path = "bike_cch_point_path.rs"]
+mod point_path;
 #[path = "bike_hierarchy_reverse.rs"]
 pub(super) mod reverse;
 #[path = "bike_hierarchy_scoped.rs"]
@@ -19,8 +25,8 @@ const NONE: u32 = u32::MAX;
 const VIA: u32 = 1 << 31;
 
 struct Arcs {
-    costs: Vec<f64>,
-    witness: Vec<u32>,
+    costs: index::Column<f64>,
+    witness: index::Column<u32>,
 }
 
 impl Arcs {
@@ -35,9 +41,72 @@ impl Arcs {
 }
 
 struct Hierarchy {
-    graph: std::sync::Arc<cch::Cch>,
+    graph: std::sync::Arc<RankGraph>,
     up: Arcs,
     down: Arcs,
+}
+
+// The same CCH topology is either newly compiled or mapped read-only. Keep
+// the field layout identical so all queries use the same rank traversal.
+macro_rules! ranked_columns {
+    ($($column:ident),+ $(,)?) => {
+        struct RankGraph { $($column: index::Column<u32>),+ }
+        impl From<cch::Cch> for RankGraph {
+            fn from(graph: cch::Cch) -> Self {
+                Self { $($column: graph.$column.into()),+ }
+            }
+        }
+        impl RankGraph {
+            fn read(reader: &mut index::Reader) -> std::io::Result<Self> {
+                Ok(Self { $($column: reader.column(None)?),+ })
+            }
+            fn write(&self, writer: &mut index::Writer) -> std::io::Result<()> {
+                $(writer.column(&self.$column)?;)+
+                Ok(())
+            }
+        }
+    };
+}
+ranked_columns!(
+    rank,
+    elimination_tree_parent,
+    up_first_out,
+    up_head,
+    up_tail,
+    down_first_out,
+    down_head,
+    down_to_up,
+    input_arc_to_cch_arc,
+    forward_input_arc_of_cch,
+    backward_input_arc_of_cch,
+    first_extra_forward_input_arc_of_cch,
+    first_extra_backward_input_arc_of_cch,
+    extra_forward_input_arc_of_cch,
+    extra_backward_input_arc_of_cch,
+);
+impl RankGraph {
+    fn node_count(&self) -> usize {
+        self.rank.len()
+    }
+    fn cch_arc_count(&self) -> usize {
+        self.up_head.len()
+    }
+    fn matches(&self, movements: &MovementGraph) -> bool {
+        let n = self.node_count();
+        let a = self.cch_arc_count();
+        n + 1 == movements.input.first_out.len()
+            && self.elimination_tree_parent.len() == n
+            && self.up_first_out.len() == n + 1
+            && self.down_first_out.len() == n + 1
+            && self.up_tail.len() == a
+            && self.down_head.len() == a
+            && self.down_to_up.len() == a
+            && self.forward_input_arc_of_cch.len() == a
+            && self.backward_input_arc_of_cch.len() == a
+            && self.first_extra_forward_input_arc_of_cch.len() == a + 1
+            && self.first_extra_backward_input_arc_of_cch.len() == a + 1
+            && self.input_arc_to_cch_arc.len() == movements.input.head.len()
+    }
 }
 
 struct MovementGraph {
@@ -272,15 +341,14 @@ fn projected_order(kernel: &BikeKernel, movements: &MovementGraph) -> Result<Vec
 
 impl Hierarchy {
     fn customize_into(
-        graph: &cch::Cch,
+        graph: &RankGraph,
         up: &mut Arcs,
         down: &mut Arcs,
         kernel: &BikeKernel,
         movements: &MovementGraph,
         options: BikeOptions,
-        elapsed: bool,
+        weight: impl Fn(u32) -> f64,
         public_only: bool,
-        rebate: f64,
     ) {
         up.costs.fill(f64::INFINITY);
         down.costs.fill(f64::INFINITY);
@@ -296,13 +364,7 @@ impl Hierarchy {
                 {
                     continue;
                 }
-                let (seconds, price) = kernel.metric(road, options);
-                let cost = kernel.distances[road as usize] as f64 / 100.
-                    * if elapsed {
-                        seconds
-                    } else {
-                        (price - rebate * seconds).max(0.)
-                    };
+                let cost = weight(road);
                 let arcs = if graph.rank[from] < graph.rank[movements.input.head[index] as usize] {
                     &mut *up
                 } else {
@@ -360,15 +422,11 @@ impl Hierarchy {
         search_space
     }
 
-    fn solve(
-        &self,
-        starts: &[(u32, f64)],
-        targets: Option<&[u32]>,
-        work: &mut Workspace,
-        costs: (&[f64], &[f64]),
-    ) {
+    fn ascend(&self, starts: &[(u32, f64)], work: &mut Workspace, costs: &[f64]) {
         work.reset();
         let source_space = self.search_space(starts.iter().map(|&(node, _)| node));
+        let first = &*self.graph.up_first_out;
+        let heads = &*self.graph.up_head;
         for &(node, cost) in starts {
             let rank = self.graph.rank[node as usize] as usize;
             if cost < work.up_cost[rank] {
@@ -380,24 +438,35 @@ impl Hierarchy {
             if !value.is_finite() {
                 continue;
             }
-            for arc in
-                self.graph.up_first_out[rank as usize]..self.graph.up_first_out[rank as usize + 1]
-            {
-                let to = self.graph.up_head[arc as usize] as usize;
-                let cost = value + costs.0[arc as usize];
+            for arc in first[rank as usize]..first[rank as usize + 1] {
+                let to = heads[arc as usize] as usize;
+                let cost = value + costs[arc as usize];
                 if cost < work.up_cost[to] {
                     work.up_cost[to] = cost;
                 }
             }
         }
+        work.source_space = source_space;
+    }
+
+    fn solve(
+        &self,
+        starts: &[(u32, f64)],
+        targets: Option<&[u32]>,
+        work: &mut Workspace,
+        costs: (&[f64], &[f64]),
+    ) {
+        self.ascend(starts, work, costs.0);
+        let first = &*self.graph.up_first_out;
+        let heads = &*self.graph.up_head;
         // Every target's higher neighbours are ancestors, so this sweep
         // overwrites each slot before any later read. Keep the reusable
         // distance columns without clearing a whole City between bounds.
         let mut descend = |rank: u32| {
             let node = rank as usize;
             let mut cost = work.up_cost[node];
-            for arc in self.graph.up_first_out[node]..self.graph.up_first_out[node + 1] {
-                let to = self.graph.up_head[arc as usize];
+            for arc in first[node]..first[node + 1] {
+                let to = heads[arc as usize];
                 let candidate = work.down_cost[to as usize] + costs.1[arc as usize];
                 if candidate < cost {
                     cost = candidate;
@@ -414,7 +483,38 @@ impl Hierarchy {
                 descend(rank);
             }
         }
-        work.source_space = source_space;
+    }
+
+    // Only ranks within this budget can constrain a terminal or a timed
+    // movement. Push down from finite ranks instead of pulling every arc in
+    // the City. Nonnegative weights make an out-of-budget bound conclusive.
+    fn bounds(
+        &self,
+        starts: &[(u32, f64)],
+        work: &mut Workspace,
+        costs: (&[f64], &[f64]),
+        maximum: f64,
+    ) {
+        self.ascend(starts, work, costs.0);
+        work.down_cost.fill(f64::INFINITY);
+        let maximum = maximum * (1. + 1e-8) + 1e-6;
+        let first = &*self.graph.down_first_out;
+        let heads = &*self.graph.down_head;
+        let weights = &*self.graph.down_to_up;
+        for rank in (0..self.graph.node_count()).rev() {
+            let value = work.up_cost[rank].min(work.down_cost[rank]);
+            if value > maximum || !value.is_finite() {
+                continue;
+            }
+            work.down_cost[rank] = value;
+            for arc in first[rank] as usize..first[rank + 1] as usize {
+                let candidate = value + costs.1[weights[arc] as usize];
+                let to = heads[arc] as usize;
+                if candidate <= maximum && candidate < work.down_cost[to] {
+                    work.down_cost[to] = candidate;
+                }
+            }
+        }
     }
 }
 
@@ -451,34 +551,104 @@ impl Weights {
     fn prepare(
         kernel: &BikeKernel,
         movements: &MovementGraph,
-        graph: &cch::Cch,
+        graph: &RankGraph,
         options: BikeOptions,
         elapsed: bool,
         rebate: f64,
         retain_witness: bool,
         steady: bool,
     ) -> Self {
+        Self::weighted(
+            kernel,
+            movements,
+            graph,
+            options,
+            retain_witness,
+            steady,
+            |road| {
+                let (seconds, price) = kernel.metric(road, options);
+                kernel.distances[road as usize] as f64 / 100.
+                    * if elapsed {
+                        seconds
+                    } else {
+                        (price - rebate * seconds).max(0.)
+                    }
+            },
+        )
+    }
+
+    fn distance(
+        kernel: &BikeKernel,
+        movements: &MovementGraph,
+        graph: &RankGraph,
+        options: BikeOptions,
+    ) -> Self {
+        Self::weighted(kernel, movements, graph, options, true, true, |road| {
+            kernel.distances[road as usize] as f64 / 100.
+        })
+    }
+
+    fn directions(&self, reverse: bool) -> (&[f64], &[f64]) {
+        if reverse {
+            (&self.down.costs, &self.up.costs)
+        } else {
+            (&self.up.costs, &self.down.costs)
+        }
+    }
+
+    fn weighted(
+        kernel: &BikeKernel,
+        movements: &MovementGraph,
+        graph: &RankGraph,
+        options: BikeOptions,
+        retain_witness: bool,
+        steady: bool,
+        weight: impl Fn(u32) -> f64,
+    ) -> Self {
         let n = graph.cch_arc_count();
         let create = || Arcs {
-            costs: vec![f64::INFINITY; n],
+            costs: vec![f64::INFINITY; n].into(),
             witness: if retain_witness {
                 vec![NONE; n]
             } else {
                 vec![]
-            },
+            }
+            .into(),
         };
         let mut up = create();
         let mut down = create();
         Hierarchy::customize_into(
-            graph, &mut up, &mut down, kernel, movements, options, elapsed, steady, rebate,
+            graph, &mut up, &mut down, kernel, movements, options, weight, steady,
         );
         Self { up, down }
+    }
+
+    fn read(reader: &mut index::Reader, count: usize, witness: bool) -> std::io::Result<Self> {
+        let mut read_arc = || {
+            Ok::<_, std::io::Error>(Arcs {
+                costs: reader.column(Some(count))?,
+                witness: reader.column(Some(if witness { count } else { 0 }))?,
+            })
+        };
+        Ok(Self {
+            up: read_arc()?,
+            down: read_arc()?,
+        })
+    }
+
+    fn write(up: &Arcs, down: &Arcs, writer: &mut index::Writer) -> std::io::Result<()> {
+        for arc in [up, down] {
+            writer.column(&arc.costs)?;
+            writer.column(&arc.witness)?;
+        }
+        Ok(())
     }
 }
 
 pub(crate) struct PreparedTopology {
     movements: std::sync::Arc<MovementGraph>,
-    graph: std::sync::Arc<cch::Cch>,
+    graph: std::sync::Arc<RankGraph>,
+    published: std::sync::atomic::AtomicBool,
 }
 fn together<A: Send, B: Send>(
     first: impl FnOnce() -> A + Send,
@@ -497,6 +667,21 @@ struct Prepared {
     cost_bounds: std::sync::OnceLock<(Weights, Weights)>,
     timings: [f64; 5],
     maximum_price_rate: f64,
+    published: std::sync::atomic::AtomicBool,
+}
+fn metric_key(options: BikeOptions) -> (&'static str, [u8; 9]) {
+    let mut key = [0; 9];
+    key[..8].copy_from_slice(&options.speed_kph.to_bits().to_le_bytes());
+    key[8] = options.max_lts.unwrap_or(u8::MAX);
+    (
+        match options.profile {
+            Profile::Balanced => "balanced",
+            Profile::Fast => "fast",
+            Profile::Quiet => "quiet",
+            Profile::Shortest => "shortest",
+        },
+        key,
+    )
 }
 impl Prepared {
     fn new(kernel: &BikeKernel, options: BikeOptions) -> Result<Self, String> {
@@ -508,17 +693,47 @@ impl Prepared {
                 let movements = std::sync::Arc::new(MovementGraph::new(kernel)?);
                 let movement_ms = ms(t);
                 let t = Instant::now();
-                let order = projected_order(kernel, &movements)?;
-                let order_ms = ms(t);
-                let t = Instant::now();
-                let graph = std::sync::Arc::new(cch::Cch::build(&movements.input, &order));
-                let topology_ms = ms(t);
-                let topology = std::sync::Arc::new(PreparedTopology { movements, graph });
+                let mapped = kernel.cch_index().and_then(|store| {
+                    let mut reader = store.open("topology", &[]).ok()?;
+                    let graph = RankGraph::read(&mut reader).ok()?;
+                    (reader.finish().is_ok() && graph.matches(&movements)).then_some(graph)
+                });
+                let (graph, order_ms, topology_ms) = if let Some(graph) = mapped {
+                    (graph, 0., ms(t))
+                } else {
+                    let t = Instant::now();
+                    let order = projected_order(kernel, &movements)?;
+                    let order_ms = ms(t);
+                    let t = Instant::now();
+                    (
+                        RankGraph::from(cch::Cch::build(&movements.input, &order)),
+                        order_ms,
+                        ms(t),
+                    )
+                };
+                let mapped = graph.rank.mapped();
+                let graph = std::sync::Arc::new(graph);
+                let topology = std::sync::Arc::new(PreparedTopology {
+                    movements,
+                    graph,
+                    published: std::sync::atomic::AtomicBool::new(mapped),
+                });
                 let _ = kernel.cch_topology.set(topology.clone());
                 (topology, movement_ms, order_ms, topology_ms)
             };
         let movements = topology.movements.clone();
         let graph = topology.graph.clone();
+        if graph.rank.mapped()
+            && let Some(store) = kernel.cch_index()
+            && let Ok(loaded) = Self::open(
+                store,
+                options,
+                &topology,
+                [movement_ms, order_ms, topology_ms, 0., 0.],
+            )
+        {
+            return Ok(loaded);
+        }
         let ((physical, physical_ms), (steady, preferred_ms)) = together(
             || {
                 let t = Instant::now();
@@ -553,6 +768,7 @@ impl Prepared {
             physical,
             cost_bounds: std::sync::OnceLock::new(),
             maximum_price_rate,
+            published: std::sync::atomic::AtomicBool::new(false),
             timings: [
                 movement_ms,
                 order_ms,
@@ -561,6 +777,68 @@ impl Prepared {
                 preferred_ms,
             ],
         })
+    }
+
+    fn open(
+        store: &index::Store,
+        options: BikeOptions,
+        topology: &PreparedTopology,
+        mut timings: [f64; 5],
+    ) -> std::io::Result<Self> {
+        let opened = Instant::now();
+        let (kind, key) = metric_key(options);
+        let graph = topology.graph.clone();
+        let n = graph.cch_arc_count();
+        let mut reader = store.open(kind, &key)?;
+        let maximum_price_rate = reader.column::<f64>(Some(1))?[0];
+        let physical = Weights::read(&mut reader, n, false)?;
+        let steady = Weights::read(&mut reader, n, true)?;
+        let optimistic = Weights::read(&mut reader, n, true)?;
+        let dual = Weights::read(&mut reader, n, false)?;
+        reader.finish()?;
+        timings[3] = ms(opened);
+        Ok(Self {
+            movements: topology.movements.clone(),
+            hierarchy: Hierarchy {
+                graph,
+                up: steady.up,
+                down: steady.down,
+            },
+            physical,
+            cost_bounds: std::sync::OnceLock::from((optimistic, dual)),
+            timings,
+            maximum_price_rate,
+            published: std::sync::atomic::AtomicBool::new(true),
+        })
+    }
+
+    fn publish(&self, kernel: &BikeKernel, options: BikeOptions) -> std::io::Result<()> {
+        use std::sync::atomic::Ordering;
+        let Some(store) = kernel.cch_index() else {
+            return Ok(());
+        };
+        if self.published.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        let topology = kernel.cch_topology.get().expect("prepared topology");
+        if !topology.published.load(Ordering::Relaxed) {
+            store.publish("topology", &[], |writer| topology.graph.write(writer))?;
+            topology.published.store(true, Ordering::Relaxed);
+        }
+        let (kind, key) = metric_key(options);
+        let (optimistic, dual) = self.gate_metrics(kernel, options);
+        store.publish(kind, &key, |writer| {
+            writer.column(&[self.maximum_price_rate])?;
+            Weights::write(&self.physical.up, &self.physical.down, writer)?;
+            Weights::write(&self.hierarchy.up, &self.hierarchy.down, writer)?;
+            Weights::write(&optimistic.up, &optimistic.down, writer)?;
+            Weights::write(&dual.up, &dual.down, writer)
+        })?;
+        self.published.store(true, Ordering::Relaxed);
+        if let Some(walking) = &kernel.walking {
+            walking.publish_hierarchy(store)?;
+        }
+        Ok(())
     }
 
     fn gate_metrics(&self, kernel: &BikeKernel, options: BikeOptions) -> &(Weights, Weights) {
@@ -606,6 +884,14 @@ pub(crate) struct PreparedSlot {
 }
 
 impl BikeKernel {
+    fn cch_index(&self) -> Option<&index::Store> {
+        if let Some(store) = self.cch_index.get() {
+            return Some(store);
+        }
+        let _ = self.cch_index.set(self.cch_source.as_ref()?.store(None)?);
+        self.cch_index.get()
+    }
+
     fn hierarchy(&self, options: BikeOptions) -> Result<(std::sync::Arc<Prepared>, bool), String> {
         let key = (
             options.profile as u8,
@@ -633,6 +919,9 @@ impl BikeKernel {
         options.validate()?;
         let (prepared, _) = self.hierarchy(options)?;
         prepared.gate_metrics(self, options);
+        // Preparing a City can publish a source-matched index. Read-only
+        // cache directories do not change the routing algorithm or results.
+        let _ = prepared.publish(self, options);
         Ok(())
     }
 }
@@ -800,11 +1089,11 @@ pub(super) fn measure(
         strict || std::env::var_os("VIGO_BIKE_HIERARCHY_PORTAL_PROBE").is_some();
     let before = Instant::now();
     let event_states: Vec<_> = movements.timed.iter().map(|event| event.0).collect();
-    hierarchy.solve(
+    hierarchy.bounds(
         &earliest_sources,
-        None,
         &mut workspace,
         (physical_up, physical_down),
+        cutoff_cap / rate,
     );
     let earliest_at: Vec<_> = event_states
         .iter()
@@ -890,11 +1179,11 @@ pub(super) fn measure(
         .iter()
         .flat_map(|&node| movements.states.variants(node))
         .collect();
-    hierarchy.solve(
+    hierarchy.bounds(
         &lower_sources,
-        None,
         &mut workspace,
         (&optimistic.up.costs, &optimistic.down.costs),
+        cutoff_cap,
     );
     let lower_start_price: Vec<_> = workspace
         .down_cost
@@ -963,11 +1252,11 @@ pub(super) fn measure(
             reverse_sources.extend(movements.states.variants(node).map(|state| (state, best)));
         }
     }
-    hierarchy.solve(
+    hierarchy.bounds(
         &reverse_sources,
-        None,
         &mut workspace,
         (&optimistic.down.costs, &optimistic.up.costs),
+        cap,
     );
     let mut extra = Vec::new();
     let mut gates = Vec::new();
@@ -1227,11 +1516,11 @@ pub(super) fn measure(
             let before_gates: Vec<_> = if constrained {
                 lower_remaining.clone()
             } else {
-                hierarchy.solve(
+                hierarchy.bounds(
                     &port_seeds,
-                    None,
                     &mut workspace,
                     (&optimistic.down.costs, &optimistic.up.costs),
+                    cap,
                 );
                 workspace
                     .down_cost
@@ -1266,6 +1555,7 @@ pub(super) fn measure(
                 permissions: &permissions,
                 steady: &admitted,
                 reversed: false,
+                continuation: None,
                 lower_start: &lower_start,
                 lower_start_price: &lower_start_price,
                 lower_remaining: &before_gates,
