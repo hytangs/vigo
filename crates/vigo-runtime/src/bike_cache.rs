@@ -410,6 +410,8 @@ mod tests {
             original,
             "Opening a City must not alter its files"
         );
+        // Windows refuses to rewrite a file while a mapped view of it is open.
+        drop(restored);
         let mut broken = fs::read(&compiled).unwrap();
         broken[HEADER + 3] ^= 1;
         fs::write(&compiled, broken).unwrap();
