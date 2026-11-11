@@ -35,8 +35,6 @@ New rules use the canonical tokens: `--ink-*` surfaces, `--line-*` hairlines,
 floating surfaces, and the type, radius and motion scales. Every rule uses these
 names directly; there are no legacy aliases.
 Color in map layers comes from transit data; interface chrome stays neutral.
-The reasoning is recorded in the
-[Studio V1 design](../../docs/reference/studio-v1-design.md).
 
 `npm run check:css` rejects declarations that are unconditionally replaced by
 a later rule with the same selector and media context, and selectors or custom

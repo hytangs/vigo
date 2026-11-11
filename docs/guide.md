@@ -1,6 +1,6 @@
 # VIGO 1.0.0 guide
 
-The canonical source for the [VIGO guide](guide.html), a single offline page that also includes the [engine reference](guides/rust-standalone.md), [Results](reference/results.md), [VIGO Python](../python/docs/guide.md), and [developer resources](developer.md#developer-resources). Edit a chapter here, then run `npm run docs:build`.
+The source of the [VIGO guide](guide.html), one offline page that also contains the [engine reference](guides/rust-standalone.md), the [public results reference](reference/results.md), [how VIGO computes answers](reference/methodology.md), [VIGO Python](../python/docs/guide.md) and the [developer guide](developer.md). `docs/navigation.json` arranges the chapters into pages. Edit a chapter, then run `npm run docs:build`.
 
 ## Build a network. Answer a transport question.
 
@@ -9,9 +9,9 @@ VIGO 1.0.0 turns GTFS timetables and OpenStreetMap streets into a reusable City,
 ### Start here
 
 - **[Build your first City](#quickstart)** Download Boston's public timetable and streets, build a City, and plan a trip from Harvard Square to South Station.
-- **[Install VIGO](#install-vigo)** Pick the engine, the City compiler, the desktop Studio, or the Python package.
-- **[Serve an HTTP API](guides/rust-standalone.md#15-http-api-and-server-operation)** Answer Route, Matrix, and Reach requests from one executable with no runtime dependencies.
-- **[Analyze in Python](../python/docs/guide.md)** Run batches and notebooks against a City, then export journey and leg tables.
+- **[Install VIGO](#install-vigo)** Pick the engine, the compiler, the desktop Studio or the Python package.
+- **[Serve an HTTP API](guides/rust-standalone.md#http-api)** Answer Route, Matrix and Reach from one executable with no runtime dependencies.
+- **[Analyze in Python](../python/docs/guide.md)** Run batches and notebooks against a City, and export journey and leg tables.
 
 ### Three questions, one City
 
@@ -19,7 +19,7 @@ VIGO 1.0.0 turns GTFS timetables and OpenStreetMap streets into a reusable City,
 | --- | --- | --- |
 | **Route** | How do I travel between these places, and what happens on the way? | [Route](#route) |
 | **Matrix** | How long does each origin–destination pair take? | [Matrix](#matrix) |
-| **Reach** | Where can I get within 15, 30, or 45 minutes? | [Reach](#reach-and-isochrones) |
+| **Reach** | Where can I get within 15, 30 or 45 minutes? | [Reach](#reach-and-isochrones) |
 
 A **Scenario** changes the service one query sees, such as a new line or a removed route, so you can measure a proposal against today's network. **Compare** sets two saved Results side by side without routing again.
 
@@ -27,40 +27,50 @@ A **Scenario** changes the service one query sees, such as a new line or a remov
 
 | Interface | Best for | What it needs |
 | --- | --- | --- |
-| **Engine** (`vigo`) | Queries, resident streams, and the HTTP API | One native executable; no Node, Python, or network access |
-| **Compiler** (`vigo.mjs`) | Building Cities and scenario collections; it can also query them | Node.js 24.18 or newer, its bundled native kernel, and the native executable for queries |
-| **Studio** | Inspecting service, planning journeys, and exploring Reach and scenarios | The desktop application and its own project library |
-| **Python** (`import vigo`) | Studies, batches, notebooks, and journey tables | A platform wheel with a headless engine |
+| **Engine** (`vigo`) | Queries, resident streams and the HTTP API | One native executable; no Node, Python or network access |
+| **Compiler** (`vigo.mjs`) | Building Cities and scenario collections; it can also query them | Node.js 24.18 or newer, with its bundled native kernel |
+| **Studio** | Inspecting service, planning journeys, and exploring Reach and scenarios | The desktop application |
+| **Python** (`import vigo`) | Studies, batches, notebooks and journey tables | A platform wheel with a headless engine |
 
-The engine, the compiler, and Python open the same City directories. For the same City and request, the engine and the compiler return the same public JSON Result.
+The engine, the compiler and Python open the same City directories, and for the same City and request the engine and the compiler return the same public JSON Result.
 
 ### Built to be explained
 
-Every answer carries its evidence. A Route Result says whether each walk follows mapped streets or a schematic station link. A Matrix keeps unreachable pairs `null`, never zero. A Reach surface records its grid so that two runs can be compared cell by cell. [Known limits](#known-limits) state plainly what the model does not establish.
+Every answer carries its evidence. A Route Result says whether each walk follows mapped streets or an assumed station link. A Matrix keeps unreachable pairs `null`, never zero. A Reach surface records its grid so two runs can be compared cell by cell. [Known limits](#known-limits) state plainly what the model does not establish.
 
-- **Transfer correctness.** One exact connection scan applies prepared transfer permissions, stop-level GTFS rules and frequency departures. See [transfer semantics](reference/transfer-search.md).
-- **Stable data.** Compatible prepared Cities stay readable in V1 without rebuilding. See the [prepared-data contract](reference/city-format.md).
-- **Stable results.** The public `vigo.route.v1`, `vigo.matrix.v1`, and `vigo.reach.v1` schemas only gain optional fields. See [Read a Result](reference/results.md).
-- **Offline by default.** Queries never fetch anything. This guide works offline too: press `/` to search, and open saved Results in the [Result viewer](#inspect-a-saved-result).
+- **Exact search.** Transit is one exact connection scan over the prepared timetable, with published transfer rules and frequencies. See [how VIGO computes answers](reference/methodology.md).
+- **Stable data.** Published Cities stay readable by later releases without rebuilding. See the [prepared-data contract](reference/city-format.md).
+- **Stable results.** The public `vigo.route.v1`, `vigo.matrix.v1` and `vigo.reach.v1` schemas only gain optional fields. See [public results](reference/results.md).
+- **Offline.** Queries never fetch anything. This guide works offline too: press `/` to search, and open saved Results in the [Result viewer](#inspect-a-saved-result).
 
-### What's new in 1.0.0
+### How this guide is organized
 
-Tight bicycle and driving distance limits now return a route or a clean no-route answer quickly instead of an error. Adding a stop extends a journey to A, B, then C. An interrupted `vigo build --replace` keeps or restores the published City. The public route planner gains a local address index, an offline page and stricter limits. Read the [release notes](releases/1.0.0.md).
+| Section | Read it to |
+| --- | --- |
+| **Get started** | Install VIGO, build a City and learn the four core ideas |
+| **Guides** | Do one task: build a City, plan journeys, compute matrices, map Reach, test a scenario, use live data |
+| **Studio** | Use the desktop application |
+| **Deploy and operate** | Run the HTTP service, size it, upgrade it |
+| **Reference** | Look up every command, flag, request field, Result field, endpoint and environment variable |
+| **How VIGO works** | Understand the algorithms, what is exact, and what the model leaves out |
+| **Help** | Fix a problem or look up a term in the [glossary](#glossary) |
 
-VIGO includes Bike Route, Matrix and Reach. They use bicycle access, contraflow, surfaces, mapped incline and turn restrictions. Choose balanced, quiet or fast preferences; travel-time estimates remain separate from preference penalties. Bike data is optional in CLI builds and loads only on demand. Studio includes Bike in Route and Reach and prepares bicycle streets on new OSM imports. Address suggestions stay inside the selected City’s prepared street coverage, or its timetable coverage when no street snapshot is available. See the [release notes](releases/1.0.0.md) and the [changelog](../CHANGELOG.md).
+### Get help
+
+Search this guide with `/`. Check [Troubleshooting](#troubleshooting) and [Known limits](#known-limits) first. Report reproducible problems on [GitHub issues](https://github.com/hytangs/vigo/issues), following [Report a reproducible issue](#report-a-reproducible-issue), and report vulnerabilities through the [security policy](../SECURITY.md). Release history is in the [release notes](releases/1.0.0.md) and the [changelog](../CHANGELOG.md).
 
 ## Install VIGO
 
-VIGO has four entry points. Most projects use two of them together: the **compiler** builds a City once from raw data, and the **engine** answers queries from that City for as long as you like.
+VIGO has four entry points. Most projects use two: the **compiler** builds a City once from raw data, and the **engine** answers queries from it for as long as you like.
 
 | You want to | Install | Requirements |
 | --- | --- | --- |
 | Query a prepared City or serve HTTP | Engine archive (`VIGO-Rust-…`) | Nothing else at query time |
-| Build Cities from GTFS and OSM | Compiler archive (CLI) | Node.js 24.18 or newer |
-| Explore networks visually | VIGO Studio | The desktop application |
-| Script analyses and notebooks | VIGO Python | Python and the wheel for your platform |
+| Build Cities from GTFS and OSM | Compiler archive (`VIGO-CLI-…`) | Node.js 24.18 or newer |
+| Explore networks visually | VIGO Studio (`VIGO-Studio-…`) | The desktop application |
+| Script analyses and notebooks | VIGO Python (`VIGO-Python-…`) | Python 3.10 or newer and the wheel for your platform |
 
-Download archives from [VIGO releases](https://github.com/hytangs/vigo/releases). Each archive targets one operating system and CPU; City data moves freely between the supported 64-bit targets.
+Download archives from [VIGO releases](https://github.com/hytangs/vigo/releases). Each archive targets one operating system and CPU; City data moves freely between the supported 64-bit platforms. Each archive has a `.sha256` checksum, and the engine and compiler archives hold a `manifest.json` that hashes every file.
 
 ### Engine
 
@@ -76,22 +86,22 @@ Extract the engine archive and check the executable:
 .\vigo.exe capabilities --pretty
 ```
 
-The executable contains the routing kernels, the City loader, the JSON interface, the HTTP server, and SQLite. It needs no compiler, Node, Python, browser, or internet connection to answer a query. The archive also contains this guide, the OpenAPI document, the [engine manual](guides/rust-standalone.md), an audit record, licenses, and a `manifest.json` that hashes every file.
+The executable contains the routing kernels, the City loader, the JSON interface, the HTTP server and SQLite. The archive also holds this guide (`guide.html`), the OpenAPI document, the [engine reference](guides/rust-standalone.md) as `README.md`, the native field reference, a verification record and licenses.
 
 ### Compiler
 
-The compiler archive contains `vigo.mjs`, its matching native routing kernel, license notices, and a checksum manifest. Keep `vigo.mjs` and `vigo-routing-kernel.node` in the same directory, then check it with Node.js 24.18 or newer:
+The compiler archive contains `vigo.mjs`, its matching native kernel (`vigo-routing-kernel.node`), the `vigo` executable it uses for Reach, license notices and a checksum manifest. Keep the files together and check them with Node.js 24.18 or newer:
 
 ```sh
 node vigo.mjs --version
 node vigo.mjs capabilities
 ```
 
-The compiler builds Cities and scenario collections, and runs Route, Matrix, Reach, Stream, and Compare against them. It does not bundle Node or City data. The same steps ship inside the archive as its [README](guides/cli-only.md).
+The compiler builds Cities and scenario collections and runs Route, Matrix, Reach, Stream and Compare against them. It bundles neither Node nor City data. Its reference is the [compiler guide](guides/cli-only.md), which ships in the archive as `README.md`.
 
 ### Build from source
 
-Use Node.js 24.18 or newer, npm 11.6 or newer, the Rust toolchain pinned in `rust-toolchain.toml`, and a C toolchain for the bundled SQLite. Build natively on the operating system and CPU that will run VIGO:
+Use Node.js 24.18 or newer, npm 11.6 or newer, the Rust toolchain pinned in `rust-toolchain.toml`, and a C toolchain for the bundled SQLite. Build on the operating system and CPU that will run VIGO:
 
 ```sh
 git clone https://github.com/hytangs/vigo.git
@@ -101,7 +111,7 @@ npm run build:cli-runtime
 npm run build:standalone
 ```
 
-`build:cli-runtime` produces the compiler, `public/vigo.mjs`, and its native kernel. `build:standalone` produces the engine at `target/release/vigo`. `npm run build` additionally compiles Studio, and `npm run studio` opens it.
+`build:cli-runtime` produces the compiler, `public/vigo.mjs`, and its native kernel. `build:standalone` produces the engine at `target/release/vigo`. `npm run build` also compiles Studio, and `npm run studio` opens it. On a machine with 4 GiB of memory or less, the build selects low-memory compiler settings automatically; see [build from source on a small machine](developer.md#build-on-a-small-machine).
 
 ### Name the commands
 
@@ -112,30 +122,28 @@ alias vigo="/absolute/path/to/vigo"
 alias vigo-build='node "/absolute/path/to/vigo.mjs"'
 ```
 
-From a source checkout, point them at `target/release/vigo` and `public/vigo.mjs`. On Windows, use `.\vigo.exe` and `node .\vigo.mjs`, or define your own functions. Both commands accept `--name value` and `--name=value` and reject unknown options.
+From a source checkout, point them at `target/release/vigo` and `public/vigo.mjs`. On Windows, use `.\vigo.exe` and `node .\vigo.mjs`, or define your own functions. Both accept `--name value` and `--name=value` and reject unknown options.
 
 ### Studio and Python
 
-**VIGO Studio** is the desktop workspace. It imports GTFS and OSM into its own project library and opens this guide offline under **Settings → Documentation**. See the [Studio guide](#vigo-studio-desktop-guide).
+**VIGO Studio** is the desktop workspace. It imports GTFS and OSM into its own project library and opens this guide offline under **Settings → Documentation**. See [VIGO Studio](#vigo-studio). macOS Studio builds are ad hoc signed, not notarized: if macOS blocks the first launch, verify the download's checksum, then choose **Open Anyway** under **System Settings → Privacy & Security**.
 
-macOS Studio builds are ad hoc signed, not notarized. If macOS blocks the first launch, verify the download's checksum, then choose **Open Anyway** under **System Settings → Privacy & Security**.
-
-**VIGO Python** is versioned separately. Install the wheel for your platform, then follow [your first Python query](../python/docs/guide.md#your-first-python-query).
+**VIGO Python** is versioned separately and its platform wheels include a headless engine. Follow [your first Python query](../python/docs/guide.md#your-first-python-query).
 
 ### Supported platforms
 
-- macOS 13.5 or newer on Apple Silicon, Linux with glibc on ARM64 and x64, and Windows x64. Linux release builds use Ubuntu 24.04. There are no 32-bit or native Windows ARM64 binaries.
-- The engine container image runs on Debian with glibc. See [Deploy the routing engine](#deploy-the-routing-engine).
-- Studio maps require WebGL 2. The engine, the compiler, and Python need no graphics device.
+- macOS 13.5 or newer on Apple Silicon (Python wheels need macOS 14), Linux with glibc 2.39 or newer on x64 and ARM64 (built on Ubuntu 24.04), and Windows x64. There are no 32-bit or Windows ARM64 binaries. For an older Linux, build from source there.
+- The engine container image runs on Debian with glibc; see [Deploy the routing engine](#deploy-the-routing-engine).
+- Studio maps need WebGL 2. The engine, the compiler and Python need no graphics device.
 
 ## Quickstart
 
-In about ten minutes you will build a City for **Boston and Cambridge** from public data, then plan a journey from **Harvard Square to South Station**, compute a small matrix, and map where you can reach in 45 minutes. A **City** is the prepared data directory, here `./boston`.
+In about ten minutes you will build a City for **Boston and Cambridge** from public data, plan a journey from **Harvard Square to South Station**, compute a small matrix, and map where you can reach in 45 minutes. A **City** is the prepared data directory, here `./boston`.
 
-You need the [engine and the compiler](#install-vigo), named `vigo` and `vigo-build`, plus `curl`, `unzip`, and [Osmium Tool](https://osmcode.org/osmium-tool/manual.html). The commands use a POSIX shell; on Windows, use WSL for the download and extract steps.
+You need the [engine and the compiler](#install-vigo), named `vigo` and `vigo-build`, plus `curl`, `unzip` and [Osmium Tool](https://osmcode.org/osmium-tool/manual.html). The commands use a POSIX shell; on Windows, use WSL for the download and extract steps.
 
 > [!TIP]
-> Every request below works with either runtime. Replace `vigo` with `vigo-build` to run a query through the compiler instead; the Result is the same.
+> Every request below works with either runtime. Replace `vigo` with `vigo-build` to run a query through the compiler; the Result is the same.
 
 ### 1. Download the Boston inputs
 
@@ -143,10 +151,10 @@ Two files supply different parts of a journey:
 
 | Data | Official source | What VIGO uses it for |
 | --- | --- | --- |
-| MBTA static GTFS ZIP | [MBTA GTFS documentation](https://github.com/mbta/gtfs-documentation/blob/master/reference/gtfs.md), [download ZIP](https://cdn.mbta.com/MBTA_GTFS.zip) | Stops, trips, calendars, transfers, fares, and transit shapes |
-| Massachusetts OpenStreetMap PBF | [Geofabrik Massachusetts](https://download.geofabrik.de/north-america/us/massachusetts.html), [download PBF](https://download.geofabrik.de/north-america/us/massachusetts-latest.osm.pbf) | Streets for walking access, egress, transfers, walking, and driving |
+| MBTA static GTFS ZIP | [MBTA GTFS documentation](https://github.com/mbta/gtfs-documentation/blob/master/reference/gtfs.md), [download ZIP](https://cdn.mbta.com/MBTA_GTFS.zip) | Stops, trips, calendars, transfers, fares and shapes |
+| Massachusetts OpenStreetMap PBF | [Geofabrik Massachusetts](https://download.geofabrik.de/north-america/us/massachusetts.html), [download PBF](https://download.geofabrik.de/north-america/us/massachusetts-latest.osm.pbf) | Streets for walking to, from and between stops, and for walking, driving and cycling |
 
-No API key is needed. Choose the **static GTFS ZIP**, not GTFS-realtime, and the **`.osm.pbf`**, not a shapefile or GeoPackage.
+No API key is needed. Choose the **static GTFS ZIP**, not GTFS-Realtime, and the **`.osm.pbf`**, not a shapefile or GeoPackage.
 
 ```sh
 mkdir -p boston-tutorial/data
@@ -159,7 +167,7 @@ unzip -p data/MBTA_GTFS.zip feed_info.txt
 unzip -p data/MBTA_GTFS.zip calendar.txt
 ```
 
-`feed_start_date` and `feed_end_date` give the published interval. The feed checked for this tutorial covers **2026-09-25 through 2026-12-12**, and the examples use Monday **2026-10-05**. With a later download, choose a date inside its interval and check `calendar.txt` and `calendar_dates.txt`: a date inside the interval does not mean every route runs that day. Times are local MBTA service times in `America/New_York`.
+`feed_start_date` and `feed_end_date` give the published interval. The feed used to check this tutorial covers **2026-09-25 through 2026-12-12**, and the examples use Monday **2026-10-05**. With a later download, pick a date inside its interval and check `calendar.txt` and `calendar_dates.txt`: a date inside the interval does not mean every route runs that day. Times are local MBTA service times in `America/New_York`.
 
 ### 2. Build the City
 
@@ -173,9 +181,9 @@ vigo-build build --gtfs ./data/MBTA_GTFS.zip --osm ./data/boston.osm.pbf \
 vigo info --city ./boston --pretty
 ```
 
-The [complete-ways strategy](https://docs.osmcode.org/osmium/latest/osmium-extract.html) keeps every node of the ways crossing the rectangle. This extract covers the tutorial's places, **not street access for the whole MBTA network**; for a wider study, enlarge it or pass the full Massachusetts PBF. `--prepare-date` precompiles that day's timetable so that a fresh engine process can reuse it. Keep the providers' notices when you share data; see [OpenStreetMap attribution](https://www.openstreetmap.org/copyright).
+The [complete-ways strategy](https://docs.osmcode.org/osmium/latest/osmium-extract.html) keeps every node of the ways crossing the rectangle. This extract covers the tutorial's places, **not street access for the whole MBTA network**; for a wider study, enlarge it or use the full Massachusetts PBF. `--prepare-date` compiles that day's timetable now, so a fresh engine process does not have to. Keep the providers' notices when you share data; see [OpenStreetMap attribution](https://www.openstreetmap.org/copyright).
 
-VIGO writes one complete `./boston` directory and leaves an existing output alone unless you pass `--replace`. `vigo info` confirms the City's name, revision, sources, and warnings. Keep the whole directory: the inspection output identifies the City but contains no routing data.
+VIGO writes one complete `./boston` directory and leaves an existing output alone unless you pass `--replace`. `vigo info` shows the City's name, revision, sources, counts and limitations. Keep the whole directory: the inspection output identifies the City but contains no routing data.
 
 ### 3. Plan a journey
 
@@ -198,7 +206,7 @@ vigo route --city ./boston --request route.json
 vigo route --city ./boston --request route.json --output route-result.json
 ```
 
-In a terminal, the first command prints a short itinerary. The second saves the full JSON Result. To ask when to leave to **arrive by 09:00**, override the clock and time direction:
+In a terminal, the first command prints a short itinerary; the second saves the full JSON Result. To ask when to leave to **arrive by 09:00**, override the clock and the time direction:
 
 ```sh tab="Engine"
 vigo route --city ./boston --request route.json --time 09:00 --arrive-by
@@ -208,13 +216,13 @@ vigo route --city ./boston --request route.json --time 09:00 --arrive-by
 vigo-build route --city ./boston --request route.json --time 09:00 --time-preference arrive
 ```
 
-Command-line flags override fields in the request file. In JSON, the same choice is `"time": "09:00", "timePreference": "arrive_by"`, which both runtimes accept.
+Flags override fields in the request file. In JSON, the same choice is `"time": "09:00", "timePreference": "arrive_by"`, which both runtimes accept.
 
 ### 4. Read the Result
 
-Read `status` first. `ok` contains a `journey`; `not_found` is a valid answer meaning no journey satisfies the date, walking limit, transfer cap, and time horizon you asked for. Then read `journey.departureTime`, `journey.arrivalTime`, and the ordered `journey.legs`. Clocks are local service-day `HH:MM:SS`; durations are integer seconds.
+Read `status` first. `ok` comes with a `journey`; `not_found` is a valid answer meaning no journey meets the date, walking limit, transfer cap and horizon you asked for. Then read `journey.departureTime`, `journey.arrivalTime` and the ordered `journey.legs`. Clocks are local service-day `HH:MM:SS`; durations are whole seconds.
 
-Trip IDs and times depend on the feed you downloaded, and this is scheduled routing without live delays. Check `warnings` and each walk's `quality` before treating a path as a passenger-facing guarantee; [walking evidence](reference/walking-evidence.md) explains station costs and schematic links. Open `route-result.json` in the [Result viewer](#inspect-a-saved-result) to see the journey as a timeline.
+Trip IDs and times depend on the feed you downloaded, and this is scheduled routing without live delays. Check `warnings` and each walk's `quality` before treating a path as passenger guidance; [walking evidence](reference/walking-evidence.md) explains station costs and assumed links. Open `route-result.json` in the [Result viewer](#inspect-a-saved-result) to see it as a timeline.
 
 ### 5. Compute a matrix
 
@@ -242,11 +250,11 @@ Save `matrix.json`. The rows are **Harvard Square** and **Kendall Square**; the 
 vigo matrix --city ./boston --request matrix.json --output matrix-result.json
 ```
 
-Read `durationsSeconds[origin][destination]` in request order, and the matching `journeys` entry when requested. An unreachable pair is `null`, never zero. Repeated origins or destinations share work internally, and every requested cell is still returned.
+Read `durationsSeconds[origin][destination]` in request order, and the matching `journeys` entry. An unreachable pair is `null`, never zero.
 
 ### 6. Map where you can go
 
-Save `reach.json` to find the streets and areas reachable from Harvard Square within 15, 30, and 45 minutes:
+Save `reach.json` to find the streets and areas reachable from Harvard Square within 15, 30 and 45 minutes:
 
 ```json
 {
@@ -263,11 +271,11 @@ Save `reach.json` to find the streets and areas reachable from Harvard Square wi
 vigo reach --city ./boston --request reach.json --output reach-result.json
 ```
 
-`surface.valuesSeconds` is a row-major raster from the northwest corner, and `areas` holds GeoJSON polygons for each cutoff. A Reach surface describes modeled travel time; it is not a count of jobs or people. See [Reach](#reach-and-isochrones) for resolution, sampling, and comparison rules.
+`surface.valuesSeconds` is a row-major raster starting at the northwest corner, and `areas` holds a GeoJSON polygon for each cutoff. A Reach surface is modeled travel time; it is not a count of jobs or people. See [Reach](#reach-and-isochrones).
 
 ### 7. Keep the City loaded
 
-One-off commands open the City every time. For repeated work, keep one process resident. Save `queries.ndjson` with one request per line:
+A one-off command opens the City every time. For repeated work, keep one process resident. Save `queries.ndjson` with one request per line:
 
 ```jsonl
 {"id":"harvard-south-depart","kind":"route","origin":{"coordinate":[-71.11902,42.37334]},"destination":{"coordinate":[-71.05524,42.35227]},"serviceDate":"2026-10-05","time":"08:00","maxWalkKm":1.2,"maxTransfers":3}
@@ -278,7 +286,7 @@ One-off commands open the City every time. For repeated work, keep one process r
 vigo stream --city ./boston < queries.ndjson > results.ndjson
 ```
 
-Each output line echoes its `id`; check every `status`, because one failed line does not end the stream. To serve applications over HTTP, start the engine's service and call it from a second terminal:
+Each output line echoes its `id`; check every `status`, because one failed line does not end the stream. To serve applications over HTTP, start the service and call it from a second terminal:
 
 ```sh
 vigo serve --city ./boston --port 8080
@@ -286,14 +294,14 @@ curl --fail-with-body http://127.0.0.1:8080/v1/route \
   -H 'Content-Type: application/json' --data-binary @route.json
 ```
 
-Open `http://127.0.0.1:8080/` to read this guide from the running service, and send requests from the [API console](guides/rust-standalone.md#15-http-api-and-server-operation) at the end of the HTTP API page. When you measure performance, keep the City build, a fresh process's first answer, and requests to a resident process separate.
+Open `http://127.0.0.1:8080/` to read this guide from the running service and send requests from the API console on the [HTTP API](guides/rust-standalone.md#http-api) page. When you measure speed, keep the City build, a fresh process's first answer, and answers from a resident process separate.
 
 ### Where next
 
-- **[Practical workflows](#work-with-a-city)** Arrival deadlines, pairwise journeys, and a complete baseline-versus-Scenario comparison.
-- **[Core concepts](#core-concepts)** City, Scenario, Query, Result, outcomes, and time.
-- **[HTTP API](guides/rust-standalone.md#15-http-api-and-server-operation)** Endpoints, limits, status codes, and authentication.
-- **[Troubleshooting](#troubleshooting)** Build failures, blocked routes, time semantics, and stale observations.
+- **[Core concepts](#core-concepts)** City, Scenario, Query, Result, outcomes and time.
+- **[Route](#route)**, **[Matrix](#matrix)** and **[Reach](#reach-and-isochrones)** Every option, with worked examples.
+- **[Scenarios](#scenarios)** Test a planned service change against today's network.
+- **[Deploy the routing engine](#deploy-the-routing-engine)** Run the HTTP service in a container.
 
 ## Core concepts
 
@@ -305,78 +313,158 @@ GTFS + OSM ──build──▶ City ──(optional Scenario)──▶ Route | 
 
 ### City
 
-A City is a compiled mobility model built from GTFS and OSM. It is one complete directory, so its timetable, streets, and prepared query data cannot drift apart. Rebuilding from new source data creates a new City revision; existing Scenarios and Results stay tied to the revision that produced them. `revisionId` identifies the immutable build, `builtAt` records when it was made, and `sources` records the GTFS and OSM inputs.
+A City is a compiled model of a transport network, built from GTFS and OSM. It is one complete directory, so its timetable, streets and prepared indexes cannot drift apart. Each build is a new, immutable **revision**; Scenarios and Results stay tied to the revision that produced them.
 
-A built City reopens without its raw GTFS or OSM files. Building prepares the street indexes and station-access state. The first query for a new set of active services prepares a timetable snapshot that later processes can reload; dates with the same active services share it, and `--prepare-date` creates it ahead of time. A new process still loads the files into memory, while a resident process keeps them ready.
-
-Prepared files are tied to the source revision, routing policy, and format. Missing, stale, or incompatible timetable and access caches are rebuilt from the compiled City without importing raw sources again. Required street files must remain complete: restore or rebuild a City with missing or corrupt street indexes. Updating the underlying GTFS or OSM data requires a new build.
+A City reopens without its raw GTFS or OSM. Building prepares the street indexes and station access. The first query for a new set of active services prepares a timetable, which `--prepare-date` can do ahead of time; dates with the same active services share it. A resident process keeps everything ready between queries. Changing the underlying data needs a new build.
 
 ### Scenario
 
-A Scenario is an immutable set of changes applied to one City revision. Planned service changes apply to Reach, and in the engine also to transit Route. Supplied traffic applies to Drive Route and Drive Matrix. A supplied realtime snapshot applies to transit Route, and in the engine also to transit Matrix and Reach. Requests carry these as `scenario`, `traffic`, and `realtimeSnapshot`. Walking limits, departure times, and cutoffs remain query options. A complete alternative GTFS source is a new City revision, not a Scenario.
+A Scenario is an immutable set of changes applied to one City revision: planned service changes, one live transit state, or one supplied traffic state. Requests carry them as `scenario`, `realtimeSnapshot` and `traffic`. Walking limits, departure times and cutoffs remain query options, and a complete alternative GTFS feed is a new City revision, not a Scenario.
 
-VIGO rejects unsupported combinations before computing. It never silently drops a change or moves a Scenario to a newer City revision. See [Scenarios](#scenario-semantics).
+VIGO rejects an unsupported combination before computing. It never silently drops a change or moves a Scenario to another City revision. See [Scenarios](#scenarios).
 
 ### Query
 
 | Query | What it computes | Notes |
 | --- | --- | --- |
-| Route | Travel between ordered points, with legs, transfers, and walking | Depart-at or arrive-by; waypoints, alternatives, and departure windows are Route options |
-| Matrix | Scalar travel time between sets of origins and destinations | A single origin is a one-row Matrix; journeys are optional |
-| Reach | Where the network can take you within stated time limits | Shown as reached streets, areas, or contours |
+| Route | Travel between ordered places, with legs, transfers and walking | Depart-at or arrive-by; via points, alternatives and departure windows are options |
+| Matrix | Travel time between sets of origins and destinations | A single origin is a one-row Matrix; journeys are optional |
+| Reach | Where the network can take you within stated time limits | As reached streets, areas or contours |
 
-Depart-at minimizes arrival time, then boardings, then walking. Arrive-by maximizes departure time; among journeys leaving at that boundary and arriving by the deadline, it minimizes boardings, walking, and actual arrival.
+Depart-at minimizes arrival time, then boardings, then walking. Arrive-by maximizes departure time; among journeys leaving at that time and arriving by the deadline, it minimizes boardings, walking and actual arrival.
 
-Reach is not accessibility. An accessibility measure also needs opportunities such as jobs, people, schools, or health care, and a stated way to combine them.
+Reach is not accessibility. An accessibility measure also needs opportunities, such as jobs, people, schools or clinics, and a stated way to combine them.
 
 ### Result
 
-A Result is the immutable answer to one Query: status, values, warnings, timing, the City revision, the Scenario if any, and the query output. Compare is an action on two compatible Results, not a fourth query. Keep the original request and the full Result together; the normalized `query` echo is useful for inspection but is not a complete archive of every option or supplied observation. See [Read a Result](reference/results.md).
+A Result is the immutable answer to one Query: status, values, warnings, the City revision, the Scenario if any, and metadata to reproduce it. Compare is an action on two compatible Results, not a fourth query. Keep the original request and the full Result together; the `query` echo is useful but does not archive every input. See [public results](reference/results.md).
 
 ### Choose a supported combination
 
-| Query | Travel mode | Time constraint | Supplied changes or observations |
+| Query | Travel mode | Time | Supplied changes or observations |
 | --- | --- | --- | --- |
-| Route | Transit | Depart-at or arrive-by; waypoints and departure windows have their own limits | Matched GTFS-RT Trip Updates when realtime is explicitly selected; a planned-service Scenario in the engine |
-| Route | Walk, Drive, or Bike | Street routing with the chosen time direction; a dated Bike request checks timed roads and turns | Supplied traffic for Drive in realtime mode |
-| Matrix | Transit | Fixed departure or arrival deadline | Scheduled timetable; matched GTFS-RT Trip Updates in the engine |
-| Matrix | Walk, Drive, or Bike | Street metric; arrive-by does not introduce time-varying traffic, and a dated Bike request checks timed roads and turns | Supplied traffic for Drive in realtime mode |
-| Reach | Transit with walking, Walk, Drive, or Bike | Depart-at from an origin or arrive-by at a destination, with time cutoffs | Planned-service Scenario for transit; matched GTFS-RT Trip Updates for transit in the engine |
+| Route | Transit | Depart-at or arrive-by; via points and windows have their own rules | Realtime Trip Updates and Alerts; a planned-service Scenario in the engine |
+| Route | Walk, Drive or Bike | Either direction; a dated Bike route checks timed roads and turns | Traffic for Drive |
+| Matrix | Transit | A shared departure or deadline | Realtime Trip Updates in the engine |
+| Matrix | Walk, Drive or Bike | Street travel times; a dated Bike matrix checks timed roads and turns | Traffic for Drive |
+| Reach | Transit with walking, Walk, Drive or Bike | Depart-at from an origin or arrive-by at a destination | A planned-service Scenario and realtime Trip Updates for transit in the engine |
 
-"In the engine" means the `vigo` executable and its HTTP API accept that combination; the compiler and Python reject it. `vigo capabilities` describes the running build. Queries default to scheduled mode. Drive traffic needs both the `traffic` object and an explicit `routingDataMode: "realtime"`; VIGO never fetches a traffic provider. A visible vehicle, alert, or added trip is not itself a routing update.
+"In the engine" means the `vigo` executable and its HTTP API; the compiler and Python reject that combination. `vigo capabilities` describes the build you run. Queries default to scheduled data. Traffic needs both the `traffic` object and `routingDataMode: "realtime"`; VIGO never fetches a traffic provider unless `vigo serve` is told to poll one. A visible vehicle, an alert or an added trip is not by itself a routing update.
 
 ### Outcomes
 
-- Public Route and Reach Results use `ok` or `not_found`. A completed Matrix is `ok`, with `null` for unreachable cells.
-- Invalid or unsupported requests fail with an error and a nonzero exit code, or HTTP 4xx. Execution failures are errors too, never analysis Results.
+- Route and Reach Results use `ok` or `not_found`. A completed Matrix is `ok`, with `null` for unreachable cells.
+- An invalid or unsupported request fails with an error: exit code 2, or HTTP 4xx. A failure during computation is an error too, never a Result.
 - Python Results use `ready` and `blocked`; those names belong to the Python API.
-- Studio background tasks report `queued`, `running`, `ready`, `cancelled`, or `error`.
+- Studio background tasks report `queued`, `running`, `ready`, `cancelled` or `error`.
 
 ### Time
 
-Service dates use the City's timetable timezone. A GTFS event at `25:10` belongs to the service date it was published on, even though it happens after midnight. Request clocks may exceed 24 hours, so always supply the exact service date with the clock. Realtime observation timestamps are a separate clock used only to admit or reject predictions.
+Service dates use the City's timetable timezone. A GTFS event at `25:10` belongs to the service date it was published on, even though it happens after midnight. Request clocks may exceed 24 hours, so always give the exact service date with the clock. Realtime observation timestamps are a separate clock, used only to admit or reject predictions.
 
-VIGO keeps Build, Open, Compute, and End-to-end durations separate. Reusing an open process is useful runtime behavior; it does not hide or replace query computation.
+VIGO keeps four durations separate: Build, Open, Compute and End-to-end. Reusing an open process saves opening work; it never reuses an answer.
 
-## Work with a City
+## Build a City
 
-These recipes start from the [quickstart](#quickstart) City, `./boston`, and its coordinates. Each JSON block is a complete request to save under the filename shown. Replace the date with one your feed covers.
+A City is built once by `vigo-build` and then opened read-only by any number of engine processes, Python sessions or compiler queries. The [quickstart](#quickstart) shows a complete Boston build; the [compiler guide](guides/cli-only.md) lists every option.
 
-### Choose a query
+### Choose inputs
 
-| Question | Use | Read |
-| --- | --- | --- |
-| How can someone make this journey? | Route | Timed legs, transfers, walking, and access qualifications |
-| When must people leave to reach one place by a deadline? | Arrive-by Matrix | Per-pair duration and departure; optional actual journey arrival |
-| Where can someone travel within a time budget? | Reach | Grid values and areas at the chosen cutoffs |
-| How would a proposed service change that reach? | Baseline Reach, Scenario Reach, then Compare | Time changes and newly or no-longer-reachable cells |
-| What are the live feeds reporting now? | Studio Network | Observation time, coverage, predictions, and source identity |
+| Input | Requirement |
+| --- | --- |
+| GTFS | One or more **static GTFS ZIP** files |
+| OSM | One **`.osm.pbf`** covering every origin, destination, stop and transfer location you will query |
 
-The [support table](#choose-a-supported-combination) shows which modes and supplied states each query accepts.
+Keep the original files, their checksums and their download date: URLs such as `latest` are not frozen datasets. [GTFS support](developer.md#gtfs-support-matrix) lists the GTFS features VIGO uses and those it reports as unsupported.
 
-### Explain one journey
+### Build options
 
-Save `journey.json`:
+```sh
+vigo-build build --gtfs feed.zip --osm region.osm.pbf --output ./city
+vigo-build inspect --city ./city
+```
+
+| Option | Effect |
+| --- | --- |
+| `--gtfs PATH` | A GTFS ZIP; repeat for several feeds |
+| `--gtfs-scope NAME` | A unique, stable scope for each `--gtfs`; see [combine several feeds](#combine-several-gtfs-feeds) |
+| `--prepare-date YYYY-MM-DD` | Compile a service date's timetable now; repeat for other dates |
+| `--street-modes walk,drive` | The default: walking and driving |
+| `--street-modes walk` | Walking only; omits driving and bicycle data |
+| `--street-modes walk,bike` or `walk,drive,bike` | Adds bicycle streets; see [Bicycle routing](#bicycle-routing) |
+| `--private-access endpoints` | Allow mapped private paths at trip ends; see [authorized endpoint access](#authorized-endpoint-access) |
+| `--wheelchair` | Build a strict wheelchair City; see [Wheelchair routing](#wheelchair-routing) |
+| `--wheelchair-streets inferred\|verified` | Street evidence for a wheelchair City |
+| `--streets-from ./other-city` | Reuse identical prepared streets from another City |
+| `--replace` | Replace an existing output |
+
+A build is staged: a failed build leaves the previous City in place. `--replace` writes and flushes the new City first, then swaps it in; if a crash interrupts the swap, the next `vigo-build build` or compiler query of that path finishes or reverts it. A successful replacement removes its backup, so use a separate output directory when you need a rollback copy.
+
+Import and street preparation happen at build time and are separate from query time.
+
+### Combine several GTFS feeds
+
+Repeat `--gtfs` and give each feed a stable, unique scope:
+
+```sh
+vigo-build build \
+  --gtfs ./rail.zip --gtfs-scope rail \
+  --gtfs ./bus.zip --gtfs-scope bus \
+  --osm ./region.osm.pbf \
+  --output ./city
+```
+
+A scope names a **source feed**, not a route. The combined City namespaces stops, routes, trips, services and transfers by scope, so equal IDs in different feeds never collide. Use the same scopes when you rebuild the same sources. In Studio, add each ZIP under **City → Data sources**; removing a feed rebuilds the combined timetable from the rest.
+
+Before combining feeds:
+
+- Use compatible service dates: a trip runs only on days its own calendar activates.
+- Keep all agencies in one timezone. A City with several agency timezones cannot route.
+- Avoid importing two editions of one agency's timetable unless you mean to.
+- Keep declared transfers and check street coverage between the feeds. Nearby stops alone do not prove a usable connection.
+
+### Large regions and low memory
+
+Builds use disk-backed SQLite temporary storage and compact node lookups, report progress during long phases, and respect container memory limits when deciding whether GTFS and OSM work can overlap. Import and street preparation run in separate processes, so each releases its memory before the next. Keep the output and temporary directory on a local filesystem (inside WSL, the Linux filesystem rather than `/mnt/c`), with room for the source database, temporary sorts and the finished City.
+
+Regional street preprocessing can still exceed 2 GiB. Add disk-backed swap on the build machine, or build on a larger machine and copy the complete City to the server: build memory and query memory are separate requirements.
+
+Driving preparation accepts up to 40 million vertices (`VIGO_DRIVE_ACCELERATOR_MAX_NODES`) and 20 million edges (`VIGO_DRIVE_ACCELERATOR_MAX_EDGES`), which fits national extracts such as Switzerland's. A larger network fails with its counts; raise the limits, or omit driving with `--street-modes walk` or `walk,bike`. Street preparation must write the walking index before the City is sealed, so a City that could not open is never published.
+
+### Timetable repairs
+
+A build repairs small backward arrival or departure times by delaying an event to the one before it, by at most ten minutes per event. Stops, trips and permissions are kept, and the GTFS file is unchanged. Trips that need a larger correction are excluded whole. Repairs (`repaired_trip_times`, marked `approximate`) and exclusions (`backward_trip_times`) appear as build warnings and in the City's limitations, with up to 32 example trip IDs. Published times such as `24:10:00` are valid; a reset to `00:10:00` is not read as the next day. Broken references and duplicate stop sequences still fail the build.
+
+### Copy and load a City
+
+A City contains `network.json`, `routing/project.sqlite`, prepared access files, and an `osm` directory with street snapshots, access profiles and hierarchy indexes. Member names vary with the preparation version. Copy the **whole directory**, never single files.
+
+The engine checks source identities, formats, station and access profiles, and required index files. It rejects missing or stale preparations and an unexpected SQLite WAL. Complete a City through its compiler; never delete WAL files to get past validation. The engine reports `timing.timetableSource: "prepared_snapshot"` in the trace when it reuses a prepared timetable, and `"source"` when it prepared one from SQLite; both give the same schedule.
+
+### Update a network
+
+Treat a published City as immutable while any process has it open. Build updates into a new directory, start a service on it, check readiness and a known query, switch traffic, then stop the old service. The engine has no upload endpoint, downloader or hot reload. See [Upgrade and rollback](#upgrade-and-rollback).
+
+Older Cities may lack optional street names for map points. The [prepared-data contract](reference/city-format.md#add-street-names-to-an-existing-city) shows how to add them without rebuilding.
+
+### Scenario collections
+
+To compare several timetables over one street network, build a scenario collection: one shared street graph, several transit scenarios and a default. Each request picks a member with `scenarioId`. See [Scenario collections](guides/rust-standalone.md#scenario-collections) for the manifest.
+
+## Route
+
+Route finds and explains travel between ordered places. This chapter shows how Route behaves; the [Route reference](guides/rust-standalone.md#route-requests) lists every field.
+
+### Plan a journey
+
+A Route request names:
+
+- an origin, optional ordered via points, and a destination;
+- transit, walk, drive or bike;
+- an exact service date and local time, and depart-at or arrive-by;
+- a walking limit, an optional transfer cap, and optional alternatives or a departure window.
+
+Stop IDs are exact GTFS identifiers. Coordinates are `[longitude, latitude]` and need streets in the City. Save `journey.json`:
 
 ```json
 {
@@ -393,13 +481,70 @@ Save `journey.json`:
 vigo route --city ./boston --request journey.json --output journey-result.json
 ```
 
-Check `status`, then the chronological `journey.legs`. Walking competes with transit, so a short trip can return a walk; set `requireTransitRide: true` to require a boarding, or `"mode": "walk"` to request walking alone. A `not_found` Result can reflect the date, timetable, access network, or constraints. It does not mean the places are physically disconnected; [Troubleshooting](#route-returns-no-journey) lists the checks in order.
+Check `status`, then the chronological `journey.legs`. A `not_found` Result can reflect the date, the timetable, street access or your constraints; it does not mean the places are disconnected. [When no journey is found](#when-no-journey-is-found) lists the checks.
 
-For several journeys at the requested time, add `"alternatives": 3`. The default `pareto` ranking keeps only genuine trade-offs between arrival, boardings, and walking; `"alternativeRanking": "ranked"` lists the earliest distinct journeys even when one beats another in every respect. Equal-arrival ranked journeys prefer less walking, then fewer boardings; the least-walking returned tie becomes the primary journey. See [alternative journeys](guides/rust-standalone.md#alternative-journeys) and [journey windows](guides/rust-standalone.md#journey-windows).
+### Walking and transit
 
-### Reach one destination by a deadline
+Transit Route and Matrix compare a direct OSM walk by default, so a short trip between coordinates can return walking when it arrives sooner. Set `requireTransitRide: true` to require a boarding, or `"mode": "walk"` to ask for walking alone.
 
-Save `arrival-matrix.json`:
+- `maxWalkKm` (default 1.2) limits each walk to and from transit.
+- A direct walk is limited by `maxStreetKm` (default 50), or by `maxWalkKm` when `allowLongWalk` is `false`. Walk mode always uses `maxStreetKm`, which accepts 0.05–1000 km.
+- `horizonMinutes` (default 480, 1–2880) bounds the timetable search. For depart-at transit, every boarding and alighting must happen within it, but the final walk can finish after it: the horizon is not a door-to-door limit.
+- `allowStreetTransfers: false` keeps changes to the same stop or to members of one station. Walking to the first stop and from the last stays allowed. Studio calls this **Allow walks between stations or stops**.
+
+### Transfers and time reserves
+
+`maxTransfers` accepts 0–31: `0` allows one boarding, `1` two. Staying aboard the same vehicle is not a transfer. The cap constrains the search itself, so a slower route is found when the fastest one has too many changes. A finite cap cannot be combined with transit via points.
+
+`minimumTransferBufferMinutes` (0–60, default 0) adds time before each later boarding, after the transfer walk and the feed's own minimum transfer time. It never delays the first boarding, the final walk or staying aboard. `arrivalBufferMinutes` plans an arrive-by request against an earlier deadline. Both are planning margins, not delay predictions; see [Time reserves](#travel-time-uncertainty).
+
+The engine adds no buffer of its own. Same-stop changes honor published GTFS minimum transfer times and forbidden transfers, and a published platform-to-platform rule takes precedence over the station walking fallback. Studio starts with a one-minute buffer, which Preferences can change.
+
+### How a journey is chosen
+
+VIGO's objective is earliest arrival. Equal arrivals prefer fewer boardings, then less walking, then a stable order. Arrive-by first finds the latest departure; among journeys leaving then and arriving by the deadline, it prefers fewer boardings, less walking, then earlier actual arrival, so a slightly later on-time arrival can avoid a needless change.
+
+Via-point routes compare complete journeys, so walking a segment can replace a short ride when both catch the same onward vehicle. Up to eight partial journeys are kept at each via point and up to five complete choices are returned; this bounded search does not list every itinerary. [How VIGO computes answers](reference/methodology.md#transit) explains the algorithm and its guarantees.
+
+### Several journeys
+
+- **Alternatives.** `"alternatives": 3` asks a depart-at transit Route for more journeys at the requested time. The default `pareto` ranking keeps genuine trade-offs between arrival, boardings and walking; `"alternativeRanking": "ranked"` lists the earliest distinct journeys, even when one beats another in every respect. See [alternative journeys](guides/rust-standalone.md#alternative-journeys).
+- **Departure windows.** The engine's `windowMinutes` repeats the search every minute toward later departures (or earlier deadlines) and keeps up to five distinct choices. The compiler's `departureWindowMinutes` is a centered depart-at window of ±0–30 minutes. Windows sample whole minutes; they are not continuous timetable profiles. See [journey windows](guides/rust-standalone.md#journey-windows).
+- **Services on the same leg.** `sharedLegs: true` lists other trips that could replace one leg, with their observed frequency. See [shared-leg services](guides/rust-standalone.md#shared-leg-services).
+
+### Read the Result
+
+The public `vigo.route.v1` Result contains `status`, a `journey` with chronological legs and durations in seconds, `warnings`, and `meta`. Every leg has a `quality` that says where its line came from and whether its street path was verified. [Public results](reference/results.md#route) defines every field.
+
+### When no journey is found
+
+A `not_found` Result has `journey: null`, a `reason` (`code` and `message`) and an `access` report for each end. Each report gives the `maximumWalkMeters` searched, the `candidateCount` of stops found, and a `code`:
+
+| `access.*.code` | Meaning |
+| --- | --- |
+| `available` | Stops were reached; the failure lies in the timetable or the limits |
+| `outside_selected_budget` | No stop within `maxWalkKm`, but one within the wider `probeWalkMeters`; `suggestedWalkMeters` is its distance. A wider limit is a new question, and still may not give a journey |
+| `street_access_unverified` | A stop is near in a straight line (`nearestStop`), but no walking path reaches it |
+| `none_within_walk_budget` | The point attaches to the streets, but no stop is within the limit or the probe |
+| `no_street_attachment`, `disconnected_street_attachment` | The point cannot attach to a usable street |
+| `outside_coverage` | The point lies outside the City's streets; `coverageBounds` gives their extent |
+| `station_access_unavailable` | A named stop has no usable access in this City |
+
+VIGO never raises your walking limit by itself. `no_path` means no scheduled itinerary under the request's limits on that date; changing a limit is a new question, so save it as a new request. `diagnostics: "trace"` adds the search limits and candidate details.
+
+### Stations, access and geometry
+
+Free coordinates and GTFS stops attach to the nearest street the same way in Route and Matrix. A parent station does not give free movement between its platforms: declared station paths keep their direction and time. When GTFS omits a pathway's `traversal_time`, VIGO prices its length at walking speed; stairs and fare gates without times use labeled estimates. A missing time never becomes a zero-time link. [Walking evidence](reference/walking-evidence.md) explains station costs in detail.
+
+The walking limit covers each continuous walk to or from transit; a transfer walk cannot extend the final walk past it. A point that snaps to the street carries an `endpointConnector` on its first or last walk: the straight hop already included in the cost, with `streetPathVerified: false`. A connector is not evidence of a mapped or legal path.
+
+## Matrix
+
+Matrix calculates travel times between sets of origins and destinations in one request, from a shared departure or to a shared deadline. The [Matrix reference](guides/rust-standalone.md#matrix-requests) lists every field.
+
+### Send a matrix request
+
+To find when people must leave several places to reach one destination by 09:00, save `arrival-matrix.json`:
 
 ```json
 {
@@ -421,11 +566,145 @@ Save `arrival-matrix.json`:
 vigo matrix --city ./boston --request arrival-matrix.json --output arrival-matrix-result.json
 ```
 
-Every pair shares the deadline. `durationsSeconds[origin][destination]` runs from the latest feasible departure to the deadline, so it can include waiting at the destination; the matching `journeys` entry gives the actual modeled departure, arrival, walking, waiting, and transfers. Set `includeJourneys` to `false` when only times are needed. A shared destination and deadline share one reverse search, and a shared origin and departure share one forward search. Split larger jobs by shared time and options; see [Matrix](#matrix) for limits.
+Use exact stop IDs (`{"stopId": "..."}`) or coordinates. Walk, Drive and Bike matrices need coordinates.
+
+### Read the result
+
+`durationsSeconds[originIndex][destinationIndex]` gives each pair's time, in request order. `null` means unreachable, never a zero-minute trip, and a completed matrix can contain both. With `includeJourneys: true`, `journeys` has the same shape; `includeGeometry: true` adds lines to them without another search.
+
+For arrive-by, every pair shares the deadline, and a duration runs from the latest departure to the deadline, so it includes any wait at the destination. The matching journey gives the actual arrival. Use `includeJourneys: false` when only times matter.
+
+### Choose constraints
+
+The Route rules apply: a direct walk competes unless `requireTransitRide: true`; `maxWalkKm` bounds each walk to and from transit; `maxTransfers` accepts 0–31; `horizonMinutes` bounds the timetable search, not the trip. `allowStreetTransfers`, `minimumTransferBufferMinutes` and `arrivalBufferMinutes` behave as in [Route](#transfers-and-time-reserves).
+
+Transit Matrix uses the scheduled timetable, or a realtime snapshot in the engine. Drive Matrix can use supplied traffic; see [Streets and traffic](#streets-and-traffic).
+
+### Share work across pairs
+
+Results keep input order, including repeated endpoints. The engine accepts up to 65,536 pairs in an 8 MiB request; the compiler accepts up to 100,000 pairs in 16 MiB. Pairs share timetable searches:
+
+| Workload | Timetable searches |
+| --- | --- |
+| Depart-at, one origin, many destinations | One forward scan |
+| Depart-at, many origins | One forward scan per distinct origin |
+| Arrive-by, many origins, one destination | One reverse scan |
+| Arrive-by, many destinations | One reverse scan per distinct destination |
+
+So group work by shared endpoint, date, clock and constraints, and request times only when that is all you need. Matrix journeys can pick a different equally good journey than Route when ties exist. `disableCache: true` skips endpoint caches but keeps same-request sharing and the loaded City.
+
+## Reach and isochrones
+
+Reach finds the streets and areas reachable from one origin within a time budget, by transit with walking, or by walking, driving or cycling alone. Arrive-by Reach asks the reverse: from where a destination can be reached by a deadline. The [Reach reference](guides/rust-standalone.md#reach-requests) lists every field.
+
+### Send a Reach request
+
+```json
+{
+  "origin": {"coordinate": [-71.11902, 42.37334]},
+  "serviceDate": "2026-10-05",
+  "time": "08:00",
+  "mode": "transit",
+  "cutoffsMinutes": [15, 30, 45],
+  "extentRadiusKm": 6,
+  "rasterSize": 96,
+  "surfaceSampling": "street"
+}
+```
+
+```sh
+vigo reach --city ./boston --request reach.json --output reach-result.json
+```
+
+`mode: "walk"` maps walking alone and needs no service date. `mode: "drive"` routes to each cell center over the directed road network with free-flow speeds; it takes no traffic or transit scenario. `mode: "bike"` needs a City with bicycle streets. The engine can also run transit Reach on a realtime snapshot; the compiler and Python keep Reach scheduled.
+
+For arrive-by Reach, send a `destination` instead of an origin, with `"timePreference": "arrive_by"` and the deadline as `time`. Each value is how long before the deadline a traveler must leave that place, including any wait after an early arrival. Walking keeps each street's permitted direction toward the destination.
+
+### Set the analysis resolution
+
+| Option | Meaning |
+| --- | --- |
+| `cutoffsMinutes` | Time budgets, 1–240 minutes; fractions allowed |
+| `maxWalkKm` | Walking budget for transit Reach |
+| `walkSpeedKph` | Walking speed, 1–8 km/h |
+| `extentRadiusKm` | Extent of the grid, 1–40 km |
+| `rasterSize` | Cells per side: the engine accepts 16–1024; the compiler 48, 64, 96, 128, 192, 256, 384, 512 or 1024 |
+| `surfaceSampling` | `street` samples reached streets; `cell-center` routes to each cell's center |
+
+The extent sets the analysis grid; it is not a trip-distance limit. Cutoffs, walking limits and the network decide what is reachable. Keep extent, resolution, sampling and constraints identical when comparing Results.
+
+### Choose the output
+
+The default `reachFormat: "full"` returns the requested grid and the full reached extent. `surface.valuesSeconds` is row-major from the northwest corner, with `null` for unreached cells; read it with its bounds and dimensions. `fullSurface` covers the full reached extent when it differs.
+
+`areas` are GeoJSON polygons around reachable cells, with holes and islands kept. `contours` interpolate the sampled times. The raster stays the reference for numbers. For a map, `reachFormat: "map"` returns only the full reached-area polygons and their bounds; map output cannot be compared. `includeStreetEdges: true` (`--street-edges`) adds the directed street intervals reached; see [street evidence](guides/rust-standalone.md#street-evidence).
+
+### Compare with R5 and OTP
+
+Street sampling records the earliest reached part of each street in a cell and leaves cells away from reached streets empty; a filled cell does not establish a route to its center, and area totals count sampled cells, not walkable land. Use `surfaceSampling: "cell-center"` for a surface of travel times to grid points.
+
+When comparing tools, match the origin, date, departure time, modes, walking and transfer rules, cutoff, extent and grid before comparing polygons. VIGO Reach evaluates one departure time. Conveyal's R5 can summarize a departure window at a chosen percentile, and OTP's Travel Time API uses a departure-time snapshot, so match the time statistic first; VIGO's [Monte Carlo](guides/monte-carlo.md) option computes window percentiles. VIGO rasters are in seconds, while requests use `cutoffsMinutes`.
+
+For a numerical comparison, compute travel times to the same coordinates with Matrix, then classify them at the same cutoff. A longitude/latitude grid and a Web Mercator grid do not share cell centers. Check station entrance costs, boarding slack and GTFS transfer minimums in representative journeys. For a transit Matrix that matches Reach's walking budget, set `requireTransitRide: false` and `allowLongWalk: false`. See [Conveyal's methodology](https://docs.conveyal.com/analysis/methodology), [OTP's Travel Time API](https://docs.opentripplanner.org/en/v2.2.0/sandbox/TravelTime/) and the GTFS [transfer rules](https://gtfs.org/documentation/schedule/reference/#transferstxt).
+
+### All-day Reach
+
+The engine's `allDay` option repeats depart-at transit Reach every five minutes over a service-day window and reports, for each cell, how many departures reach it within each cutoff. It is a measure of how often a place is reachable, not of jobs or people. See [All-day Reach](guides/rust-standalone.md#all-day-reach).
+
+## Scenarios
+
+A Scenario is an immutable set of planned changes tied to exactly one City revision. Scenarios never edit the imported GTFS or OSM. Several compatible changes can coexist; conflicts need an explicit resolution. Drawing a line in an editor changes nothing until it is attached to a valid service.
+
+In VIGO 1.0.0, planned service changes apply to transit Reach in every runtime, and to transit Route in the engine and in Studio. The [Scenario reference](guides/rust-standalone.md#scenario-requests) lists every field.
+
+### Planned service
+
+A planned service states what changes and enough to run it: ordered stops, travel times, and a departure schedule. A Reach request can include this `scenario`:
+
+```json
+{
+  "origin": {"coordinate": [-77.05, 38.90]},
+  "serviceDate": "2026-07-15",
+  "time": "08:00",
+  "scenario": {
+    "id": "crosstown",
+    "name": "Crosstown service",
+    "services": [{
+      "operation": "add",
+      "name": "Crosstown",
+      "stops": [
+        {"label": "West", "coordinate": [-77.05, 38.90]},
+        {"label": "East", "coordinate": [-77.03, 38.91]}
+      ],
+      "headwayMinutes": 10,
+      "startMinutes": 300,
+      "endMinutes": 1500,
+      "averageSpeedKph": 22
+    }],
+    "excludedRouteIds": ["route-to-remove"]
+  }
+}
+```
+
+`operation` is `add`, `augment` or `replace`. `excludedRouteIds` and `excludedTripIds` remove scheduled service.
+
+### Replace a branch and keep its trips
+
+`replace` defaults to `scheduleMode: "preserve-trips"` and needs `sourceRouteId`, `sourcePatternId` and the selected-branch scope. Studio and the compiler load the trips active on the query's service date, including calendar exceptions, and the previous day's trips still running after midnight. Each affected trip gets exactly one replacement, keeping irregular gaps, per-trip running times, dwell, and pickup and drop-off restrictions. Editing stops never adds departures or reverse service.
+
+When a branch keeps its trips, the road path divides each trip's original running time among the edited gaps. Retained stops keep their dwell; `addedStopDwellMinutes` (default 0.35) adds dwell at inserted stops. The first retained stop anchors the timing: an extension before it departs earlier, and later edits shift downstream times. At least one original stop must remain. These are modeled times, not a vehicle or crew schedule.
+
+### Set a frequency instead
+
+To change the timetable deliberately, use `scheduleMode: "frequency"` with `headwayMinutes`, `startMinutes` and `endMinutes`; Studio calls this **Departures → Set frequency and hours**. It can replace a whole route, and `add` and `augment` use it by default. New lines take road timing from `segmentDistancesKm` and `averageSpeedKph`, plus `dwellMinutes`. Reverse service is an explicit choice. A run arrives, dwells, then departs, and does not dwell at either end. A frequency service runs every service day, including runs that continue past midnight.
+
+### Edit a shared edge in Studio
+
+**Selected branch only** keeps a change on the chosen pattern. **All branches serving this exact A → B edge** applies one inserted gap to every occurrence of that ordered stop pair on the same feed and route, but not to B → A. The editor lists the affected branches before running. Use selected-branch scope for moved stops, extensions or several gaps. Studio requires a completed road path before running a road-following Scenario.
 
 ### Test a planned service change
 
-Save `baseline-reach.json`:
+Run a baseline Reach and a Scenario Reach with the same origin, date, time, walking assumptions, sampling and grid. Save `baseline-reach.json`:
 
 ```json
 {
@@ -439,7 +718,7 @@ Save `baseline-reach.json`:
 }
 ```
 
-Save `alternative-reach.json` with the same origin and surface settings plus a Scenario:
+and `alternative-reach.json`, identical plus a Scenario:
 
 ```json
 {
@@ -469,9 +748,9 @@ Save `alternative-reach.json` with the same origin and surface settings plus a S
 }
 ```
 
-The speed, headway, and operating span are illustrative. The example uses the defaults of bidirectional service, distance-estimated timing, and 0.35-minute dwell. It does not establish a drivable alignment, achievable running time, vehicle requirement, or service plan; [Scenarios](#scenario-semantics) explains how to specify a real proposal.
+The speed, headway and hours are illustrative; the defaults add service in both directions with 0.35 minutes of dwell. This does not establish a drivable alignment, an achievable running time or a vehicle requirement.
 
-Run both, then compare the saved Results with the compiler:
+Run both and compare the saved Results with the compiler:
 
 ```sh
 vigo reach --city ./boston --request baseline-reach.json --output baseline-result.json
@@ -480,480 +759,102 @@ vigo-build compare --before ./baseline-result.json --after ./alternative-result.
   --output ./reach-change.json
 ```
 
-Compare uses the retained surfaces. `counts` splits cells reachable in both into faster, slower, and unchanged, and counts newly and no-longer-reachable cells separately; a negative `meanChangeSeconds` means faster modeled travel among the comparable cells. Read all the counts together. A larger area is not a population benefit: an accessibility study also needs opportunity data, a spatial assignment method, and an explicit measure. The engine's `vigo compare` takes both Results in one request; see [Compare saved Reach results](guides/rust-standalone.md#11-compare-saved-reach-results).
+Compare reports **after minus before**. `counts` splits cells reachable in both into faster, slower and unchanged, and counts newly and no-longer-reachable cells separately; a negative `meanChangeSeconds` means faster modeled travel among the comparable cells. Read all counts together. Compare checks the grid but not every setting, so keep the requests identical apart from the Scenario. A larger area is not a population benefit: an accessibility study also needs opportunity data and an explicit measure. The engine's `vigo compare` takes both Results in one request; see [Compare requests](guides/rust-standalone.md#compare-requests).
 
-### Investigate live service
+## Realtime transit
 
-In Studio, start in **Network**: check the observation time and reporting coverage, then choose a route in **Routes**. Compare scheduled and predicted events at the same stop, and inspect a vehicle's position separately from its stop-time predictions.
+Transit Route can use GTFS-Realtime Trip Updates and Service Alerts, and in the engine so can transit Matrix and Reach. This chapter explains how predictions are admitted and how to read the outcome; the [realtime input reference](guides/rust-standalone.md#transit-snapshot) lists every field.
 
-Use **Route → Realtime** to query supported, matched predictions. A vehicle on the map, an alert, or an added trip in **Trip times** does not by itself make that service available to routing. See [Network and Routes](#network-and-routes) and [realtime admission](#realtime-journey-routing).
-
-For a reproducible analysis, use an exact date and time in Scheduled mode. For an incident review, retain the observation, identity, coverage, and Result from the original investigation. [Read a Result](reference/results.md#keep-a-reproducible-run) covers both.
-
-## Build a City
-
-A City is compiled once by `vigo-build` and then opened read-only by any number of engine processes, Python sessions, or compiler queries. This chapter covers inputs, build options, and the life cycle of a City. The [quickstart](#quickstart) shows a complete Boston build.
-
-### Choose inputs
-
-| Input | Requirement |
-| --- | --- |
-| GTFS | One or more **static GTFS ZIP** files. Repeat `--gtfs` for several feeds and give each a stable `--gtfs-scope`; see [multiple feeds](#combine-timetables-and-live-feeds). |
-| OSM | One **`.osm.pbf`** covering every origin, destination, stop access, and transfer location you will query. |
-
-Keep the original files, their checksums, and their acquisition date. Download URLs such as `latest` are not frozen datasets. [GTFS support](developer.md#gtfs-support-matrix) lists the source features VIGO reads and the ones it reports as unsupported.
-
-### Build options
-
-```sh
-vigo-build build --gtfs feed.zip --osm region.osm.pbf --output ./city
-vigo-build inspect --city ./city
-```
-
-| Option | Effect |
-| --- | --- |
-| `--prepare-date YYYY-MM-DD` | Precompile a service date's timetable; repeat for other dates |
-| `--street-modes walk` | Build walking only and omit driving and bicycle data |
-| `--street-modes walk,bike` | Prepare walking and bicycle streets |
-| `--street-modes walk,drive,bike` | Prepare all street modes |
-| `--private-access endpoints` | Allow mapped private paths at trip endpoints; see [authorized endpoint access](#authorized-endpoint-access) |
-| `--wheelchair` | Build a strict wheelchair City; see [wheelchair routing](guides/rust-standalone.md#wheelchair-routing) |
-| `--wheelchair-streets` | `inferred` (default) can assume ordinary pedestrian ways are step-free when wheelchair or surface tags are missing; `verified` uses only `wheelchair=yes` ways |
-| `--streets-from ./other-city` | Reuse identical immutable streets from a prepared City |
-| `--replace` | Replace an existing output; without it, an existing City is left alone |
-
-Build is staged: a failed build preserves the previous City, and `--replace` restores the previous directory if publication fails. A successful replacement removes its temporary backup, so use a separate output directory when you need a rollback copy.
-
-Raw import and street preparation happen at build time and are separate from query latency.
-
-### Large regions and low memory
-
-Builds use disk-backed SQLite temporary work and compact numeric node lookups, report progress during long import phases, and respect container memory limits when deciding whether GTFS and OSM compilation may overlap. Import and native street preparation run in separate processes, so each stage releases its working memory before the next. Keep the output and temporary directory on a local filesystem (inside WSL, prefer the Linux filesystem to `/mnt/c`), and leave space for the source database, temporary sorts, and the finished City.
-
-Regional native CCH preprocessing can still exceed 2 GiB without swap. Configure disk-backed swap for the build machine, or build on a larger machine and copy the complete City to the server: build memory and query memory are separate requirements. Street preparation must write the walking accelerator before the graph is sealed, so a City that could not open is never published.
-
-### Copy and load a City
-
-A City contains `network.json`, `routing/project.sqlite`, prepared access artifacts, and an `osm` directory with street snapshots, access profiles, and CCH indexes. Exact member names can vary with the preparation version. Copy the **whole directory**, never just the SQLite files or the manifest.
-
-The engine checks source identities, snapshot formats, station and access profiles, and required CCH members. It rejects blocking source features, missing or stale preparations, and an unexpected SQLite WAL. Complete a City through its compiler; do not delete WAL files to bypass validation. The engine reports `timing.timetableSource: "prepared_snapshot"` when it reuses a prepared timetable and `"source"` when it prepared one from SQLite for that process. Both use the same schedule.
-
-### Update a network
-
-Treat a published City as immutable while any process has it open. Compile updates into a new directory, start another service against it, verify readiness and a known query, switch traffic, and then stop the old service. The engine has no upload endpoint, source downloader, or hot reload. See [Upgrade and rollback](#upgrade-and-rollback) for version changes.
-
-### Scenario collections
-
-When you compare several timetables over one street network, build a scenario collection: one shared street graph, several transit scenarios, and a default. See [Shared scenario collections](guides/rust-standalone.md#shared-scenario-collections) for the source manifest and residency rules.
-
-## Combine timetables and live feeds
-
-A City can contain several static GTFS feeds and several GTFS-Realtime endpoints. Static feeds supply the scheduled network; live feeds supply observations and predictions for it and never replace the timetable.
-
-### Build a City from multiple GTFS files
-
-In Studio, open **City → Data sources** and add each GTFS ZIP. VIGO imports each source, then builds the combined routing store. Add an overlapping OSM PBF for walking, driving, and coordinate-based transit access, and wait for preparation to finish before querying.
-
-With the compiler, repeat `--gtfs` and give each input a stable, unique scope:
-
-```sh
-vigo-build build \
-  --gtfs ./rail.zip --gtfs-scope rail \
-  --gtfs ./bus.zip --gtfs-scope bus \
-  --osm ./region.osm.pbf \
-  --output ./city
-```
-
-A scope identifies a **source feed**, not a route number. The merged store namespaces stops, routes, trips, services, and transfer references so identical IDs in different feeds cannot overwrite one another. Use the same scope names when you rebuild the same sources. Removing a source in Studio rebuilds the surviving combined store.
-
-Before combining feeds:
-
-- Use compatible service dates. A trip is usable only when its own calendar and exceptions activate it for the requested service day.
-- Keep agencies in one timezone. Cross-timezone routing stores are rejected.
-- Avoid importing two editions of the same agency timetable as separate networks unless that duplication is intentional.
-- Retain declared transfers and verify street coverage. Close coordinates alone do not prove a usable station connection.
-
-### Connect multiple GTFS-RT endpoints
+### Connect live feeds in Studio
 
 1. Open **City → Data sources → GTFS-RT live feeds**, or feed settings in **Network**.
 2. Paste an endpoint URL and choose what it contains. A combined endpoint may contain several entity types.
-3. Select its matching **Timetable** when the City has several static sources.
-4. Choose **Add feed** for each additional endpoint, then **Connect live**.
-5. Expand **Feed status** to inspect individual failures and freshness.
-
-Live-feed requests use `{ "sources": [{ "url": "https://operator.example/trip-updates.pb", "kind": "tripUpdates" }] }`. The old top-level `url` and `urls` formats are rejected; reconnect those saved connections through the feed editor. A single MBTA endpoint no longer implicitly enables the other two.
-
-Trip Updates can be connected without Vehicle Positions. The MBTA preset fills three public endpoints; select the MBTA timetable when you use it in a combined City. A failed endpoint does not discard successful ones. Reimporting or merging a timetable invalidates the retained observation until a fresh fetch binds to the new City, and old records from a failed endpoint are not carried into a new snapshot.
+3. In a City with several timetables, select the endpoint's **Timetable**.
+4. Choose **Add feed** for each endpoint, then **Connect live**.
+5. Expand **Feed status** for individual failures and freshness.
 
 | Data | What VIGO uses it for |
 | --- | --- |
-| Trip Updates | Supported predictions and cancellations in transit Route; trip and station inspection |
-| Vehicle Positions | Reported map locations, vehicle details, and qualified service observations |
-| Alerts | Scoped notices and evidence; text does not automatically close a route |
+| Trip Updates | Predictions and cancellations for routing; trip and station inspection |
+| Vehicle Positions | Map locations, vehicle details and service observations; never routing |
+| Alerts | Notices on legs; `NO_SERVICE` alerts close service in the engine |
 
-Studio allows up to **16 distinct endpoints**. Repeated URLs for the same timetable are fetched once, and assigning one URL to conflicting timetables is rejected. A refresh has a 30-second overall deadline, a 20 MB per-feed limit, and a 40 MB combined limit. Batches also reject more than 200,000 entities or 500,000 stop predictions. At most four downloads run concurrently, and oversized or failed sources are disclosed individually.
-
-The declared type is descriptive: every supported entity present in the protobuf is decoded. A source timestamp and timetable identity travel with each record. Unscoped IDs match only when unambiguous; a bare trip ID never resolves by choosing the first agency.
+Studio allows up to **16 endpoints**. A refresh has a 30-second deadline, 20 MB per feed and 40 MB in total, and rejects more than 200,000 entities or 500,000 stop predictions; at most four downloads run at once. A failed endpoint does not discard the others. Reimporting a timetable discards the retained observation until a fresh fetch binds to the new City.
 
 ### Supply observations to the engine
 
-One-off commands never open feed URLs; the engine's HTTP service can poll them through [automatic polling](guides/rust-standalone.md#automatic-gtfs-rt-polling). A transit Route request, and in the engine a transit Matrix or Reach request, can carry a retained, normalized `realtimeSnapshot` with `routingDataMode: "realtime"`. In a combined City, each record can carry `sourceScope` equal to its build scope, alongside the original `tripId`, `sourceFeedTimestamp`, service date, and stop predictions. A single-source City uses raw GTFS IDs; omit `sourceScope` there. The [realtime input reference](guides/rust-standalone.md#12-realtime-transit-and-supplied-traffic) lists every record field.
+One-off commands never open feed URLs. A request carries a `realtimeSnapshot` with `routingDataMode: "realtime"`, or `vigo serve --realtime-poll` [polls the feeds](guides/rust-standalone.md#automatic-gtfs-rt-polling) and routes on its latest snapshot. In a multi-feed City, each record can carry `sourceScope`, the feed's build scope; a single-feed City uses raw GTFS IDs.
 
-Keep source timestamps intact. Changing a capture's timestamps to make it look current changes the input and is not a replay of that observation. A repeated snapshot ages out of the routing cache.
+Keep source timestamps intact. Rewriting them to look current changes the input and is not a replay of the observation.
 
-## Route
+### Scheduled and realtime modes
 
-Route finds and explains travel between ordered points. This chapter describes how Route behaves; the [Route request reference](guides/rust-standalone.md#6-route) lists every field and default.
+`routingDataMode` is `scheduled` or `realtime`; Studio shows **Realtime** and **Scheduled · Research**. The command-line runtimes default to scheduled. Scheduled research needs an explicit date and time, removes realtime and traffic observations, and never substitutes another date. Both modes use the same algorithms, stops, walking and transfer rules; only the timetable differs.
 
-### Inputs
+### How predictions are applied
 
-A Route query selects:
+A request compiles the complete snapshot into a separate realtime timetable. Nothing is selected by endpoint or truncated: an oversized snapshot is rejected whole. Each valid matched update replaces its scheduled trip; canceled and deleted trips lose their rides; unreported trips keep scheduled times. Depart-at, arrive-by, transfer caps and windows all search this timetable. A query fixes its observation clock once, and the compiled view is cached until the input or its freshness changes.
 
-- an origin, optional ordered waypoints, and a destination;
-- transit, walk, drive, or bike;
-- an exact service date and local time;
-- depart-at or arrive-by;
-- a walking limit, an optional maximum number of transfers, and the objective;
-- optional alternatives or a departure window;
-- optional supplied observations supported by the selected mode.
-
-Stop IDs are exact GTFS identifiers. Coordinate points are `[longitude, latitude]` and need streets in the City.
-
-### Walking and transit
-
-Transit Route and Matrix compare a direct OSM walk by default, so a short coordinate trip can return walking when it arrives sooner. Set `requireTransitRide: true` to require at least one boarding, or select Walk mode to request walking alone. `maxWalkKm` limits each access and egress walk. Set `allowLongWalk: false` to apply the same limit to a direct walking alternative; otherwise `maxStreetKm` bounds the complete walk. Explicit Walk mode always uses `maxStreetKm`, regardless of `allowLongWalk`, including when `maxWalkKm` is zero. `maxStreetKm` accepts 0.05–1000 km; zero and smaller values are rejected rather than rounded up. Clients offering smaller walking limits must enforce their own stricter distance contract.
-
-`horizonMinutes` sets the timetable search horizon (default 480, range 1–2880). For depart-at transit, boarding and alighting must happen at or before this boundary, including in alternative journeys; the final walk can finish after it. The horizon is therefore not a hard limit on door-to-door duration: comparisons with a total-duration cap must check the final arrival separately. Explicit Walk and Drive routes use `maxStreetKm` rather than the transit horizon; Walk also ignores the transit-only `allowLongWalk` restriction.
-
-`allowStreetTransfers` (default `true`) controls walking connections between separate stops or stations. Turn it off to change vehicles only at the same stop or between members of one station, as identified by the GTFS station hierarchy. The engine removes cross-station walking edges before searching, including for arrive-by, realtime, and departure-window searches; access to the first stop and egress from the last remain available. Studio exposes this as **Route options → Allow walks between stations or stops**. It does not certify station-interior paths or free-transfer eligibility.
-
-`disableCache: true` disables street-access frontier and walking-path caches while keeping the prepared City resident. Route answers are recomputed either way. The same flag applies to the wider access probes used to explain a blocked Route.
-
-### Transfers and time reserves
-
-`maxTransfers` accepts integers from 0 to 31: `0` permits one boarding and `1` permits two. Omit it for no additional cap. Staying aboard the same trip is not a transfer. The cap constrains the native search, including alternatives and arrive-by, so a slower feasible route is found when the unrestricted winner exceeds it. A finite cap with ordered transit waypoints is unsupported.
-
-`minimumTransferBufferMinutes` (integer 0–60, default 0) adds time before each subsequent boarding, after any transfer walk and the feed's own minimum transfer time. It is charged once per transfer, including a change at the same stop, and never delays the first boarding, the final egress, or staying aboard. `arrivalBufferMinutes` plans an arrive-by query against an earlier deadline. Both are timetable feasibility constraints, not delay predictions; see [Time reserves](#travel-time-uncertainty).
-
-Studio starts with a one-minute transfer buffer after any transfer walk, so a change between different services cannot rely on simultaneous arrival and departure. The first boarding and staying aboard the same trip are unaffected; Preferences can change the buffer, including explicitly selecting none. This reserve is a planning margin, not a guarantee against delay.
-
-The engine API adds no implicit boarding buffer. Same-stop changes honor published GTFS minimum transfer times and forbidden transfers. Explicit transfer edges keep their durations without an added margin or a 60-second floor, and a published platform-to-platform transfer rule takes precedence over the station walking fallback.
-
-### How a journey is chosen
-
-VIGO's objective is `earliest_arrival`. Equal-arrival journeys prefer fewer boardings, then less walking, then a stable final order; there is no undefined "balanced" preference. Arrive-by first maximizes departure time; among journeys leaving at that boundary and arriving by the deadline, it minimizes boardings, then walking, then actual arrival. A slightly later on-time arrival can therefore avoid unnecessary transfers.
-
-If the reverse boundary cannot be materialized at first, the engine reconstructs a forward witness at the same departure from the complete access frontier. A remaining mismatch is a query error; an earlier feasible departure is never reported as the latest. An independently verified direct walk may dominate the reverse transit bound.
-
-Ordered transit routes can walk any segment, including the whole journey. Selection compares complete journeys by arrival (or latest departure), then boardings and walking, so a later walk to a waypoint can replace a short ride when both catch the same onward vehicle. Up to eight partial journeys are retained at each waypoint and up to five complete choices are returned; this bounded search does not enumerate every itinerary. `requireTransitRide: true` requires a ride on every segment.
-
-### Alternatives and windows
-
-`alternatives` (0–9) asks a depart-at transit Route for more journeys at the requested time; both runtimes return the same list. A departure window instead samples nearby departures: the engine's `windowMinutes` searches later departures or earlier deadlines, while the compiler's `departureWindowMinutes` (±0–30) is a centered depart-at profile. Sampled windows are not continuous timetable profiles. See [Alternatives, via points, and departure windows](guides/rust-standalone.md#7-alternatives-via-points-and-departure-windows).
-
-### Result and diagnostics
-
-The public `vigo.route.v1` Result contains `status`, a `journey` with chronological legs and durations in seconds, `warnings`, `quality`, and `meta`. A `not_found` Result is a completed answer with `journey: null` and an access reason when one is known. [Read a Result](reference/results.md) defines every public field.
-
-For a detailed diagnosis, request `diagnostics: "trace"` and read the internal result under `trace`. Access failures carry endpoint-specific `accessAvailability`:
-
-- `outside_selected_budget`: an access candidate exists at a larger walking limit. The suggested limit does not guarantee a complete itinerary; `streetPathVerified` records whether its path was verified.
-- `street_access_unverified`: nearby stops exist, but the bounded street search did not verify access. `nearestStop.distanceKind: "straight_line"` describes proximity, not walking distance.
-- `none_within_probe`: no access candidate was found within `probeWalkKm`. This is a bounded result, not proof of disconnection at every distance.
-- `diagnostic_unavailable`: the explanatory probe failed, reported as `access_diagnostic_unavailable`.
-
-The diagnosis never raises the walking allowance by itself. Blocked plans keep `searchLimits` for walking, horizon, transfers, and the transit-ride requirement, including `horizonScope: "timetable_scan"`. `no_path` means no scheduled itinerary under those constraints on the selected date; changing a constraint requires a new query.
-
-### Stations, access, and geometry
-
-Anonymous coordinate endpoints and physical GTFS stops use the same nearest-street attachment in Route and Matrix. A parent station does not provide free movement between all its platforms. Declared station paths keep their direction and time; their complete time and distance frontier is prepared once and then filtered against each endpoint's remaining walking budget. Interior pathway nodes do not create extra street entrances.
-
-When GTFS omits `traversal_time`, the walking policy prices the declared pathway length, or the distance between stop coordinates if length is also absent. Stairs with a stair count and fare or exit gates use labeled estimates described in [walking evidence](reference/walking-evidence.md), floored by any available walking distance. A missing time is never a zero-time link. Endpoint walks that use a station path expose `accessCost.street` and `accessCost.station` separately, including directed `stopIds` and source types; this supports a source-data audit, not certification of physical station access.
-
-The walking limit covers each complete, continuous access or egress walk; a transfer walk cannot extend the final egress beyond that budget. Street transfers use declared entrances and directed station pathways, composed around at most one external transfer edge. A repeated station in a ride sequence is reported but not rejected, because a scheduled loop or a forbidden platform change can require it.
-
-A coordinate that snaps to the street graph can carry an `endpointConnector` on its first or last walking leg. Its coordinates and distance describe the snap already included in the leg's cost, with `source: "coordinate-snap"` and `streetPathVerified: false`. A connector is not evidence of a mapped or legally traversable street. For geometry materialization and identifier internals, see [itinerary geometry](developer.md#itinerary-geometry-and-identifiers).
-
-## Matrix
-
-Matrix calculates travel time between sets of origins and destinations in one request, from a shared departure time or to a common arrival deadline. Request journeys only when you need their steps. The [Matrix request reference](guides/rust-standalone.md#8-matrix) lists every field.
-
-### Send a matrix request
-
-```json
-{
-  "origins": [{"id": "home", "stopId": "A"}],
-  "destinations": [{"id": "work", "stopId": "B"}],
-  "serviceDate": "2026-10-05",
-  "time": "08:30",
-  "timePreference": "arrive_by",
-  "mode": "transit",
-  "includeJourneys": false
-}
-```
-
-Replace `A` and `B` with exact stop IDs in your City, or use `"coordinate": [lon, lat]` points; Walk and Drive matrices require coordinates. The [quickstart](#5-compute-a-matrix) has a complete four-pair Boston example.
-
-### Read the result
-
-`durationsSeconds[originIndex][destinationIndex]` gives each pair's elapsed time, and the ordered endpoints are echoed in `query`. A `null` cell means unreachable, never a zero-minute journey; a completed matrix can contain both. With `includeJourneys: true`, `journeys` has the same shape with a journey or `null` per pair. Add `includeGeometry: true` for path geometry; it requires journeys and performs no extra timetable search.
-
-For arrive-by, a scalar duration is the deadline minus the latest feasible departure. A nested journey reports its actual arrival and may be shorter if it arrives early. Use the journey to separate travel from waiting at the destination. Public durations are seconds; minute-valued `rows` and search counters appear only in explicitly requested trace output.
-
-### Choose constraints
-
-The Route rules apply: a feasible direct walk competes unless `requireTransitRide: true`, `maxWalkKm` bounds endpoint walking, `maxTransfers` accepts 0–31, and `horizonMinutes` bounds the timetable search rather than the door-to-door duration. `allowStreetTransfers`, `minimumTransferBufferMinutes`, and `arrivalBufferMinutes` behave as described under [Route](#transfers-and-time-reserves).
-
-Transit Matrix is scheduled. Drive Matrix can use a supplied traffic snapshot with `routingDataMode: "realtime"`; it never fetches a provider or models traffic changing during a journey. See [Street routing](#street-routing).
-
-### Share work across pairs
-
-Results keep input order, including repeated endpoints. The compiler accepts up to 100,000 pairs in a 16 MiB request; the engine accepts up to 65,536 pairs in an 8 MiB request. Group work by shared endpoint, date, clock, and constraints:
-
-| Workload | Shared timetable search |
-| --- | --- |
-| Depart-at, one origin and many destinations | One forward scan |
-| Depart-at, many origins | One forward scan per unique origin |
-| Arrive-by, many origins and one destination | One reverse scan |
-| Arrive-by, many destinations | One reverse scan per unique destination |
-
-Request scalar output when only times are needed. Journey queries also share boarding rounds within each endpoint group, so tied journeys can differ from Route's stable order while satisfying the same objectives. `disableCache: true` bypasses endpoint-frontier caches while keeping same-request sharing, loaded City data, and immutable street indexes; it does not clear the operating system's page cache. [Service benchmarking](developer.md#reproduce-a-service-workload) shows how to measure full caller wall time.
-
-## Reach and isochrones
-
-Reach finds the streets and areas reachable from one origin within a time budget, by transit with walking, or by walking, driving, or cycling alone. Arrive-by Reach asks the reverse: from where a destination can be reached by a deadline. It does not measure access to jobs or people unless your analysis adds those opportunities. The [Reach request reference](guides/rust-standalone.md#9-reach-and-isochrones) lists every field.
-
-### Send a Reach request
-
-```json
-{
-  "origin": {"coordinate": [-71.11902, 42.37334]},
-  "serviceDate": "2026-10-05",
-  "time": "08:00",
-  "mode": "transit",
-  "cutoffsMinutes": [15, 30, 45],
-  "extentRadiusKm": 6,
-  "rasterSize": 96,
-  "surfaceSampling": "street"
-}
-```
-
-```sh
-vigo reach --city ./boston --request reach.json --output reach-result.json
-```
-
-`mode: "walk"` requests walking-only Reach and needs no service date. `mode: "drive"` routes to each cell center over the directed driving network with road-speed estimates, without live traffic or transit scenarios. `mode: "bike"` uses the [bicycle hierarchy](guides/rust-standalone.md#bicycle-route-and-matrix) and needs a City prepared with bicycle streets. The engine can also run transit Reach on a realtime snapshot; the compiler and Python keep Reach scheduled. Planned transit changes use transit with street sampling.
-
-For arrive-by Reach, send a `destination` instead of the origin, with `"timePreference": "arrive_by"` and the deadline as `time`. Each value is how long before the deadline a traveler must leave that place, including any wait after an early arrival. Walking keeps each street's permitted direction toward the destination. The Node and Rust CLIs and Python send this same request, and all run Reach in the `vigo` executable.
-
-### Set the analysis resolution
-
-| Option | Meaning |
-| --- | --- |
-| `cutoffsMinutes` | Time budgets from 1 to 240 minutes; fractional values are accepted |
-| `maxWalkKm` | Transit walking budget |
-| `walkSpeedKph` | Walking speed from 1 to 8 km/h |
-| `extentRadiusKm` | Requested raster extent from 1 to 40 km |
-| `rasterSize` | Cells per side; the compiler accepts 48, 64, 96, 128, 192, 256, 384, 512, or 1024, and the engine any integer from 16 to 1024 |
-| `surfaceSampling` | `street` samples reached street intervals; `cell-center` routes to each cell's center |
-
-The extent sets the analytical grid; it is not a maximum trip distance. Time budgets, walking limits, and the network decide what is reachable. Keep extent, resolution, sampling, and constraints identical when comparing results.
-
-### Choose the output
-
-The default `reachFormat: "full"` returns the requested grid and the full reached extent. `surface.valuesSeconds` is row-major from the northwest corner, and `null` means unreached; read its bounds and dimensions with the values. `fullSurface` describes the separate full extent when available.
-
-`areas` are GeoJSON polygons around reachable cells, preserving holes and islands. `contours` interpolate the sampled times and close at the grid edge and no-data boundaries; diagonal-only cells remain disconnected. The raw raster stays the reference for numerical analysis. For a map, request `reachFormat: "map"` to receive only the full reached-area polygons and their bounds, without raster values, stop lists, or duplicate contours; map output cannot be compared.
-
-For network evidence, add `includeStreetEdges: true` (`--street-edges` on the command line) to the full output. Returned directed intervals keep their explicitly named units. See [Reach output](guides/rust-standalone.md#reach-output) for raster ordering and edge decoding.
-
-### Compare with R5 and OTP
-
-Use `surfaceSampling: "cell-center"` for a coordinate-destination surface. The default `street` mode records the earliest reached street portion in each cell and leaves cells away from reached edges empty; a filled street cell does not establish a route to its center. Area metrics sum sampled cells and do not measure physically walkable land.
-
-When comparing engines, match the origin, service date, departure time, modes, walking and transfer rules, cutoff, extent, and grid resolution before drawing polygons. VIGO Reach evaluates a fixed departure. Conveyal's R5 can aggregate a departure window at a chosen percentile, and OTP's Travel Time API provides a departure-time snapshot; match the temporal statistic first. VIGO raster values are seconds, while requests use `cutoffsMinutes`.
-
-For quantitative agreement, compute travel times at the same coordinates with Matrix, then classify them at the same cutoff. A longitude/latitude grid and a Web Mercator grid do not share cell centers. Compare contours separately from cell polygons, and check station entrance costs, boarding slack, and GTFS transfer minimums in representative journeys. For a Transit Matrix control that matches Reach's walking budget, set `requireTransitRide: false` and `allowLongWalk: false`. See [Conveyal's isochrone methodology](https://docs.conveyal.com/analysis), [OTP's Travel Time API](https://docs.opentripplanner.org/en/v2.2.0/sandbox/TravelTime/), and the GTFS [minimum-transfer rules](https://gtfs.org/documentation/schedule/reference/#transferstxt).
-
-### Inspect a destination in Studio
-
-After running Reach in **Analyze**, click a destination to see its map estimate and request a journey there; with the map focused, press Enter to inspect its center. The journey keeps the analysis origin, date, departure time, timetable selection, and walking and ride limits. Expand **Show journey** for the walking and transit legs. A missing raster sample does not by itself mean no journey exists.
-
-With street sampling, the Studio map also shades the land between reached streets. Each cell enclosed by the reached network takes its fastest nearby reached street plus a straight walk of up to 100 m, never across mapped water. Land farther than that from a reached street, outside the reached network, or in a City without complete water coverage stays unshaded. The inspector labels these values as off-street estimates. Shading is for display only: area metrics and the saved raster keep the street samples.
-
-Destination journeys use scheduled service and the City's routing walking speed. Planned service changes affect the scenario map estimate but are not reconstructed in the destination journey; the panel labels the difference.
-
-After an **Arrive by** Reach, the clicked place is where the journey starts: the panel requests an arrive-by journey from it to the destination by the same deadline and counts its time from leaving to the deadline, as the map does.
-
-### Compare service changes
-
-Run a baseline, then a planned Scenario with the same origin, clock, date, walking assumptions, sampling, and grid, and retain both Results. [Scenarios](#scenario-semantics) explains exclusions and added service; [Compare saved results](reference/results.md#compare-saved-results) explains the counts. A polygon describes modeled network reach. It does not certify entrance access, wheelchair connectivity, pedestrian permissions, or observed reliability; keep the [walking evidence](reference/walking-evidence.md) and [known limits](#known-limits) with the analysis.
-
-## Scenario semantics
-
-A Scenario is an immutable set of changes tied to exactly one City revision. It may contain planned transit service changes, one live transit state, or one supplied traffic state. Walking limits, speeds, departure times, and cutoffs stay query options.
-
-Scenarios never edit the imported GTFS or OSM, and a complete alternative feed is another City revision. Drawing geometry in an editor creates no computational change until it is attached to a valid service edit. Several nonconflicting planned changes may coexist; conflicts need an explicit resolution. A Scenario never moves to another City revision, and expired live state cannot be queried.
-
-In VIGO 1.0.0, planned service changes apply to Reach, supplied traffic to Drive Route and Drive Matrix, and supplied realtime predictions to transit Route. The engine also applies planned service changes to transit Route, and realtime predictions to transit Matrix and Reach; a Reach scenario then applies on top of the realtime timetable. The compiler and Python keep transit Matrix and Reach scheduled. Studio can also route transit journeys on a saved scenario, on the scheduled timetable. Unsupported combinations are rejected with an explanation. The [Scenario request reference](guides/rust-standalone.md#10-scenarios) lists every field.
-
-### Planned service
-
-A planned service change states what changes and supplies enough to run it: ordered stops, travel-time assumptions, and a departure schedule. Edits to existing branches keep their GTFS trips by default; new service specifies frequency and operating hours. A Reach request can include this `scenario`:
-
-```json
-{
-  "origin": {"coordinate": [-77.05, 38.90]},
-  "serviceDate": "2026-07-15",
-  "time": "08:00",
-  "scenario": {
-    "id": "crosstown",
-    "name": "Crosstown service",
-    "services": [{
-      "operation": "add",
-      "name": "Crosstown",
-      "stops": [
-        {"label": "West", "coordinate": [-77.05, 38.90]},
-        {"label": "East", "coordinate": [-77.03, 38.91]}
-      ],
-      "headwayMinutes": 10,
-      "startMinutes": 300,
-      "endMinutes": 1500,
-      "averageSpeedKph": 22
-    }],
-    "excludedRouteIds": ["route-to-remove"]
-  }
-}
-```
-
-`operation` is `add`, `augment`, or `replace`. `excludedRouteIds` removes selected scheduled route variants for the Scenario.
-
-### Replace a branch and keep its trips
-
-`replace` defaults to `scheduleMode: "preserve-trips"` and needs `sourceRouteId`, `sourcePatternId`, and selected-branch scope (`routeScope: "pattern"`, or omitted when a pattern is supplied). Studio and the compiler load the trips active on the query's service date, including calendar exceptions and departures after midnight, and the previous service day's trips that are still running after midnight. Each affected trip produces exactly one replacement, keeping irregular gaps, per-trip running times, dwell, and pickup and drop-off restrictions. Editing stops never adds departures or reverse service. Older replacement requests use the same default: headway and hour fields are ignored unless frequency mode is selected explicitly.
-
-For a branch that keeps its trips, road geometry distributes each trip's original A → B running time among the edited gaps. Original dwell remains at retained stops, and `addedStopDwellMinutes` (default 0.35) adds dwell at inserted stops; removing an intermediate stop removes its dwell. The first retained GTFS stop anchors departure timing: a preceding extension departs earlier, and later edits shift downstream times. At least one original stop must remain, with `baselineStopId` or `baselineStopIndex` identifying moved stops and repeated visits. An extension requiring a departure before the service date is rejected. These are modeled timing changes, not a vehicle or crew scheduling check.
-
-### Set a frequency instead
-
-To change the timetable deliberately, use `scheduleMode: "frequency"` with `headwayMinutes`, `startMinutes`, and `endMinutes`; Studio calls this **Departures → Set frequency and hours**. This mode can replace a whole route, and `add` and `augment` use it by default. New lines use `segmentDistancesKm` and `averageSpeedKph` for road timing, plus `dwellMinutes`; segment arrays have one value per stop pair. Reverse service is an explicit choice in frequency mode and is never inferred from a shared route name. Generated trips arrive at each stop, dwell, then depart, so riders alight before the dwell; vehicles do not dwell at either end of the line. A frequency service runs on every service day: like scheduled service, the previous day's runs that are still running after midnight and the next day's first runs apply wherever the query's clock reaches them.
-
-### Edit a shared edge in Studio
-
-**Selected branch only** keeps a change on the chosen pattern. **All branches serving this exact A → B edge** applies one inserted gap to every occurrence of that ordered stop pair within the same feed and public route, but not to the reverse B → A edge. The editor lists the affected branches before running. This scope needs complete branch analysis and one inserted gap; use selected-branch scope for moved stops, extensions, or several gaps. Repeated stop visits keep their own positions and published runtimes, and overlapping replacement services are rejected. Studio requires a completed road path before running a road-following Scenario.
-
-### Compare the change
-
-Run a baseline Reach and a Scenario Reach against the same City, origin, date and time, walking policy, cutoffs, and grid, save both, and compare them. [Test a planned service change](#test-a-planned-service-change) has complete paired requests. Compare reports after-minus-before changes for cells reachable in both surfaces and counts newly and no-longer-reachable cells separately. It checks grid compatibility but not every experiment setting, so read [Compare semantics](reference/results.md#compare-saved-results) before attributing a mean change to the Scenario.
-
-## Inspect a saved Result
-
-Open a JSON response from the VIGO engine, compiler, or HTTP API. The viewer shows its status and main answer, draws a journey timeline, a matrix table, or a Reach raster, and keeps the complete source JSON alongside.
-
-### Read the public fields
-
-Route uses `journey`, Matrix uses `durationsSeconds`, and Reach uses `surface.valuesSeconds` or map-only `areas`. Durations are seconds and a `null` analytical value is unreachable. Keep geometry qualifications and warnings with the answer.
-
-Choose or drop a file in the [interactive viewer](guide.html#viewer). Files are read on your device and never uploaded; the viewer accepts up to 25 MiB.
-
-### Python exports
-
-Python's `Result.to_dict()` keeps its detailed, minute-valued payload. Use the [Python Result reference](../python/docs/guide.md#results) to interpret those exports; this viewer accepts public engine schemas only.
-
-## Realtime journey routing
-
-Route can use supplied GTFS-Realtime Trip Updates, and in the engine so can transit Matrix and Reach. This chapter explains how predictions are admitted and how to read the outcome; the [realtime input reference](guides/rust-standalone.md#12-realtime-transit-and-supplied-traffic) lists the snapshot fields.
-
-### Two modes, one engine
-
-Route exposes `routingDataMode: "realtime" | "scheduled"`, shown in Studio as **Realtime** and **Scheduled · Research**. The command-line runtimes default to scheduled and use a supplied `realtimeSnapshot`; only the engine's HTTP service fetches feeds, through [automatic polling](guides/rust-standalone.md#automatic-gtfs-rt-polling). The compiler also accepts `--data-mode realtime|scheduled`.
-
-Scheduled research requires an explicit service date and time. The server removes realtime and traffic observations before processing, enforces the exact date, and disables date substitution. Studio keeps the selected date and time and ignores feed polling in this mode; live refreshes, expiry checks, and mode changes cancel obsolete realtime requests, and switching modes never shows the other mode's old result.
-
-Both transit modes use the same native algorithms, stop identities, walking and transfer policies, and coordinate search; only the timetable presented to the engine differs. The engine searches the same realtime timetable for transit Route, Matrix, and Reach; the compiler and Python keep Matrix and Reach scheduled and reject realtime requests for them.
-
-Results for an explicit mode include `diagnostics.routingDataMode` and `routingDataProvenance`: source timetable and street identity, service date and timezone, query time, walking and search settings, engine contract version, and a reproducibility key. Realtime results also identify the prediction snapshot, and ordered journeys reject changed data identities between legs. The manifest identifies inputs but does not archive them; retain the City, the VIGO build, the request, and the returned diagnostics to reproduce a result.
-
-### Shared timetable
-
-A journey search compiles the complete supplied TripUpdate snapshot into a separate resident timetable. Within the explicit resource limits there is no endpoint-based selection, inspection pruning, or duplicate-stop overlay, and an oversized snapshot is rejected as a whole rather than truncated. Each valid matched update replaces its scheduled trip; canceled and deleted trips lose their ride segments; unreported trips keep scheduled times.
-
-Depart-at, arrive-by, transfer limits, and departure-window alternatives all use this timetable with the existing native algorithms. A query freezes its observation clock, including recursive verification and window samples. The latest compiled snapshot is cached per immutable service kernel and invalidated when input or timestamp validity changes; scheduled queries never inherit predictions from an earlier request.
+A trip delay propagates forward until a stop-specific prediction replaces it, and a prediction never moves earlier calls. An absolute time takes precedence over a delay; arrival and departure stay separate. `NO_DATA` resets the delay, and `SKIPPED` removes boarding and alighting at that call. Repeated stops need an unambiguous sequence.
 
 ### Admission and coverage
 
-An update must identify an active trip on the selected service day and source scope. Ambiguous identities, contradictory duplicates, invalid timing, unsupported relationships, and stale observations are excluded and counted. Feed and record timestamps are checked independently: admission accepts timestamps at most 180 seconds old and at most 60 seconds ahead of the captured clock. Network tools may apply their own freshness policy first, keeping all rejection counts.
+An update must identify an active trip on the selected service day and feed. Ambiguous, contradictory, invalid, unsupported and stale records are excluded and counted. Feed and record timestamps are checked separately: at most 180 seconds old and at most 60 seconds ahead of the captured clock.
 
-An unreported scheduled prefix may conflict with the first explicit prediction of an early-running trip. The resolver excludes that prefix only when all its departures and the first explicit prediction precede the frozen observation boundary, with no earlier explicit update or trip-level delay. `pastPrefixTrips` and `omittedPastPrefixStops` disclose the exclusion; it does not reconstruct past events or claim actual passage.
+An unreported scheduled prefix can conflict with the first prediction of an early-running trip. VIGO removes that prefix only when all its departures and the first prediction are before the observation time, and reports `pastPrefixTrips` and `omittedPastPrefixStops`. It does not reconstruct past events.
 
-`diagnostics.realtimeRouting` identifies the snapshot and counts applied, canceled, stale, unmatched, wrong-date, duplicate, invalid, and unsupported records. `coverage` accounts for every supplied record, including those rejected before routing. `partial` means some updates were applied while others were excluded, and `failedFeeds` reports unavailable endpoints. A scheduled fallback is identified explicitly; compile or search failures never silently retry against scheduled service.
-
-Processing a full snapshot is not a claim that every trip has a prediction. Added, unscheduled, replacement, and duplicated trips without a supported scheduled instance remain unsupported and disclosed. Vehicle positions and text alerts never invent stop-time predictions. Studio's [added-service display](#added-service) is separate from routing admission.
+Added, duplicated and unscheduled trips are unsupported for routing, although Studio can [display added service](#added-service). Vehicle Positions and alert text never create predictions. VIGO does not compare the GTFS-Realtime `feed_version` with the static feed's, so connect the matching timetable edition yourself.
 
 ### Read the realtime status
 
-For transit Route, read `diagnostics.realtimeRouting.status` together with its counts. `routingDataMode: "realtime"` records the requested mode; it does not mean that predictions changed the timetable.
+Read `meta.realtime.status` with its counts. `routingDataMode: "realtime"` records the request; it does not mean predictions changed anything.
 
 | Status | Meaning |
 | --- | --- |
-| `applied` | Matched trip replacements were applied, possibly with cancellations, and no supplied update was rejected |
-| `cancellations_only` | Only trip removals were applied, and no supplied update was rejected |
-| `partial` | At least one replacement or cancellation was applied and at least one supplied update was rejected |
-| `stale_fallback` | No update was applied and feed or record timestamp checks failed |
-| `no_matches` | No update was applied for other reasons; check unmatched, wrong-date, duplicate, invalid, and unsupported counts |
-| `scheduled_fallback` | No realtime search diagnostics were available; read `fallbackReason` |
+| `applied` | Updates were applied and none was rejected |
+| `partial` | At least one update was applied and at least one was rejected |
+| `stale_fallback` | Nothing was applied and freshness checks failed |
+| `no_matches` | Nothing was applied for other reasons; see the unmatched, date, duplicate and invalid counts |
 
-`coverage.complete` concerns admission of the **supplied updates**; it does not measure the share of scheduled trips that report. A fully admitted cancellation snapshot can legitimately return no journey. `routingDataProvenance.realtimeApplied` counts both replacements and cancellations. Keep these fields with the answer; see [Keep uncertainty with the answer](reference/results.md#keep-uncertainty-with-the-answer).
+Studio also reports `cancellations_only` (only cancellations applied) and `scheduled_fallback` (no realtime timetable was available; read `fallbackReason`).
 
-### Stop predictions and source versions
+`coverage.complete` is about the **supplied updates**, not the share of scheduled trips that report. A fully admitted cancellation snapshot can legitimately return no journey. Keep these fields with the answer.
 
-A trip-level delay propagates forward until a stop-specific prediction replaces it, and a prediction at an intermediate stop never becomes a delay for earlier calls. Absolute time takes precedence over delay; arrival and departure remain separate. `NO_DATA` resets propagated delay, and `SKIPPED` removes boarding and alighting while keeping through travel. Repeated stops need an unambiguous sequence, and out-of-order sequences are rejected.
+### Investigate live service in Studio
 
-Each decoded record keeps its endpoint, source timestamp, and static-feed scope. VIGO does not compare GTFS-RT `feed_version` with static `feed_info.feed_version`, so connect the matching timetable edition yourself. A missing Trip Update means no reported prediction, not verified on-time operation.
-
-Resource admission is separate from semantic coverage. Downloads are bounded, the decoder rejects feeds above 100,000 entities or 500,000 stop predictions, and native reconstruction checks its estimated memory against the timetable budget. Over-limit data is rejected, never silently truncated.
+Start in **Network**: check the observation time and reporting coverage, then choose a route in **Routes**. Compare scheduled and predicted events at the same stop, and read a vehicle's position separately from its predictions. Use **Route → Realtime** for journeys on admitted predictions. For a reproducible analysis, use Scheduled mode with an exact date and time; for an incident review, keep the observation, its identity, coverage and the Result. See [Network and Routes](#network-and-routes).
 
 ### Verification
 
-`npm run check:gtfs` runs the full feed and routing suite, including more than 256 updated trips, 1,024 input records, and 4,096 updated stops, interior transfers, both time directions, cancellations, skipped stops, transfer limits, snapshot replacement, and timestamp expiry. `check-realtime-scheduled-parity.mjs` compares 1,536 paired engine queries against eight independently imported GTFS timetables containing the literal effective predictions. `check-realtime-past-prefix.mjs` and `check-routing-data-modes.mjs` cover excluded prefixes and observation isolation. These establish algorithm parity for the tested cases, not field ETA accuracy.
+The runtime's Rust tests (`crates/vigo-runtime/src/realtime/tests.rs`) cover delay propagation through dwell, skipped and no-data calls, early predictions that omit a past prefix, trip replacement and the classification of every update in feed order. `npm run check:standalone` runs `test/check-realtime-polling.mjs` and `test/check-realtime-alerts.mjs`, which poll real protobuf feeds through `vigo serve` and check snapshot publication, inline snapshots overriding the server's feeds, failed and malformed reads, and Service Alerts, and `npm run check:gtfs` checks the decoder and journey quality with live updates. These checks establish that the algorithm applies predictions correctly in the tested cases, not that predictions are accurate.
 
-## Street routing
+## Streets and traffic
 
-A City built with OSM supports Walk and Drive variants of Route and Matrix, plus directed walking access for transit. Walk uses the directed pedestrian graph; Drive uses the directed road graph with free-flow time unless the request supplies traffic weights or closures. VIGO never replaces a missing street path with a straight line.
-
-Street Route needs coordinate endpoints and returns full geometry. Street Matrix returns scalar distance and duration per pair without reconstructing every path; it sweeps from the smaller endpoint set, and many-to-one requests use the reverse directed CCH metric while keeping each endpoint's access permissions.
+A City built with OSM answers Walk, Drive and Bike Route and Matrix, and gives transit its walking access. Walk uses the directed pedestrian graph; Drive uses the directed road graph at free-flow speed unless the request supplies traffic. VIGO never replaces a missing street path with a straight line. Street Route needs coordinates and returns full geometry; street Matrix returns distance and duration per pair without building every path.
 
 ### Coordinate network attachment
 
-A free coordinate first attaches to its nearest pedestrian vertex or reciprocal edge. If that attachment belongs to a component with no public transit-access anchor, the query can recover to the nearest anchored component within 80 m. This applies to arbitrary coordinates without place-name exceptions. The connector and partial-edge distance count toward walking time and limits, and returned geometry includes the charged connector. Anonymous Reach seeds use the same recovery.
+A free coordinate attaches to its nearest pedestrian vertex or two-way edge. If that attachment belongs to a fragment with no transit access, VIGO can recover to the nearest connected component within 80 m. The connector counts toward walking time and limits, and the returned line includes it. Reach origins use the same rule.
 
-Drive attaches a free coordinate to the nearest point of a drivable road segment and enters or leaves that road mid-segment, in its own direction. The straight gap is a walk at walking speed, returned as its own walk leg and counted against `maxWalkKm`. A point with no drivable road within that limit is blocked instead of being driven across open ground. Roads within 25 m of the nearest remain alternatives, which keeps both carriageways of a divided road available, and a nearest road detached from the main road network cannot trap a trip. Traffic closures make a road impassable; they do not move the point to another road.
+Drive attaches a free coordinate to the nearest drivable road and enters or leaves it mid-segment, in its own direction. The straight gap is a walk at walking speed, returned as its own leg and counted against `maxWalkKm`; with no road within that limit the Result is `not_found`. Roads within 25 m of the nearest stay as alternatives, which keeps both carriageways of a divided road available. A traffic closure makes a road impassable; it does not move the point.
 
-Stops keep their prepared physical anchors. Recovery never adds a street edge or a stop-to-stop transfer between disconnected components, a mapped authorized terminal path takes precedence, and a restricted endpoint cannot use recovery to bypass its directed exit. An off-network connector is a modeling assumption, not evidence of a surveyed entrance or a barrier-free crossing; an isolated place with no eligible street inside the radius stays unreachable.
+Stops keep their prepared positions. Recovery never adds a street edge or a transfer, and a connector is an assumption, not evidence of a surveyed entrance or a safe crossing. A point with no eligible street within the radius stays unreachable.
 
 ### Authorized endpoint access
 
-An ordinary movable gate with no access restriction inherits the mapped walking way's permission. Explicit private or prohibited access, locked gates, and unresolved opening times remain excluded. An explicitly walkable platform area can connect two or more mapped walking paths when they share its OSM node IDs. These connections follow the platform boundary; isolated outlines stay excluded. Neither rule invents links across railway tracks or between nearby coordinates. Rebuild a City from its source OSM to apply corrected gate permissions; existing Cities remain readable with their original prepared graph.
+Builds default to public pedestrian access: private paths stay outside the walking graph. Movable gates without restrictions inherit the path's permission; private, locked and time-restricted gates stay excluded. An explicitly walkable platform area connects the paths that share its nodes.
 
-Builds default to public pedestrian access: `access=private` without a pedestrian permission, or `foot=private`, stays outside the public walking graph. For a population authorized to use internal roads at its own homes and destinations, build with `--private-access=endpoints`. In Studio, choose **City → Street network → Pedestrian access → Authorized endpoints** before adding or replacing the OSM PBF; choosing **Public paths only** and replacing the streets removes the overlay.
+For people authorized to use internal roads at their own homes and destinations, such as a campus or gated community, build with `--private-access=endpoints`. In Studio, choose **City → Street network → Pedestrian access → Authorized endpoints** before importing the OSM PBF. Mapped private streets are then usable only within the origin's or destination's own internal area, up to the first public street with transit access. The public middle of the journey and transfers never use them, all internal walking counts toward the limit, and `access=destination` gates are allowed. Transit diagnostics report `walkingAccessPermission: "authorized_endpoints"`. This assumes the traveler is authorized; it does not infer ownership, gate hours or missing links.
 
-This City-wide modeling assumption permits mapped private streets only within the origin's or destination's attached internal street region. An exact directed search follows those streets and interior public islands up to the first public component with a transit-access anchor. The public middle of the journey and stop-to-stop transfers never enter private streets, all internal walking counts toward the same walking limit, and geometry follows the mapped edges. Walking wholly within one internal region is supported.
+### Names for map points
 
-Destination-only gates (`access=destination` or `foot=destination`) are permitted for authorized endpoint access, while locked gates, pedestrian prohibitions, and unresolved opening hours remain excluded. A closer private attachment with no directed public exit does not erase an existing public attachment; a walking-budget cutoff alone cannot trigger this fallback.
-
-The private graph is stored separately, so public street queries are unaffected. `network.json` records the access model, and transit diagnostics report `walkingAccessPermission: "authorized_endpoints"`. The option assumes endpoint authorization; it does not infer parcel ownership, gate hours, or missing OSM links. Explicit pedestrian prohibitions stay excluded, gates marked prohibited, locked, or with unresolved opening times gain no connections, and Street Reach follows the same rules at the origin and at reached destinations. Rebuild older Cities to apply street-store schema v6, which also excludes isolated platform area outlines from the linear walking graph.
-
-### Names for coordinate points
-
-Studio map clicks can use local street names, intersections, named areas or nearby stops instead of a generic pin label. Names are descriptive: they do not move the coordinate or change routing. The optional `place_streets` and `place_areas` tables are written during OSM import and ignored by older readers. Cities without those tables fall back to stop names. Reimport OSM to add street names to an older City.
-
-Lookup runs in Rust off the API event loop. A click waits at most 250 ms, then keeps its fallback label; clicks retain their order and pending results are discarded when changing City. Named closed ways are supported for areas; multipolygon area names are not yet included.
+Studio labels map clicks with local street names, intersections, named areas or nearby stops. Names describe a point; they never move it or change routing. They come from optional tables written during OSM import; Cities without them fall back to stop names. The native operation `places.describe` exposes the same lookup.
 
 ### Supplied traffic
 
-**No traffic provider is connected by default.** OSM supplies the baseline road graph and free-flow estimates, and live transit feeds are not a road-speed model. Driving results without an applied traffic snapshot must not be described as current traffic estimates.
+**No traffic provider is connected by default.** OSM supplies the road graph and free-flow estimates; transit feeds are not a road-speed model. Never describe a drive without applied traffic as a current traffic estimate.
 
-Drive Route and Drive Matrix accept a top-level `traffic` object with `routingDataMode: "realtime"`. A snapshot customizes the prepared directed road graph for one query: a fixed set of edge costs, not a forecast that evolves as a vehicle moves.
+Drive Route and Matrix accept a `traffic` object with `routingDataMode: "realtime"`. It customizes the road graph for that request: a fixed set of costs, not a forecast that evolves during the trip.
 
 ```json
 {
@@ -973,32 +874,151 @@ Drive Route and Drive Matrix accept a top-level `traffic` object with `routingDa
 }
 ```
 
-Use the actual observation time and the geometry of an observed **directed road path**. This fragment shows the schema; its values are illustrative. A full request also needs the mode and endpoints.
+This fragment shows the schema with illustrative values; a full request also needs the mode and endpoints. Use the actual observation time and the geometry of the observed **directed road**.
 
 | Contract | Behavior |
 | --- | --- |
-| Time | Required observation time; validity defaults to 300 seconds and is at most 1,800; observations more than 60 seconds in the future are rejected |
-| Expiry | Expired observations produce an explicit `stale_fallback` and use baseline costs |
-| Geometry | Endpoint pairs or 2–512 coordinates; connected directed path matching within 120 m by default, at most 1,000 m; ambiguous paths are rejected |
-| Edge indices | Require the exact current `streetSourceFingerprint`; indices are not portable between street builds |
-| Costs | Travel time, speed, or a slowdown factor, plus closures; costs never become faster than the baseline |
-| Overlap | Conflicting observations on one edge use the largest cost, including closures |
-| Reuse | The customized metric is reused while effective edge updates are unchanged; source age is checked on every query |
+| Time | `observedAt` is required; validity defaults to 300 seconds, at most 1800; times more than 60 seconds ahead are rejected |
+| Expiry | Expired traffic reports `stale_fallback` and uses baseline costs |
+| Geometry | Endpoint pairs or 2–512 coordinates, matched to a connected directed path; ambiguous paths are rejected |
+| Edge indices | Need the City's exact `streetSourceFingerprint`; indices are not portable between builds |
+| Costs | Travel time, speed, slowdown factor or closure; never faster than baseline |
+| Overlap | The largest cost wins, including closures |
 
-Read `meta.traffic.status` in public results (or `diagnostics.traffic.status` in the internal trace), the matched and unmatched counts, and `weightModel`. Only `applied` establishes that supplied costs changed the model; `no_matches` and `free_flow_equivalent` do not establish current coverage. The Rust matcher checks connectivity, direction, geometry, length and ambiguity; provider-to-OSM road identity still requires coverage validation, and VIGO does not yet model every turn, signal, intersection delay, parking, or a future traffic trajectory. The [traffic input reference](guides/rust-standalone.md#drive-traffic) lists every effect, expiry rule and limit, plus the Rust-native NDW DATEX II v3 import command.
+Read `meta.traffic.status` with its matched and unmatched counts. Only `applied` means supplied costs changed the model. VIGO does not model every turn penalty, signal or intersection delay, parking, or traffic changing during the trip. `vigo serve --ndw-poll` polls Dutch NDW travel times, and `vigo traffic-import` converts NDW files; see [Drive traffic](guides/rust-standalone.md#drive-traffic).
+
+## Bicycle routing
+
+Bike Route, Matrix and Reach use a directed bicycle network with access rules, contraflow, surfaces, mapped incline, dismount sections and turn restrictions, including restrictions that apply only at certain times.
+
+### Prepare a City for cycling
+
+Build with bicycle streets:
+
+```sh
+vigo-build build --gtfs feed.zip --osm region.osm.pbf --output ./city \
+  --street-modes walk,drive,bike
+```
+
+Bicycle permissions cannot be recovered from an older City's walking or driving graph; rebuild from OSM to add them. Studio prepares bicycle streets on new OSM imports. Bicycle data is optional: Cities without it keep their other modes.
+
+### Request a bike route
+
+```json
+{
+  "mode": "bike",
+  "origin": [-77.05, 38.9],
+  "destination": [-77.03, 38.91],
+  "time": "08:00",
+  "maxStreetKm": 50,
+  "bike": { "profile": "balanced", "speedKph": 18 }
+}
+```
+
+Use the same `bike` object for Matrix and Reach. Depart-at, arrive-by and via points are supported. `maxStreetKm` bounds each routed segment, including walks at its ends; `maxWalkKm` bounds each endpoint's walk. Public journeys report `bike` legs and `cyclingSeconds`, separately from walking and waiting.
+
+### Preferences and traffic stress
+
+`profile` is `balanced` (default), `quiet` or `fast`. `balanced` and `quiet` avoid traffic exposure; `fast` minimizes estimated travel time. Preferences choose the route; the reported duration is always the estimated physical travel time at `speedKph` (5–40, default 18), adjusted for surface and mapped incline.
+
+`maxLts` (1–4) sets the highest estimated level of traffic stress the rider will cycle. On busier links the rider pushes the bike at 4 km/h where walking is allowed, shown as walking legs with `geometrySource: "osm-low-stress"`; otherwise the link is excluded. The estimate follows the road-class, speed and lane rules of [Conveyal's published LTS implementation](https://github.com/conveyal/analysis-backend/blob/v5.9.0/src/main/java/com/conveyal/r5/labeling/LevelOfTrafficStressLabeler.java), with valid `lts`, `lts:forward` and `lts:backward` OSM tags taking precedence, plus a few VIGO refinements for directional lanes, high speeds and wide roads. It is an OSM estimate, not observed safety. A stress limit needs a City built with `bikeStressVersion: 1`; older Cities answer ordinary bike requests.
+
+### Timed roads and turns
+
+With a `serviceDate` and a known City timezone, depart-at and arrive-by routes evaluate weekly road access, one-way directions, dismount periods and turn restrictions at the moment the bicycle enters each segment. The search can wait for a road or turn to open, or take a detour; waiting appears as a gap between legs, and reported duration includes it. Weekday lists and ranges, time windows and overnight windows are supported. Holidays, seasons, weather and opening-hours rules with semicolons are treated conservatively. Without a usable date and timezone, timed roads are excluded and conditional turn restrictions apply all day. Diagnostics report the `timingPolicy` used.
+
+### Walking to and from the bike network
+
+New Cities walk to the bicycle network along the public pedestrian graph, with verified geometry; coincident roads or bridges never become a junction. Short straight snaps from a coordinate stay unverified and are limited to 80 m. A `bicycle=dismount` section is a walking leg. Older Cities without this join keep straight connectors; rebuild to enable network walks.
+
+### What the model does not include
+
+Bike has no live traffic, wheelchair profile, bike sharing, or bicycles aboard transit. Hills come from OSM `incline` tags, not terrain data. Ordered bike via points are routed segment by segment, which does not guarantee the best route over all of them. Missing OSM access or condition data cannot establish that a route is safe to ride. [How VIGO computes answers](reference/methodology.md#bicycle) explains the search.
+
+## Wheelchair routing
+
+A wheelchair City applies the strict `wheelchair-strict-v1` profile to Route, Matrix and Reach: unknown accessibility is excluded, and a no-route answer is never replaced by an unrestricted route.
+
+### Prepare a wheelchair City
+
+Build a separate City from the same inputs:
+
+```sh
+vigo-build build --gtfs feed.zip --osm region.osm.pbf \
+  --output ./wheelchair-city --wheelchair
+```
+
+Serve and query it like any City. Requests inherit its profile; `"wheelchair": true` (or `--wheelchair`) requires a wheelchair City and `false` rejects one. Wheelchair Cities reject Drive, realtime transit and query-time scenario overlays. Rebuild the City when the inputs change.
+
+### What the profile requires
+
+- **Vehicles and stops.** GTFS `wheelchair_accessible=1` for trips and `wheelchair_boarding=1` for boarding and alighting, including inheritance from the parent station. An accessible vehicle can pass an inaccessible stop. The search finds accessible journeys directly, including later vehicles; it does not filter an unrestricted journey.
+- **Station paths.** A pathway needs a positive `wheelchair_traversal_time`, or step-free mode with width at least 0.9 m, slope at most 8.3% and a traversal cost. Elevators need no slope. Stairs and escalators are always excluded. A station that declares entrances is entered only through accessible entrances and paths; a platform of a station without entrances is reached from the street when its own or inherited `wheelchair_boarding` is 1. Optional `wheelchair_length` gives a distance priced at 4.8 km/h; a published wheelchair time takes precedence. Fare gates between accessible nodes use their published time or a five-second estimate.
+- **Streets.** Chosen at build time with `--wheelchair-streets` and reported as `accessibility.streetEvidence`:
+
+| Value | Build option | OSM ways used |
+| --- | --- | --- |
+| `inferred-step-free-v1` | Default, or `--wheelchair-streets inferred` | Ordinary pedestrian ways, including ways without wheelchair or surface tags, after the filters below |
+| `wheelchair-yes-only` | `--wheelchair-streets verified` | Only ways tagged `wheelchair=yes` |
+
+Both exclude steps, escalators, inaccessible or limited nodes, raised kerbs, conditional access, widths below 0.9 m and inclines above 8.3%. Inferred evidence also excludes rough surfaces, poor smoothness, mountain trails, and unpaved paths, tracks and bridleways; `wheelchair=yes` overrides those filters, and an `incline` of `up`, `down` or `yes` needs it. A mapped kerb must be lowered or flush. Few cities tag every sidewalk, so verified evidence alone usually leaves little network.
+
+### In Studio
+
+In Route's journey settings, choose **Prepare wheelchair routing** to build a profile from the selected timetable's original GTFS ZIP and the City's original OSM PBF; progress appears in Tasks. Source fingerprints are checked, and changing either input requires preparing again. Studio supports this for single-feed, scheduled Route without via points or scenarios; use the engine for wheelchair Matrix and Reach. From a source checkout, `node scripts/attach-studio-wheelchair.mjs /path/to/Studio-City /path/to/wheelchair-city` attaches a City built with the compiler.
+
+### Limits
+
+Every Result carries `accessibility` with the profile, its street evidence and its limitations. Attachments from a coordinate to the network are geometric; door-to-street access is not verified. Live elevator outages, temporary barriers and individual chair dimensions are not modeled. Strict requirements can leave sparse coverage, and a no-route answer is not evidence that no accessible trip exists. Sources: [GTFS Schedule](https://gtfs.org/documentation/schedule/reference/), [MBTA pathways](https://github.com/mbta/gtfs-documentation/blob/master/reference/gtfs.md#pathwaystxt) and [OSM wheelchair tags](https://wiki.openstreetmap.org/wiki/Key:wheelchair). `npm run check:wheelchair` runs the public regression.
+
+## GTFS Flex
+
+Route and Matrix can include conditional service from GTFS Flex: on-demand zones, location groups, booking rules and continuous pickup and drop-off. Add `"flex": {}` to the request; rebuild older Cities to import Flex records.
+
+```json
+{
+  "origin": { "coordinate": [-77.05, 38.90] },
+  "destination": { "coordinate": [-77.03, 38.91] },
+  "serviceDate": "2026-07-15",
+  "time": "08:00",
+  "flex": { "durationFactor": 1.5, "durationOffsetSeconds": 300 }
+}
+```
+
+### How Flex journeys are timed
+
+VIGO checks zone containment (including holes), calendars, pickup and drop-off windows, walking limits and driving reachability over OSM. On-demand travel time uses the feed's `safe_duration_factor` and `safe_duration_offset`, falling back to `durationFactor` (default 1.5) and `durationOffsetSeconds` (default 300). Timed fixed-stop booking service keeps its published times. Continuous stopping follows the directed GTFS shape, with intermediate times interpolated and labeled `interpolated_shape`. A deviated route keeps its fixed calls: a rider is picked up in time for the vehicle to reach the next fixed stop on schedule, with assumption `deviated_route`.
+
+### How Flex joins fixed service
+
+Flex and fixed service share one timetable search. A Flex ride ending at a stop becomes access to the scan, and one starting at a stop becomes egress, so a journey can use Flex at either or both ends, departing or arriving by. Each Flex ride counts as a boarding; transfer restrictions, minimum times and the buffer apply. A combined journey is returned only when it is strictly better than the scheduled one.
+
+The search first scans with optimistic Flex values. When its winner uses Flex, VIGO prices the walks on the street graph and the clocks exactly; if the priced walks lengthen the winner by more than 60 seconds, it searches again. A winner within that margin is returned and can be up to 60 seconds later than the best conditional journey. The optimistic scan ignores transfer rules, so it can miss a Flex journey that depends on a transfer that exists only through a rule; when a rule at a Flex interchange contradicts it, VIGO composes the conditional and scheduled parts separately.
+
+### Booking
+
+`journey.legs[].quality.flex` carries the timing assumption and the feed's booking rules: messages, phone numbers, URLs and notice. `bookingStatus: "required"` means the journey is conditional: VIGO has neither booked it nor checked the deadline or capacity. `bookingConfirmed: true` records only the caller's claim.
+
+### Planned zones
+
+A Route or transit Reach `scenario` can include `flexZones`: `id`, `name`, a GeoJSON Polygon `geometry`, `startMinutes`, `endMinutes`, `averageSpeedKph` and `waitMinutes`. Travel time is the wait plus straight-line distance at the speed. Both ends of a zone ride must lie in the zone, and fixed-transit interchanges must be stops inside it. Reach evaluates zone egress at the raster resolution, so it has discretization error that point Route does not.
+
+### Limits
+
+Flex rejects realtime, scenario overlays, journey windows and alternative policies; Matrix is limited to 4,096 cells, and Reach does not accept imported Flex. Wheelchair Flex requires a wheelchair City and an explicitly accessible vehicle. Work is bounded without failing: after 4,096 walkable pickup and drop-off pairs, 65,536 rides to or from stops, or 65,536 priced drives, the search returns what it found with a `flex_search_truncated` warning. Each feed's Flex catalog is limited to 32 MiB; past it, the build omits continuous-stopping and booking trips first, then on-demand trips, and reports `flex_catalog_limit`. Vehicle availability is not modeled. Never present Flex estimates as guaranteed departures. `test/check-flex*.mjs` hold the public regressions.
 
 ## Travel-time uncertainty
 
-VIGO supports explicit time reserves that change which journey is chosen. It does not yet estimate an on-time probability, a travel-time distribution, or a calibrated confidence interval: scheduled and admitted realtime event times are point estimates.
+VIGO supports explicit time reserves that change which journey is chosen. It does not estimate an on-time probability, a travel-time distribution from delays, or a calibrated confidence interval: scheduled and admitted realtime times are point estimates. For variation due to departure time and planned frequencies, see [Monte Carlo](guides/monte-carlo.md).
 
 ### Use reserves in a routing request
 
 | Control | Applies to | Meaning |
 | --- | --- | --- |
-| `minimumTransferBufferMinutes` | Transit Route and Matrix, depart-at or arrive-by | Extra minutes before each subsequent boarding, after walking and published transfer minimums |
-| `arrivalBufferMinutes` | Arrive-by transit Route and Matrix | Reserve the final minutes before the deadline and search for the latest departure that still arrives before the earlier planning deadline |
+| `minimumTransferBufferMinutes` | Transit Route and Matrix, either direction | Extra minutes before each later boarding, after walking and published minimums |
+| `arrivalBufferMinutes` | Arrive-by transit Route and Matrix | Plan against a deadline this many minutes earlier |
 
-Both are integers from 0 to 60 and default to zero. A positive arrival reserve needs a deadline at least as large as the reserve and a horizon exceeding it by at least one minute; the earliest departure stays the one implied by the original deadline and horizon. Transit via points reject a positive reserve because composing segments would apply it repeatedly, and Walk, Drive, Reach, and native operations reject a positive arrival reserve.
+Both are integers 0–60, default 0. A positive arrival reserve needs a deadline at least as large as the reserve and a horizon exceeding it by at least one minute; the earliest departure stays the one implied by the original deadline and horizon. Via points reject a positive reserve, because composing segments would apply it repeatedly; Walk, Drive, Reach and native operations reject an arrival reserve.
 
 For Harvard Square to South Station, save `reserved-arrival.json`:
 
@@ -1020,314 +1040,191 @@ For Harvard Square to South Station, save `reserved-arrival.json`:
 vigo route --city ./boston --request reserved-arrival.json
 ```
 
-VIGO plans arrival by **08:55**, allows departure no earlier than **07:00**, and requires three extra minutes at each change. These numbers are illustrative preferences, not an MBTA delay estimate or a recommended threshold, and a tighter request can legitimately find no journey.
+VIGO plans arrival by **08:55**, allows departure no earlier than **07:00**, and requires three extra minutes at each change. These are illustrative preferences, not an MBTA delay estimate, and a tighter request can legitimately find no journey.
 
-Route clocks and leg durations still describe the chosen timetable journey, and a Matrix scalar duration keeps its deadline-minus-departure definition, including the reserve. Keep `diagnostics.timeReserves` with the answer: it records the requested and planning deadlines, both margins, and `calibratedProbability: false`. Request `diagnostics: "trace"` to see it. A transfer reserve can absorb some lateness, but it does not model early departures, missed-connection recovery, capacity denial, cancellations, correlated delays, or uncertain walking and station access, and the final reserve alone does not protect intermediate transfers.
+Route clocks still describe the chosen timetable journey, and a Matrix duration keeps its deadline-minus-departure definition. `diagnostics.timeReserves` in the trace records both deadlines, both margins and `calibratedProbability: false`. A transfer reserve can absorb some lateness, but it does not model early departures, missed-connection recovery, crowding, cancellations, correlated delays or uncertain walking.
 
 ### Calibrate probabilities before offering them
 
-GTFS-realtime `StopTimeEvent.uncertainty` has no defined statistical meaning, and an omitted value means unknown. It must not become a standard deviation or a 90% interval without a validated, provider-specific model. See the [GTFS realtime reference](https://gtfs.org/documentation/realtime/reference/#message-stoptimeevent).
+GTFS-Realtime `StopTimeEvent.uncertainty` has no defined statistical meaning, and an omitted value means unknown. It must not become a standard deviation or a 90% interval without a validated, provider-specific model. See the [GTFS Realtime reference](https://gtfs.org/documentation/realtime/reference/#message-stoptimeevent).
 
-For a Boston calibration study, start with the [MBTA LAMP exports and their data dictionary](https://github.com/mbta/lamp/blob/main/Data_Dictionary.md). This is a potential input; VIGO does not download or fit it. A credible next stage would retain historical forecasts and outcomes, match the exact feed revision and trip instance, estimate errors by route, direction, time of day, and lead time, and validate on later dates with coverage reporting. Same-vehicle and shared-corridor delays are correlated, so multiplying marginal transfer probabilities is not a journey probability. Probability-driven routing would need its own search and calibration contract.
+A calibration study would keep historical forecasts and outcomes, match the exact feed revision and trip, estimate errors by route, direction, time of day and lead time, and validate on later dates. For Boston, the [MBTA LAMP exports](https://github.com/mbta/lamp/blob/main/Data_Dictionary.md) are a possible input; VIGO does not download or fit them. Delays on one vehicle or corridor are correlated, so multiplying transfer probabilities does not give a journey probability.
 
 ### Reproduce the implemented contract
 
-Run `node test/check-arrive-by-boundary.mjs` after building the native kernel and `npm run check:standalone` after building the compiler. The public fixtures cover a changed selected departure, the exact reserve boundary, blocked outcomes, unchanged earliest departure, transfer-reserve combinations, matrices, invalid values, and repeated requests through both runtimes. They establish modeled feasibility, not measured on-time performance.
+`npm run check:standalone` (`test/check-standalone-parity.mjs`, `test/check-standalone-http.mjs` and `test/check-service-calendar-boundaries.mjs`) and the recorded corpus case `route-arrive-by-reserve` (`npm run check:corpus`) cover the reserve on Route and Matrix, invalid values, HTTP requests and service-date boundaries. They establish modeled feasibility, not on-time performance.
 
 ## Published fares on itineraries
 
-Route shows boarding prices from the imported GTFS feed. In Studio, expand the fare line for ticket names, payment methods, and the agency's fare link; JSON Results carry the same data in each transit leg's `fare`.
+Route shows boarding prices from the imported GTFS feed. In Studio, expand a leg's fare for product names, payment methods and the agency's fare link; JSON Results carry the same data in each transit leg's `fare`.
 
-These are prices for a **new boarding**, not an optimized journey fare. Multi-leg results deliberately have no total, because joining legs, transfer discounts, passes, and existing tickets can change what a rider pays. A missing quote does not mean free travel, and path selection does not consider price.
+These are prices for a **new boarding**, not an optimized journey fare. Multi-leg journeys deliberately have no total, because transfers, discounts, passes and existing tickets change what a rider pays. A missing price does not mean free travel, and price never affects route choice.
 
 ### Data and matching
 
-The importer keeps fare tables and their route, station, agency, and calendar references in an optional `fare_catalogs` SQLite table. Catalogs travel with a City and stay separate when feeds are merged. Cities built before fares were added need their original GTFS reimported to keep fare data.
+The importer keeps fare tables and their references in an optional `fare_catalogs` table that travels with the City. Cities built before fares were added need their GTFS reimported.
 
-- **Fares v2 takes precedence** when `fare_products.txt` is present. Matching uses route networks, station areas, rule priorities, fare timeframes, and the default rider category; product names and media come from the feed. MBTA's `transfer_only` extension is honored, so a free-transfer product never becomes a free new boarding.
-- **Fares v1** supports flat, route, and origin/destination-zone boarding prices. Zone-traversal (`contains_id`) rules stay unquoted.
-- Fare timeframes use the civil date and time at the validation stop, including its timezone, daylight-saving changes, times after midnight, and calendar exceptions. For a realtime-adjusted leg, the original scheduled stop sequence must be uniquely recoverable before timed rules apply.
-- Explicit platform fare areas override inherited station areas. Ambiguous network assignments, conflicting products, missing references, and unsupported conditions stay unquoted, and an unreadable fare catalog never discards a computed route.
-- Transfer totals, joined fare legs, pass selection, non-default rider eligibility, and fare-based optimization are not implemented.
+- **Fares v2 takes precedence** when `fare_products.txt` exists. Matching uses networks, areas, rule priorities, timeframes and the default rider category. MBTA's `transfer_only` extension is honored, so a free-transfer product never becomes a free new boarding.
+- **Fares v1** supports flat, route and origin–destination zone prices. Zone-traversal (`contains_id`) rules stay unpriced.
+- Timeframes use the local date and time at the validation stop, including daylight-saving changes and times after midnight.
+- Ambiguous networks, conflicting products, missing references and unsupported conditions stay unpriced. An unreadable fare catalog never discards a route.
+- Transfer totals, joined fare legs, passes, non-default rider categories and fare-based routing are not implemented.
 
-Matching follows the [GTFS Schedule reference](https://gtfs.org/documentation/schedule/reference/#fare_leg_rulestxt). No agency prices or route-name rules are embedded in code; prices reflect the saved feed.
+Matching follows the [GTFS Schedule reference](https://gtfs.org/documentation/schedule/reference/#fare_leg_rulestxt). No agency prices are built into VIGO. Fares are looked up only after the route is chosen, so they never slow a search. `node test/check-gtfs-fares.mjs` holds the public regressions.
 
-### Performance
+## Inspect a saved Result
 
-Fare lookup happens only after route selection, so no fare code runs inside routing, matrix, or Reach searches. Catalogs load by feed scope and are indexed once; quote, candidate, catalog, and scheduled-trip caches have explicit bounds and are released with their catalog. With cached catalogs, annotation performs no SQL. First-use parsing, serialization, and rendering still take time; measure them separately with `node scripts/benchmark-fares.mjs FEED.zip STORE.sqlite YYYY-MM-DD report.json`.
+Open a JSON Result from the engine, the compiler or the HTTP API. The viewer shows its status and main answer, draws a journey timeline, a matrix table or a Reach raster, and keeps the source JSON beside it. Files are read on your device and never uploaded; the viewer accepts up to 25 MiB.
 
-### Verification
+Route uses `journey`, Matrix uses `durationsSeconds`, and Reach uses `surface.valuesSeconds` or map-only `areas`. Durations are seconds, and `null` means unreachable. Keep geometry qualifications and warnings with the answer.
 
-`node test/check-gtfs-fares.mjs` covers exact matching, missing data, published zero fares, invalid prices, transfer-only products, default rider categories, area inheritance, empty-rule semantics, priority rules, after-midnight date changes, time-window boundaries, scoped multi-feed import and merge, and non-mutating itinerary annotation.
+Python's `Result.to_dict()` keeps its own minute-valued payload; read it with the [Python Results guide](../python/docs/guide.md#results). The viewer accepts public engine schemas only.
 
-## Known limits
+## VIGO Studio
 
-VIGO models the City revision and query it is given. It does not certify real-world service, demand, safety, or operational feasibility.
+VIGO Studio puts Network, Route, Analyze and City views over the same routing engine. It keeps its own project library and works offline once a City is imported.
 
-### GTFS
+### Settings and documentation
 
-- Support is limited to the source features listed in [GTFS support](developer.md#gtfs-support-matrix). Unsupported or malformed features are reported during the build.
-- Missing published shapes do not prevent timetable routing but limit map geometry.
-- Explicit GTFS in-seat links at a shared terminal keep passengers aboard across trip changes. Route, Matrix and Reach count one boarding and preserve onboard layovers. Studio shows “Stay aboard.” Block-based continuation is not inferred, and missing feed links are not guessed. Existing Cities must be rebuilt if their importer discarded those links.
-- Staying aboard must move the rider onward. A Route journey boards a looping vehicle where it passes for the last time, at the boarding stop or at another stop the origin walk reaches in time. Route alternatives and window choices drop a journey that stays aboard through a turnaround and then reaches a stop the rider could already have reached by then, through the same stop or one transfer walk with the transfer buffer, or that would reach the destination no later by leaving before the turnaround. Window choices leave out such a journey while another transit choice remains. The test uses only the journey's own stops and clocks, where the feed lets riders off and on, and the City's stop-to-stop walks; with walks between stops turned off, only same-stop returns count.
-
-### Transit Route and Matrix
-
-- Arrive-by Matrix durations include any wait between actual arrival and the deadline; use Route or Matrix journeys for actual arrival.
-- [Transfer and arrival reserves](#travel-time-uncertainty) can change route selection, but VIGO does not compute calibrated arrival probabilities or delay distributions.
-- A finite `maxTransfers` cap with ordered transit waypoints is unsupported.
-- Station returns may be valid in the supplied timetable; they are flagged, not excluded.
-- Without an explicit rule or declared pathway topology, platforms sharing a parent station use a transfer assumption of at least 120 seconds, floored by their coordinate distance at walking speed. These legs report `transferSource: 'parent_station_fallback'` and schematic geometry, not a verified station pathway.
-- A street route to a platform coordinate does not establish an entrance-to-platform connection. Walks touching subway stops or platforms report `stationAccessStatus: 'unverified'` unless they carry a declared pathway with no estimated segments; `streetSegmentVerified` keeps the narrower OSM result. Untimed stairs and gates use explicit routing estimates (one second per step, five seconds per gate), marked `gtfs_pathway_estimated`. Scalar Matrix results do not carry this per-leg audit.
-- Departure windows sample integral minutes; they are not continuous profiles.
-
-### Streets
-
-- Walk and Drive depend on OSM coverage and directionality.
-- Pedestrian attachment searches vertices within 160 m and projects onto reciprocal edges within 80 m. A missing attachment is not proof that no physical path exists.
-- Platform polygons describe an area, not a walking line. Street-store schema v6 excludes their outlines from the walking graph; routing across polygon interiors is not modeled, and older Cities need a source rebuild.
-- An anonymous endpoint on an unanchored fragment can recover to the nearest transit-connected component within 80 m, including the full connector cost. This adds no graph links and proves nothing about buildings, fences, water, or levels in between. See [coordinate attachment](#coordinate-network-attachment).
-- Otherwise a free coordinate keeps its nearest attachment even when that street connects poorly, such as a highway ramp or bridge above the point. Attaching to several nearby streets would let a connector cross a road, kerb, river or other barrier that walking cannot. Place endpoints on the street or path the traveller will use.
-- [Authorized endpoint access](#authorized-endpoint-access) is an opt-in build model; it does not establish individual permissions, gate hours, or missing connections.
-- Drive does not yet model every turn restriction, signal, or intersection delay. Traffic must be supplied by the caller.
-
-### Realtime
-
-- Realtime transit needs explicit realtime selection and a supplied `realtimeSnapshot`, or a snapshot the engine's HTTP service polls. It applies to Route in every runtime, and to transit Matrix and Reach only in the engine; the compiler and Python reject realtime Matrix and Reach requests. Vehicle Positions never change routing. In the engine, a fresh `NO_SERVICE` [Service Alert](guides/rust-standalone.md#service-alerts) closes the boardings and alightings it selects; other alerts are reported on the legs they describe.
-- Only `FULL_DATASET` feeds are decoded. Updates modify matched scheduled trips, remove `CANCELED` and `DELETED` trips, and omit `SKIPPED` calls. Added, duplicated, replacement, and unscheduled trips without a supported scheduled instance are unsupported for routing, though Studio can [display them](#added-service).
-- Feed and record timestamps must pass freshness checks: up to 180 seconds old and 60 seconds ahead of the captured clock. Missing timestamps do not establish freshness. See [realtime routing](#realtime-journey-routing).
-
-### City reuse and platforms
-
-- Copy the entire City directory; street indexes and prepared files are part of it. Executables are specific to an OS and CPU, while City data is portable across the supported 64-bit targets.
-- Older Cities with ephemeral Drive CCH rebuild that hierarchy on fresh-process startup; rebuilding the City from source enables persisted Drive CCH.
-- An incompatible timetable cache, a new active-service pattern, a changed walking policy, or an evicted snapshot requires preparation. Missing or corrupt required street indexes are errors; restore the complete City or rebuild it.
-- Studio project settings, drafts, and live connections are local application state and do not travel inside a City. Studio cannot open compiler City directories in this release.
-
-### Scenario and Reach
-
-- Planned transit service changes apply to transit Reach, and in the engine also to transit Route; supplied traffic applies to Drive Route and Drive Matrix. Drive Reach uses road-speed estimates without traffic or scenarios. Other combinations are rejected.
-- `maxTransfers` limits changes between vehicles in both baseline and scenario Reach; zero permits one ride, and walking never counts as a boarding.
-- After the last ride, Reach follows the same declared station exits as coordinate egress, and a stop reached only by a transfer walk does not restart the walking allowance. Reach rasterizes reached street edges while Matrix evaluates destination coordinates, so their cells can differ under matching settings.
-- Reach measures modeled travel time, not people, jobs, demand, welfare, observed behavior, or operational feasibility.
-
-## VIGO Studio desktop guide
-
-VIGO Studio puts Network, Route, Analyze, and City views over the same routing engine. It keeps its own project library and works offline once a City is imported. See [Networks within one City](guides/studio-networks.md) for network selection, timetable quality, and journey choices.
-
-### Documentation and settings
-
-Open **Settings → Documentation** from the City library or the sidebar to read this guide offline, in Studio's light or dark appearance. Press `/` to search; links to source files and external references open in your browser. Reading documentation does not open a City or prepare routing data, and the API schema download is bundled locally.
+Open **Settings → Documentation** from the City library or the sidebar to read this guide offline. Press `/` to search; links to external pages open in your browser. Reading documentation does not open a City.
 
 ### Open a City
 
-Select a project from the Studio library and import GTFS and OSM. Rebuild when the source feed or street extract changes. Studio stores projects in its library format and cannot open the movable City directories built by the compiler in this release. Opening a City prepares walking for transit access and walking routes; the driving network opens when you select Drive. **Background tasks** shows preparation progress.
+Select a project in the Studio library and import GTFS and OSM. Rebuild when the feed or street extract changes. Studio stores projects in its own library format and cannot open City directories built by the compiler in this release. Opening a City prepares walking; driving opens when you select Drive. **Background tasks** shows preparation progress.
 
 ### Network
 
-Use **Network** for reporting coverage and service events, and **Routes** for trip times, station boards, and line views. Route and station selection is shared across the tabs. [Network and Routes](#network-and-routes) explains playback, live timing, added service, and source freshness.
+Use **Network** for reporting coverage and service events, and **Routes** for trip times, station boards and line views. [Network and Routes](#network-and-routes) explains playback, live timing and added service.
 
 ### Route
 
 #### Plan
 
-Pick an origin and destination on the map. **Add point** inserts a via point before the destination, up to eight points in total; click a row to repick it, use the arrows to reorder it, or remove it, and **Reverse** flips the sequence. You can also type a coordinate command in **Search VIGO**, such as `route 38.90, -77.05 to 38.91, -77.03 at 08:00`, then choose **Plan this journey**. The route form does not search place or station names.
+Pick an origin and destination on the map. **Add point** inserts a via point before the destination, up to eight points in total; click a row to pick it again, use the arrows to reorder it, or remove it. **Reverse** flips the order. You can also type a coordinate command in **Search VIGO**, such as `route 38.90, -77.05 to 38.91, -77.03 at 08:00`, then choose **Plan this journey**. The route form does not search place or station names.
 
-Choose a travel mode. Realtime transit departs now; Scheduled exposes the date, time, and depart-at or arrive-by controls. Transfer caps are disabled while via points are present. Changing points or options updates the route, **Rerun route** submits the same coordinates again, and **New route** clears them.
+Choose a travel mode. Realtime transit departs now; Scheduled shows the date, time and depart-at or arrive-by controls. Transfer caps are disabled while via points are present. **Rerun route** submits the same points again, and **New route** clears them.
 
-**Network** chooses what a transit route runs on: the City timetable or one of the City's saved scenarios. A scenario route uses the scheduled timetable of the scenario's timetable group, with its removed routes canceled and its planned lines added. Planned lines run on their stated headway and hours on every service date, and new planned stops are reached on foot over the City's streets. Rides on planned service are labeled **Planned** and drawn along the scenario's path. Realtime is unavailable while a scenario is chosen.
+#### Choose a network
 
-Sort journeys by **Earliest**, **Fewer transfers**, or **Less walking**. Each card shows arrival, total time from your requested departure, transfers, walking, and its trade-off against the earliest arrival. Sorting keeps the selected journey and does not rerun the search; arrow keys, Home, and End select another journey, and **Details** opens its itinerary.
+**Network** chooses what a transit route runs on: the City timetable, one imported timetable, or a saved scenario. Selecting one feed uses its own prepared store and mixes in no other feed. A scenario route uses its timetable group's schedule with removed routes canceled and planned lines added; planned lines run on their stated headway and hours, and new planned stops are reached on foot. Rides on planned service are labeled **Planned**. Realtime is unavailable while a scenario is chosen. A project may set `defaultRoutingFeedId` in its Studio metadata to choose the default network.
+
+#### Journey choices
+
+Sort journeys by **Earliest**, **Fewer transfers** or **Less walking**. Each card shows arrival, total time from your requested departure, transfers, walking, and its trade-off against the earliest arrival. Sorting keeps the selected journey and does not search again; arrow keys, Home and End select another, and **Details** opens its itinerary.
+
+Later departures add the engine's ranked search at the requested time to the window: up to 64 candidate vehicle chains within fifteen minutes of the earliest arrival, of which at most ten are shown, distinct lines and stops first. A journey is removed when another leaves no earlier, arrives no later, walks no more and boards no more, in the whole minutes Studio shows. Services are grouped only when their stops, ride geometry and access paths match. This is a bounded search, not every possible itinerary.
+
+With **Arrive by**, Route options offers **Exact time** or **Earlier arrivals**. Earlier arrivals searches each deadline in the 20 minutes before the requested arrival and lists up to five distinct journeys, the latest departure first, plus a walk when possible. A deadline close to midnight searches the previous service day.
 
 #### Save a journey
 
-Choose a format beside **Save** in the journey details. **JSON** keeps the selected plan, diagnostics, and a summary separating the initial wait, journey duration, and total elapsed time. **Markdown** is a readable itinerary whose clocks can exceed 23 hours after service-day midnight. **GeoJSON** keeps leg geometry and its source when the complete path is retained. **CSV** records each leg's trip and service-clock times; `clock_service_date` names the midnight those minutes count from, and minutes can exceed 1440. Saving never reruns the query.
-
-**Save all** beneath the journey choices keeps every completed alternative, including those beyond the five visible cards. Filenames include the service date, places, and export time.
+Choose a format beside **Save** in the journey details. **JSON** keeps the plan, diagnostics and a summary separating initial wait, journey duration and total elapsed time. **Markdown** is a readable itinerary whose clocks can exceed 23 hours. **GeoJSON** keeps leg geometry and its source. **CSV** records each leg's trip and service-clock times; `clock_service_date` names the midnight those minutes count from. Saving never reruns the query. **Save all** keeps every completed alternative, including those beyond the five visible cards.
 
 #### Recent
 
-Reopen recent Route Results for the current City revision. Each keeps its normalized request, status, warnings, and timing beside the journey.
+Reopen recent Route Results for the current City revision, with their request, status, warnings and timing.
 
 ### Analyze
 
 #### Reach
 
-Choose an origin on the map, or use **Choose origin** to search imported stops by name or ID or enter coordinates. Run Reach, then switch between **Reachable area**, **Reached streets**, and cutoffs; changing the displayed cutoff reuses the retained result. See [Reach](#reach-and-isochrones) for limits and bounds.
+Choose an origin on the map, or use **Choose origin** to search imported stops by name or ID or to enter coordinates. Run Reach, then switch between **Reachable area**, **Reached streets** and cutoffs; changing the displayed cutoff reuses the Result. **Arrive by** maps where a destination can be reached from by a deadline; the clock becomes the **Deadline**.
 
-Choose **Arrive by** to map where a destination can be reached from by a deadline. The chosen point becomes the destination and the clock its **Deadline**; each place shows how many minutes before the deadline a traveler must leave it, and the walking limit applies to the first walk.
+With street sampling, the map also shades land between reached streets: each enclosed cell takes its fastest nearby street plus a straight walk of up to 100 m, never across mapped water. The inspector labels these values as off-street estimates. Shading is display only; area metrics and the saved raster keep the street samples.
 
-Use **Save** beside Reach results for the full JSON, the selected cutoff's area geometry, or a CSV summary. `total_processing_ms` measures complete analysis processing, separate from native query timings; `area_source` distinguishes an exact-cutoff area metric from a display-raster calculation; `reference_surface` and `reference_feed_id` identify the baseline. Saving becomes available when the computation finishes.
+Click a destination to see its estimate and request a journey there; with the map focused, Enter inspects its center. The journey keeps the analysis origin, date, time, timetable and limits. Planned service changes affect the scenario map but are not rebuilt in the destination journey; the panel labels the difference.
 
-Studio saves scenarios and timetable groups in the City folder, in `.vigo/scenarios.json`, shortly after each edit. They survive restarts and reimports and travel with the City directory; a scenario that names a route a reimport removed reports it when you run it. A copy saved from another window is never overwritten: Studio shows the newer copy instead. Drafts that earlier versions kept in the browser profile move into the City folder the first time you open it. For a stop inserted on an A → B edge shared by several branches, the road path applies to each affected branch, and each branch keeps its own untouched shape and runtime. Use the engine, the compiler, or Python for Matrix queries.
+**Save** offers the full JSON, the selected cutoff's area geometry, or a CSV summary. `total_processing_ms` measures the whole analysis; `area_source` distinguishes an exact-cutoff area from a display-raster calculation.
+
+#### Scenarios
+
+Studio saves scenarios and timetable groups in the City folder, in `.vigo/scenarios.json`, shortly after each edit. They survive restarts and reimports and travel with the City; a scenario naming a route a reimport removed reports it when run. A copy saved from another window is never overwritten. Road tracing follows the City's streets between the ordered stops; a disconnected segment is explained, never drawn as a straight "road". Use the engine, the compiler or Python for Matrix.
 
 ### City
 
 #### Data sources
 
-Open **City → Data sources** to review GTFS feeds, OSM coverage, counts, and warnings. To remove a source, select the trash button beside its row, check the name, and confirm **Delete source**. Removing a GTFS feed refreshes the combined timetable from the remaining feeds; removing OSM removes street routing and OSM-derived walking transfers until another import. The City, other sources, saved notebooks, and your original files are kept, and deletion is unavailable during import or preparation.
+**City → Data sources** lists GTFS feeds, OSM coverage, counts and warnings. To remove a source, select the trash button, check the name and confirm **Delete source**. Removing a GTFS feed rebuilds the combined timetable from the rest; removing OSM removes street routing until another import. Your original files are kept, and deletion is unavailable during import or preparation.
 
 #### Preferences
 
-Choose appearance, storage location, and map preferences. The default City folder is `~/Documents/Vigo Projects`. On macOS, Studio does not scan or test-write the library until you choose **Open library folder**, when macOS may ask for permission. Locally rebuilt apps use ad-hoc signatures, so an updated build can need authorization again.
+Choose appearance, storage location and map preferences. The default City folder is `~/Documents/Vigo Projects`. On macOS, Studio does not scan the library until you choose **Open library folder**, when macOS may ask for permission.
 
-**Local OSM** is the default basemap. It draws main roads, rivers, lakes, and coastal water from the City's imported PBF in light or dark appearance, with no tile service, API key, or network connection; residential streets, paths, buildings, and labels are omitted to keep routes and analysis clear. Cities imported before the local map index need one fresh OSM import. Online OpenStreetMap and CARTO styles remain optional.
+**Local OSM** is the default basemap: main roads, rivers, lakes and coast from the City's own PBF, with no tile service, API key or network connection. Cities imported before the local map index need one fresh OSM import. Online OpenStreetMap and CARTO styles are optional.
 
 ### Studio troubleshooting
 
 #### Playback shows no trips
 
-Check the exact service date, `calendar.txt`, `calendar_dates.txt`, the selected direction and pattern, and whether the playback time falls between a trip's first departure and last arrival. A route-wide total is not the number of vehicles active at once.
+Check the exact service date, `calendar.txt`, `calendar_dates.txt`, the selected direction and pattern, and whether the playback time falls between a trip's first departure and last arrival.
 
 #### An access path crosses a block
 
-The access or egress line must come from OSM street geometry. Rebuild from current OSM data, confirm the point lies within coverage, and inspect the selected street leg. Studio never replaces a missing street path with a straight jump.
+Access lines come from OSM streets. Rebuild from current OSM, confirm the point lies within coverage, and inspect the street leg. Studio never replaces a missing street path with a straight jump.
 
 #### A date is rejected
 
-Use an exact `YYYY-MM-DD` date inside the feed's active service range. Studio applies the same calendar rules as the command line.
+Use an exact `YYYY-MM-DD` date inside the feed's service range. Studio applies the same calendar rules as the command line.
 
 #### A loading indicator is not advancing
 
-Background tasks show measured bytes or records for steps with a known total; the percentage belongs to that step, not the whole import. Work without a total shows an indeterminate bar, elapsed time, and the age of the last update. If updates pause, use **Reconnect to task**: the task may still be running, so check its status before importing the same source again. Confirm that the City folder is readable and writable and that macOS has granted access.
+Background tasks show measured progress for steps with a known total; the percentage belongs to that step, not the whole import. Steps without a total show elapsed time and the age of the last update. If updates pause, use **Reconnect to task**: the task may still be running. Confirm that the City folder is readable and writable and that macOS has granted access.
 
 ## Network and Routes
 
-Open **Network** in VIGO Studio to inspect the selected City's timetable, live reports, and service events. The workspace has **Network** and **Routes** tabs; use **Route** for journey planning and **Analyze** for Reach.
+Open **Network** in VIGO Studio to inspect the City's timetable, live reports and service events. It has **Network** and **Routes** tabs; use **Route** for journeys and **Analyze** for Reach.
 
 ### Read the evidence
 
-The same map can show several kinds of evidence. Read the source and observation time before interpreting a change.
-
 | What you see | What it represents | How to use it |
 | --- | --- | --- |
-| Scheduled time | An indexed GTFS arrival or departure on the selected service date | Establish the published plan; check the date and pattern |
-| Predicted time | A matched, admitted TripUpdate for that trip and stop | Compare the same arrival or departure with its schedule |
-| Vehicle position | A reported location and stop status at its own observation time | Locate the vehicle; check its age separately from the prediction |
+| Scheduled time | A GTFS arrival or departure on the selected date | The published plan |
+| Predicted time | A matched, admitted Trip Update for that trip and stop | Compare with the same scheduled event |
+| Vehicle position | A reported location at its own observation time | Locate the vehicle; check its age separately |
 | **Estimated** playback | A position interpolated along the scheduled trip | Explore the timetable and geometry |
-| Service event | Computed delay, spacing change, or source alert with observation timestamps | Inspect the event evidence and source age |
+| Service event | A computed delay, spacing change or source alert, with timestamps | Inspect its evidence and age |
 
-None of these is a verified history of actual stop arrivals, and a missing prediction stays unknown. A vehicle marker or an added trip in **Trip times** does not mean Route can use that trip; routing has its own [admission rules](#realtime-journey-routing).
+None of these is a verified history of arrivals, and a missing prediction stays unknown. A vehicle marker or an added trip does not mean Route can use that trip; routing has its own [admission rules](#admission-and-coverage).
 
 ### Investigate a condition
 
-1. **Start with coverage.** Check the snapshot time, feed freshness, and reporting counts in **Network**. Reporting counts routes with current trip reports; it is not the share of passengers covered or service running on time.
-2. **Follow the route.** Open **Routes**, select the route, and inspect **Trip times** on the relevant date. Use **Stops** to confirm direction and pattern, then **Updates** for service evidence.
-3. **Inspect the same event.** Open the station board or select a vehicle in **Line view**. Compare arrival with arrival, or departure with departure, at the same stop, keeping both observation times visible.
-4. **Keep the observation attached.** **Export observations** or **Export report** retains the current evidence and source timestamps.
-
-For a journey, use **Route** and read its [Result and diagnostics](reference/results.md). Event details retain the scheduled comparison, source timestamps and source references.
-
-### See what needs attention
-
-**Network** shows reporting coverage, route comparisons, and service events. A scheduled departure, a feed prediction, and an observed vehicle location are different evidence, and missing reports remain unknown.
-
+1. **Start with coverage.** Check the snapshot time, feed freshness and reporting counts in **Network**. Reporting counts routes with current trip reports; it is not the share of passengers covered.
+2. **Follow the route.** Open **Routes**, select the route and read **Trip times** on the relevant date. Use **Stops** to confirm direction and pattern, then **Updates** for service evidence.
+3. **Compare the same event.** Open the station board or select a vehicle in **Line view**. Compare arrival with arrival, or departure with departure, at the same stop, with both observation times visible.
+4. **Keep the observation.** **Export observations** or **Export report** keeps the evidence and its timestamps.
 
 ### Inspect a route or station
 
-Open **Routes** and choose a route to see **Trip times**; select a trip and date to compare scheduled and predicted arrivals or departures. **Stops** opens directions and patterns, and **Updates** opens service evidence. The map and **Line view** show the same route. Select a stop for its arrivals board, and **All routes** returns to the catalog. Route and station selection is shared across Network, Routes, the map, and the line view; **Network map** clears both.
+Choose a route in **Routes** to see **Trip times**; select a trip and date to compare scheduled and predicted times. **Stops** opens directions and patterns, and **Updates** opens service evidence. Select a stop for its arrivals board; **All routes** returns to the catalog. Selection is shared across Network, Routes, the map and the line view; **Network map** clears it.
 
 ### Patterns and scheduled playback
 
-A route's **Stops** view shows directions, patterns, ordered stops, service span, and published geometry. Patterns are labeled by first and last stops, and **Full service** restores them all. Direction IDs `0` and `1` are feed labels, not compass directions. Technical IDs appear under **Source data**. Times such as `25:10` stay on their GTFS service day.
+A route's **Stops** view shows directions, patterns, ordered stops, service span and published geometry. Patterns are labeled by their first and last stops. Direction IDs `0` and `1` are feed labels, not compass directions. Times such as `25:10` stay on their GTFS service day.
 
-Scheduled playback is labeled **Estimated**: vehicles dwell at stops and follow their pattern's shape between timed calls. The index does not keep `shape_dist_traveled` or every untimed call, so interpolated positions are not exact. Live positions stay separate from playback, and route-colored vehicle circles show a bearing arrow when available.
+Scheduled playback is labeled **Estimated**: vehicles dwell at stops and follow their shape between timed calls, so positions are approximate. Live positions are drawn separately, with a bearing arrow when reported.
 
 ### Vehicle timing and line view
 
-In **Network → Routes**, select a route and choose **Line view**. The two tracks show each direction's stops and reported vehicles. Select a vehicle on the map or the line to compare scheduled and predicted arrival and departure at its reported stop. If that stop has no usable timing, its prediction stays unavailable; **Next prediction** names a later stop with one without substituting its time.
+In **Routes**, select a route and choose **Line view**: two tracks show each direction's stops and reported vehicles. Select a vehicle to compare scheduled and predicted arrival and departure at its reported stop. If that stop has no usable timing, **Next prediction** names a later stop without substituting its time. The browser requests only the selected route or vehicle, every ten seconds.
 
-Vehicle timing comes from the City's connection store and the current realtime snapshot. The browser requests only the selected route or vehicle every ten seconds, without overlapping requests.
+- Stop placement follows the Vehicle Position's stop ID, sequence and status; it never snaps to roads or interpolates. Missing or conflicting identities stay unplaced.
+- Arrival comes from the incoming connection and departure from the outgoing one; delay compares the same event at the same stop.
+- Opposite directions share a station list only when their sequences are exact reverses.
+- Branches and repeated stops stay distinct. Skipped stops, missing predictions, duplicates and stale observations never become current timing.
 
-- Stop placement follows the VehiclePosition stop ID, sequence, and status; it never uses road snapping or interpolated movement. Missing or conflicting identities stay unplaced.
-- Arrival comes from the incoming connection and departure from the outgoing one, and delay compares the same event at the same stop.
-- Opposite directions share a central station list only when their station sequences are exact reverses. Bus stops on opposite sides of a street are not paired by proximity or name.
-- Branches and repeated stops stay distinct. Skipped stops, missing predictions, duplicates, and stale observations never become valid current timing.
-
-Spacing is schematic: it shows stop order, not distance, time, or headway. The **↔** warning marks both vehicles in a compressed departure pair, comparing their predictions at the same stop against their scheduled interval.
+Spacing is schematic: it shows stop order, not distance or headway. The **↔** warning marks both vehicles of a compressed pair.
 
 #### Added service
 
-Trips declared by GTFS-RT `ADDED` or `NEW` appear in the line view and the **Trip times** selector even when absent from the static timetable. Their reported stop sequences supply placement and timing; partial sequences are labeled as reported stops, and scheduled times and delay comparisons are unavailable. Added-service display does not make a trip available to journey routing; see [realtime limits](#realtime).
-
-#### Verification and references
-
-`test/check-agency-route-line.mjs` and `test/check-added-service-display.mjs` run with `npm run check:agency`. They cover both directions, branches, repeated and terminal stops, conflicting sequences, stale and future positions, skipped and no-data predictions, and added trips; they verify fixture behavior, not field accuracy. The interaction design drew on [Swiftly's Live Operations overview](https://swiftly.zendesk.com/hc/en-us/articles/360043691571-Live-Operations-Overview); no implementation or assets were copied. Matching follows the [GTFS Realtime reference](https://gtfs.org/documentation/realtime/reference/).
+Trips declared `ADDED` or `NEW` in GTFS-Realtime appear in the line view and **Trip times** even when absent from the static timetable. Their reported stops supply placement and timing; scheduled times and delays are unavailable. Added-service display does not make a trip available to journey routing.
 
 ### Evidence limits
 
-Predicted spacing is not measured headway, and retained forecast changes are not
-actual vehicle progression. Reporting coverage is not service health. Network
-inspection does not establish delay causes, recovery forecasts or passenger
-impacts. VIGO does not dispatch vehicles or publish messages.
-
-## Command line
-
-The compiler, `vigo-build`, builds Cities and runs Route, Matrix, Reach, Stream, and Compare through VIGO's shared native routing kernel. The engine has its own command set; see the [engine CLI reference](guides/rust-standalone.md#4-cli-command-reference).
-
-### Commands
-
-| Command | Input | Output |
-| --- | --- | --- |
-| `build` | GTFS, OSM, output directory | A complete prepared City |
-| `build-scenarios` | A scenario source manifest | A prepared scenario collection |
-| `capabilities` | None | Versions and supported query combinations |
-| `inspect` | City directory | Identity, sources, counts, and limitations |
-| `route` | City and JSON request | A public journey Result, or a CSV batch |
-| `matrix` | City and JSON request | An origin-by-destination travel-time Result |
-| `reach` | City and JSON request | Reachable areas and optional analytical output |
-| `stream` | City and NDJSON on stdin | One Result per request from a resident process |
-| `compare` | Two saved Results | Changes without rerunning routing |
-
-Run `vigo-build help route` or `vigo-build route -h` for options, and `vigo-build --version` for the version. Unknown options, extra positional arguments, and repeated single-value options are rejected; `--gtfs`, `--gtfs-scope`, and `--prepare-date` may repeat.
-
-### Send a request
-
-Requests carry `serviceDate` and `time` in JSON, and flags override request fields exactly as in the engine:
-
-```sh
-vigo-build route --city ./boston --request route.json --output route-result.json
-cat route.json | vigo-build route --city ./boston --request - --time 08:30 > route-result.json
-```
-
-| Flag | Meaning |
-| --- | --- |
-| `--service-date`, `--time` | Override the request's date and clock (`00:00`–`29:59`) |
-| `--time-preference depart\|arrive` | Time direction; JSON also accepts `depart_at` and `arrive_by` |
-| `--mode transit\|walk\|drive\|bike` | Travel mode (bike supports Route and Matrix) |
-| `--max-walk`, `--max-transfers`, `--horizon` | Walking budget (km), transfer cap, timetable horizon (minutes) |
-| `--departure-window MIN` | Centered depart-at profile of ±0–30 minutes; Route only |
-| `--alternatives N`, `--alternative-ranking` | Additional transit journeys; Route only |
-| `--data-mode scheduled\|realtime` | Route data mode; realtime needs a supplied snapshot |
-| `--cutoffs`, `--raster-size`, `--extent-radius`, `--walk-speed`, `--street-edges` | Reach options |
-| `--diagnostics`, `--format`, `--include-geometry`, `--include-limitations` | Output detail |
-
-Request files and stdin share a 16 MiB limit, and `--request -` reads until the producer closes stdin. Progress and errors go to stderr; JSON goes to stdout. Saved output is staged and renamed after a complete write, so a failed run can leave an earlier output file in place: check the exit code. CSV Route batches use `--input` with an output file, support transit only, and cannot be combined with `--request`.
-
-### Keep the compiler resident
-
-`stream` reads one request per line, each with an explicit `kind`, and keeps prepared network state between lines. Each line may choose its own `serviceDate`; a `--service-date` flag only sets the default.
-
-```jsonl
-{"id":"outbound","kind":"route","origin":{"stopId":"A"},"destination":{"stopId":"B"},"serviceDate":"2026-10-05","time":"08:00"}
-{"id":"times","kind":"matrix","origins":[{"stopId":"A"}],"destinations":[{"stopId":"B"}],"serviceDate":"2026-10-05","time":"08:00"}
-```
-
-```sh
-vigo-build stream --city ./city < queries.ndjson > results.ndjson
-```
-
-Responses echo `id` and add `sequence`. A per-line error does not end the stream. First-use preparation, later queries, and serialization are different timing boundaries.
-
-### Read a response
-
-Public Results identify `schema`, `status`, and query metadata: Route uses `journey`, Matrix `durationsSeconds`, and Reach `surface.valuesSeconds` or map-only `areas`, all in seconds. `diagnostics: "trace"` adds internal evidence under `trace`; applications should use the [public result reference](reference/results.md). An invalid one-shot request exits nonzero, and stream errors use `schema: "vigo.error.v1"` with `error.code` and `error.message`.
-
-[VIGO Python](../python/docs/guide.md) runs the same resident protocol with its own Result properties. Studio's internal application API is not a public integration boundary.
+Predicted spacing is not measured headway, and forecast changes are not actual vehicle progress. Reporting coverage is not service health. Network inspection does not establish delay causes, recovery forecasts or passenger impacts, and VIGO does not dispatch vehicles or publish messages. `npm run check:agency` holds the public regressions; matching follows the [GTFS Realtime reference](https://gtfs.org/documentation/realtime/reference/).
 
 ## Deploy the routing engine
 
-Run the engine executable as the HTTP service. It opens a prepared City or scenario collection without Node, Python, Studio, or an internet connection. Prepare data separately with the compiler, then mount the complete output directory read-only.
+Run the engine as the HTTP service. It opens a prepared City or scenario collection without Node, Python, Studio or an internet connection. Prepare data separately with the compiler and mount the complete directory read-only.
 
 ### Build and check the image
 
@@ -1337,7 +1234,7 @@ From the repository root with Docker installed:
 docker build -f deploy/Dockerfile -t vigo:1.0.0 .
 ```
 
-The image contains the engine with this guide embedded, license notices, and a Debian glibc runtime, and runs as UID/GID 65532. Its compiler matches `rust-toolchain.toml`; City data, JavaScript dependencies, desktop bundles, and build caches are excluded from the build context. Check the image before using it:
+The image contains the engine with this guide embedded, license notices and a Debian glibc runtime, and runs as UID/GID 65532. Its compiler matches `rust-toolchain.toml`; City data, JavaScript dependencies, desktop bundles and build caches are excluded. Check the image before using it:
 
 ```sh
 npm ci
@@ -1345,11 +1242,11 @@ npm run build:cli-runtime
 npm run check:deployment -- --image vigo:1.0.0
 ```
 
-The check builds public synthetic inputs and exercises the real Compose service: a read-only City, authentication, Route, Matrix, Reach, scenario switching, readiness, restart, and resource limits, and it confirms that queries never change City files. CI runs it on Linux x64 and ARM64. Measure your own City and request mix before choosing production limits; the small fixture is not a metropolitan memory or latency result.
+The check builds public synthetic inputs and exercises the real Compose service: a read-only City, authentication, Route, Matrix, Reach, scenario switching, readiness, restart and resource limits, and it confirms that queries never change City files. CI runs it on Linux x64 and ARM64. The small fixture is not a metropolitan memory or latency result: measure your own City and requests before choosing production limits.
 
 ### Start the service
 
-Make the City directory and its files readable by UID 65532, and keep every referenced directory inside the mounted City or collection.
+Make the City directory readable by UID 65532, and keep every referenced directory inside the mounted City or collection.
 
 ```sh
 export VIGO_IMAGE=vigo:1.0.0
@@ -1358,7 +1255,7 @@ export VIGO_CITY=/absolute/path/to/prepared-city
 docker compose -f deploy/compose.yml up -d --wait
 ```
 
-The service binds to `127.0.0.1:8080` on the host; put an HTTPS reverse proxy in front of it for remote clients. Query endpoints require `Authorization: Bearer ...`, while readiness and this guide are public.
+The service binds to `127.0.0.1:8080` on the host; put an HTTPS reverse proxy in front of it for remote clients. Query endpoints require `Authorization: Bearer ...`; readiness and this guide are public.
 
 ```sh
 curl --fail-with-body http://127.0.0.1:8080/readyz
@@ -1368,56 +1265,84 @@ curl --fail-with-body http://127.0.0.1:8080/v1/route \
 docker compose -f deploy/compose.yml logs --tail 50
 ```
 
-`GET /v1/info` reports network, query-workspace, cache, and scenario-residency accounting. For scheduled comparisons, pass `scenarioId` with each query; a [scenario collection](guides/rust-standalone.md#shared-scenario-collections) stores shared regional data once and keeps a bounded number of scenarios resident. The [HTTP API](guides/rust-standalone.md#15-http-api-and-server-operation) lists every endpoint and status code.
+`GET /v1/info` reports the City, memory and scenario residency. For a [scenario collection](guides/rust-standalone.md#scenario-collections), pass `scenarioId` with each query. The [HTTP API](guides/rust-standalone.md#http-api) lists every endpoint and status code.
 
 ### Resource controls
 
-Compose defaults to 2 CPUs, 2 GiB of memory, two native threads, two resident scenarios, and one native query worker with a bounded queue. It uses a read-only root filesystem and City mount, drops Linux capabilities, and caps logs at two 5 MB files.
+Compose defaults to 2 CPUs, 2 GiB of memory and no swap, two native threads, two resident scenarios, and one query worker with a bounded queue. It uses a read-only root filesystem and City mount, drops Linux capabilities, limits processes, and keeps two 5 MB log files.
 
-| Environment setting | Default | Meaning |
+| Compose variable | Default | Meaning |
 | --- | --- | --- |
+| `VIGO_IMAGE` | Required | The image you built and checked |
+| `VIGO_CITY` | Required | Absolute path to the City or collection on the host |
+| `VIGO_API_TOKEN` | Required | Bearer token, at least 16 characters |
 | `VIGO_LOCAL_PORT` | `8080` | Loopback port on the host |
 | `VIGO_CPUS` / `VIGO_MEMORY` | `2` / `2g` | Container CPU and memory limits |
-| `VIGO_THREADS` | `2` | Native parallel threads |
-| `VIGO_MAX_RESIDENT_SCENARIOS` | `2` | Maximum resident scenario views |
-| `VIGO_RESIDENT_HEAP_BYTES` | min(1 GiB, memory / 3) | Collection retained-heap budget; one selected City may exceed it, reported by `/v1/info`; not an RSS limit |
-| `VIGO_ENDPOINT_CACHE_MAX_BYTES` | `8388608` | Shared endpoint-cache budget |
-| `VIGO_SHAPE_GEOMETRY_CACHE_MAX_BYTES` | `8388608` | Shared geometry-cache budget |
+| `VIGO_MEMORY_SWAP` | Equal to `VIGO_MEMORY` | Memory plus swap; equal values disable swap |
+| `VIGO_THREADS` | `2` | Threads per query (`RAYON_NUM_THREADS`) |
+| `VIGO_MAX_RESIDENT_SCENARIOS` | `2` | Collection members kept loaded |
+| `VIGO_ENDPOINT_CACHE_MAX_BYTES` | `8388608` | Endpoint cache budget |
+| `VIGO_SHAPE_GEOMETRY_CACHE_MAX_BYTES` | `8388608` | Shape cache budget |
 | `VIGO_MAX_QUEUE` | `8` | Waiting queries |
-| `VIGO_MAX_CONNECTIONS` | `16` | Active HTTP connections |
-| `VIGO_MAX_BODY_BYTES` | `8388608` | Maximum request body |
-| `VIGO_REQUEST_TIMEOUT_MS` | `10000` | Request and response I/O timeout |
-| `VIGO_QUERY_TIMEOUT_MS` | `30000` | Queue and execution deadline |
+| `VIGO_MAX_CONNECTIONS` | `16` | Open HTTP connections |
+| `VIGO_MAX_BODY_BYTES` | `8388608` | Largest request body |
+| `VIGO_REQUEST_TIMEOUT_MS` | `10000` | Request and response I/O deadline |
+| `VIGO_QUERY_TIMEOUT_MS` | `30000` | Queue plus computation deadline |
 
-Before raising these limits, read [Resource limits and constrained serving](guides/resource-limits.md): extra processes are not a free speedup, and swap is never counted as RAM.
+Other engine variables, such as `VIGO_RESIDENT_HEAP_BYTES` and `VIGO_PREPARE`, keep their [defaults](guides/rust-standalone.md#environment-variables) unless you add them to the Compose file. Before raising limits, read [Resource limits](guides/resource-limits.md): extra processes are not a free speedup, and swap is never counted as RAM.
 
-The worker reuses its network and workspaces, prioritizes short queries, and gives queued analytical work a bounded turn. A deadline or cancellation terminates running work and reloads the worker, and readiness is unavailable during recovery. A full queue returns an error instead of accepting unbounded work. Responses are limited to 64 MiB; split large matrices or omit geometry when appropriate.
+The worker keeps its City and workspaces, puts short queries first, and gives waiting analytical work a bounded turn. A deadline or cancellation stops running work and restarts the worker, and readiness is unavailable meanwhile. A full queue returns 503 instead of accepting unbounded work. Responses are limited to 64 MiB; split large matrices or omit geometry.
 
-`GET /healthz` checks the HTTP process and `GET /readyz` checks worker availability. The container runs `vigo health` against `/readyz`; the probe loads no City and needs no shell, curl, or Node. The restart policy restarts exited containers, not merely unhealthy ones.
+`GET /healthz` checks the HTTP process and `GET /readyz` the worker. The container runs `vigo health` against `/readyz`; the probe loads no City and needs no shell or curl. The restart policy restarts exited containers, not merely unhealthy ones.
 
 ### Run without Docker
 
-The engine archive runs directly: `vigo serve --city ./city --host 127.0.0.1 --port 8080`, checked with `vigo health --port 8080`. [Authentication and hosting](guides/rust-standalone.md#16-authentication-and-generic-deployment) covers tokens, reverse proxies, and a systemd unit.
+The engine archive runs directly: `vigo serve --city ./city --host 127.0.0.1 --port 8080`, checked with `vigo health --port 8080`. For a Linux host, install the matching binary, create an unprivileged account, make the City readable, and keep the token in a protected environment file. A systemd unit:
+
+```ini
+[Unit]
+Description=VIGO routing service
+After=network.target
+
+[Service]
+User=vigo
+Group=vigo
+EnvironmentFile=/etc/vigo/runtime.env
+ExecStart=/opt/vigo/vigo serve --host 127.0.0.1 --port 8080
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Set `VIGO_CITY` and `VIGO_API_TOKEN` in the environment file. Stop the service through systemd so its worker stops too. Scale out with several service processes, each with its own City and queue; there is no shared queue, distributed cache or tenant management. The Docker and systemd recipes are deployment examples; the container check above is the tested configuration.
 
 ### Operate and upgrade
 
-Prepare a new City in a separate directory, verify saved requests against the candidate, and switch the image and City together. Never replace files that a running service has mapped, and keep the previous accepted image and City for rollback; see [Upgrade and rollback](#upgrade-and-rollback). [Service benchmarking](developer.md#reproduce-a-service-workload) records cold start, first-query and sustained latency, memory, and disk costs. Stop the service with `docker compose -f deploy/compose.yml down`; the City stays on the host.
+Prepare a new City in a separate directory, check saved requests against it, and switch the image and City together. Never replace files a running service has mapped, and keep the previous image and City for rollback; see [Upgrade and rollback](#upgrade-and-rollback). [Service benchmarking](developer.md#reproduce-a-service-workload) records startup, first-query and sustained latency, memory and disk use. Stop the service with `docker compose -f deploy/compose.yml down`; the City stays on the host.
+
+To offer a public journey planner on top of a service, see the [public route planner](guides/public-routing.md).
 
 ## Upgrade and rollback
 
-Keep a running application and its prepared City together until the replacement passes your saved requests. A new release does not by itself make an older City compatible or incompatible; the prepared-data contract decides.
+Keep a running application and its City together until the replacement passes your saved requests. A new release does not by itself make an older City compatible or incompatible; the prepared-data contract decides.
 
 ### Before changing versions
 
-1. Save the runtime version, package checksum, `capabilities` output, and City inspection (`vigo info --city ./city`, or `vigo-build inspect --city ./city`).
-2. Keep the original GTFS and OSM inputs, their checksums, build options, and any scenario definitions. Prepared data is not a substitute for sources.
-3. Keep representative Route, Matrix, and Reach requests and their expected Results, including your transfer, walking, and arrive-by constraints.
+1. Save the runtime version, package checksum, `capabilities` output and City inspection (`vigo info --city ./city`).
+2. Keep the original GTFS and OSM inputs, their checksums, build options and scenario definitions. A prepared City is not a substitute for its sources.
+3. Keep representative Route, Matrix and Reach requests and their Results, including your transfer, walking and arrive-by settings.
 
 ### Prepared City policy
 
-V1 preserves the permanent prepared-data baseline: readers open compatible Cities without rebuilding, and standard writers remain compatible with the pinned reference runtime. The [prepared-data contract](reference/city-format.md) defines that promise and its release gate.
+VIGO keeps a permanent prepared-data baseline: later readers open published Cities without rebuilding, and standard writers produce Cities the published reference runtime can read. The [prepared-data contract](reference/city-format.md) defines this promise and its release gate.
 
-Cities that predate the supported prepared-data format are not converted. Rebuild them from the original sources into a **different output directory**:
+Cities older than the supported format are not converted. Rebuild them from the original sources into a **different directory**:
 
 ```sh
 vigo-build build --gtfs feed.zip --osm region.osm.pbf --output ./city-next
@@ -1425,11 +1350,11 @@ vigo info --city ./city-next
 vigo route --city ./city-next --request route.json
 ```
 
-The runtime checks timetable, transfer, street, access, and accelerator formats separately, so the outer `vigo.city.v1` manifest alone is not enough, and editing a format marker cannot migrate contents. Optional query caches may be regenerated from an admitted City. Treat published City files as immutable while a service has them open.
+The runtime checks timetable, transfer, street, access and index formats separately, so the outer `vigo.city.v1` manifest is not enough, and editing a format marker cannot migrate contents. Some fixes, such as improved station or wheelchair preparation, apply only to Cities built after them; the [release notes](releases/1.0.0.md) say when to rebuild.
 
-### Validate, switch, and recover
+### Validate, switch and recover
 
-Run the saved requests against the candidate through the interface your application actually uses. Check schemas, no-journey outcomes, walking geometry, arrival and departure times, boardings, and resource use, and test a cold start as well as repeated requests. Start a second service with `city-next`, check readiness, and replay the requests before switching the application endpoint. Roll back by restoring the previous binary and City together, and never overwrite a live memory-mapped City.
+Run the saved requests against the candidate through the interface your application uses. Check schemas, no-journey outcomes, walking geometry, times, boardings and resource use, and test a cold start as well as repeated requests. Start a second service on `city-next`, check readiness and replay the requests before switching. Roll back by restoring the previous binary and City together; never overwrite a City a service has open.
 
 ### Checks you can run yourself
 
@@ -1446,11 +1371,63 @@ npm run package:standalone
 python3 test/check-standalone-package.py
 ```
 
-These use public synthetic inputs and cover independent objective verification, difficult routing cases, public schemas, City relocation, and operation from the extracted package. They need no private benchmark files or maintainer service. Platform CI runs the broader release checks; a local pass does not establish that unrun platforms passed. Use the [service benchmark](developer.md#reproduce-a-service-workload) to keep comparable latency and storage measurements for your workload.
+These use public synthetic inputs and cover independent verification of the algorithms, difficult routing cases, public schemas, moving a City between machines, and running from the extracted package. They need no private data. A local pass does not show that other platforms pass; release CI runs all four.
+
+## Known limits
+
+VIGO models the City revision and query it is given. It does not certify real-world service, demand, safety or operations. [How VIGO computes answers](reference/methodology.md#exactness-and-its-boundaries) separates what is exact from what is bounded or estimated.
+
+### GTFS
+
+- VIGO uses the GTFS features listed in [GTFS support](developer.md#gtfs-support-matrix). Unsupported or malformed features are reported during the build.
+- Frequency templates with `exact_times=0` are read as a departure at the start of each window and then every headway. GTFS gives no exact times for them, so these are scheduled estimates.
+- Route- and trip-scoped transfer rules are kept but not applied; the stop-level rule governs those transfers. Timed-transfer guarantees are not represented.
+- Missing shapes do not prevent routing but limit map geometry.
+- Explicit GTFS in-seat links keep passengers aboard across trip changes and count one boarding. Block-based continuation is inferred only for consecutive same-terminal trips on one block, service and day; other continuations need explicit links.
+- Staying aboard must move the rider onward. A journey boards a looping vehicle at its last pass, and alternatives that stay aboard through a turnaround only to return to a stop the rider could already reach are dropped.
+
+### Transit Route and Matrix
+
+- Arrive-by Matrix durations include any wait between arrival and the deadline; use journeys for the actual arrival.
+- [Time reserves](#travel-time-uncertainty) change route choice, but VIGO computes no arrival probabilities.
+- A finite `maxTransfers` cap cannot be combined with transit via points.
+- Returning to a station already visited can be valid in the timetable; it is flagged, not excluded.
+- Without an explicit rule or declared pathways, platforms of one parent station use a transfer time of at least 120 seconds, or their distance at walking speed. These legs report `transferSource: "parent_station_fallback"` and a schematic line.
+- A street route to a platform coordinate does not establish an entrance-to-platform connection. Walks touching subway platforms report `stationAccessStatus: "unverified"` unless a declared pathway covers them. Untimed stairs and gates use explicit estimates (one second per step, five seconds per gate). Scalar Matrix results do not carry this per-leg evidence.
+- Departure windows sample whole minutes; they are not continuous profiles.
+
+### Streets
+
+- Walk, Drive and Bike depend on OSM coverage and directions.
+- Pedestrian attachment searches vertices within 160 m and edges within 80 m. A missing attachment is not proof that no path exists.
+- Platform polygons describe an area, not a path; routing across their interiors is not modeled.
+- A free coordinate keeps its nearest attachment even when that street connects poorly, such as a ramp or bridge above the point. Attaching to several streets would let a connector cross barriers. Place points on the street or path the traveler will use.
+- [Authorized endpoint access](#authorized-endpoint-access) is an opt-in assumption; it does not establish permissions, gate hours or missing links.
+- Drive does not model every turn restriction, signal or intersection delay, and traffic must be supplied.
+
+### Realtime
+
+- Realtime transit needs explicit realtime selection and a snapshot, supplied or polled. It applies to Route in every runtime and to transit Matrix and Reach only in the engine. Vehicle Positions never change routing. In the engine, a fresh `NO_SERVICE` [Service Alert](guides/rust-standalone.md#service-alerts) closes what it selects; other alerts are reported on legs.
+- Only `FULL_DATASET` feeds are decoded. Added, duplicated and unscheduled trips are unsupported for routing.
+- Feed and record timestamps must be at most 180 seconds old and 60 seconds ahead. Missing timestamps do not establish freshness.
+
+### City reuse and platforms
+
+- Copy the entire City directory. Executables are specific to an operating system and CPU; City data is portable across the supported 64-bit platforms.
+- Older Cities without a persisted driving hierarchy rebuild it when a process opens them; rebuilding the City from source persists it.
+- A new active-service pattern, a changed walking policy or an evicted timetable needs preparation. Missing or corrupt required street files are errors.
+- Studio's settings, drafts and live connections are local and do not travel inside a City. Studio cannot open compiler City directories in this release.
+
+### Scenarios and Reach
+
+- Planned service changes apply to transit Reach, and in the engine and Studio to transit Route. Traffic applies to Drive Route and Matrix. Drive Reach uses free-flow speeds without traffic or scenarios.
+- `maxTransfers` limits changes in baseline and scenario Reach; walking never counts as a boarding.
+- Reach rasterizes reached streets while Matrix evaluates coordinates, so their cells can differ under matching settings.
+- Reach measures modeled travel time, not people, jobs, demand, welfare, behavior or operational feasibility.
 
 ## Troubleshooting
 
-Identify which stage failed: installation, City build or open, request validation, computation, or interpretation. Keep the failing command and its output before changing inputs. For a version change, follow [Upgrade and rollback](#upgrade-and-rollback) first.
+Find the stage that failed: installation, City build or open, request validation, computation, or interpretation. Keep the failing command and its output before changing inputs. For a version change, follow [Upgrade and rollback](#upgrade-and-rollback) first.
 
 ### Check the runtime and City
 
@@ -1461,84 +1438,126 @@ vigo info --city ./boston --pretty
 vigo-build help route
 ```
 
-`capabilities` describes the running binary and `info` identifies the City. Neither proves that a date has service or that a route is reachable. Source changes take effect only after rebuilding.
+`capabilities` describes the running binary and `info` the City. Neither proves that a date has service or that a route exists. Source changes take effect only after rebuilding.
 
 ### Build or open fails
 
 | Symptom | Check | Next step |
 | --- | --- | --- |
-| Node version error | `node --version` against the declared requirement | Install Node.js 24.18 or newer |
-| Native build or load failure | OS and CPU, the pinned Rust toolchain, and the native linker | Build on the machine type that will run VIGO; executables are not portable, City data is |
-| Output City already exists | Whether this is a new revision or a replacement | Prefer a new output directory; use `--replace` only for an intended replacement |
-| Missing or corrupt street files | Whether the entire City was copied | Restore a complete City or rebuild; never copy individual databases between Cities |
-| `Expected a prepared vigo.city.v1 City` | The `--city` path | Point to the compiler's complete output containing `network.json` |
-| Missing or stale access or CCH artifact | Whether files came from different builds | Rebuild or recopy the whole City with a compatible compiler |
-| Unexpected SQLite WAL | Whether the build completed | Complete the build and copy a consistent, immutable City |
-| First query slower than later ones | Whether timetable or access preparation ran | Use `--prepare-date`, and separate preparation from resident query time |
-| City absent from Studio's library | Which interface created it | Studio imports its own projects and cannot open compiler City directories |
+| Node version error | `node --version` | Install Node.js 24.18 or newer |
+| Executable cannot run | Operating system, CPU and file permissions | Use the archive for your platform, or build from source on it |
+| Native build or load failure | The pinned Rust toolchain and linker | Build on the machine type that will run VIGO |
+| Output City already exists | Is this a new revision or a replacement? | Prefer a new directory; use `--replace` only to replace |
+| `--city or VIGO_CITY is required` | The command line | Give a City path, also for `compare` |
+| `Expected a prepared vigo.city.v1 City` | The `--city` path | Point to the compiler's complete output, which contains `network.json` |
+| Missing or stale access or index file | Were files copied from different builds? | Recopy the whole City or rebuild it |
+| Unexpected SQLite WAL | Did the build finish? | Finish the build and copy a consistent City |
+| Driving preparation fails with counts | Network size | Raise `VIGO_DRIVE_ACCELERATOR_MAX_NODES` or `_EDGES`, or omit driving |
+| First query slower than later ones | Timetable or access preparation | Use `--prepare-date`, and keep a process resident |
+| City absent from Studio's library | Which tool built it? | Studio imports its own projects |
 
 ### A request is rejected
 
 | Symptom | Check |
 | --- | --- |
 | Invalid or uncovered date | Use an exact local `YYYY-MM-DD`; inspect `calendar.txt` and `calendar_dates.txt` |
-| A flag seems to ignore the JSON | Flags override request fields; remove the flag or the field |
-| Point cannot be resolved | Use an exact, case-sensitive stop ID or `[longitude, latitude]`; place names are not geocoded |
-| `Unknown point field` | Write points as `{"coordinate": [...]}` or `{"stopId": "..."}`, with optional `id` and `name`; the compiler's older `{"id", "point"}` matrix form is not accepted by the engine |
-| Transfer cap with transit waypoints | Unsupported; omit the cap or change the experiment |
-| Realtime or Scenario rejected by Matrix or Reach | See the [support table](#choose-a-supported-combination) |
-| Matrix request too large | The compiler allows 100,000 pairs in 16 MiB, the engine 65,536 pairs in 8 MiB |
-| Piped request appears to wait | `--request -` waits for one complete object and for stdin to close |
+| A flag seems to ignore the JSON | Flags override request fields; remove one of them |
+| Point cannot be resolved | Use an exact, case-sensitive stop ID or `[longitude, latitude]`; names are not geocoded |
+| `Unknown point field` | Write points as `{"coordinate": [...]}` or `{"stopId": "..."}`, with optional `id` and `name`; the engine rejects the compiler's older `{"id", "point"}` matrix form |
+| `Unknown route option` | Check the field name in the [engine reference](guides/rust-standalone.md#common-fields); Studio's internal fields are not accepted |
+| `walkSpeedKph applies to …` | Transit Route and Matrix use the City's walking policy; send `walkSpeedKph` only to Walk, Drive, Bike or Reach |
+| Transfer cap with transit via points | Unsupported; omit the cap |
+| Realtime or Scenario rejected by Matrix or Reach | See [supported combinations](#choose-a-supported-combination) |
+| Matrix too large | The engine allows 65,536 pairs in 8 MiB, the compiler 100,000 in 16 MiB |
+| A piped request seems to wait | `--request -` waits for standard input to close |
 
-Invalid requests exit with status `2` and explain the failure on stderr. If an old `--output` file exists, a failed run can leave it unchanged; do not mistake it for a fresh Result.
+Invalid requests exit with status 2 and explain the failure on standard error. A failed run leaves an old `--output` file unchanged; do not mistake it for a fresh Result.
 
-### Route returns no journey
+### When a Route returns no journey
 
-A public Route returns `status: "not_found"` when no journey satisfies the request. Read `warnings` and `quality`, then request `diagnostics: "trace"` for `searchLimits` and `accessAvailability`.
-
-1. Confirm the City revision, date, time, and mode. GTFS time `25:10` belongs to the previous calendar day's service date, not to a new day at `01:10`.
+1. Confirm the City revision, date, time and mode. GTFS `25:10` belongs to the previous calendar day's service date.
 2. Check whether transit is required. A direct walk competes by default; `requireTransitRide: true` requires a boarding.
-3. Check each endpoint's walking access. A stop that is close in a straight line may lack a verified street path, and `outside_selected_budget` only proposes a wider check.
-4. Check the horizon, transfer cap, and timetable. For depart-at, the horizon bounds boarding and alighting, not door-to-door duration.
-5. If a changed constraint is justified, save it as a new request and keep the blocked Result as part of the analysis.
+3. Check each end's walking access. A stop close in a straight line may lack a street path; `outside_selected_budget` only suggests a wider check.
+4. Check the horizon, transfer cap and timetable. The horizon bounds boarding and alighting, not the trip.
+5. If a changed constraint is justified, save it as a new request and keep the blocked Result.
 
-Never silently raise walking limits, substitute service dates, or turn blocked durations into zero. [Route diagnostics](#result-and-diagnostics) explain the bounded failure categories.
+Never silently raise walking limits, substitute dates, or turn blocked durations into zero. See [When no journey is found](#when-no-journey-is-found).
+
+### HTTP service
+
+| Symptom | Next step |
+| --- | --- |
+| 401 | Send exactly one `Authorization: Bearer` header matching `VIGO_API_TOKEN` |
+| 403 without a token | Use a loopback `Host`, or set a token for proxies and remote clients |
+| 503 | Read `/readyz`; reduce concurrent work or add measured capacity; retry with backoff |
+| 504 | Read the worker log; reduce matrix size, geometry or raster detail before raising deadlines |
+| A browser request fails | The service does not implement CORS; serve your app from the same origin or a proxy |
+| High memory | City size, worker count, threads, request bodies and detailed results all add up; see [Resource limits](guides/resource-limits.md) |
 
 ### Live reports and routes disagree
 
-| Observation | Interpretation |
+| Observation | Explanation |
 | --- | --- |
-| A vehicle is visible but its trip is unavailable to Route | Vehicle Positions do not create timetable service; added-service display and routing admission are separate |
-| Realtime times equal the schedule | Unreported trips keep scheduled times; read admitted and excluded counts and any fallback |
-| A saved snapshot stops applying later | Freshness is checked against the captured clock; a saved observation is not live forever |
-| An alert describes a disruption but the route is unchanged | Text alerts are display evidence and close nothing automatically |
-| Playback shows a vehicle that is not reporting | Scheduled playback is labeled Estimated and interpolates the timetable |
-
-Keep the service date, source scope, trip identity, feed timestamp, and record timestamp together. See [Network and Routes](#network-and-routes) and [realtime routing](#realtime-journey-routing).
+| A vehicle is visible but its trip is unavailable to Route | Vehicle Positions create no timetable service |
+| Realtime times equal the schedule | Unreported trips keep scheduled times; read the counts and status |
+| A saved snapshot stops applying | Freshness is checked against the clock; a saved observation expires |
+| An alert describes a disruption but the route is unchanged | Only `NO_SERVICE` closes service, and only in the engine |
+| Playback shows a vehicle that is not reporting | Playback is labeled Estimated and interpolates the timetable |
 
 ### Results or comparisons look unexpected
 
-A Matrix `ok` status can include unreachable `null` cells, and arrive-by Matrix durations include destination waiting. Matrix comparison requires identical ordered endpoints and Reach comparison identical grids; means exclude unreachable cells. For a path that appears to jump to a platform, inspect its station-path and coordinate-snap qualifications: a visible line is not evidence of an entrance connection.
-
-### Report a reproducible issue
-
-Include the VIGO version, OS and CPU, the failing command, the request, the City inspection summary, stderr, and the full Result if one was returned. Say what you expected and whether it reproduces with the same inputs, and share a minimal redistributable fixture when possible. Review paths, coordinates, credentials, and source licenses before attaching files to a public issue, and use the [security policy](../SECURITY.md) for vulnerabilities. [Keep a reproducible run](reference/results.md#keep-a-reproducible-run) explains what to retain.
+A Matrix `ok` can contain `null` cells, and arrive-by durations include waiting at the destination. Matrix comparison needs identical ordered endpoints, and Reach comparison identical grids; means exclude unreachable cells. A path that appears to jump to a platform is a connector or assumed station link: read its `quality`. When comparing speed, keep the City, request, output detail, cache settings, worker count and threads identical, and never compare a cached repeat with a cold start.
 
 ### Concurrent stream queries
 
-Use `vigo stream --city ./city --workers 2 < requests.ndjson` for a bounded
-resident worker pool. The default is one worker; requests accept one through
-four, capped by CPU and resident-memory capacity (two CPUs and 6 GiB per
-worker). Results and query errors retain input order. Each worker loads its
-own City and caches; no more than one response per worker is buffered.
-`RAYON_NUM_THREADS` controls threads within each Rust process, separately
-from the number of concurrent requests. For performance comparisons, keep
-worker count, thread count, City, cache policy and output options identical.
+The compiler's `vigo-build stream --workers 2` runs up to four resident workers, capped by CPU and memory (two CPUs and 6 GiB per worker), and keeps results in input order. Each worker loads its own City. `RAYON_NUM_THREADS` sets threads within each process, separately from the number of concurrent requests. The engine's `vigo stream` answers one request at a time; run several processes for parallel work.
 
-Detailed analytical Matrix streams with `includeJourneys: true` and
-`includeGeometry: false` return every timed leg, trip and stop reference,
-including boarding/alighting sequences and headway assumptions when present.
-They omit Studio display diagnostics and intermediate-stop presentation records.
-Set `journeyFormat: "full"` in the stream request for that additional metadata;
-`includeGeometry: true` also selects full materialization. This preserves the
-lightweight non-geometric Matrix contract used by the Python wrapper.
+### Report a reproducible issue
+
+Include the VIGO version, operating system and CPU, the failing command, the request, the City inspection summary, standard error, and the full Result if one was returned. Say what you expected and whether it reproduces with the same inputs, and share a small redistributable fixture when you can. Review paths, coordinates, credentials and data licenses before attaching files to a public issue, and use the [security policy](../SECURITY.md) for vulnerabilities. [Keep a reproducible run](reference/results.md#keep-a-reproducible-run) lists what to keep.
+
+## Glossary
+
+| Term | Meaning |
+| --- | --- |
+| **Access, egress** | The walk from an origin to the first stop, and from the last stop to the destination |
+| **Admission** | Checking whether input data, such as a realtime record, may be used |
+| **Areas, contours** | Reach output: GeoJSON polygons around reachable cells, and lines interpolated at each cutoff |
+| **Arrive-by** | Find the latest departure that still arrives by a deadline |
+| **Boarding, transfer** | Boarding a vehicle; a transfer is every boarding after the first (`transfers = boardings − 1`) |
+| **Capabilities** | `vigo capabilities`: what the executable you run supports |
+| **CCH** | Customizable Contraction Hierarchy: the prepared street index used for exact, fast street paths |
+| **City** | A prepared directory built from GTFS and OSM; the unit every runtime opens |
+| **City revision** | The identity of one build of a City; Results record it |
+| **Compare** | Differences between two saved Results, after minus before |
+| **Compiler** | `vigo.mjs` (`vigo-build`): builds Cities from raw GTFS and OSM |
+| **Connection scan** | The timetable algorithm VIGO uses for transit: departures scanned in time order |
+| **Cutoff** | A Reach time budget, in minutes |
+| **Depart-at** | Find the earliest arrival after a departure time |
+| **Direct walk** | A walking-only answer to a transit request, used when it arrives sooner |
+| **Endpoint connector** | The straight hop between a free coordinate and its street attachment, included in cost but not verified |
+| **Engine** | The `vigo` executable: queries, streams and the HTTP API |
+| **Feed scope** | The name given to one GTFS feed in a multi-feed City |
+| **Full surface** | Reach raster over the bounds actually reached, beside the requested grid |
+| **Horizon** | How far the timetable search looks from the requested time; not a trip-length limit |
+| **Isochrone** | A line or area of equal travel time; VIGO calls the query Reach |
+| **LTS** | Level of traffic stress, 1–4, estimated from OSM for cycling |
+| **Matrix** | Travel times between every origin and destination |
+| **Monte Carlo** | Repeating a query over a departure window and sampled schedules to get percentiles |
+| **Native operation** | A low-level kernel call with packed arrays; diagnostic, outside the stable API |
+| **Parent-station fallback** | The assumed transfer time between platforms of one station when the feed declares none |
+| **Prepared snapshot** | A compiled service-day timetable stored in the City and reused by fresh processes |
+| **Reach** | Where an origin can reach (or a destination can be reached from) within cutoffs |
+| **Realtime snapshot** | GTFS-Realtime Trip Updates and Alerts for one request |
+| **Resident process** | A `stream` or `serve` process that keeps a City loaded between queries |
+| **Result** | The immutable answer to one query, with its status and evidence |
+| **Route** | A journey between ordered places |
+| **Scenario** | An immutable set of planned changes tied to one City revision |
+| **Scenario collection** | Several transit scenarios sharing one street graph, selected with `scenarioId` |
+| **Service date** | The GTFS day a trip belongs to; its clock can run past 24:00 |
+| **Street sampling, cell-center sampling** | Reach rasters from reached streets, or from routes to every cell's center |
+| **Supported scheduled core** | The part of a feed VIGO routes exactly when some features are unsupported |
+| **Trace** | The internal result added by `diagnostics: "trace"`; unstable, for debugging |
+| **Transfer buffer** | Extra minutes required before each later boarding |
+| **Via point** | An intermediate place a Route must pass, in order |
+| **Witness** | The journey or path that proves a computed time |

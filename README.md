@@ -70,9 +70,9 @@ The engine, the compiler and Python open the same City directory and run the sam
 
 | Interface | Use it to | Release asset |
 | :--- | :--- | :--- |
-| **[Engine](docs/guides/rust-standalone.md)** (`vigo`) | Answer from the command line, a resident stream or a self-hosted [HTTP API](docs/guides/rust-standalone.md#15-http-api-and-server-operation). One executable; no Node, Python or network access needed. | `VIGO-Rust-…` |
+| **[Engine](docs/guides/rust-standalone.md)** (`vigo`) | Answer from the command line, a resident stream or a self-hosted [HTTP API](docs/guides/rust-standalone.md#http-api). One executable; no Node, Python or network access needed. | `VIGO-Rust-…` |
 | **[Compiler](docs/guides/cli-only.md)** (`vigo.mjs`) | Build Cities and scenario collections from GTFS and OpenStreetMap, and query them. Needs Node.js 24.18 or newer. | `VIGO-CLI-…` |
-| **[Studio](docs/guide.md#vigo-studio-desktop-guide)** | Explore networks, plan journeys, map Reach and edit scenarios on the desktop. No coding required. | `VIGO-Studio-…` |
+| **[Studio](docs/guide.md#vigo-studio)** | Explore networks, plan journeys, map Reach and edit scenarios on the desktop. No coding required. | `VIGO-Studio-…` |
 | **[Python](python/README.md)** (`import vigo`) | Run studies, batches and notebooks, and export journey and leg tables. Needs Python 3.10 or newer. | `VIGO-Python-…` |
 
 Each [release](https://github.com/hytangs/vigo/releases) packages all four, built from one commit, for Linux x64 and ARM64, macOS on Apple Silicon and Windows x64. Every archive has a `.sha256` checksum, and each release also publishes the offline guide, the OpenAPI document and a release manifest.
@@ -81,7 +81,7 @@ To plan a journey in your browser, open the [route planner](https://app.vigo.cit
 
 ## Get started
 
-[Download](https://github.com/hytangs/vigo/releases) the engine and the compiler for your platform, or build both from source with Node.js 24.18+, npm 11.6+, a C toolchain and the Rust toolchain pinned in `rust-toolchain.toml`. On a constrained build host, see [automatic build memory selection](docs/build-memory.md).
+[Download](https://github.com/hytangs/vigo/releases) the engine and the compiler for your platform, or build both from source with Node.js 24.18+, npm 11.6+, a C toolchain and the Rust toolchain pinned in `rust-toolchain.toml`. On a build host with 4 GiB of memory or less, the build selects [low-memory settings](docs/developer.md#build-on-a-small-machine) automatically.
 
 ```bash
 git clone https://github.com/hytangs/vigo.git && cd vigo
@@ -134,10 +134,11 @@ The VIGO paper's six-city transit benchmark, with its data and method, is publis
 
 One searchable, offline guide, [`docs/guide.html`](docs/guide.html): the page the engine serves at `/` and Studio opens under **Settings → Documentation**.
 
-- [Guide](docs/guide.md): install, quickstart, concepts, routing, Studio, deployment and troubleshooting.
-- [Engine reference](docs/guides/rust-standalone.md): commands, request fields, HTTP API and outputs, including [bicycle](docs/guides/rust-standalone.md#bicycle-route-and-matrix) and [wheelchair](docs/guides/rust-standalone.md#wheelchair-routing) routing.
+- [Guide](docs/guide.md): install, quickstart, concepts, task guides (including [bicycle](docs/guide.md#bicycle-routing) and [wheelchair](docs/guide.md#wheelchair-routing) routing), Studio, deployment, troubleshooting and a glossary.
+- [Engine reference](docs/guides/rust-standalone.md): every command, flag, request field, endpoint and environment variable, with the generated [API schema](docs/reference/api-schema.md).
+- [Public results](docs/reference/results.md) and [walking evidence](docs/reference/walking-evidence.md): how to read each answer and what it establishes.
+- [How VIGO computes answers](docs/reference/methodology.md): the algorithms, what is exact, and what the model leaves out.
 - [Monte Carlo and accessibility](docs/guides/monte-carlo.md): departure-window distributions for Route, Matrix and Reach.
-- [Read a Result](docs/reference/results.md) and [walking evidence](docs/reference/walking-evidence.md): what each answer establishes.
 - [VIGO Python](python/README.md), with a [walkthrough notebook](python/examples/walkthrough.ipynb).
 - [Public route planner](docs/guides/public-routing.md): serve routing-only access to prepared Cities through a restricted gateway.
 - [Developer resources](docs/developer.md#developer-resources): architecture, performance measurement and routing accuracy.

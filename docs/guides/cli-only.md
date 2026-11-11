@@ -1,10 +1,12 @@
-# Install the Node CLI
+# VIGO compiler
 
-The CLI archive contains `vigo.mjs`, the matching native routing kernel, the `vigo` executable that answers Reach, license notices, and a checksum manifest. It builds Cities from raw inputs and runs the public query commands. Provide Node.js 24.18 or newer on the matching OS and CPU.
+The compiler, `vigo.mjs`, builds Cities and scenario collections from GTFS and OpenStreetMap, and runs Route, Matrix, Reach, Stream and Compare against them. It is the only tool that reads raw GTFS and OSM; the [engine](rust-standalone.md) and Python open the Cities it writes.
 
-## Run the archive
+The compiler archive (`VIGO-CLI-…`) contains `vigo.mjs`, its native routing kernel `vigo-routing-kernel.node`, the `vigo` executable it uses for Reach, license notices and a checksum manifest. It needs Node.js 24.18 or newer on the matching operating system and CPU, and bundles neither Node nor City data.
 
-Extract a matching archive from [VIGO releases](https://github.com/hytangs/vigo/releases), keep its files together, and run:
+## Install
+
+Extract the archive from [VIGO releases](https://github.com/hytangs/vigo/releases), keep its files together, and run:
 
 ```sh
 node vigo.mjs --version
@@ -12,74 +14,127 @@ node vigo.mjs capabilities
 node vigo.mjs help route
 ```
 
-No npm installation, Rust compiler, or Studio application is needed after extraction. This archive does not bundle Node or City data. For a standalone query service that requires no Node, use the [Rust executable](rust-standalone.md).
-
-The guides use `vigo` as a short command. In a POSIX shell:
+No npm installation, Rust compiler or Studio is needed. The guides call the compiler `vigo-build`. In a POSIX shell:
 
 ```sh
-alias vigo='node "/absolute/path/to/vigo.mjs"'
+alias vigo-build='node "/absolute/path/to/vigo.mjs"'
 ```
 
-On Windows, use `node .\vigo.mjs` in place of `vigo`, or configure your own command alias.
+On Windows, use `node .\vigo.mjs`, or define your own function. From a source checkout, `npm run build:cli-runtime` builds `public/vigo.mjs` and its kernel.
+
+## Commands
+
+| Command | Input | Output |
+| --- | --- | --- |
+| `build` | GTFS, OSM and an output directory | A complete City; its manifest on standard output |
+| `build-scenarios` | A scenario source manifest | A [scenario collection](rust-standalone.md#scenario-collections) |
+| `capabilities` | None | Versions and supported combinations, as JSON |
+| `inspect` | A City | Identity, sources, counts and limitations |
+| `route` | A City and a JSON request, or a CSV batch | A Route Result |
+| `matrix` | A City and a JSON request | A Matrix Result |
+| `reach` | A City and a JSON request | A Reach Result, computed by the `vigo` executable |
+| `stream` | A City, and NDJSON on standard input | One Result per line from a resident process |
+| `compare` | Two saved Results | Changes, without routing again |
+
+`vigo-build help COMMAND` or `vigo-build COMMAND -h` prints every option with its default. Options accept `--name value` and `--name=value`. Unknown options, extra arguments and repeated single-value options are rejected; `--gtfs`, `--gtfs-scope` and `--prepare-date` may repeat.
 
 ## Build a City
 
-Follow [Build your first City](../guide.md#quickstart) for data download links, source coverage, exact commands, and a complete Boston example. From local inputs:
-
 ```sh
-vigo build --gtfs feed.zip --osm region.osm.pbf --output ./city
-vigo inspect --city ./city
+vigo-build build --gtfs feed.zip --osm region.osm.pbf --output ./city
+vigo-build inspect --city ./city
 ```
 
-For transit and walking only, add `--street-modes walk` to avoid compiling driving data.
-Low-memory builds use disk-backed SQLite temporary work and compact numeric node
-lookups. They can take longer; keep the output and temporary directory on a local
-Linux filesystem (inside WSL, prefer the Linux filesystem to `/mnt/c`). Leave
-space for the source database, temporary sorts and the completed City. The CLI
-reports progress during long import phases and respects container memory limits
-when deciding whether GTFS and OSM compilation may overlap. Import and native
-street-preparation stages run in separate processes so each releases its working
-memory before the next stage. Regional native CCH preprocessing can still exceed
-2 GiB without swap: configure disk-backed swap for the offline builder, or build
-on a larger machine and copy the complete City to the serving machine. Runtime
-RAM limits and build working-memory requirements are separate.
+| Option | Meaning |
+| --- | --- |
+| `--gtfs PATH` | GTFS ZIP; repeat for several feeds |
+| `--gtfs-scope NAME` | A unique, stable scope for each `--gtfs` |
+| `--osm PATH` | OSM `.pbf` covering the City |
+| `--output PATH` | The City directory to write |
+| `--street-modes VALUE` | `walk,drive` (default), `walk`, `walk,bike` or `walk,drive,bike` |
+| `--prepare-date YYYY-MM-DD` | Compile a service date's timetable now; repeat for other dates |
+| `--private-access VALUE` | `public` (default) or `endpoints` |
+| `--wheelchair` | Build a strict wheelchair City |
+| `--wheelchair-streets MODE` | `inferred` (default) or `verified` street evidence for a wheelchair City |
+| `--streets-from PATH` | Reuse identical prepared streets from another City |
+| `--replace` | Replace an existing City |
 
-National street networks fit the default limits; Switzerland's OpenStreetMap
-extract gives 16.3 million driving vertices (driving shares the pedestrian
-nodes) and 11.7 million driving edges. Driving preparation accepts up to 40
-million vertices (`VIGO_DRIVE_ACCELERATOR_MAX_NODES`) and 20 million edges
-(`VIGO_DRIVE_ACCELERATOR_MAX_EDGES`); a larger network fails with its counts and
-these limits. Raise them, or add `--street-modes walk` or `walk,bike` to omit
-driving.
-
-Street preparation must successfully write the walking accelerator before the
-source graph is sealed. Missing or unwritable snapshots fail preparation rather
-than publishing a City that cannot open. V1 preserves the supported City data layout; no new City format is required. Use the current V1 release to receive builder fixes.
-
-The City is a whole directory, not the inspection JSON. Use V1 to rebuild unsupported prepared Cities from their original inputs into a new directory. Use [multiple feeds](../guide.md#combine-timetables-and-live-feeds) to combine agencies with explicit source scopes.
+[Build a City](../guide.md#build-a-city) explains each option, combining feeds, large regions and low-memory builds. The [quickstart](../guide.md#quickstart) has a complete Boston example. Progress goes to standard error.
 
 ## Run a query
 
-```sh
-vigo route --city ./city --request route.json \
-  --service-date 2026-10-05 --time 08:00 --output result.json
-```
-
-Choose a date covered by the feed. The [Route](../guide.md#route), [Matrix](../guide.md#matrix), and [Reach](../guide.md#reach-and-isochrones) references define the request shapes. Public results use seconds and explicit schemas; [read the response](../reference/results.md) before consuming it.
-
-## Keep the engine resident
-
-Use `stream` for repeated queries. Each input line declares its `kind` and can carry an `id`:
+Requests carry `serviceDate` and `time` in JSON; flags override request fields.
 
 ```sh
-vigo stream --city ./city --service-date 2026-10-05 \
-  < queries.ndjson > results.ndjson
+vigo-build route --city ./city --request route.json --output result.json
+cat route.json | vigo-build route --city ./city --request - --time 08:30 > result.json
 ```
 
-See the [resident protocol](../guide.md#keep-the-compiler-resident) for a complete request file. Reuse the process to avoid reopening the network for every query. Check every response, including per-query errors.
+| Option | Commands | Meaning |
+| --- | --- | --- |
+| `--city PATH` | Query commands | The City |
+| `--request PATH` | `route`, `matrix`, `reach` | JSON request; `-` reads standard input |
+| `--output PATH` | Most commands | Save the JSON; it is also printed. `-` prints only |
+| `--service-date YYYY-MM-DD` | Query commands | Service date |
+| `--service-day VALUE` | Query commands | `weekday`, `saturday` or `sunday`; must agree with the date |
+| `--time HH:MM` | Query commands | Clock, `00:00`–`29:59` (default `08:00`) |
+| `--time-preference depart\|arrive` | `route`, `matrix`, `reach` | Time direction; JSON also accepts `depart_at` and `arrive_by` |
+| `--mode VALUE` | `route`, `matrix`, `reach` | `transit` (default), `walk`, `drive` or `bike` |
+| `--objective earliest_arrival` | `route`, `matrix`, `reach` | The only objective |
+| `--max-walk KM` | Query commands | Walking budget (default 1.2) |
+| `--max-transfers N` | `route`, `matrix`, `reach` | Transfer cap, 0–31 |
+| `--horizon MIN` | `route`, `matrix` | Timetable horizon, 1–2880 (default 480) |
+| `--departure-window MIN` | `route` | Centered depart-at window, ±0–30 whole minutes |
+| `--alternatives N`, `--alternative-ranking` | `route` | Additional transit journeys and their ranking |
+| `--data-mode scheduled\|realtime` | `route` | Realtime needs a `realtimeSnapshot` in the request |
+| `--cutoffs`, `--extent-radius`, `--raster-size`, `--walk-speed`, `--street-edges` | `reach` | Reach options |
+| `--input PATH` | `route` | A CSV batch of transit journeys; needs `--output` |
+| `--wheelchair` | Query commands | Require a wheelchair City |
+| `--diagnostics LEVEL` | Query commands | `none`, `summary`, `profile` or `trace` |
+| `--format text\|json` | `route`, `matrix`, `reach` | Terminal text or JSON |
+| `--include-geometry`, `--include-limitations` | Query commands | Output detail |
+
+Request files and standard input share a 16 MiB limit, and `--request -` reads until the producer closes standard input. Results go to standard output; progress and errors to standard error. Saved output is written to a temporary file and renamed, so a failed run can leave an older file in place: check the exit code. Exit 0 means a Result, including `not_found`; exit 2 means invalid input or a failure.
+
+The request format is the engine's, documented in the [engine reference](rust-standalone.md#request-basics), with these differences:
+
+| Feature | Compiler | Engine |
+| --- | --- | --- |
+| Matrix size | 100,000 pairs in 16 MiB | 65,536 pairs in 8 MiB |
+| Departure windows | `departureWindowMinutes`, centered ±0–30 | `windowMinutes`, later departures or earlier deadlines |
+| Realtime | Route only | Route, Matrix and Reach |
+| Planned scenarios | Reach | Reach and transit Route |
+| Reach raster sizes | 48, 64, 96, 128, 192, 256, 384, 512 or 1024 | Any integer 16–1024 |
+| Compare | Route, Matrix and Reach | Reach |
+| CSV route batches | `--input` | Not available |
+
+Matrix points may also use the older `{"id": "a", "point": "A"}` form, which the engine rejects. CSV batches take columns `id`, `origin_lon`, `origin_lat`, `destination_lon`, `destination_lat`, or `origin_stop_id` and `destination_stop_id`, with optional `origin_name` and `destination_name`.
+
+## Keep the compiler resident
+
+`stream` reads one request per line, each with a `kind` (`route`, `matrix` or `reach`) and an optional `id`, and keeps the City prepared between lines. Each line may choose its own `serviceDate`; `--service-date` only sets the default.
+
+```jsonl
+{"id":"outbound","kind":"route","origin":{"stopId":"A"},"destination":{"stopId":"B"},"serviceDate":"2026-10-05","time":"08:00"}
+{"id":"times","kind":"matrix","origins":[{"stopId":"A"}],"destinations":[{"stopId":"B"}],"serviceDate":"2026-10-05","time":"08:00"}
+```
+
+```sh
+vigo-build stream --city ./city < queries.ndjson > results.ndjson
+```
+
+Responses echo `id`, add `sequence`, and keep input order. A failed line returns `status: "error"` and later lines still run; read every status, even on exit 0. `--workers N` (1–4, default 1) runs several resident workers, capped by CPU and memory (two CPUs and 6 GiB each); each loads its own City. `--stream-output detailed` returns the internal trace envelope.
+
+## Compare saved Results
+
+```sh
+vigo-build compare --before before.json --after after.json --output change.json
+```
+
+Both Results must be from the same query family; Reach Results must share a grid. Changes are after minus before. See [Compare saved results](../reference/results.md#compare-saved-results).
 
 ## Package and verify
 
-From a source checkout, run `npm run package:cli`, then `npm run check:cli-package`. The checks exercise the extracted package. A native archive is specific to its platform; use its matching runtime and retain the manifest when reporting a problem.
+From a source checkout, `npm run package:cli` builds the archive and `npm run check:cli-package` tests the extracted copy. Archives are specific to their platform; keep the manifest when reporting a problem.
 
-For HTTP, use [the native service](../guide.md#deploy-the-routing-engine). For Python objects and notebooks, use [VIGO Python](https://github.com/hytangs/vigo/tree/main/python/docs).
+For an HTTP service, use [the engine](../guide.md#deploy-the-routing-engine). For notebooks and batches, use [VIGO Python](https://github.com/hytangs/vigo/tree/main/python/docs).

@@ -51,6 +51,24 @@ assert.deepEqual(operations.sort(), [...capabilities.nativeOperations].sort())
 const source = fs.readFileSync(path.join(root, 'crates/vigo-runtime/src/standalone/transport.rs'), 'utf8')
 const flags = [...source.match(/let known = \[([\s\S]*?)\];/)[1].matchAll(/"([^"]+)"/g)].map(m => m[1])
 for (const flag of flags) assert(manual.includes(`--${flag}`), `Undocumented CLI flag ${flag}`)
+// Every environment variable the engine reads, and every request field it
+// accepts, must appear in the reference. Operating-system paths are not
+// configuration; VIGO_FORMAT_STORE only drives an ignored maintainer test.
+if (!packagedDocs) {
+  const engineSources = ['crates/vigo-runtime/src', 'crates/vigo-route/src', 'crates/vigo-gtfs/src', 'crates/vigo-traffic/src', 'crates/vigo-prepare/src']
+    .flatMap(directory => fs.readdirSync(path.join(root, directory), { recursive: true }).filter(file => file.endsWith('.rs')).map(file => path.join(root, directory, file)))
+    .map(file => fs.readFileSync(file, 'utf8'))
+  const variables = new Set(engineSources.flatMap(text => [...text.matchAll(/env::var(?:_os)?\("([A-Z0-9_]+)"\)/g)].map(m => m[1])))
+  for (const system of ['HOME', 'XDG_CACHE_HOME', 'LOCALAPPDATA', 'PATH']) variables.delete(system)
+  assert(variables.has('VIGO_PREPARE') && variables.has('VIGO_API_TOKEN'), 'Engine environment variables were not found')
+  for (const variable of variables) assert(manual.includes(`\`${variable}\``), `Undocumented environment variable ${variable}`)
+  const validation = fs.readFileSync(path.join(root, 'crates/vigo-runtime/src/standalone/query.rs'), 'utf8')
+    .match(/fn validate_request[\s\S]*?\n    for key in q\.as_object\(\)/)?.[0]
+  assert(validation, 'Request validation allowlist was not found')
+  const fields = [...validation.matchAll(/"([a-z][A-Za-z]+)"/g)].map(m => m[1]).filter(field => !['route', 'matrix', 'reach', 'isochrone', 'native', 'compare'].includes(field))
+  assert(fields.includes('serviceDate') && fields.includes('sharedLegs'), 'Request fields were not found')
+  for (const field of fields) assert(manual.includes(`\`${field}\``), `Undocumented request field ${field}`)
+}
 for (const method of ['route', 'matrix', 'reach', 'isochrone', 'compare', 'native']) assert(spec.paths[`/v1/${method}`]?.post)
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-rust-docs-'))
 const city = path.join(directory, 'city')

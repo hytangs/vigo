@@ -1,17 +1,17 @@
 # VIGO 1.0.0 developer guide
 
-Canonical source for the developer chapters of the [VIGO guide](guide.html). Edit the relevant chapter, then run `npm run docs:build`.
+The developer chapters of the [VIGO guide](guide.html): how VIGO is built, how to measure it, and how to check that it routes correctly. Edit a chapter, then run `npm run docs:build`.
 
 ## Developer resources
 
-Use the public CLI, HTTP, or Python interface to integrate VIGO. Studio's internal API and the native field dictionary serve different purposes and are not interchangeable with public application responses.
+Integrate VIGO through its public interfaces: the [engine](guides/rust-standalone.md) command line and HTTP API, the [compiler](guides/cli-only.md), or [VIGO Python](../python/docs/guide.md). Studio's internal API and the [native operations](reference/rust-standalone-native.md) serve other purposes and are not stable integration boundaries.
 
 ### Build and understand the engine
 
 - [Contributing and checks](../.github/CONTRIBUTING.md)
 - [Architecture](#architecture)
-- [Native operation fields](reference/rust-standalone-native.md)
-- [Runtime recovery](#runtime-limits-and-recovery)
+- [How VIGO computes answers](reference/methodology.md)
+- [Runtime limits and recovery](#runtime-limits-and-recovery)
 - [Local basemap](#local-osm-basemap)
 
 ### Validate behavior and performance
@@ -22,13 +22,29 @@ Use the public CLI, HTTP, or Python interface to integrate VIGO. Studio's intern
 - [Reproduce a service workload](#reproduce-a-service-workload)
 - [GTFS support](#gtfs-support-matrix)
 
-A passing public synthetic fixture verifies the exercised behavior. Use the exact build and target's test results when assessing an installation; an old test count is not a current release check.
+A passing public synthetic fixture verifies the behavior it exercises. Use the test results of the exact build and platform when assessing an installation; an old test count is not a current release check.
+
+### Build on a small machine
+
+`npm run build:standalone` and `npm run build:rust-routing-kernel` (and the scripts that call them) select low-memory Cargo settings when the detected physical or container memory is 4 GiB or less: one job, 16 code-generation units, no incremental compilation, no debug information and no LTO. When only available memory is low, they limit compilation to one job and keep the normal release profile. Unknown limits are ignored, and the selection is logged.
+
+`VIGO_BUILD_MEMORY=low` forces low-memory settings and `VIGO_BUILD_MEMORY=full` keeps the release profile; the default is `auto`. Low-memory builds can run differently, so use `full` on a well-provisioned host for comparable benchmarks. A direct `cargo build` bypasses the selection. Changing modes rebuilds affected Cargo artifacts. `node --test test/check-build-memory.mjs` tests the detection. These settings reduce compiler memory; they do not guarantee a fit, and they do not change VIGO's runtime limits.
 
 ### Maintain the documentation
 
-Markdown is the source for the single offline guide, `docs/guide.html`. `docs/navigation.json` lists its pages: each one renders a Markdown file, a section of one, or several sections composed in order, and `aliases` keep links to retired anchors working. Run `npm run docs:build` after changing a page, then `npm run check:docs`. `npm run docs:standalone` regenerates the OpenAPI document and native field reference from the Rust structs. The same guide is embedded by the engine at `/`, bundled by Studio, and shipped in engine archives; it works offline and includes print styles. There is no separately maintained PDF manuscript.
+Markdown is the source of the offline guide, `docs/guide.html`, which the engine serves at `/`, Studio opens under **Settings → Documentation**, and the engine archive includes.
 
-Version history is in the [changelog](../CHANGELOG.md).
+| File | Role |
+| --- | --- |
+| `docs/guide.md` | The user guide: overview, install, quickstart, concepts, task guides, Studio, deployment, limits, troubleshooting, glossary |
+| `docs/guides/rust-standalone.md` | The engine reference; also the engine archive's `README.md`. Its `json query=…`, `response=…`, `output=…` and `decoder=…` blocks are executed by `npm run check:standalone-docs` |
+| `docs/guides/cli-only.md` | The compiler guide; also the compiler archive's `README.md` |
+| `docs/guides/*.md` | Monte Carlo, resource limits and the public route planner |
+| `docs/reference/*.md` | Public results, methodology, walking evidence, the prepared-data contract and the verification record |
+| `docs/reference/api-schema.md`, `rust-standalone-native.md`, `docs/standalone-openapi.json` | Generated from the Rust types by `npm run docs:standalone`; never edit by hand |
+| `docs/navigation.json` | Pages, groups and order: each page renders a file, one section of a file, or several sections |
+
+Run `npm run docs:build` after changing a page, then `npm run check:docs` and `npm run check:standalone-docs`. The checks verify links and anchors, generated-file freshness, executable examples, and that every engine command-line flag, request field and environment variable is documented. Add to these files rather than creating a page per topic. Version history is in the [changelog](../CHANGELOG.md).
 
 ## Architecture
 
@@ -46,7 +62,7 @@ Electron preload → utility process     CLI validation and output
                    Result and diagnostics
 ```
 
-Browser development uses loopback HTTP in place of the desktop memory channel, with the same handlers. The Studio HTTP API is internal; the stable programmatic boundary is the [CLI](guide.md#command-line).
+Browser development uses loopback HTTP in place of the desktop memory channel, with the same handlers. The Studio HTTP API is internal; the stable programmatic boundaries are the [engine](guides/rust-standalone.md) and the [compiler](guides/cli-only.md).
 
 ### Build and open
 
@@ -91,112 +107,23 @@ orchestration, and public interfaces.
 
 JavaScript owns request validation, identity resolution, orchestration, cancellation, and presentation. Rust owns active-timetable departure/transfer indexing, GTFS-Realtime overlays (trip updates, Service Alerts and timetable reconstruction, shared with the standalone engine), station path compilation, graph search, and timetable propagation; see the [kernel implementation map](../crates/vigo-runtime/README.md). Source-feature omissions remain explicit in results; shared implementation alone does not prove correctness. [Independent checks](#checking-routing-accuracy) validate the declared model.
 
-### Rust-native compiler migration (1.0 development)
+### Crates
 
-The `v1.0.0-dev` branch evolves toward a Rust-native mobility computation
-engine with language-specific application layers. Rust should own computation
-and canonical data semantics; TypeScript owns interaction, and Python owns
-research integration. The migration proceeds in verified stages, preserving
-public query behavior and the permanent prepared-data contract.
+All Rust code builds from the root Cargo workspace.
 
-The starting point already has native service-timetable reads, departure and
-transfer indexes, selected-journey geometry, scenario routing, and binary
-snapshot readers and writers. The remaining compiler work must be measured
-rather than inferred from implementation language.
-
-The timetable migration now has three native crate boundaries:
-
-| Crate | Current responsibility |
+| Crate | Responsibility |
 | --- | --- |
-| `vigo-route` | Timetable search, forward/reverse/Matrix/alternative queries, scenario and realtime views, transfer and station operators, reusable scratch and shared columns |
-| `vigo-format` | Read service timetables, validate memory-mapped snapshots, and encode the permanent portable City layout |
-| `vigo-prepare` | Transactional `stop_times → connections` compilation |
+| `vigo-route` | Timetable search: forward, reverse, Matrix and alternatives; scenario and realtime views; transfer and station operators; reusable scratch |
+| `vigo-format` | Reading service timetables, validating memory-mapped snapshots and writing the portable City layout |
+| `vigo-prepare` | Compiling GTFS `stop_times` into connections, including exact frequency expansion |
+| `vigo-gtfs` | GTFS-Realtime decoding |
+| `vigo-traffic` | Traffic input, including NDW DATEX II v3 |
+| `vigo-model` | The public request and Result types, and the generated OpenAPI document |
+| `vigo-runtime` | Street, access and driving kernels, the standalone executable, and the Node adapter |
 
-Both the executable and Node addon use these same implementations. The routing
-crate has no Node dependency, filesystem access, environment lookups, thread
-creation or untyped JSON. Its numeric buffers own a Rust vector or retain a
-caller-supplied owner; the addon can retain a typed-array allocation without
-copying it. Queries borrow slice views before entering hot loops, avoiding
-per-element foreign-owner lookups. Writes to shared external buffers detach first. Node records and
-conversions are generated at build time from the canonical Rust records, and
-only the adapter translates typed errors into Node errors. The permanent
-prepared layouts and public Result contracts are unchanged. Portable snapshot
-encoding now calls the Rust writer by default: Rust validates the metadata,
-assigns checked aligned offsets, compresses the header and copies exact numeric
-payload bytes. The JavaScript reader stays in place during migration. Tests
-compare decompressed headers and every payload byte with the retained published
-writer, including subarray views, empty arrays and non-finite float payloads.
-Compressed streams need not be byte-identical; the frozen reference readers must still
-open the resulting Cities. Missing native encoding support fails explicitly.
+The routing crate has no Node dependency, filesystem access, environment lookups, thread creation or untyped JSON. The executable and the Node addon share these implementations; Node records are generated from the Rust types. ZIP and CSV admission, source scoping, calendars, City publication and application orchestration remain in JavaScript.
 
-Run `npm run check:rust-workspace` for model/schema tests, algorithm tests,
-strict Clippy and the routing dependency boundary. CI and release workflows
-also replay `check:corpus`. Native interface checks include worker teardown
-with retained timetable buffers. The root workspace and the remaining native
-crate retain separate lockfiles during migration; packaging fingerprints and
-container inputs cover both.
-
-M1 is still in progress: street/access/drive kernels and transports remain in
-the original crate, and the public model is not yet the executable's internal
-request representation. Crate extraction does not complete the packed City,
-full native build, or unified Studio server milestones.
-
-The first compiler operator is `vigo_prepare::compile_gtfs_connections`. It streams admitted `stop_times` rows from SQLite, expands exact
-frequency trips, and writes connections, permissions, trip details and shape
-references using the published City format 1 schema. ZIP/CSV admission, source scoping,
-calendars, accessibility policy, City publication, and application orchestration
-remain in JavaScript. The Rust operator is available to the addon and native
-library; the standalone executable does **not** yet build a City from raw data.
-
-The Rust connection compiler is the only backend. The superseded JavaScript
-implementation and its environment selector have been removed. Native errors
-fail the build.
-The coordinator closes its staging and routing SQLite handles before handing
-ownership to Rust, then reopens the routing database for the remaining stages.
-Rust writes in a transaction and rolls back on an operator error. These are
-private, unpublished build files, never a runtime City's writable interface.
-The operator emits start/completion progress rather than row-level callbacks.
-
-The migration preserves current semantics, including the existing inclusive
-exact-frequency endpoint, untimed-gap behavior, exclusions, and pickup/drop-off
-permissions. A change to these semantics needs its own correctness review.
-Neither a new language nor a passing differential test makes the reference
-algorithm correct for every source feed.
-
-Run `npm run check:compiler` for retained connection-table hashes from the removed
-pinned reference JavaScript compiler, 80 seeded feed cases, malformed-input rollback,
-City build equivalence, the 100-case frozen routing corpus, and the permanent
-baseline reader/writer gate. `test/fixtures/gtfs-connections-052.json` records the
-pre-removal source revision and expected normalized tables; it is an independent
-regression baseline, not a second executable compiler. The original frozen City
-archive and hashes remain unchanged. The published reference runtime must read new
-Cities. Public Result meanings, units and clocks remain unchanged; see the
-[permanent format contract](reference/city-format.md).
-
-Use `npm run profile:compiler -- --runs 3 --output output/compiler-profile.json`
-after creating the output directory. The default fixture has 10,000 trips and
-200,000 stop-time rows; `--gtfs /path/to/feed.zip` measures a supplied feed locally.
-Each sample builds a new routing store in a fresh process. The report records
-input, source-tree and native-library hashes, phase wall times, connection-stage
-time, total build time, runner wall time, and process peak RSS. OS cache state and competing host workloads are uncontrolled;
-phase intervals are not CPU profiles, and process RSS is not a stage-specific
-peak. This covers GTFS import and static topology, not OSM preprocessing or
-complete City preparation. Private inputs and measurements stay outside the
-public repository.
-
-The subsequent migration gates are:
-
-| Stage | Scope and acceptance evidence |
-| --- | --- |
-| GTFS compiler | Port remaining admission and preparation stages with their tests; compare retained admitted rows, calendars, exclusions, geometry and routed results. Measure build time, memory and temporary storage on matched workloads. |
-| OSM graph construction | Profile parsing, filtering, graph building and index preparation independently. Migrate the measured stage while preserving directed access, restrictions, station evidence and geometry. |
-| Scenario representation | Move canonical validation and incremental compilation behind a shared Rust representation; preserve stable identities, immutable shared streets, isolation and schedule semantics. |
-| City storage | Consolidate ownership of existing layouts and validation in Rust without requiring valid baseline Cities to rebuild. New indexes remain optional to old readers and unnecessary to old Cities. |
-| Command and binding interfaces | Add native build orchestration after the operators compose independently; make Rust authoritative for shared validation, then generate or wrap language interfaces while retaining the public request/result contract. |
-
-Further migration requires semantic regression checks and bidirectional historical-format
-compatibility. Synthetic checks do not establish a cross-city performance claim
-or complete the 1.0 migration; resource measurements need matched workloads.
+`npm run check:rust-workspace` runs the model and schema tests, algorithm tests, strict Clippy and the dependency boundary. `npm run check:compiler` compares the connection compiler with retained normalized tables from the earlier reference compiler (`test/fixtures/gtfs-connections-052.json`), 80 seeded feeds, malformed-input rollback, City build equivalence, the frozen routing corpus and the permanent reader/writer gate. `npm run profile:compiler -- --runs 3 --output output/compiler-profile.json` profiles GTFS import on a synthetic or supplied feed; keep private inputs and measurements outside the repository.
 
 ### Module boundaries
 
@@ -223,11 +150,8 @@ For current admission budgets, restart behavior, and test coverage, see
 
 ### Desktop and Network
 
-Studio uses a native async City overview reader and native Reach boundaries. The
-removed JS overview SQL and boundary algorithms are covered by retained outputs
-and independent topology checks. The capped legacy preview, per-route timetable
-analysis, vehicle interpolation and local search remain active application code.
-
+Studio uses a native City overview reader and native Reach boundaries. Per-route
+timetable analysis, vehicle interpolation and local search remain JavaScript.
 
 `public/main.mjs` owns windows, menus, dialogs, and the `vigo://studio` resource scheme. `public/preload.cjs` exposes a small desktop bridge to an isolated renderer without Node access. Engine runs in a utility process; packaged Studio has no TCP listener. Packaging copies the shared `public/` distribution once.
 
@@ -248,23 +172,18 @@ Network shares one route/station selection across its tabs, map, and line diagra
 | Network overview and observation exports | `AgencyPanel`, `observationExport.mjs` |
 | Route/vehicle timing | `src/agency/routeOperations.mjs` |
 
-The Network service owns observation polling, timetable inspection, route/vehicle
-views, station boards and observation exports. Research briefings, model
-providers, rider drafts, notebooks, the operations ledger, holding replay and
-LAMP study readers are removed. Their stored files are left untouched. Network
-connection state now lives in `network.sqlite`; on first use it can read the old
-notebook observation without modifying that database. Explicit disconnects
-persist across restarts. Vehicle matching preserves service dates, including
-previous-day overnight trips.
+The Network service owns observation polling, timetable inspection, route and vehicle
+views, station boards and observation exports. Connection state lives in
+`network.sqlite`; explicit disconnects persist across restarts. Vehicle matching
+preserves service dates, including previous-day overnight trips.
 
 Studio Reach retains packed reached-edge data, lazily reuses decoded coordinates across cutoffs, and serializes large map-source replacement. Changing a displayed cutoff does not require rebuilding the street graph. Runtime fixtures check map updates and rapid cutoff changes.
 
 ### Storage and verification
 
-The complete CLI City directory is portable; individual databases and native files
+The complete City directory is portable; individual databases and native files
 are implementation details. Studio library settings, drafts and feed connections
-are separate application state. Retired research data stays on disk and is no
-longer exposed through the Studio API.
+are separate application state.
 
 Use the [contribution guide](../.github/CONTRIBUTING.md) to choose checks. Routing
 fixtures verify feasibility and witnesses; desktop runtime fixtures verify
@@ -627,8 +546,7 @@ The independent suite validates the generated graph and timetable models under t
 
 ## Runtime limits and recovery
 
-The following admission limits and recovery behavior apply to VIGO 1.0.0.
-See [public results](reference/results.md) for the current result schemas.
+These limits and recovery rules apply to Studio's routing runtime and the compiler's Node workers. The engine's limits are in [Server limits](guides/rust-standalone.md#server-limits) and [Resource limits](guides/resource-limits.md).
 
 ### Memory and request admission
 
@@ -649,7 +567,7 @@ independently; their shared Markdown subset is checked for rendering parity.
 The runtime uses the smaller of host RAM and Node's reported container limit to
 choose its default budgets. Configuration accepts finite positive integers;
 invalid values use the default, and valid values are clamped to the supported
-range. Zero no longer disables the timetable byte guard.
+range. Zero does not disable the timetable byte guard.
 
 | Control | Default | Supported range |
 | --- | --- | --- |
@@ -662,9 +580,7 @@ range. Zero no longer disables the timetable byte guard.
 
 Timetable admission counts the active service slice before allocating native
 arrays, estimates its size, and checks retained bytes after construction. Realtime reconstruction estimates the resident scheduled view, rebuilt arrays and replacement calls before native compilation against the same budget.
-Default cache budgets now scale with capacity instead of imposing large minimums.
-This adds a count query to cold timetable construction. No latency improvement
-or large-City performance result is claimed.
+Default cache budgets scale with capacity.
 
 The pool rejects excess work with status 503. Capacity waits have a deadline,
 and a worker watchdog requests termination when an operation exceeds its deadline. Under
@@ -707,60 +623,15 @@ Packaged Engine environment filtering lives in `public/engine-environment.mjs`.
 Studio supplies its own application-data path after filtering so startup and
 recovery use the same configuration directory.
 
-### Smaller tests with real execution
+### Tests with real execution
 
-`test/check-national-runtime-isolation.mjs` builds actual GTFS and OSM inputs,
-uses the production worker and native kernel, verifies exact journeys after
-thread termination, rejects a 50,000-trip input under a 4 MiB budget, verifies
-subsequent small-City routing, and checks overload and shutdown. It also imports
-a 5,000-trip timetable that fits the scheduled budget, rejects a realtime
-reconstruction above that budget, and verifies scheduled routing still works. It replaces the
-simulated worker and several overlapping lifecycle suites.
-
-`test/check-engine-recovery-runtime.mjs` runs the actual Electron entry point,
-kills Engine processes, checks health after each restart, checks the retained
-window and sandbox settings, and verifies the crash limit and subsequent 503
-response. Browser polling uses
-real timers. Streaming checks use real local sockets. Network persistence and
-access checks exercise the production service and real SQLite files.
-
-Canned model replies, substituted providers, worker emulators, global clock
-patches, browser-method spies, and injected storage exceptions were removed.
-Routing and vehicle-frame calculations accept explicit observation instants;
-other browser checks use current timestamps and real timers. Small generated
-GTFS/OSM and observation inputs remain test data, and production algorithms
-compute their results.
-
-Pruning removes coverage previously supplied by canned model conversations,
-specific renderer refresh spies, simulated DNS changes, native-binding substitutions, forced file-deletion and
-storage-quota errors, and server-wide clock replacement. Those assertions are not counted as equivalent real integration coverage.
-The retained UI suites cover rendering, source updates, navigation, selection,
-draft persistence, and damaged-storage handling. Research model evaluations,
-synthetic holding inputs and saved-study readers have been removed with their
-retired runtime surfaces. User-owned research files remain untouched.
-
-### Verification on this checkout
-
-Checks cover native routing comparisons, TypeScript, import/request security,
-CLI/City portability, operational calculations, actual worker/Engine recovery,
-real browser interactions and the macOS ARM64 package. They do not establish
-other-platform behavior, live feed accuracy, or whole-process immunity to
-memory exhaustion.
+`test/check-national-runtime-isolation.mjs` builds real GTFS and OSM inputs and uses the production worker and native kernel: it verifies exact journeys after thread termination, rejects a 50,000-trip input under a 4 MiB budget, rejects an oversized realtime reconstruction while scheduled routing keeps working, and checks overload and shutdown. `test/check-engine-recovery-runtime.mjs` runs the Electron entry point, kills Engine processes, and checks health, the restart budget and the subsequent 503. These checks do not establish other-platform behavior, live-feed accuracy or immunity to memory exhaustion.
 
 ## GTFS support matrix
 
-This matrix is the public semantic boundary for VIGO routing. “Imported” alone is
-not support: the routing column states whether a field changes path feasibility.
-New raw imports record a feature inventory. Fixed-stop pickup and drop-off
-permissions are compiled per connection: illegal board points are absent from
-the departure index, illegal alight points cannot create a reachable state, and
-a passenger already aboard may remain on the trip through either kind of
-restricted stop. Scoped transfers use native arriving-trip state rather than
-the generic stop-pair graph; unsupported semantics remain disclosed. The admitted network is routed as a
-`supported_scheduled_core`, with any exclusions attached to every result. This
-is qualified coverage, not an exact claim over the whole feed. Among otherwise
-importable GTFS semantics, only multiple agency timezones currently block the
-whole store.
+This matrix is the public boundary of what VIGO's routing uses from GTFS. "Imported" alone is not support: the routing column says whether a feature changes which journeys are feasible. Every import records a feature inventory.
+
+Pickup and drop-off permissions are compiled per connection: a forbidden boarding is absent from the departure index, a forbidden alighting cannot end a ride, and a passenger already aboard stays on through either kind of restricted stop. Transfers are prepared into one stop-level transfer graph before the scan; see [How VIGO computes answers](reference/methodology.md#transfers). When a feed uses features VIGO does not support, the rest is routed as a `supported_scheduled_core`, with the exclusions attached to every Result. Only multiple agency timezones block a whole feed.
 
 | GTFS feature or case | Import | Routing behavior | Classification |
 |---|---|---|---|
@@ -775,7 +646,7 @@ whole store.
 | Agency timezone, one timezone | Inventoried | Native service epochs use local noon minus twelve elapsed hours; realtime instants use the same timezone. | Calendar, overnight and DST regression checks cover the native APIs. |
 | Multiple agency timezones in one store | Inventoried | Exact routing is blocked. | Unsupported and visible. |
 | `frequencies.txt`, `exact_times=1` | Yes, bounded | The template trip is expanded into deterministic fixed departures for each declared frequency window. Generated instances retain route, service, permissions, and shape identity. | Supported for bounded deterministic windows. |
-| `frequencies.txt`, `exact_times=0` | Estimated in Rust | The template departs every headway from each window's start, as ordinary trips; GTFS `end_time` is exclusive. | Estimated departures, not scheduled precision. |
+| `frequencies.txt`, `exact_times=0` | Yes | The template departs at each window's start and then every headway, before the exclusive `end_time`, as ordinary trips. | Supported as scheduled estimates; limitation `frequency_based_service`. |
 | Overlapping or mixed frequency windows | Rejected | Import requires nonoverlapping windows and a single `exact_times` value per trip. | Invalid feed rejected before publication. |
 | Shapes present | Yes | Ordered trip stops are matched to a monotone shape slice. | Supported for rendering; feasibility never depends on shape. |
 | Shapes missing or unusable | Yes | Timetable route remains valid. Ordinary network lenses show no inferred route alignment; selected-itinerary and Shape/Risk QA views may show a dashed, explicitly inferred stop sequence. | Timetable supported; published ride geometry unavailable. |
@@ -783,18 +654,19 @@ whole store.
 | Parent stations and platforms | Yes | Explicit parent transfer rules expand to child service platforms; selected stations expand to service members. Without an explicit rule, service members share a modeled 120-second connection, reported as `parent_station_fallback` with schematic geometry. | Supported for `location_type` 0/1; fallback time is not a measured station pathway. |
 | Deeper `location_type` hierarchy | Prepared | Station membership includes descendants. Boarding areas connect to their parent platform for boarding/alighting; a platform cannot create an unproved shortcut between its areas. | Pathway-based access supported; unlocated boarding areas cannot be selected directly. |
 | `pathways.txt` direction and traversal time | Yes | Creates directed transfer edges; explicit traversal times take precedence. Stairs with a stair count and fare/exit gates receive labeled estimated costs when time is omitted. Bidirectional rows create the reverse edge. Parallel pathways use the lowest available traversal cost; unpriced paths without enough data remain excluded. | Supported within the prepared pathway graph. |
-| Pathway wheelchair/slope/width attributes | Profile dependent | Applied during `build --wheelchair`; ordinary Cities inventory them without filtering. | See [wheelchair preparation and limits](guides/rust-standalone.md#wheelchair-routing). |
+| Pathway wheelchair/slope/width attributes | Profile dependent | Applied during `build --wheelchair`; ordinary Cities inventory them without filtering. | See [Wheelchair routing](guide.md#wheelchair-routing). |
 | Transfer type 0 | Yes | Directed recommended transfer using declared/default duration. | Supported within transfer model. |
-| Transfer type 1 timed transfer | Inventoried | The guarantee is not represented; the row is omitted from the generic stop-pair transfer graph. Other supported scheduled service remains routable. | Excluded from the supported scheduled core; visible limitation. |
+| Transfer type 1 timed transfer | Yes | A stop-level rule with no minimum time. The guarantee, holding a vehicle for a late connection, is not represented. | Supported without the guarantee; limitation `timed_transfer_guarantee`. |
 | Transfer type 2 minimum time | Yes | Declared minimum traversal time is enforced. | Supported. |
 | Transfer type 3 forbidden | Yes | Directed pair, including expanded parent/platform pairs, is forbidden and cannot be regenerated by proximity. A same-stop prohibition blocks reboarding after a ride while preserving an origin's initial boarding. | Supported with permanent SQLite, compact-kernel, and matrix regressions. |
 | Transfer type 4/5 in-seat semantics | Retained in optional `trip_links` | Rust compiles explicit type 4 links, including different terminal stops, into through runs; type 5 never grants a continuation. Source trip identities and dwell remain visible. | Route, Matrix and Reach count one boarding; onboard movement and dwell are riding time. |
 | Route- or trip-scoped transfer selectors | Not applied | Retained in `transfer_rules`; the stop-level rule governs the transfer. Stop-level rules use parent-station expansion and GTFS specificity: a platform's own rule overrides its station's. | Stop-level semantics only; Flex interchanges still resolve scoped selectors. |
 | Nearby stops without explicit transfer | Prepared | One native multi-target street search creates every directed OSM-reachable alight-to-board edge within 500 m. Each edge stores its routed distance; unproved radial pairs remain visible counts. | Supported within the City street model. |
 | `pickup_type=1` / `drop_off_type=1` | Yes | The complete scheduled trip is retained. Boarding is prohibited only at a stop with `pickup_type=1`; alighting is prohibited only at a stop with `drop_off_type=1`; through-riding remains legal. | Supported for fixed-stop routing. |
-| `pickup_type` / `drop_off_type` value 2 | Conditional | `flex: {}` includes direct journeys between timed fixed stops with booking requirements; ordinary routing excludes those events and retains through-riding. | No booking or operator availability confirmation. Frequency templates remain excluded from conditional fixed-stop routing. |
+| `pickup_type` / `drop_off_type` value 2 | Conditional | `flex: {}` includes journeys through timed fixed stops with booking requirements; ordinary routing excludes those events and keeps through-riding. | No booking or availability confirmation; see [GTFS Flex](guide.md#gtfs-flex). |
 | `pickup_type` / `drop_off_type` value 3 | Yes | Fixed flag stops permit boarding/alighting, assuming the rider signals or notifies the driver. This does not enable continuous stopping or advance-booking service. | Visible `driver_coordinated_stops` condition. Rebuild Cities imported before this fix: compiled permission bits cannot distinguish flag stops from prohibited events. |
 | Continuous pickup/drop-off | Conditional | With `flex: {}`, boarding and alighting follow directed GTFS shapes and stop-time permission overrides. Intermediate times are interpolated and labeled as estimates. | Booking and driver-coordination requirements remain visible; ordinary fixed-stop routing is unchanged. |
+| GTFS Flex zones, location groups and booking rules | Yes | With `flex: {}`, conditional rides join fixed service in one search. | See [GTFS Flex](guide.md#gtfs-flex). |
 | Loop routes | Yes | Sequence, not stop identity, orders a trip; reconstruction can retain repeated locations. | Supported, with adversarial regression coverage required. |
 | Repeated stop in one trip | Yes | Distinct `stop_sequence` events remain distinct. | Supported. |
 | `block_id` interlining | Partial | Consecutive same-terminal trips with a shared block, service ID and service day use Rust through-runs; explicit links take precedence. | Other block models require explicit links. |
@@ -803,210 +675,6 @@ whole store.
 | Untimed interior stop-time gaps | Yes | Timed endpoints remain connected and the itinerary reports `interpolated-stop-time-gap`; no exact timestamp is claimed for omitted interior events. | Supported with degraded timing precision. |
 | Malformed required table | Rejected | Build does not commit the temporary store. | Supported rejection. |
 | Broken core references | Rejected | Unknown trip routes/services, parent stations, transfer endpoints, frequency trips, and stop-time trip/stop references abort the temporary build. Missing shapes remain a supported timetable-only case as declared above. | Rejected malformed input with adversarial atomicity coverage. |
-
-### Conditional GTFS Flex journeys
-
-#### Planned scenario zones
-
-Route and transit Reach also accept `scenario.flexZones`, alongside the
-scenario's fixed services and exclusions. Studio sends its saved zone outlines
-through this field. Each zone has `id`, `name`, a GeoJSON Polygon `geometry`,
-`startMinutes`, `endMinutes`, `averageSpeedKph`, and `waitMinutes`.
-
-These are planning estimates: travel time is the typical wait plus direct
-distance divided by the configured speed, rounded up to seconds. They do not
-model a booked vehicle, a road itinerary, dispatch capacity, or operator
-availability. Both endpoints of a direct ride must lie inside the zone; fixed
-transit interchanges must be stops inside it. A journey can use a zone at either
-or both ends of its fixed-service portion. Each zone ride consumes one boarding,
-and its full estimated duration must fit inside the service hours. Depart-at and
-arrive-by use the same time model, including the scenario's added stops.
-
-Reach uses the same zone clocks and reserves boardings for both conditional
-ends. Zone egress is evaluated at the requested raster resolution; walking
-beyond its sampled endpoints follows the prepared street graph. Reach therefore
-has raster discretization error, while the point Route query evaluates its exact
-coordinates. Zone requests use transit Reach with street sampling. Prepared City
-files remain unchanged; zones and scenario views are query-local.
-
-#### Imported service
-
-Route and Matrix accept `"flex": {}` to include conditional service from
-GTFS location groups, Polygon/MultiPolygon zones, pickup/drop-off windows and
-booking rules. A zone-only feed can omit `stops.txt`. Rebuild a City to import
-these optional source records; existing Cities remain readable.
-
-```json
-{
-  "origin": { "coordinate": [-77.05, 38.90] },
-  "destination": { "coordinate": [-77.03, 38.91] },
-  "serviceDate": "2026-07-15",
-  "time": "08:00",
-  "flex": { "durationFactor": 1.5, "durationOffsetSeconds": 300 }
-}
-```
-
-Rust checks zone containment (including polygon holes), calendar service,
-endpoint windows, walking limits and native OSM driving reachability. On-demand
-travel time uses the feed's `safe_duration_factor` and `safe_duration_offset`,
-with the request values above as fallbacks. Timed fixed-stop booking service
-keeps its published times. `journey.legs[].quality.flex` includes the timing
-assumption and source booking rules, including operator messages, phone numbers,
-URLs and notice requirements. `bookingStatus: "required"` means the journey is
-conditional: VIGO has neither made a booking nor verified the booking deadline
-or available capacity. `bookingConfirmed: true` records only the caller's claim.
-
-Flex and fixed service share one timetable search. A conditional ride that
-ends at a transit stop becomes time-dependent access to the scan, and one that
-starts at a transit stop becomes time-dependent egress, so a journey can use
-Flex to reach fixed service, Flex to leave it, or both, departing or arriving
-by. Every Flex clock is first-in first-out, so the earliest arrival at a stop
-is the only arrival its egress needs. The search applies stop-level
-transfer restrictions, published minimum times, the request transfer buffer and
-the boarding limit, where each Flex ride counts as a boarding. Matrix uses the
-same search as Route. A journey combining Flex and fixed service is returned
-only when it is strictly better than the scheduled journey.
-
-Flex does not run a search of its own for most requests. The scheduled search
-scans Flex access and egress too, with optimistic values: straight-line walks,
-and egress (arrive-by: access) as if the vehicle were waiting. When its winner
-uses no Flex ride, no Flex journey can be strictly better. When it does, Rust
-prices that winner's walks on the street graph and its clocks exactly, and runs
-the scheduled search alone for comparison. If the street walks lengthen the
-winner by more than 60 seconds, the fused search repeats once with them. A
-winner within that margin is returned and may be up to 60 seconds later than
-the best conditional journey; other journeys were lower bounds. Otherwise the
-clock that depends on the scan comes from one one-to-many scan and a certified
-search, after a relaxed pruning scan where one is still needed. That relaxed
-scan ignores transfer-rule state, so it may miss a Flex journey that depends on
-a rule-only transfer, a scoped or timed rule between two stops with no
-ordinary transfer path. If a transfer rule at a Flex interchange is broken,
-Rust falls back to composing the conditional and scheduled halves separately.
-A boarding limit (`maxTransfers`) uses the separate search.
-
-A deviated route keeps its fixed calls. A rider carried past a fixed stop is
-picked up in time for the vehicle to reach that stop on schedule, and dropped
-after it leaves, with assumption `deviated_route`.
-
-Continuous pickup/drop-off follows the directed GTFS shape and stop-time
-permission overrides. Intermediate clocks are interpolated by shape distance
-and labeled `interpolated_shape`, not published departures. Type 2 retains
-booking requirements; type 3 retains driver-coordination requirements.
-Wheelchair requests require a City built with `--wheelchair`: only explicitly
-accessible vehicles and published accessible fixed stops are used, with the
-strict OSM walking graph. Roadside coordinate attachments retain the City's
-published accessibility limitations; no live lift or capacity guarantee is made.
-
-Vehicle dispatch is not modeled: estimates assume a vehicle is available for
-each requested ride. Realtime, scenario, journey-window and alternative-policy requests
-are rejected with Flex. Matrix is limited to 4,096 cells. Reach does not accept
-Flex. Returned estimates must not be presented as guaranteed departures or
-confirmed reservations.
-
-Flex work is bounded without failing the request. Pickup and drop-off
-candidates beyond the walking limit are skipped before any street search, and
-street walks are priced only for rides that survive the straight-line bound. A
-search stops after 4,096 walkable pickup/drop-off pairs, 65,536 rides to or
-from transit stops, or 65,536 priced drives in one batch, and returns the
-journeys found, scheduled results included, with a `flex_search_truncated`
-warning. Each feed's Flex catalog is limited to 32 MiB: past it, the build
-omits fixed-route continuous-stopping and booking trips first, then on-demand
-trips, and reports them as `flex_catalog_limit`. Scheduled service is
-unaffected.
-
-Public synthetic coverage is in `test/check-flex.mjs`,
-`test/check-flex-interchanges.mjs`, `test/check-flex-integrated.mjs` and
-`test/check-flex-limits.mjs`: conditional fixed stops, zones, location groups,
-pure-Flex feeds, windows, arrive-by, zero walking limits, booking metadata,
-independent Drive duration, transfer restrictions, later feasible connections,
-continuous permissions, wheelchair filtering, Flex on both ends of a fixed
-ride, egress windows that make the rider wait, deviated routes, Matrix/Route
-agreement, catalog budgets and bounded pair searches.
-
-### Semantic coverage written to store metadata
-
-For otherwise importable GTFS, `blockingRoutingFeatures` currently has one
-stable code:
-
-- `multiple_agency_timezones`;
-
-The following nonblocking `routingLimitations` codes put results in
-`supported_scheduled_core` mode:
-
-- `frequency_based_service` for `exact_times=0` templates, which depart every headway from each window's start;
-- `on_demand_boarding_or_alighting`;
-- `driver_coordinated_stops`;
-- `continuous_pickup_or_drop_off`;
-- `timed_transfer_guarantee`;
-- `in_seat_transfer_rules`;
-- `block_interlining`.
-
-The additional nonblocking code `pathway_accessibility` describes constraints
-not represented by the retained graph; it does not by itself change the
-coverage mode. “Nonblocking” does not mean full-feed support. It means VIGO can
-make a narrower, explicit claim over the compiled scheduled core instead of
-disabling unrelated service.
-
-A ready result in `supported_scheduled_core` mode is optimal only over that
-compiled core. A `no_path` result in the same mode means no path exists in the
-core; an excluded trip or transfer rule could still change full-feed
-reachability.
-
-Scoped transfers are retained losslessly in the optional `transfer_rules` table,
-but Route, Matrix and Reach apply only stop-level rules: one exact connection
-scan with prepared permissions and minimum times, without per-trip state. A
-platform's own rule overrides the rule it inherits from its station. Route- and
-trip-scoped selectors are not applied; the stop-level rule governs. Holding a
-vehicle after its scheduled departure is not predicted.
-
-Headway templates live in optional `headway_connections`, separate from fixed
-`connections`; older readers therefore cannot advertise them as exact departures.
-For a ready time t at a stop, the estimate boards at max(t, service opening) plus
-ceil(headway / 2), strictly before the window closes. This is an explicit model,
-not a punctuality guarantee. Transit legs identify `headway_estimate` and expose
-the headway and waiting assumption. Matrix and Reach inherit the same estimate.
-Realtime vehicle-instance updates to headway templates are reported as unsupported;
-a single vehicle prediction must not retime the entire frequency window.
-
-Public comparisons require matching `assumptionsFingerprint` values. Scenario
-and observation payloads are interventions excluded from that fingerprint; route
-constraints, City revision and engine version are included. Older results must
-be recomputed before comparison. Equivalent requests with omitted versus explicit
-defaults are conservatively treated as different until normalized.
-
-### Required fixture policy
-
-Each row classified supported must have a miniature feed that would fail if the
-field were merely parsed. Each visible unsupported row must have a fixture that
-imports successfully and records the feature code. Permission fixtures must
-prove that the trip remains connected, illegal boarding and alighting events
-are rejected, and through-riding remains legal in the resident kernel, shared
-matrix path, and merged stores. Quarantined transfer fixtures must prove that
-the unsupported row is absent from the generic graph.
-Multiple-timezone fixtures must still prove a feed-wide blocked result.
-Rebuild an older SQLite store before using it for a published result.
-
-## Reproduce a service workload
-
-Use a retained NDJSON request file containing public Route, Matrix, and Reach requests. Each line includes `kind`, the City or scenario selection supported by your service, the service date, and all routing constraints. Keep the file and prepared City together with their source checksums.
-
-```sh
-node scripts/benchmark-service.mjs \
-  --url http://127.0.0.1:8080 \
-  --requests queries.ndjson --output results.json \
-  --rounds 20 --concurrency 4 --warmup 1 --city ./city
-```
-
-Set `VIGO_API_TOKEN` if the service requires authentication. The benchmark does not write the token to its report and refuses to overwrite an existing result. It calls the service's `/v1/route`, `/v1/matrix`, and `/v1/reach` endpoints.
-
-The report retains every measured call, warmup calls, request-file hash, runtime capabilities, client platform, and optional unique-file City storage. Latency includes queueing, HTTP, response transfer, and JSON parsing. Quantiles use nearest rank. Successful results, valid no-journey results, HTTP failures, overload, service unavailability, timeouts, invalid responses, and transport failures are reported separately. Errors during warmup also fail the run.
-
-For a cold-start measurement, start a fresh service and use `--warmup 0 --rounds 1`. Measure readiness separately from the first query. For sustained use, retain the same workload and increase rounds; report how much the workload repeats and whether caches are enabled. Compare equivalent inputs, constraints, output detail, hardware limits, and runtime builds.
-
-City storage counts each file identity once, including shared scenario directories. It is logical file size, not physical APFS clone allocation. Server memory must be measured at the service: retain process-tree RSS/PSS or cgroup memory samples at startup, first query, repeated and concurrent queries, scenario switches, and peak large-output requests. Include the full application stack when claiming a deployment budget. The benchmark client's memory is not server memory.
-
-Use public synthetic fixtures for CI and caller-owned Cities for operational acceptance. A short replay establishes behavior for that retained workload; it does not establish production reliability across unobserved traffic. See [upgrading](guide.md#upgrade-and-rollback) for installation and rollback checks.
-
 
 ### Explicit linked trips
 
@@ -1067,35 +735,71 @@ restrictions are supported. Incomplete, backwards or unknown-stop replacements a
 rejected and reported in realtime diagnostics. `NEW` and `DUPLICATED` still need
 new trip identity construction and are not supported by this replacement path.
 
+### Semantic coverage written to store metadata
+
+`blockingRoutingFeatures` has one code for otherwise importable GTFS: `multiple_agency_timezones`. A City with it cannot route.
+
+Nonblocking `routingLimitations` keep the City routable in `supported_scheduled_core` mode. Each records a count and a detail, and an `exactness` of `approximate` or `unsupported`:
+
+| Code | Meaning |
+| --- | --- |
+| `frequency_based_service` | `exact_times=0` templates, routed as departures every headway from each window's start |
+| `repaired_trip_times` | Backward times repaired by delaying events at most 600 seconds |
+| `backward_trip_times` | Trips needing larger corrections, excluded whole |
+| `on_demand_boarding_or_alighting`, `driver_coordinated_stops`, `restricted_boarding_or_alighting`, `continuous_pickup_or_drop_off` | Pickup and drop-off types that need booking, coordination or Flex |
+| `scoped_transfer_rules` | Route- or trip-scoped transfer rules, kept but not applied |
+| `timed_transfer_guarantee` | `transfer_type=1` rows; the guarantee to hold a vehicle is not represented |
+| `in_seat_transfer_rules`, `block_interlining` | Continuations VIGO cannot represent exactly |
+| `pathway_accessibility`, `unpriced_pathways`, `station_entrances`, `station_level_hierarchy` | Station data the walking graph cannot fully use |
+| `wheelchair_accessibility`, `bicycle_accessibility` | Trip and stop accessibility attributes outside the active profile |
+| `feature_inventory_incomplete` | The import could not inventory every feature |
+
+"Nonblocking" does not mean full-feed support: it means VIGO makes a narrower, explicit claim over the compiled scheduled core instead of disabling unrelated service. A journey in this mode is optimal over that core, and `no_path` means no path exists in the core; an excluded trip or rule could still change full-feed reachability. Holding a vehicle after its scheduled departure is not predicted.
+
+Public comparisons require matching `assumptionsFingerprint` values. Scenario and observation content are interventions excluded from that fingerprint; route constraints, City revision and engine version are included. Equivalent requests with omitted and explicit defaults are treated as different until normalized.
+
+### Required fixture policy
+
+Each row classified supported must have a miniature feed that would fail if the
+field were merely parsed. Each visible unsupported row must have a fixture that
+imports successfully and records the feature code. Permission fixtures must
+prove that the trip remains connected, illegal boarding and alighting events
+are rejected, and through-riding remains legal in the resident kernel, shared
+matrix path, and merged stores. Quarantined transfer fixtures must prove that
+the unsupported row is absent from the generic graph.
+Multiple-timezone fixtures must still prove a feed-wide blocked result.
+Rebuild an older SQLite store before using it for a published result.
+
+## Reproduce a service workload
+
+Use a retained NDJSON request file containing public Route, Matrix, and Reach requests. Each line includes `kind`, the City or scenario selection supported by your service, the service date, and all routing constraints. Keep the file and prepared City together with their source checksums.
+
+```sh
+node scripts/benchmark-service.mjs \
+  --url http://127.0.0.1:8080 \
+  --requests queries.ndjson --output results.json \
+  --rounds 20 --concurrency 4 --warmup 1 --city ./city
+```
+
+Set `VIGO_API_TOKEN` if the service requires authentication. The benchmark does not write the token to its report and refuses to overwrite an existing result. It calls the service's `/v1/route`, `/v1/matrix`, and `/v1/reach` endpoints.
+
+The report retains every measured call, warmup calls, request-file hash, runtime capabilities, client platform, and optional unique-file City storage. Latency includes queueing, HTTP, response transfer, and JSON parsing. Quantiles use nearest rank. Successful results, valid no-journey results, HTTP failures, overload, service unavailability, timeouts, invalid responses, and transport failures are reported separately. Errors during warmup also fail the run.
+
+For a cold-start measurement, start a fresh service and use `--warmup 0 --rounds 1`. Measure readiness separately from the first query. For sustained use, retain the same workload and increase rounds; report how much the workload repeats and whether caches are enabled. Compare equivalent inputs, constraints, output detail, hardware limits, and runtime builds.
+
+City storage counts each file identity once, including shared scenario directories. It is logical file size, not physical APFS clone allocation. Server memory must be measured at the service: retain process-tree RSS/PSS or cgroup memory samples at startup, first query, repeated and concurrent queries, scenario switches, and peak large-output requests. Include the full application stack when claiming a deployment budget. The benchmark client's memory is not server memory.
+
+Use public synthetic fixtures for CI and caller-owned Cities for operational acceptance. A short replay establishes behavior for that retained workload; it does not establish production reliability across unobserved traffic. See [upgrading](guide.md#upgrade-and-rollback) for installation and rollback checks.
 
 ## Source layout and delivery
 
-All Rust code is built from the root Cargo workspace and `Cargo.lock`. `crates/vigo-route`
-owns pure timetable algorithms; `vigo-format`, `vigo-prepare`, `vigo-gtfs`,
-`vigo-traffic` and `vigo-model` own their named contracts. `crates/vigo-runtime`
-connects these to street routing, the standalone executable and the Node adapter.
-Its vendored CCH dependency remains isolated, with its license and notices intact.
-`src/` contains Studio, its application services and source-import integration.
-These are active responsibilities, not a second Rust workspace or an obsolete
-routing implementation. Build outputs live in root `target/`; do not add a nested
-Cargo lockfile or target tree.
+All Rust code builds from the root Cargo workspace and `Cargo.lock`; see [Crates](#crates). The vendored CCH dependency stays isolated with its license and notices. `src/` contains Studio, its application services and GTFS and OSM import. Build outputs live in the root `target/`; do not add a nested lockfile or target tree.
 
-CI runs source checks and the complete engine suite on Linux. The release workflow
-runs all four supported platforms, packages the same tested executable, checks
-foreign Cities and verifies Linux containers before attestation and publication.
-Release container checks use `deploy/Dockerfile.release` and the verified archive;
-`deploy/Dockerfile` remains the self-contained source-build option. Routine changes
-no longer launch nightly duplicate suites or the separate archive-only pipeline.
-Python unit checks run for wrapper changes; its independently versioned wheel
-integration/release remains available on Python tags or manual dispatch.
+CI runs source checks and the engine suite on Linux, and Python unit checks for wrapper changes. One Release workflow, started by the `v<VERSION>` engine tag, builds and tests the engine, the compiler, Studio and the Python wheels on all four platforms from that commit, packages the tested executable, checks Cities built on other platforms, and verifies the Linux containers before attestation and publication. Release container checks use `deploy/Dockerfile.release` and the verified archive; `deploy/Dockerfile` builds from source.
 
-Within an unchanged CI job, `VIGO_USE_BUILT_RUNTIME=1` reuses the runtime built earlier
-in that job. It fails if an expected binary is absent. Never use this flag after
-editing Rust or embedded documentation: local builds remain source-checked by
-Cargo by default. Node and standalone are distinct feature targets and each still
-requires its own initial compilation.
+Within one unchanged CI job, `VIGO_USE_BUILT_RUNTIME=1` reuses the runtime built earlier in that job and fails if a binary is missing. Never use it after editing Rust or embedded documentation; local builds stay source-checked by Cargo.
 
-## Bicycle routing
+## Bicycle implementation
 
 VIGO supports an optional bicycle graph in `bike_nodes`, `bike_edges`, `bike_turns`,
 and `bike_way_turns` tables inside the existing street database. Existing
