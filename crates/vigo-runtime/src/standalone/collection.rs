@@ -107,12 +107,63 @@ impl Runtime {
             super::release_preparation_memory();
         }
     }
-    /// A single City prepares its bicycle hierarchy while it waits for the
-    /// first request. A collection opens Cities on demand and keeps that.
-    pub(crate) fn prepare_in_background(&mut self) -> Result<()> {
-        match self {
-            Self::Single(city) => city.prepare_bike_in_background(),
-            Self::Collection(_) => Ok(()),
+    /// A single City prepares the given modes on background threads while it
+    /// waits for its first request: today's timetable on a second view of the
+    /// City, the driving network and the bicycle hierarchy. A request waits
+    /// only for what it needs and is still preparing. A collection opens
+    /// Cities on demand and keeps that.
+    pub(crate) fn prepare_in_background(
+        &mut self,
+        modes: &[&str],
+        path: &str,
+        store: Option<&str>,
+    ) -> Result<()> {
+        let Self::Single(city) = self else {
+            return Ok(());
+        };
+        if modes.contains(&"bike") {
+            city.prepare_bike_in_background()?;
+        }
+        if modes.contains(&"drive") {
+            city.prepare_drive_in_background()?;
+        }
+        if modes.contains(&"transit")
+            && let Some(request) = city.preparation_request()
+        {
+            let date = request["serviceDate"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned();
+            let (path, store) = (path.to_owned(), store.map(str::to_owned));
+            let (prepared, opening) = std::sync::mpsc::sync_channel(1);
+            std::thread::Builder::new()
+                .name("vigo-timetable-prepare".into())
+                .spawn(move || {
+                    let timetable = (|| -> Result<Option<super::city::Timetable>> {
+                        let Self::Single(mut view) = Self::open_store(&path, store.as_deref())?
+                        else {
+                            return Ok(None);
+                        };
+                        // The second view also reads the shared street files
+                        // the worker's first request maps.
+                        view.prefetch_streets();
+                        view.prepare_streets()?;
+                        view.activate(&request)?;
+                        Ok(view.take_timetable())
+                    })()
+                    .ok()
+                    .flatten();
+                    let _ = prepared.send(timetable);
+                })?;
+            city.set_timetable_opening(date, opening);
+        }
+        Ok(())
+    }
+    /// Loads the pedestrian hierarchy before a request; the worker does this
+    /// while no request is waiting.
+    pub(crate) fn prepare_streets(&mut self) {
+        if let Self::Single(city) = self {
+            let _ = city.prepare_streets();
         }
     }
     pub(crate) fn install_realtime(&mut self, message: &mut Value) -> Result<()> {
@@ -245,7 +296,7 @@ impl Runtime {
     fn execute_output(&mut self, kind: &str, request: &Value, detailed: bool) -> Result<Value> {
         match self {
             Self::Single(city) => {
-                city.adopt_prepared_bike();
+                city.adopt_prepared();
                 if detailed {
                     city.execute_detailed(kind, request)
                 } else {

@@ -58,7 +58,7 @@ try {
   const residentRequests = [{kind:'info'}, {...query,kind:'route'}, {kind:'info'},
     {...query,kind:'route',bike:{profile:'quiet'}}, {kind:'info'}]
   const resident = spawnSync(binary,['stream','--city',city],{input:residentRequests.map(q=>JSON.stringify(q)).join('\n')+'\n',encoding:'utf8',
-    env:{...process.env,VIGO_PREPARE_BIKE:'0'}})
+    env:{...process.env,VIGO_PREPARE:'none'}})
   assert.equal(resident.status,0,resident.stderr)
   const replies=resident.stdout.trim().split('\n').map(line=>JSON.parse(line))
   assert.equal(replies[0].memory.ledger.bike,null,'Without preparation, bike must remain unloaded before its first query')
@@ -90,8 +90,8 @@ try {
   preparing.stdin.end()
   assert.equal(await new Promise(resolve => preparing.once('close', resolve)), 0)
   assert.deepEqual(preparedReplies.map(answer), [replies[1], replies[3]].map(answer), 'Preparation must not change bike answers')
-  const invalid = spawnSync(binary,['stream','--city',city],{input:'',encoding:'utf8',env:{...process.env,VIGO_PREPARE_BIKE:'yes'}})
-  assert.notEqual(invalid.status,0); assert.match(invalid.stderr,/VIGO_PREPARE_BIKE must be 0 or 1/)
+  const invalid = spawnSync(binary,['stream','--city',city],{input:'',encoding:'utf8',env:{...process.env,VIGO_PREPARE:'yes'}})
+  assert.notEqual(invalid.status,0); assert.match(invalid.stderr,/VIGO_PREPARE must be all, none, or a comma-separated list/)
   const requestPath = path.join(directory,'query.json'); fs.writeFileSync(requestPath,JSON.stringify(query))
   const cli = JSON.parse(execFileSync(process.execPath,['public/vigo.mjs','route',`--city=${city}`,`--request=${requestPath}`],{cwd:root,encoding:'utf8'}))
   assert.equal(cli.status,'ok')

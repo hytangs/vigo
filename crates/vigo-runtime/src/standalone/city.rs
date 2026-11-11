@@ -73,6 +73,18 @@ fn member_file(dir: &Path, entry: &Value) -> Result<String> {
     }
     str_path(&path)
 }
+/// Read mapped routing files once, so the first queries in any region find
+/// their pages in the operating system's (reclaimable) file cache.
+fn prefetch(paths: impl IntoIterator<Item = impl AsRef<Path>>) {
+    use std::io::Read;
+    let mut buffer = vec![0; 1 << 20];
+    for path in paths {
+        if let Ok(mut file) = fs::File::open(path) {
+            while matches!(file.read(&mut buffer), Ok(n) if n > 0) {}
+        }
+    }
+}
+
 fn cch_files(path: &Path, kind: &str) -> Result<(String, String, Option<String>)> {
     // Resolve the shared snapshot before admitting its adjacent hierarchy.
     // Legacy readers use the equivalent City-local hard links.
@@ -317,6 +329,10 @@ pub struct City {
     pub(crate) bike: Option<Arc<crate::bike::BikeKernel>>,
     /// The bicycle network a background preparation is opening, if any.
     bike_opening: Option<std::sync::mpsc::Receiver<Option<Arc<crate::bike::BikeKernel>>>>,
+    /// The driving network a background preparation is opening, if any.
+    drive_opening: Option<std::sync::mpsc::Receiver<Option<Drive>>>,
+    /// Today's timetable a background preparation is activating, by date.
+    timetable_opening: Option<(String, std::sync::mpsc::Receiver<Option<Timetable>>)>,
     pub(crate) polling_enabled: bool,
     pub(crate) timetable: Option<Timetable>,
     /// What the active scenario view adds: new stops and planned services.
@@ -743,6 +759,8 @@ impl City {
             drive: None,
             bike: None,
             bike_opening: None,
+            drive_opening: None,
+            timetable_opening: None,
             polling_enabled: false,
             timetable: None,
             scenario_view: None,
@@ -1190,6 +1208,7 @@ impl City {
         if self.pinned_timetable {
             return Ok(());
         }
+        self.adopt_prepared_timetable(request["serviceDate"].as_str());
         let started = std::time::Instant::now();
         let result = self
             .activate_inner(request)
@@ -1650,6 +1669,22 @@ impl City {
     /// Takes over a bicycle network the background preparation has opened,
     /// so the memory ledger counts it from the first request after it is
     /// ready. A failed preparation leaves the next bicycle query to open it.
+    /// Takes over whatever background preparation has finished.
+    pub(crate) fn adopt_prepared(&mut self) {
+        self.adopt_prepared_bike();
+        if let Some(opening) = &self.drive_opening {
+            match opening.try_recv() {
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Ok(drive) => {
+                    if self.drive.is_none() {
+                        self.drive = drive;
+                    }
+                    self.drive_opening = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.drive_opening = None,
+            }
+        }
+    }
     pub(crate) fn adopt_prepared_bike(&mut self) {
         let Some(opening) = &self.bike_opening else {
             return;
@@ -1688,6 +1723,8 @@ impl City {
                 let _ = opened.send(Some(bike.clone()));
                 // Best effort: a failure here reappears on the bicycle query.
                 let _ = bike.prepare_cch(crate::bike::BikeOptions::default());
+                crate::bike::prefetch_graph(&source);
+                bike.warm_up();
             })?;
         self.bike_opening = Some(opening);
         Ok(())
@@ -1706,9 +1743,125 @@ impl City {
         if self.drive.is_some() {
             return Ok(());
         }
-        let path = self
+        // A background preparation that opened the network hands it over; one
+        // that failed leaves the error to this open, as without preparation.
+        if let Some(Ok(Some(drive))) = self.drive_opening.take().map(|opening| opening.recv()) {
+            self.drive = Some(drive);
+            return Ok(());
+        }
+        self.drive = Some(open_drive(&self.path)?);
+        Ok(())
+    }
+    /// Takes over a prepared timetable: a request for its date waits for what
+    /// remains of the preparation. A worker asked for another date has no use
+    /// for it, so a finished one is released without touching the cache.
+    fn adopt_prepared_timetable(&mut self, date: Option<&str>) {
+        let Some((prepared_date, opening)) = &self.timetable_opening else {
+            return;
+        };
+        if date != Some(prepared_date.as_str()) {
+            if !matches!(
+                opening.try_recv(),
+                Err(std::sync::mpsc::TryRecvError::Empty)
+            ) {
+                self.timetable_opening = None;
+            }
+            return;
+        }
+        let timetable = opening.recv().ok().flatten();
+        self.timetable_opening = None;
+        let Some(timetable) = timetable else {
+            return;
+        };
+        self.retire_timetable();
+        self.timetable = Some(timetable);
+        self.install_query_workspace();
+    }
+    /// Opens the driving network on a background thread; the first driving
+    /// request takes it over or waits only for what remains.
+    pub(crate) fn prepare_drive_in_background(&mut self) -> Result<()> {
+        let without_drive = self.manifest["modes"]
+            .as_array()
+            .is_some_and(|modes| !modes.iter().any(|mode| mode == "drive"));
+        if without_drive || self.drive.is_some() || self.drive_opening.is_some() {
+            return Ok(());
+        }
+        let path = self.path.clone();
+        let (opened, opening) = std::sync::mpsc::sync_channel(1);
+        std::thread::Builder::new()
+            .name("vigo-drive-prepare".into())
+            .spawn(move || {
+                let drive = open_drive(&path).ok().map(|mut drive| {
+                    drive.kernel.prepare_road_index();
+                    drive.kernel.prepare_path_query();
+                    let snapshot = path.join("osm/street-index.sqlite.drive-accelerator-v2.bin");
+                    if let Ok((structure, time, distance)) = cch_files(&snapshot, "drive") {
+                        prefetch(
+                            [Some(structure), Some(time), distance]
+                                .into_iter()
+                                .flatten(),
+                        );
+                    }
+                    drive
+                });
+                let _ = opened.send(drive);
+            })?;
+        self.drive_opening = Some(opening);
+        Ok(())
+    }
+    /// Takes over a timetable a background preparation activated.
+    pub(crate) fn set_timetable_opening(
+        &mut self,
+        date: String,
+        opening: std::sync::mpsc::Receiver<Option<Timetable>>,
+    ) {
+        self.timetable_opening = Some((date, opening));
+    }
+    pub(crate) fn take_timetable(&mut self) -> Option<Timetable> {
+        self.timetable.take()
+    }
+    /// Today's service date and minute in the agency's timezone, for which a
+    /// worker prepares the timetable when it opens; none without stops.
+    pub(crate) fn preparation_request(&self) -> Option<Value> {
+        use chrono::Timelike;
+        if self.stops.is_empty() {
+            return None;
+        }
+        let zone: chrono_tz::Tz = self.metadata["agencyTimezones"]
+            .as_array()
+            .and_then(|zones| zones.first())
+            .and_then(Value::as_str)
+            .and_then(|zone| zone.parse().ok())
+            .unwrap_or(chrono_tz::UTC);
+        let seconds = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_secs();
+        let now =
+            chrono::DateTime::from_timestamp(i64::try_from(seconds).ok()?, 0)?.with_timezone(&zone);
+        Some(json!({"serviceDate": now.format("%Y-%m-%d").to_string(),
+            "timeMinutes": now.hour() * 60 + now.minute()}))
+    }
+    /// Loads the pedestrian hierarchy and its path query before a request.
+    pub(crate) fn prepare_streets(&mut self) -> Result<()> {
+        self.ensure_pedestrian_hierarchy()?;
+        self.street.prepare_street_path_query();
+        Ok(())
+    }
+    /// Reads the pedestrian hierarchy's mapped files into the file cache.
+    pub(crate) fn prefetch_streets(&self) {
+        let snapshot = self
             .path
-            .join("osm/street-index.sqlite.drive-accelerator-v2.bin");
+            .join("osm/street-index.sqlite.street-accelerator-v7.bin");
+        if let Ok((structure, metric, _)) = cch_files(&snapshot, "street") {
+            prefetch([snapshot.to_string_lossy().into_owned(), structure, metric]);
+        }
+    }
+}
+
+fn open_drive(city: &Path) -> Result<Drive> {
+    {
+        let path = city.join("osm/street-index.sqlite.drive-accelerator-v2.bin");
         let image = Image::open(&path, false)?;
         if image.header["magic"] != "vigo.drive.accelerator" || image.header["version"] != 2 {
             return fail("Unsupported drive snapshot");
@@ -1731,12 +1884,11 @@ impl City {
             cch_time_metric_path: Some(time),
             cch_distance_metric_path: distance,
         })?;
-        self.drive = Some(Drive {
+        Ok(Drive {
             automatic_traffic: None,
             kernel,
             image,
-        });
-        Ok(())
+        })
     }
 }
 

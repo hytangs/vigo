@@ -107,6 +107,25 @@ impl Store {
                 .is_none_or(|(path, stamp)| structure_stamp(path).ok().as_ref() == Some(stamp))
     }
 
+    /// Read this City's index files once into the operating system's file
+    /// cache, so first queries in any region do not fault their pages in.
+    #[cfg(feature = "standalone")]
+    pub(super) fn prefetch(&self) {
+        use std::io::Read;
+        let prefix = format!("{}.", self.source.binding.key);
+        let Ok(entries) = std::fs::read_dir(&self.source.directory) else {
+            return;
+        };
+        let mut buffer = vec![0; 1 << 20];
+        for entry in entries.flatten() {
+            if entry.file_name().to_string_lossy().starts_with(&prefix)
+                && let Ok(mut file) = std::fs::File::open(entry.path())
+            {
+                while matches!(file.read(&mut buffer), Ok(n) if n > 0) {}
+            }
+        }
+    }
+
     fn file(&self, kind: &str) -> PathBuf {
         self.source
             .directory

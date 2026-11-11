@@ -3308,6 +3308,14 @@ impl CoordinateKernel {
         Ok(kernel)
     }
 
+    /// Allocate the pedestrian path query ahead of the first route.
+    #[cfg(feature = "standalone")]
+    pub(crate) fn prepare_street_path_query(&mut self) {
+        if let Some(index) = &mut self.street_cch {
+            index.prepare_path_query();
+        }
+    }
+
     #[cfg_attr(feature = "node", napi)]
     pub fn street_cch_load_diagnostics(&self) -> Option<StreetCchLoadResult> {
         self.street_cch_load.clone()

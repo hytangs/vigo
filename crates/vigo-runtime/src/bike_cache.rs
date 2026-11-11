@@ -168,6 +168,22 @@ pub(super) fn read(path: &str) -> Result<BikeKernel> {
     read_in(path, root.as_deref())
 }
 
+/// Read the compiled graph for `path` once into the file cache.
+#[cfg(feature = "standalone")]
+pub(super) fn prefetch(path: &str) {
+    use std::io::Read;
+    let Some(directory) = directory() else {
+        return;
+    };
+    let Ok(binding) = Binding::read(path) else {
+        return;
+    };
+    if let Ok(mut file) = File::open(directory.join(format!("{}.bin", binding.key))) {
+        let mut buffer = vec![0; 1 << 20];
+        while matches!(file.read(&mut buffer), Ok(n) if n > 0) {}
+    }
+}
+
 fn read_in(path: &str, directory: Option<&Path>) -> Result<BikeKernel> {
     let binding = directory.and_then(|_| Binding::read(path).ok());
     let cached = directory
