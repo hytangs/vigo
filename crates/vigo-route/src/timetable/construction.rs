@@ -28,6 +28,14 @@ impl TimetableKernel {
         let transfer_duration = input.transfer_duration.as_ref();
         let transfer_offset = input.transfer_offset.as_ref();
         let transfer_to = input.transfer_to.as_ref();
+        let segment_flags = segment_flags(
+            can_board,
+            can_alight,
+            continuity_break,
+            segment_run,
+            from_stop,
+            to_stop,
+        );
         let connection_order = departure_order(departure_seconds);
         let mut scan_events = Vec::with_capacity(segment_count);
         let mut scan_times = Vec::new();
@@ -45,25 +53,13 @@ impl TimetableKernel {
                 scan_time_needs_closure.push(false);
                 prior_departure = Some(departure);
             }
-            let bridge_exit = index > 0
-                && continuity_break[index] == 0
-                && segment_run[index - 1] == segment_run[index]
-                && to_stop[index - 1] != from_stop[index];
+            let flags = segment_flags[index];
             // Only zero-time arrivals and bridge exits can introduce another
             // boarding at this timestamp. This exact dependency flag avoids
             // revisiting buckets that cannot contain such a dependency.
-            if arrival_seconds[index] == departure || bridge_exit {
+            if arrival_seconds[index] == departure || flags & SCAN_BRIDGE_EXIT != 0 {
                 *scan_time_needs_closure.last_mut().unwrap() = true;
             }
-            let flags = (if can_board[index] == 1 {
-                SCAN_CAN_BOARD
-            } else {
-                0
-            }) | (if can_alight[index] == 1 {
-                SCAN_CAN_ALIGHT
-            } else {
-                0
-            }) | (if bridge_exit { SCAN_BRIDGE_EXIT } else { 0 });
             let run_flags = segment_run[index] | u32::from(flags) << 29;
             scan_events.push(ScanEvent(
                 u64::from(from_stop[index]) | u64::from(run_flags) << 32,
@@ -161,8 +157,7 @@ impl TimetableKernel {
             from_stop,
             to_stop,
             segment_run,
-            continuity_break,
-            can_alight,
+            flags: &segment_flags,
             run_start: &run_start,
         });
         scan_times.shrink_to_fit();
@@ -208,11 +203,11 @@ impl TimetableKernel {
     }
 }
 
-/// Segments in (departure, index) order. Departures are validated to the
-/// 20-bit exit time domain, so two stable 10-bit counting passes produce the
-/// same order as a comparison sort in linear time. Realtime views rebuild this
-/// for every snapshot, so the constant factor matters.
-fn departure_order(departures: &[u32]) -> Vec<u32> {
+/// Segment indexes in (departure, index) order. Departures are validated to
+/// the 20-bit exit time domain, so two stable 10-bit counting passes give the
+/// comparison-sort order in linear time; realtime views rebuild it for every
+/// snapshot.
+pub(super) fn departure_order(departures: &[u32]) -> Vec<u32> {
     const DIGIT: u32 = 10;
     const BUCKETS: usize = 1 << DIGIT;
     let mut order: Vec<u32> = (0..departures.len() as u32).collect();
@@ -242,6 +237,37 @@ fn departure_order(departures: &[u32]) -> Vec<u32> {
     order
 }
 
+/// Scan flags of every segment, computed in one sequential pass so the
+/// time-ordered scan and the exit index read one byte per segment. A same-run
+/// segment that starts away from where the previous one ended is a bridge:
+/// riders may leave at its departure stop.
+fn segment_flags(
+    can_board: &[u8],
+    can_alight: &[u8],
+    continuity_break: &[u8],
+    segment_run: &[u32],
+    from_stop: &[u32],
+    to_stop: &[u32],
+) -> Vec<u8> {
+    (0..can_board.len())
+        .map(|segment| {
+            let bridge = segment > 0
+                && continuity_break[segment] == 0
+                && segment_run[segment - 1] == segment_run[segment]
+                && to_stop[segment - 1] != from_stop[segment];
+            (if can_board[segment] == 1 {
+                SCAN_CAN_BOARD
+            } else {
+                0
+            }) | (if can_alight[segment] == 1 {
+                SCAN_CAN_ALIGHT
+            } else {
+                0
+            }) | (if bridge { SCAN_BRIDGE_EXIT } else { 0 })
+        })
+        .collect()
+}
+
 struct ExitSegments<'a> {
     stop_count: usize,
     departure_seconds: &'a [u32],
@@ -249,30 +275,21 @@ struct ExitSegments<'a> {
     from_stop: &'a [u32],
     to_stop: &'a [u32],
     segment_run: &'a [u32],
-    continuity_break: &'a [u8],
-    can_alight: &'a [u8],
+    flags: &'a [u8],
     run_start: &'a [u32],
 }
 impl ExitSegments<'_> {
-    // A same-run segment that starts away from where the previous one ended
-    // lets riders leave at the bridge's departure stop.
-    fn bridge_exit(&self, segment: usize) -> bool {
-        let run = self.segment_run[segment];
-        segment > self.run_start[run as usize] as usize
-            && self.continuity_break[segment] == 0
-            && self.segment_run[segment - 1] == run
-            && self.to_stop[segment - 1] != self.from_stop[segment]
-    }
     fn for_each_exit(&self, mut visit: impl FnMut(u32, ExitEvent)) {
         for segment in 0..self.departure_seconds.len() {
             let run = self.segment_run[segment];
             let start = self.run_start[run as usize];
-            if self.can_alight[segment] == 1 {
+            let flags = self.flags[segment];
+            if flags & SCAN_CAN_ALIGHT != 0 {
                 let event =
                     ExitEvent::new(self.arrival_seconds[segment], run, segment as u32, start);
                 visit(self.to_stop[segment], event);
             }
-            if self.bridge_exit(segment) {
+            if flags & SCAN_BRIDGE_EXIT != 0 {
                 let event = ExitEvent::new(
                     self.departure_seconds[segment],
                     run,
@@ -283,6 +300,13 @@ impl ExitSegments<'_> {
             }
         }
     }
+}
+
+/// An exit's (time, run, through segment) order as one integer. Runs are
+/// contiguous, so the segment relative to its run start orders through
+/// segments within a run without looking the start up.
+fn exit_order(event: &ExitEvent) -> u64 {
+    (event.0 << 44) | ((event.0 >> 20) & u64::from(SCAN_RUN_MASK)) << 15 | (event.0 >> 49)
 }
 
 /// Exit events grouped by stop, each ordered by (time, run, through segment)
@@ -301,20 +325,11 @@ fn exit_index(segments: ExitSegments<'_>) -> (Vec<u32>, Vec<ExitEvent>) {
         exit_events[cursor[stop as usize] as usize] = event;
         cursor[stop as usize] += 1;
     });
-    let run_start = segments.run_start;
     let mut written = 0;
     let mut start = 0;
     for stop in 0..stop_count {
         let end = exit_event_offset[stop + 1] as usize;
-        exit_events[start..end].sort_unstable_by(|left, right| {
-            left.time()
-                .cmp(&right.time())
-                .then_with(|| left.run().cmp(&right.run()))
-                .then_with(|| {
-                    left.through_segment(run_start)
-                        .cmp(&right.through_segment(run_start))
-                })
-        });
+        exit_events[start..end].sort_unstable_by_key(exit_order);
         // Equal (time, run, through segment) keys pack to identical events.
         exit_event_offset[stop] = written as u32;
         for index in start..end {
@@ -422,6 +437,8 @@ mod tests {
                     stop = next;
                 }
             }
+            let board = vec![1; departures.len()];
+            let flags = segment_flags(&board, &alight, &breaks, &runs, &from, &to);
             let segments = ExitSegments {
                 stop_count,
                 departure_seconds: &departures,
@@ -429,8 +446,7 @@ mod tests {
                 from_stop: &from,
                 to_stop: &to,
                 segment_run: &runs,
-                continuity_break: &breaks,
-                can_alight: &alight,
+                flags: &flags,
                 run_start: &run_start,
             };
             let expected = reference_exit_index(&segments);

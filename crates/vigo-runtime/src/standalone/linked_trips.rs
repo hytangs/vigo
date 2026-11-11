@@ -675,9 +675,25 @@ pub(super) fn compile(
             removed += trip_start[trip + 1] - start;
         }
     }
+    // Kept segments form long runs between linked trips: move each run once
+    // instead of testing every segment of every column.
+    let mut runs: Vec<(usize, usize)> = Vec::new();
+    for (i, &kept) in keep.iter().enumerate() {
+        if kept {
+            match runs.last_mut() {
+                Some(run) if run.1 == i => run.1 = i + 1,
+                _ => runs.push((i, i + 1)),
+            }
+        }
+    }
+    let kept: usize = runs.iter().map(|&(start, end)| end - start).sum();
     macro_rules! compact {($($field:ident),*) => {$(
-        let mut kept = keep.iter();
-        $field.retain(|_| *kept.next().unwrap());
+        let mut write = 0;
+        for &(start, end) in &runs {
+            $field.copy_within(start..end, write);
+            write += end - start;
+        }
+        $field.truncate(kept);
     )*};}
     compact!(
         departure_seconds,
