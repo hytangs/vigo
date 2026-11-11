@@ -184,8 +184,6 @@ pub enum ScheduleQuality {
     SourceTimeLimitations,
     /// Realtime predictions for this trip were applied.
     Realtime,
-    /// Expected timing under the declared headway waiting model.
-    HeadwayEstimate,
     /// On-demand timing estimated from OSM driving and explicit duration factors.
     FlexEstimate,
 }
@@ -211,17 +209,7 @@ pub struct TransitQuality {
     pub geometry: String,
     pub schedule: ScheduleQuality,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub headway: Option<HeadwayEstimate>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub flex: Option<serde_json::Value>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct HeadwayEstimate {
-    pub headway_seconds: u32,
-    pub waiting_assumption: String,
-    pub expected_wait_seconds: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

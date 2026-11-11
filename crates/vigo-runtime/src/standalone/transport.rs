@@ -23,17 +23,32 @@ fn idle_release_after() -> Result<Option<Duration>> {
     Ok((milliseconds > 0).then(|| Duration::from_millis(milliseconds)))
 }
 
-/// Whether a long-lived `stream` or worker prepares bicycles on opening.
-fn prepare_bike_on_open() -> Result<bool> {
-    match env::var("VIGO_PREPARE_BIKE") {
-        Ok(value) => match value.trim() {
-            "1" => Ok(true),
-            "0" => Ok(false),
-            _ => fail("VIGO_PREPARE_BIKE must be 0 or 1"),
-        },
-        Err(env::VarError::NotPresent) => Ok(true),
-        Err(error) => Err(error.into()),
+/// The modes a long-lived `stream` or worker prepares when it opens a City:
+/// `VIGO_PREPARE` is `all` (the default), `none`, or a comma-separated list.
+fn prepare_on_open() -> Result<Vec<&'static str>> {
+    const MODES: [&str; 4] = ["transit", "walk", "drive", "bike"];
+    let value = match env::var("VIGO_PREPARE") {
+        Ok(value) => value,
+        Err(env::VarError::NotPresent) => return Ok(MODES.to_vec()),
+        Err(error) => return Err(error.into()),
+    };
+    match value.trim() {
+        "all" => return Ok(MODES.to_vec()),
+        "none" => return Ok(vec![]),
+        _ => {}
     }
+    let mut modes = vec![];
+    for part in value.split(',').map(str::trim) {
+        let Some(&mode) = MODES.iter().find(|mode| **mode == part) else {
+            return fail(
+                "VIGO_PREPARE must be all, none, or a comma-separated list of transit, walk, drive and bike",
+            );
+        };
+        if !modes.contains(&mode) {
+            modes.push(mode);
+        }
+    }
+    Ok(modes)
 }
 
 const HELP: &str = "VIGO — standalone Rust routing and isochrones
@@ -263,9 +278,14 @@ fn run() -> Result<()> {
         io::stdout().flush()?;
     }
     if command == "stream" || command == "_worker" {
-        if prepare_bike_on_open()? {
-            city.prepare_in_background()?;
-        }
+        let modes = prepare_on_open()?;
+        city.prepare_in_background(
+            &modes,
+            &city_path,
+            options.get("routing-store").map(String::as_str),
+        )?;
+        // Streets load on this thread, so only while no request is waiting.
+        let mut streets_pending = modes.iter().any(|mode| ["transit", "walk"].contains(mode));
         let stream_output = options
             .get("stream-output")
             .map(String::as_str)
@@ -313,17 +333,36 @@ fn run() -> Result<()> {
             })?;
         let idle = idle_release_after()?;
         let mut idle_released = false;
+        let mut pending_line = None;
         loop {
-            let next = match idle.filter(|_| !idle_released) {
-                Some(after) => match received.recv_timeout(after) {
+            if streets_pending {
+                match received.recv_timeout(std::time::Duration::from_millis(20)) {
                     Err(mpsc::RecvTimeoutError::Timeout) => {
-                        city.release_idle_memory();
-                        idle_released = true;
+                        streets_pending = false;
+                        city.prepare_streets();
                         continue;
                     }
-                    line => line.ok(),
-                },
-                None => received.recv().ok(),
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    Ok(line) => {
+                        streets_pending = false;
+                        pending_line = Some(line);
+                    }
+                }
+            }
+            let next = if let Some(line) = pending_line.take() {
+                Some(line)
+            } else {
+                match idle.filter(|_| !idle_released) {
+                    Some(after) => match received.recv_timeout(after) {
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            city.release_idle_memory();
+                            idle_released = true;
+                            continue;
+                        }
+                        line => line.ok(),
+                    },
+                    None => received.recv().ok(),
+                }
             };
             let Some(bytes) = next else {
                 break;

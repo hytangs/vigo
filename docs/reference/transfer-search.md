@@ -1,107 +1,35 @@
-# Transfer semantics and search selection
+# Transfer semantics
 
-VIGO retains the compact connection scan for queries whose results do not depend
-on exceptional transfer rules. Scoped transfer selectors and headway service
-remain authoritative; the engine does not silently discard them to gain speed.
+Route, Matrix and Reach answer with one exact connection scan. Transfer
+permissions are prepared into the timetable it scans; no query keeps per-trip
+transfer state.
 
-## Shared policy
+## What the scan applies
 
-Preparation determines permitted physical transfer edges, station membership,
-wheelchair access and ordinary minimum times. Loading scoped rules cannot
-reintroduce an inter-stop edge removed by `allowStreetTransfers=false` or the
-wheelchair profile. Ordinary unscoped rules cannot invent zero-cost paths.
-Both search strategies use the same permission and ready-time primitives.
-Scoped selector precedence is resolved by `TransferRule::select_most_specific`.
+- **Physical transfers.** Preparation determines permitted transfer edges,
+  station membership, wheelchair access and walking times. A rule cannot
+  reintroduce an edge removed by `allowStreetTransfers=false` or the wheelchair
+  profile.
+- **Stop-level GTFS rules.** Rules without route or trip selectors apply at
+  their stops, with parent-station expansion. A platform's own rule overrides
+  the rule it inherits from its station. `transfer_type=3` forbids the
+  transfer; `transfer_type=2` sets the stop's minimum; recommended and timed
+  rules need no minimum.
+- **Staying aboard.** In-seat continuations (`transfer_type=4`) and linked
+  blocks keep the rider on one vehicle, counted as one boarding.
+- **Frequency service.** `exact_times=1` windows are expanded when the City is
+  built. `exact_times=0` templates are read as departures every headway from
+  each window's start, before its exclusive end.
+- **The request.** The transfer buffer applies after walking and published
+  minimum times; it does not delay first boarding, final egress or staying
+  aboard.
 
-## Conservative certificate
+## What it does not apply
 
-For each active timetable the engine indexes actual alighting events at which a
-rule could differ from the ordinary prepared graph. Incoming trip and route
-selectors use the physical trip, including inside linked runs. For reverse
-queries it indexes corresponding outgoing boarding events. Equivalent ordinary
-rules need no exception event. Possible equal-specificity conflicts remain
-exceptions. Headway service always selects stateful search.
+Route- and trip-scoped transfer selectors are retained in the City's
+`transfer_rules` table, but Route, Matrix and Reach do not apply them: the
+stop-level rule governs those transfers. Flex interchanges still resolve the
+most specific rule, scoped selectors included, for their conditional legs.
 
-Consider a journey whose result differs between the two searches. Immediately
-before its **first** exceptional transfer, its prefix consists only of ordinary
-rides and transfers. An ordinary earliest-arrival search is therefore a lower
-bound on arrival at that transfer's source. If no indexed source event is
-reachable within the relevant interval, no such first difference exists. This
-covers a faster special connection that is absent from the ordinary winner,
-as well as a prohibition that invalidates the winner.
-
-For an earliest-arrival scalar query the interval ends at the ordinary candidate
-arrival (or the full horizon when no candidate exists). Every nonnegative-cost
-journey improving or tying that candidate must encounter its first exceptional
-transfer inside that interval. The certificate examines all post-ride stop
-states, not the chosen journey. For alternatives it covers the entire admitted
-arrival-slack interval; for Matrix and Reach it covers the entire horizon.
-The union of a Matrix's endpoint candidates is an optimistic reachability bound
-for every cell.
-
-The reverse argument uses the **last** exceptional transfer: its suffix is
-ordinary. If no outgoing exceptional boarding can reach the destination by the
-deadline, the reverse scan is equivalent. A scalar reverse candidate limits the
-interval to departures no earlier than its own; an invalid candidate still has
-its differing transfer inside that interval. Bulk reverse queries retain the
-full interval.
-
-These arguments require nonnegative walking and transfer costs, valid monotonic
-trip clocks, identical prepared access/egress permissions, and unchanged active
-service. Kernel validation enforces the numeric input conditions. A cached
-certificate belongs to one resident timetable and includes endpoint candidates,
-access times, departure, pre-ride policy and transfer buffer. A narrower horizon,
-boarding cap or trip exclusion cannot introduce a new feasible prefix. Errors
-restore the service index before returning.
-
-## Relaxed bound before the stateful search
-
-When the certificate fails, a relaxed scan runs before any stateful search. It
-uses a transfer graph that keeps every ordinary edge and adds every rule that
-permits a transfer (recommended, timed or minimum-time, scoped or not) as an
-unscoped edge at its smallest minimum, with no transfer buffer and no forbidden
-same-stop transfers. Rules and buffers can only remove journeys from this
-graph, so the relaxed scan reaches every stop no later than the stateful search.
-
-- If the relaxed scan finds no journey, none exists, and no stateful search
-  runs.
-- If its earliest journey (or, for the boarding and walking certification,
-  every journey on its frontier) obeys every transfer rule as the stateful
-  search evaluates it, that answer is exact and returned.
-- Otherwise the stateful search runs in windows after the relaxed bound: 10
-  minutes, 30 minutes, an hour, then the whole horizon. The earliest journey
-  inside a window is the earliest overall.
-
-Arrive-by and one-to-many searches use the bound and windows; their results
-carry no single chain to validate. Timetables with headway service keep the
-stateful search, because the ordinary scan does not price frequency waits.
-
-## Validation and observability
-
-`cargo test -p vigo-route --lib` includes independent two-leg enumeration,
-headway boundary checks, selector specificity, and seeded competing-path
-networks. The latter compare admitted scalar queries and complete forward and
-reverse bulk objectives with full stateful search, including changing transfer
-buffers and boarding caps. This is executable differential evidence, not a
-formal proof of every implementation detail.
-
-With `diagnostics: "profile"` or `"trace"`, `profile.routingDispatch` reports
-cumulative ordinary and stateful result-search counts for the resident timetable.
-Certificate scans are excluded. Counts reset when a timetable is replaced;
-benchmarks must separate first activation, count deltas and warm query latency.
-An ordinary-only timetable reports `semantics: "ordinary"`.
-
-Both strategies bound transit scanning by the query horizon; final egress may
-finish later. Scheduled ride clocks come from the timetable, independently of
-the selected strategy. Only headway rides derive their shifted departure from
-the estimated ride duration. Differential checks compare these leg clocks as
-well as arrival, boarding and walking objectives; tied objectives can have
-different valid vehicle witnesses.
-
-Scheduled segment departure counts remain available in scoped-rule Cities.
-Segment counts are not guarantees that every departure can replace a ride in
-an existing journey: replacement permissions also depend on adjacent trips.
-
-City warmup uses `native` operation `timetable.prepare`: it activates the same
-date, coverage and transfer settings without calculating a throwaway journey.
-It returns preparation timing and does not change prepared City files.
+Monte Carlo samples a phase only for a scenario's non-exact planned frequency
+services; GTFS frequency templates are deterministic departures.

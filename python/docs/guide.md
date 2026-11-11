@@ -283,9 +283,11 @@ with vigo.open("./city") as city:
 ```
 
 Monte Carlo uses scheduled transit and a departure window; omit point times.
-Unreachable quantiles are `None`, not zero. Frequency phases are shared across
-all endpoints within a sample. Results describe unknown schedules and passenger
-departure times, not observed reliability. Planned Scenarios also support
+Unreachable quantiles are `None`, not zero. GTFS frequencies are fixed
+departures every headway; planned Scenario frequency services are randomly
+phased, and each phase is shared across all endpoints within a sample. Results
+describe unknown schedules and passenger departure times, not observed
+reliability. Planned Scenarios also support
 Monte Carlo Route, Matrix and Reach. See the
 [option and result reference](reference.md#bike-and-monte-carlo-options) for
 accessibility inputs, memory limits, export units and comparison semantics.

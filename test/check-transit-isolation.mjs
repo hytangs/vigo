@@ -68,7 +68,7 @@ try {
     // Without preparation on opening, so the ledger shows what transit loads.
     const run = spawnSync(binary, ['stream', '--city', city], {
       input: requests.map(q => JSON.stringify(q)).join('\n') + '\n', encoding: 'utf8', maxBuffer: 32 * 1024 * 1024,
-      env: { ...process.env, VIGO_PREPARE_BIKE: '0' },
+      env: { ...process.env, VIGO_PREPARE: 'none' },
     })
     assert.equal(run.status, 0, run.stderr)
     const replies = run.stdout.trim().split('\n').map(line => JSON.parse(line))

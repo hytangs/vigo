@@ -5,6 +5,28 @@ use super::*;
 use std::collections::HashSet;
 
 impl TimetableKernel {
+    /// The earliest clock at which a rider who stayed at `stop` may board
+    /// another vehicle: the stop's minimum and the requested buffer, as the
+    /// scan applies them. `None` when the stop forbids the transfer.
+    pub(super) fn same_stop_transfer_ready(&self, stop: u32, arrival: f64) -> Option<f64> {
+        let index = stop as usize;
+        (index < self.stop_count && self.forbidden_same_stop[index] == 0).then(|| {
+            transfer_ready_time::<false>(
+                arrival,
+                arrival,
+                self.same_stop_transfer_minimum[index],
+                self.minimum_transfer_buffer_seconds,
+            )
+        })
+    }
+    /// A stop at which a clock alone cannot certify a new transfer without
+    /// its minimum. Journey simplifiers keep the certified boarding there.
+    pub fn boarding_needs_transfer_context(&self, stop: u32) -> bool {
+        let stop = stop as usize;
+        stop >= self.stop_count
+            || self.forbidden_same_stop[stop] != 0
+            || self.same_stop_transfer_minimum[stop] != 0
+    }
     pub fn improve_interchanges(&self, journey: &mut TimetableMatrixJourney) -> bool {
         if journey.boardings < 2 {
             return false;
@@ -40,8 +62,6 @@ impl TimetableKernel {
             };
             if first.to_stop != next.from_stop
                 || first.to_stop.is_none()
-                || self.is_headway_trip(trip)
-                || self.is_headway_trip(onward)
                 || journey.legs[a + 1..b]
                     .iter()
                     .any(|l| l.kind != "walk" || l.arrival != l.departure)
@@ -83,12 +103,7 @@ impl TimetableKernel {
                 // coordinates, or a matching public line.
                 if board[j] != 1
                     || self
-                        .same_stop_transfer_ready(
-                            stop,
-                            f64::from(arr[i]),
-                            (trip, sequence[i]),
-                            (onward, sequence[j]),
-                        )
+                        .same_stop_transfer_ready(stop, f64::from(arr[i]))
                         .is_none_or(|ready| ready > f64::from(dep[j]))
                     || i - old_exit >= j - old_enter
                     || f64::from(arr[i]) - first.arrival > f64::from(dep[j]) - next.departure
@@ -240,51 +255,6 @@ mod tests {
                 "buffer {buffer}, minimum {minimum}"
             );
             assert_eq!((j.departure, j.arrival, j.boardings), (0., 50., 2));
-        }
-    }
-    #[test]
-    fn feed_rules_at_the_later_platform_decide_the_interchange() {
-        let rule = |kind, minimum, from_trip| TransferRule {
-            from_stop: 4,
-            to_stop: 4,
-            from_route: None,
-            to_route: None,
-            from_trip,
-            to_trip: Some(1),
-            kind,
-            minimum,
-            stop_depth: 0,
-        };
-        // (buffer, stop minimum, rule, moves). The express reaches stop 4 at
-        // 35 and the local leaves it at 40.
-        for (buffer, stop_minimum, rule, moves) in [
-            // A matching rule replaces the stop's own minimum.
-            (0, 10, rule(2, 5, None), true),
-            (0, 0, rule(2, 6, None), false),
-            (0, 10, rule(0, 0, None), true),
-            // Forbidden only for the express trip, or only for another trip.
-            (0, 0, rule(3, 0, Some(0)), false),
-            (0, 0, rule(3, 0, Some(1)), true),
-            // A timed transfer needs no buffer.
-            (9, 10, rule(1, 0, Some(0)), true),
-            (9, 0, rule(2, 0, Some(0)), false),
-        ] {
-            let mut k = kernel(buffer, false, stop_minimum, 1, 1, 35);
-            k.set_service_semantics(ServiceSemantics {
-                rules: vec![rule.clone()],
-                trip_routes: vec![0, 1],
-                ..Default::default()
-            })
-            .unwrap();
-            let mut j = journey();
-            k.improve_interchanges(&mut j);
-            let expected = if moves { Some(4) } else { Some(1) };
-            assert_eq!(
-                j.legs[0].to_stop,
-                expected,
-                "buffer {buffer}, stop minimum {stop_minimum}, rule {:?}",
-                (rule.kind, rule.minimum, rule.from_trip)
-            );
         }
     }
     #[test]

@@ -154,8 +154,10 @@ class LiveRuntimeTest(unittest.TestCase):
             options = {"service_date": "2026-07-15", "max_walk_km": 0.01, "require_transit_ride": True,
                        "horizon_minutes": 60, "monte_carlo": window}
             result = city.matrix(["A"], ["B", "X"], **options)
-            self.assertTrue(result.sampling["stochastic"])
-            self.assertEqual(result.sampling["sampleCount"], 60)
+            # GTFS frequencies are fixed departures every headway: one sample
+            # per departure minute, whatever the requested draws.
+            self.assertFalse(result.sampling["stochastic"])
+            self.assertEqual(result.sampling["sampleCount"], 3)
             self.assertEqual(result.accessibility["layers"][0]["id"], "jobs")
             self.assertTrue(any(value is None for row in result.value["durationsSeconds"] for value in row))
             self.assertEqual(result.value["durationsSeconds"], city.matrix(["A"], ["B", "X"], **options).value["durationsSeconds"])

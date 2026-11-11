@@ -338,15 +338,6 @@ GtfsSource = TypedDict(
     },
 )
 
-HeadwayEstimate = TypedDict(
-    "HeadwayEstimate",
-    {
-        "expectedWaitSeconds": int,
-        "headwaySeconds": int,
-        "waitingAssumption": str,
-    },
-)
-
 HttpCapabilities = TypedDict(
     "HttpCapabilities",
     {
@@ -492,6 +483,17 @@ PlannedFlexZone = TypedDict(
     },
 )
 
+# Measured timings, with `diagnostics: "profile"` or `"trace"`. Scopes can
+# overlap; do not add them.
+Profile = TypedDict(
+    "Profile",
+    {
+        "note": str,
+        # Dotted scope names to integer microseconds.
+        "timingsUs": dict[str, int],
+    },
+)
+
 QueryStatus = Literal["ok"] | Literal["not_found"]
 
 ReachCapabilities = TypedDict(
@@ -539,9 +541,6 @@ ResourcePolicy = TypedDict(
     },
 )
 
-# Result-search dispatch for the resident timetable, excluding certificate scans.
-RoutingDispatch = dict[str, Any]
-
 SampledAlternatives = TypedDict(
     "SampledAlternatives",
     {
@@ -566,7 +565,7 @@ ScenarioTimetable = TypedDict(
 
 ScheduleMode = Literal["frequency", "preserve-trips"]
 
-ScheduleQuality = Literal["timetable"] | Literal["source_time_limitations"] | Literal["realtime"] | Literal["headway_estimate"] | Literal["flex_estimate"]
+ScheduleQuality = Literal["timetable"] | Literal["source_time_limitations"] | Literal["realtime"] | Literal["flex_estimate"]
 
 ScheduledTrip = TypedDict(
     "ScheduledTrip",
@@ -956,18 +955,6 @@ PreparedTraffic = TypedDict(
     },
 )
 
-# Measured timings, with `diagnostics: "profile"` or `"trace"`. Scopes can
-# overlap; do not add them.
-Profile = TypedDict(
-    "Profile",
-    {
-        "note": str,
-        "routingDispatch": NotRequired[RoutingDispatch],
-        # Dotted scope names to integer microseconds.
-        "timingsUs": dict[str, int],
-    },
-)
-
 PublishedFare = TypedDict(
     "PublishedFare",
     {
@@ -1126,7 +1113,6 @@ TransitQuality = TypedDict(
         # Where the line came from: `gtfs_shape` (aligned to the feed's shape),
         # `stop_sequence` (straight lines between stops) or `unknown`.
         "geometry": str,
-        "headway": NotRequired[HeadwayEstimate],
         "schedule": ScheduleQuality,
     },
 )

@@ -491,10 +491,7 @@ impl TimetableKernel {
         })?;
         let added_trip_patterns = compiled.added_trip_patterns.clone();
         let added_trip_departures = compiled.added_trip_departures.clone();
-        let mut kernel = compiled_kernel(compiled, self.minimum_transfer_buffer_seconds)?;
-        if let Some(service) = &self.service {
-            kernel.set_service_semantics((*service.data).clone())?;
-        }
+        let kernel = compiled_kernel(compiled, self.minimum_transfer_buffer_seconds)?;
         Ok(ScenarioView {
             kernel,
             added_trip_patterns,

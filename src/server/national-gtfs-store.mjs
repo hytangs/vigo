@@ -1538,7 +1538,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
       'A single routing store cannot yet resolve service-day coordinates across multiple agency timezones.')
     featureInventory.exactFrequencyExpandedTripCount = exactFrequencyExpandedTripCount
     featureInventory.exactFrequencyExpandedConnectionCount = exactFrequencyExpandedConnectionCount
-    if (featureInventory.inexactFrequencyCount) routingLimitations.push({code:'frequency_based_service',count:featureInventory.inexactFrequencyCount,exactness:'approximate',detail:'Rust headway routing assumes half a headway of waiting, rounded up to whole seconds, after service opens. Times are estimates, not scheduled departures.'})
+    if (featureInventory.inexactFrequencyCount) routingLimitations.push({code:'frequency_based_service',count:featureInventory.inexactFrequencyCount,exactness:'approximate',detail:"Frequency-based trips (GTFS exact_times=0) depart every headway from each window's start. Actual departures may differ; times are estimates."})
     if (featureInventory.flexTripCount) routingLimitations.push({code: 'flex_service', count: featureInventory.flexTripCount, exactness: 'conditional', detail: 'Flex service requires an explicit flex request and OSM driving estimates. Booking and vehicle availability are not confirmed.'})
     if (featureInventory.flexCatalogOmittedTripCount) routingLimitations.push({ code: 'flex_catalog_limit', count: featureInventory.flexCatalogOmittedTripCount, exactness: 'unsupported',
       detail: 'Conditional trip details exceed the 32 MiB Flex catalog. Fixed-route continuous-stopping and booking trips are omitted first, then on-demand trips; scheduled service is unaffected.' })
@@ -1595,7 +1595,7 @@ async function importGtfsFeed({ zipPath, outputPath, onProgress, forCity = false
       calendarDateCount: counts['calendar_dates.txt'] ?? 0,
       transferCount: countFeedRows('transfers', 'from_stop_id'),
       frequencyCount: counts['frequencies.txt'] ?? 0,
-      frequencyRoutingModel: featureInventory.inexactFrequencyCount > 0 ? 'native_half_headway_estimates' : exactFrequencyExpandedTripCount > 0 ? 'exact_times_1_expanded_fixed_departures' : 'none',
+      frequencyRoutingModel: featureInventory.inexactFrequencyCount > 0 ? 'inexact_frequency_departures_every_headway' : exactFrequencyExpandedTripCount > 0 ? 'exact_times_1_expanded_fixed_departures' : 'none',
       shapePointCount: counts['shapes.txt'] ?? 0,
       bridgedUntimedGapCount,
       routeServiceCatalogVersion: routeServiceCatalogSchemaVersion,

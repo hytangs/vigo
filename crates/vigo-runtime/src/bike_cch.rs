@@ -1576,6 +1576,34 @@ impl BikeKernel {
         (heap, mapped + self.lons.mapped_file_bytes())
     }
 
+    /// One short default route between two network nodes, so the first
+    /// request finds the attachment and search state already built.
+    #[cfg(feature = "standalone")]
+    pub(crate) fn warm_up(&self) {
+        if let Some(store) = self.cch_index() {
+            store.prefetch();
+        }
+        let count = self.lons.len();
+        if count < 2 {
+            return;
+        }
+        let point = |node: usize| [self.lons[node], self.lats[node]];
+        let origin = point(count / 2);
+        let destination = (count / 2 + 1..count.min(count / 2 + 200_000))
+            .map(point)
+            .find(|p| vigo_route::geo::haversine_m(origin, *p) > 800.)
+            .unwrap_or_else(|| point(count - 1));
+        let _ = self.route_at(
+            origin,
+            destination,
+            BikeOptions::default(),
+            1200.,
+            4.8,
+            50_000.,
+            None,
+        );
+    }
+
     #[cfg(feature = "standalone")]
     pub(crate) fn prepare_cch(&self, options: BikeOptions) -> Result<(), String> {
         options.validate()?;

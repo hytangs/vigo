@@ -15,7 +15,7 @@ enum LegKey {
 /// Leg fields that neither window ranking nor station-walk annotation reads:
 /// the drawn line, intermediate calls, displayed endpoints, access evidence
 /// and descriptive trip details.
-const PARKED_FIELDS: [&str; 19] = [
+const PARKED_FIELDS: [&str; 18] = [
     "coordinates",
     "intermediateStops",
     "from",
@@ -26,7 +26,6 @@ const PARKED_FIELDS: [&str; 19] = [
     "serviceId",
     "tripShortName",
     "directionId",
-    "headwayEstimate",
     "alerts",
     "geometrySource",
     "scenarioService",
@@ -412,12 +411,6 @@ impl City {
                         v["tripId"] = json!(t.trip_ids[trip as usize]);
                         v["boardSequence"] = json!(leg.board_sequence);
                         v["alightSequence"] = json!(leg.alight_sequence);
-                        if let Some(headway) = t.kernel.headway_seconds(
-                            trip, leg.departure, leg.board_sequence.unwrap_or(0.),
-                        ) {
-                            v["headwayEstimate"] = json!({"headwaySeconds": headway,
-                                "waitingAssumption": "half_headway", "expectedWaitSeconds": headway.div_ceil(2)});
-                        }
                         if t.realtime_trips.binary_search(&trip).is_ok() {
                             v["realtimeTrip"] = json!(true);
                         }
@@ -579,21 +572,7 @@ impl City {
                         v["alerts"] = Value::Array(ride);
                     }
                 }
-                let estimate =
-                    t.kernel
-                        .headway_seconds(trip, leg.departure, leg.board_sequence.unwrap_or(0.));
-                if let Some(headway) = estimate {
-                    v["headwayEstimate"] = serde_json::to_value(vigo_model::HeadwayEstimate {
-                        headway_seconds: headway,
-                        waiting_assumption: "half_headway".into(),
-                        expected_wait_seconds: headway.div_ceil(2),
-                    })?;
-                }
-                let shift = if estimate.is_some() {
-                    leg.departure - t.kernel.ride_departure(ride_trip, ride_board)?
-                } else {
-                    0.
-                };
+                let shift = 0.;
                 v["intermediateStops"] = Value::Array(calls[first + 1..last].iter().map(|c| {
                     let id = &t.stop_ids[c.stop as usize];
                     let stop = self.stop(id)?;

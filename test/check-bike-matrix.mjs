@@ -17,7 +17,7 @@ let reachPairs = 0
 function stream(city, requests) {
   const child = spawnSync(binary, ['stream', '--city', city], {
     input: requests.map(q => JSON.stringify(q)).join('\n') + '\n', encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
-    env: { ...process.env, VIGO_PREPARE_BIKE: '0' },
+    env: { ...process.env, VIGO_PREPARE: 'none' },
   })
   assert.equal(child.status, 0, child.stderr)
   const replies = child.stdout.trim().split('\n').map(line => JSON.parse(line))

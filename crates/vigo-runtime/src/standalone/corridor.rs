@@ -137,9 +137,7 @@ pub(super) fn board_last_pass(
         let Some(parts) = links.get(&trip) else {
             continue;
         };
-        if kernel.is_headway_trip(trip)
-            || (!first_ride && kernel.boarding_needs_transfer_context(stop))
-        {
+        if !first_ride && kernel.boarding_needs_transfer_context(stop) {
             continue;
         }
         // Only source trips after the one boarded follow a boundary.
@@ -243,7 +241,7 @@ pub(super) fn alight_before_return(
             i += 1;
             continue;
         };
-        let Some(parts) = links.get(&trip).filter(|_| !kernel.is_headway_trip(trip)) else {
+        let Some(parts) = links.get(&trip) else {
             i += 1;
             continue;
         };
@@ -261,10 +259,6 @@ pub(super) fn alight_before_return(
             i += 1;
             continue;
         };
-        if kernel.is_headway_trip(journey.legs[next].trip.unwrap()) {
-            i += 1;
-            continue;
-        }
         let Some(target) = journey.legs[next]
             .from_stop
             .filter(|&s| !kernel.boarding_needs_transfer_context(s))

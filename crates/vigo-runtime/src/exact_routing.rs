@@ -1949,6 +1949,21 @@ impl DriveKernel {
     /// fastest witnesses are unpacked to keep distance and duration on the
     /// same path; cells that exceed the distance ceiling reuse the exact
     /// constrained fallback. Geometry is intentionally left to point replays.
+    /// Allocate the persisted hierarchy's path query ahead of the first route.
+    #[cfg(feature = "standalone")]
+    pub(crate) fn prepare_path_query(&mut self) {
+        if let DriveCch::Persisted(index) = &mut self.cch {
+            index.prepare_path_query();
+        }
+    }
+
+    /// Index roads for attaching coordinates, ahead of the first query.
+    pub(crate) fn prepare_road_index(&mut self) {
+        if self.road_index.is_none() {
+            self.road_index = Some(RoadIndex::build(&self.drive_graph()));
+        }
+    }
+
     #[cfg_attr(feature = "node", napi)]
     pub fn route_matrix(&mut self, input: DriveMatrixInput) -> napi::Result<DriveMatrixResult> {
         let origin_count = input.origin_offsets.len().saturating_sub(1);
@@ -2213,9 +2228,7 @@ impl DriveKernel {
                 "Drive coordinates, walking limit or walking speed are invalid.",
             ));
         }
-        if self.road_index.is_none() {
-            self.road_index = Some(RoadIndex::build(&self.drive_graph()));
-        }
+        self.prepare_road_index();
         let graph = self.drive_graph();
         let index = self.road_index.as_ref().unwrap();
         Ok(coordinates

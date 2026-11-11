@@ -308,8 +308,10 @@ traffic state, per-sample journeys or geometry, street-edge output, or a street
 distance limit. Planned transit Scenarios work with all three Monte Carlo query
 families. Ordinary planned transit remains available through Reach.
 
-Each departure minute receives equal weight. Exact timetables need one sample
-per minute. Frequency draws round upward to an equal count per minute. The
+Each departure minute receives equal weight. GTFS timetables, including
+`exact_times=0` frequencies, are fixed departures and need one sample per
+minute. Draws for planned Scenario frequency services round upward to an equal
+count per minute. The
 Engine limits observations to 64 MiB and percentile output to one million values;
 this does not bound the whole resident process. See the
 [Engine method and accessibility contract](https://github.com/hytangs/vigo/blob/main/docs/guides/monte-carlo.md).

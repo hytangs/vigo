@@ -13,6 +13,11 @@ mod arrival_states;
 mod arrive;
 #[path = "bike_cache.rs"]
 mod cache;
+/// Read a City's compiled bicycle graph into the file cache.
+#[cfg(feature = "standalone")]
+pub(crate) fn prefetch_graph(source: &str) {
+    cache::prefetch(source);
+}
 #[path = "bike_index.rs"]
 mod index;
 #[path = "bike_matrix.rs"]

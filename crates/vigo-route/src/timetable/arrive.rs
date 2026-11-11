@@ -30,29 +30,6 @@ impl TimetableKernel {
             ));
         }
 
-        if self.service.is_some() {
-            let service = self.service.take();
-            let ordinary = self.route_arrive_by_csa(input.clone());
-            self.service = service;
-            let ordinary = ordinary?;
-            let safe = self.ordinary_reverse_is_safe(
-                &input.destination_stops,
-                &input.destination_walk_seconds,
-                ordinary.latest_departure.unwrap_or(input.earliest),
-                input.deadline,
-                input.allow_post_ride_transfers.unwrap_or(true),
-                input.maximum_boardings,
-                &[],
-            )?;
-            let mut result = if safe {
-                self.record_ordinary_search();
-                ordinary
-            } else {
-                self.windowed_service_arrive(&input)?
-            };
-            result.query_ns = started.elapsed().as_nanos() as f64;
-            return Ok(result);
-        }
         if let Some(cap) = input.maximum_boardings {
             boarding_layers(Some(cap))?;
             // The unrestricted latest departure is an upper bound for every
@@ -165,8 +142,6 @@ impl TimetableKernel {
         }
         let transfer_buffer_seconds = self.minimum_transfer_buffer_seconds;
         let Self {
-            service: _,
-            relaxed_graph: _,
             stop_count: _,
             run_count: _,
             departure_seconds: _,
@@ -206,7 +181,6 @@ impl TimetableKernel {
                     forward_workspace: _,
                     profile_workspace: _,
                     journey_workspace: _,
-                    capped_guard: _,
                     terminals: _,
                 },
         } = self;

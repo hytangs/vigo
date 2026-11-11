@@ -32,20 +32,22 @@ stream, or `POST /v1/matrix`. The native executable, Node CLI and Python
 returns a distribution for that pair, rather than a representative itinerary.
 Reach uses its existing origin, bounds, raster size, cutoffs and sampling mode.
 
-Every minute in `[startMinutes, endMinutes)` receives equal weight. If frequency
-service can affect the departure window and travel horizon, requested draws are
-rounded upward to an equal integer
-number per minute: 200 requested over 120 minutes yields 240 samples. Exact-only
-service, including windows outside frequency operation, uses one sample per
-minute regardless of the requested draws. Seeds are
-unsigned 32-bit integers. Percentiles must be increasing integers in 0–100.
+Every minute in `[startMinutes, endMinutes)` receives equal weight. If a
+sampled planned frequency service (see
+[Planned timetables](#planned-timetables-and-coordinated-transfers)) can affect
+the departure window and travel horizon, requested draws are rounded upward to
+an equal integer number per minute: 200 requested over 120 minutes yields 240
+samples. Otherwise, including every GTFS timetable, the window uses one sample
+per minute regardless of the requested draws. Seeds are unsigned 32-bit
+integers. Percentiles must be increasing integers in 0–100.
 
-For each sample, each GTFS `exact_times=0` entry receives one uniform
-integer-second phase in `[0, headway)`. Its vehicles then repeat at that headway
-within the end-exclusive service window. All stops, transfers, origins and
-destinations in that sample see the same realization. Published trips and
-`exact_times=1` service remain fixed. The implementation changes phases on the
-resident native timetable instead of expanding a new network for every draw.
+GTFS `exact_times=0` entries are read as fixed departures: a vehicle at the
+start of each end-exclusive window and then every headway, the same in every
+sample. For each sample, each sampled planned frequency service receives one
+uniform integer-second phase in `[0, headway)`. Its vehicles then repeat at that
+headway within the end-exclusive service window. All stops, transfers, origins
+and destinations in that sample see the same realization. Published trips and
+fixed services stay the same in every sample.
 
 This models unknown schedules and variation in passenger departure times. It
 assumes on-time operations, passenger knowledge of the realized timetable and

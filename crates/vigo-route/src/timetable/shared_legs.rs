@@ -175,41 +175,6 @@ mod tests {
     }
 
     #[test]
-    fn scoped_transfers_do_not_erase_scheduled_departures() {
-        let mut kernel = kernel(4);
-        kernel
-            .set_service_semantics(ServiceSemantics {
-                trip_routes: vec![0; 4],
-                rules: vec![TransferRule {
-                    from_stop: 1,
-                    to_stop: 1,
-                    from_trip: Some(0),
-                    to_trip: Some(1),
-                    from_route: None,
-                    to_route: None,
-                    kind: 3,
-                    minimum: 0,
-                    stop_depth: 0,
-                }],
-                ..Default::default()
-            })
-            .unwrap();
-        let result = kernel.shared_ride_options(query()).unwrap();
-        assert_eq!(
-            result
-                .departures
-                .iter()
-                .map(|v| v.departure)
-                .collect::<Vec<_>>(),
-            [10., 11., 12., 13.]
-        );
-        assert!(
-            result.options.is_empty(),
-            "Segment evidence alone cannot certify scoped interchange replacements"
-        );
-    }
-
-    #[test]
     fn frequency_counts_segment_departures_independently_of_feasible_replacements() {
         let kernel = kernel(258);
         let mut q = query();
@@ -308,9 +273,7 @@ impl TimetableKernel {
                 }
                 result.departures.push(candidate.clone());
             }
-            // Segment evidence alone cannot certify scoped interchange rules.
             if candidate.arrival <= latest
-                && !self.service_enabled()
                 && !(candidate.trip == q.trip && candidate.board_sequence == q.board_sequence)
             {
                 if result.options.len() == 256 {
@@ -457,10 +420,7 @@ impl TimetableKernel {
                 if dep[start] != event.departure {
                     break;
                 }
-                if from[start] != stop as u32
-                    || board[start] == 0
-                    || self.is_headway_trip(trips[start])
-                {
+                if from[start] != stop as u32 || board[start] == 0 {
                     continue;
                 }
                 let end = start + (last - first);

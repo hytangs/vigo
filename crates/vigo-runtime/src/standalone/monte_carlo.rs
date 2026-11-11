@@ -24,10 +24,8 @@ impl City {
         // persisted in the City or leaks into the next resident-stream query.
         let result = self.monte_carlo_inner(command, request, detailed);
         self.frequency_sample = None;
+        self.scenario_random_runs = false;
         self.pinned_timetable = false;
-        if let Some(t) = &self.timetable {
-            t.kernel.set_frequency_sample(None);
-        }
         result
     }
 
@@ -217,20 +215,9 @@ impl City {
             self.install_scenario(scenario, &q)?;
         }
         self.pinned_timetable = true;
-        let search_end = if surface {
-            f64::from(options.end_minutes - 1) * 60.
-                + q["cutoffsMinutes"].as_array().map_or(60., |a| {
-                    a.iter().filter_map(Value::as_f64).fold(0., f64::max)
-                }) * 60.
-        } else {
-            super::query::Options::parse(&q)?.end
-        };
-        let stochastic = self
-            .timetable
-            .as_ref()
-            .unwrap()
-            .kernel
-            .has_frequency_service_between(f64::from(options.start_minutes) * 60., search_end);
+        // Only a scenario's non-exact frequency runs have a sampled phase;
+        // GTFS frequency templates are read as departures every headway.
+        let stochastic = scenario.is_some() && self.scenario_random_runs;
         let minutes = options.end_minutes - options.start_minutes;
         let per_minute = if stochastic {
             requested.div_ceil(minutes)
@@ -255,6 +242,13 @@ impl City {
             q["timeMinutes"] = json!(minute);
             for _ in 0..per_minute {
                 self.frequency_sample = stochastic.then_some((u64::from(seed), sample as u64));
+                if stochastic && let Some(scenario) = &scenario {
+                    // Each draw is its own schedule of the planned runs.
+                    self.pinned_timetable = false;
+                    self.activate(&q)?;
+                    self.install_scenario(scenario, &q)?;
+                    self.pinned_timetable = true;
+                }
                 self.apply_transfer_buffer(&q)?;
                 // Activation applies this realization to any reused or newly
                 // activated timetable; all OD pairs see that same schedule.

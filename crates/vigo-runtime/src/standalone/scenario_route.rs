@@ -17,6 +17,8 @@ pub(crate) struct ScenarioPresentation {
     pub stops: HashMap<String, Stop>,
     pub appended: Vec<(u32, [f64; 2])>,
     pub services: HashMap<String, Value>,
+    /// Whether the view has non-exact frequency runs a draw samples.
+    pub random_runs: bool,
 }
 
 const RETAINED_VIEWS: usize = 8;
@@ -108,11 +110,7 @@ impl City {
         let digest = format!("{:x}", Sha256::digest(serde_json::to_vec(scenario)?));
         // The view's planned stops, routes and trips belong to its own feed.
         let tag = format!("scenario-{}", &digest[..12]);
-        let key = format!(
-            "{}:{tag}:frequency={}",
-            t.key,
-            self.frequency_sample.is_some()
-        );
+        let key = format!("{}:{tag}:frequency={:?}", t.key, self.frequency_sample);
         let coverage_end = t.coverage_end;
         if let (Some(index), Some(presentation)) = (
             self.timetable_cache.find(&key, coverage_end),
@@ -122,6 +120,7 @@ impl City {
             self.retire_timetable();
             self.timetable = Some(view);
             self.install_query_workspace();
+            self.scenario_random_runs = presentation.random_runs;
             self.scenario_view = Some(presentation);
             return Ok(());
         }
@@ -139,10 +138,134 @@ impl City {
         }
         let presentation = Arc::new(presentation);
         self.scenario_views.insert(key, presentation.clone());
+        self.scenario_random_runs = presentation.random_runs;
         self.scenario_view = Some(presentation);
         Ok(())
     }
 
+    /// One Monte Carlo draw's phase for each non-exact planned run: a
+    /// counter-based hash of the seed, draw and run window, or, under
+    /// `phaseFrom`, its parent's departure plus the offset. Unsampled runs
+    /// and exact services have none.
+    fn planned_phases(
+        &self,
+        scenario: &Value,
+        planned: &super::scenario::Planned,
+    ) -> Result<Vec<Option<f64>>> {
+        let runs = planned.random.len();
+        let Some((seed, draw)) = self.frequency_sample else {
+            return Ok(vec![None; runs]);
+        };
+        let services = scenario["services"].as_array().cloned().unwrap_or_default();
+        let window = |run: usize| {
+            (
+                planned.starts[run].round(),
+                planned.ends[run].round(),
+                planned.headways[run].round().max(1.) as u64,
+            )
+        };
+        let key = |run: usize| {
+            frequency_key(&[
+                services[planned.run_services[run]]["id"]
+                    .as_str()
+                    .unwrap_or("planned"),
+                &format!(
+                    "{}:{}:{}",
+                    planned.run_services[run], planned.run_entries[run], planned.run_inbound[run]
+                ),
+            ])
+        };
+        // Phasing relates a service's runs on the service date; its runs
+        // on adjacent service days keep independent phases.
+        let run_for = |service: usize| -> Result<usize> {
+            let found: Vec<_> = planned
+                .run_services
+                .iter()
+                .zip(&planned.run_days)
+                .enumerate()
+                .filter(|(_, (owner, day))| **owner == service && **day == 0)
+                .map(|(run, _)| run)
+                .collect();
+            if found.len() != 1 || !planned.random[found[0]] {
+                return fail(
+                    "Phasing requires unidirectional frequency services with non-exact times",
+                );
+            }
+            Ok(found[0])
+        };
+        let offset = |run: usize, stop: u32| -> Result<f64> {
+            let start = planned.direction_offsets[run] as usize;
+            let end = planned.direction_offsets[run + 1] as usize;
+            let stop = start + stop as usize;
+            if stop >= end {
+                return fail("Phase stop index is outside its service");
+            }
+            Ok(if stop + 1 == end {
+                planned.arrivals[stop]
+            } else {
+                planned.departures[stop]
+            })
+        };
+        let mut parents: Vec<Option<(usize, f64)>> = vec![None; runs];
+        for (index, service) in services.iter().enumerate() {
+            let Some(phase) = service.get("phaseFrom") else {
+                continue;
+            };
+            let phase: vigo_model::FrequencyPhasing = serde_json::from_value(phase.clone())?;
+            let matches: Vec<_> = services
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s["id"] == phase.service_id)
+                .map(|(i, _)| i)
+                .collect();
+            if matches.len() != 1 {
+                return fail("phaseFrom.serviceId must identify one service");
+            }
+            let seconds = phase.offset_minutes.map_or(0., |n| n.0);
+            if !seconds.is_finite() || seconds.abs() > 1440. {
+                return fail("Invalid phase offsetMinutes");
+            }
+            let child = run_for(index)?;
+            let parent = run_for(matches[0])?;
+            if parents[child].is_some() {
+                return fail("Duplicate phasing constraint");
+            }
+            parents[child] = Some((
+                parent,
+                offset(parent, phase.from_stop_index)? - offset(child, phase.at_stop_index)?
+                    + seconds * 60.,
+            ));
+        }
+        for start in 0..runs {
+            let mut seen = std::collections::HashSet::new();
+            let mut child = start;
+            while let Some((parent, _)) = parents[child] {
+                if !seen.insert(child) {
+                    return fail("Cyclic frequency phasing");
+                }
+                child = parent;
+            }
+        }
+        let phase = |run: usize| -> f64 {
+            let mut chain = vec![];
+            let mut root = run;
+            while let Some((parent, shift)) = parents[root] {
+                chain.push((root, parent, shift));
+                root = parent;
+            }
+            let (start, end, headway) = window(root);
+            let mut phase = frequency_phase(seed, draw, key(root), headway, start, end);
+            for &(child, parent, shift) in chain.iter().rev() {
+                let (child_start, _, child_headway) = window(child);
+                phase = (window(parent).0 + phase + shift - child_start)
+                    .rem_euclid(child_headway as f64);
+            }
+            phase
+        };
+        Ok((0..runs)
+            .map(|run| planned.random[run].then(|| phase(run)))
+            .collect())
+    }
     fn derive_scenario(
         &mut self,
         scenario: &Value,
@@ -224,6 +347,7 @@ impl City {
             ..Default::default()
         };
         let planned = planned.unwrap_or(empty);
+        let phases = self.planned_phases(scenario, &planned)?;
         let (from, to, duration) = self.new_stop_links(&planned, &appended, n)?;
         let seconds = |values: &[f64]| -> Vec<u32> {
             values.iter().map(|v| v.round().max(0.) as u32).collect()
@@ -243,17 +367,24 @@ impl City {
             pattern_arrival_offsets: seconds(&planned.arrivals).into(),
             pattern_can_board: planned.board.clone().into(),
             pattern_can_alight: planned.alight.clone().into(),
-            run_start_seconds: seconds(&planned.starts).into(),
+            // A sampled run departs every headway from its window start plus
+            // its phase, before the window ends.
+            run_start_seconds: planned
+                .starts
+                .iter()
+                .zip(&phases)
+                .map(|(&start, phase)| (start.round() + phase.unwrap_or(0.)) as u32)
+                .collect::<Vec<_>>()
+                .into(),
             run_end_seconds: planned
                 .ends
                 .iter()
                 .enumerate()
-                .map(|(run, &end)| {
-                    if self.frequency_sample.is_some() && planned.random[run] {
-                        planned.starts[run].round() as u32
-                    } else {
-                        end.round() as u32
+                .map(|(run, &end)| match phases[run] {
+                    Some(phase) => {
+                        (end.round() - 1.).max(planned.starts[run].round() + phase) as u32
                     }
+                    None => end.round() as u32,
                 })
                 .collect::<Vec<_>>()
                 .into(),
@@ -267,109 +398,12 @@ impl City {
             added_transfer_to: to.into(),
             added_transfer_duration: duration.into(),
         };
-        let mut view = self
+        let view = self
             .timetable
             .as_ref()
             .unwrap()
             .kernel
             .scenario_view(plan)?;
-
-        if self.frequency_sample.is_some() {
-            let windows = view
-                .added_trip_patterns
-                .iter()
-                .enumerate()
-                .filter_map(|(added, &run)| {
-                    let run = run as usize;
-                    planned.random[run].then(|| vigo_route::timetable::HeadwayWindow {
-                        key: vigo_route::timetable::frequency_key(&[
-                            scenario["services"][planned.run_services[run]]["id"]
-                                .as_str()
-                                .unwrap_or("planned"),
-                            &format!(
-                                "{}:{}:{}",
-                                planned.run_services[run],
-                                planned.run_entries[run],
-                                planned.run_inbound[run]
-                            ),
-                        ]),
-                        trip: trip_ids.len() as u32 + added as u32,
-                        start: planned.starts[run].round(),
-                        end: planned.ends[run].round(),
-                        headway: planned.headways[run].round().max(1.) as u32,
-                    })
-                })
-                .collect();
-            view.kernel.add_frequency_windows(windows)?;
-            let services = scenario["services"].as_array().cloned().unwrap_or_default();
-            // Phasing relates a service's runs on the service date; its runs
-            // on adjacent service days keep independent phases.
-            let run_for = |service: usize| -> Result<usize> {
-                let runs: Vec<_> = planned
-                    .run_services
-                    .iter()
-                    .zip(&planned.run_days)
-                    .enumerate()
-                    .filter(|(_, (owner, day))| **owner == service && **day == 0)
-                    .map(|(run, _)| run)
-                    .collect();
-                if runs.len() != 1 || !planned.random[runs[0]] {
-                    return fail(
-                        "Phasing requires unidirectional frequency services with non-exact times",
-                    );
-                }
-                Ok(runs[0])
-            };
-            let trip_for = |run: usize| -> Result<u32> {
-                view.added_trip_patterns
-                    .iter()
-                    .position(|&p| p as usize == run)
-                    .map(|added| trip_ids.len() as u32 + added as u32)
-                    .ok_or_else(|| "Missing phase trip".into())
-            };
-            let mut constraints = vec![];
-            for (index, service) in services.iter().enumerate() {
-                let Some(phase) = service.get("phaseFrom") else {
-                    continue;
-                };
-                let phase: vigo_model::FrequencyPhasing = serde_json::from_value(phase.clone())?;
-                let matches: Vec<_> = services
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, s)| s["id"] == phase.service_id)
-                    .map(|(i, _)| i)
-                    .collect();
-                if matches.len() != 1 {
-                    return fail("phaseFrom.serviceId must identify one service");
-                }
-                let child = run_for(index)?;
-                let parent = run_for(matches[0])?;
-                let offset = |run: usize, stop: u32| -> Result<f64> {
-                    let start = planned.direction_offsets[run] as usize;
-                    let end = planned.direction_offsets[run + 1] as usize;
-                    let stop = start + stop as usize;
-                    if stop >= end {
-                        return fail("Phase stop index is outside its service");
-                    }
-                    Ok(if stop + 1 == end {
-                        planned.arrivals[stop]
-                    } else {
-                        planned.departures[stop]
-                    })
-                };
-                let seconds = phase.offset_minutes.map_or(0., |n| n.0);
-                if !seconds.is_finite() || seconds.abs() > 1440. {
-                    return fail("Invalid phase offsetMinutes");
-                }
-                constraints.push((
-                    trip_for(child)?,
-                    trip_for(parent)?,
-                    offset(parent, phase.from_stop_index)? - offset(child, phase.at_stop_index)?
-                        + seconds * 60.,
-                ));
-            }
-            view.kernel.set_frequency_phasing(constraints)?;
-        }
 
         // Names: new stops, and one route per planned service.
         let services = scenario["services"].as_array().cloned().unwrap_or_default();
@@ -388,6 +422,7 @@ impl City {
                 .unwrap_or(format!("Planned service {}", planned.run_services[run] + 1))
         };
         let mut presentation = ScenarioPresentation {
+            random_runs: planned.random.iter().any(|&random| random),
             stops: HashMap::new(),
             appended: vec![],
             services: HashMap::new(),
@@ -558,4 +593,37 @@ impl City {
         }
         Ok(candidates)
     }
+}
+
+/// Stable FNV-1a service identity. Delimit fields to avoid concatenation aliases.
+fn frequency_key(parts: &[&str]) -> u64 {
+    let mut key = 0xcbf29ce484222325u64;
+    for part in parts {
+        for byte in (part.len() as u64)
+            .to_le_bytes()
+            .iter()
+            .copied()
+            .chain(part.bytes())
+        {
+            key = (key ^ u64::from(byte)).wrapping_mul(0x100000001b3);
+        }
+    }
+    key
+}
+
+/// Counter-based SplitMix64. Query order and the number of destinations cannot
+/// affect a realization. Integer-second phases match GTFS clock resolution.
+fn frequency_phase(seed: u64, draw: u64, key: u64, headway: u64, start: f64, end: f64) -> f64 {
+    fn mix(mut x: u64) -> u64 {
+        x = (x ^ (x >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+        x = (x ^ (x >> 27)).wrapping_mul(0x94d049bb133111eb);
+        x ^ (x >> 31)
+    }
+    let key = mix(seed)
+        ^ mix(draw.wrapping_add(0x9e3779b97f4a7c15))
+        ^ mix(key)
+        ^ mix(headway)
+        ^ mix(start.to_bits())
+        ^ mix(end.to_bits());
+    (mix(key) % headway) as f64
 }
