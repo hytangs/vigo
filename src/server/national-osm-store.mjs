@@ -83,7 +83,9 @@ const buildSqliteCacheKiB = Math.max(
   Math.min(256 * 1024, Math.floor(Number(process.env.VIGO_BUILD_SQLITE_CACHE_KIB ?? 32 * 1024) || 0)),
 )
 const buildSqlitePageSize = 32 * 1024
-const driveAcceleratorMaximumNodes = Math.max(100_000, Number(process.env.VIGO_DRIVE_ACCELERATOR_MAX_NODES) || 8_000_000)
+// Driving vertices include the shared pedestrian nodes, so this matches the
+// pedestrian accelerator's scale: Switzerland has 16.3 million.
+const driveAcceleratorMaximumNodes = Math.max(100_000, Number(process.env.VIGO_DRIVE_ACCELERATOR_MAX_NODES) || 40_000_000)
 const driveAcceleratorMaximumEdges = Math.max(250_000, Number(process.env.VIGO_DRIVE_ACCELERATOR_MAX_EDGES) || 20_000_000)
 const driveAcceleratorSnapshotMagic = 'vigo.drive.accelerator'
 // v2 is a runtime-only drive graph: node ids are implicit array indices and
@@ -883,6 +885,18 @@ function acceleratorEligibility(storePath, metadata) {
     edgeCount,
     storeBytes,
   }
+}
+
+/** Say which driving limit a network exceeded and how to proceed. */
+function driveBudgetDetail(preparation) {
+  const budget = {
+    node_budget: ['vertices', preparation.nodeCount, driveAcceleratorMaximumNodes, 'VIGO_DRIVE_ACCELERATOR_MAX_NODES'],
+    edge_budget: ['edges', preparation.edgeCount, driveAcceleratorMaximumEdges, 'VIGO_DRIVE_ACCELERATOR_MAX_EDGES'],
+  }[preparation.reason]
+  if (!budget) return preparation.error ?? preparation.reason
+  const [unit, count, limit, variable] = budget
+  return `${preparation.reason}: the driving network has ${Number(count).toLocaleString('en-US')} ${unit}, `
+    + `above the limit of ${limit.toLocaleString('en-US')}. Raise ${variable}, or build with --street-modes walk or walk,bike to omit driving.`
 }
 
 function driveAcceleratorEligibility(metadata) {
@@ -2263,7 +2277,7 @@ export function compactNationalOsmRuntimeStore(storePath, options = {}) {
       ensureIndexes: false,
     })
     if (!drivePreparation.ready && options.requireDrive !== false) {
-      throw new Error(`Drive snapshot could not be prepared before OSM compaction: ${drivePreparation.error ?? drivePreparation.reason}`)
+      throw new Error(`Drive snapshot could not be prepared before OSM compaction: ${driveBudgetDetail(drivePreparation)}`)
     }
   }
 

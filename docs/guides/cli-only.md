@@ -44,6 +44,14 @@ memory before the next stage. Regional native CCH preprocessing can still exceed
 on a larger machine and copy the complete City to the serving machine. Runtime
 RAM limits and build working-memory requirements are separate.
 
+National street networks fit the default limits; Switzerland's OpenStreetMap
+extract gives 16.3 million driving vertices (driving shares the pedestrian
+nodes) and 11.7 million driving edges. Driving preparation accepts up to 40
+million vertices (`VIGO_DRIVE_ACCELERATOR_MAX_NODES`) and 20 million edges
+(`VIGO_DRIVE_ACCELERATOR_MAX_EDGES`); a larger network fails with its counts and
+these limits. Raise them, or add `--street-modes walk` or `walk,bike` to omit
+driving.
+
 Street preparation must successfully write the walking accelerator before the
 source graph is sealed. Missing or unwritable snapshots fail preparation rather
 than publishing a City that cannot open. V1 preserves the supported City data layout; no new City format is required. Use the current V1 release to receive builder fixes.
