@@ -13,9 +13,11 @@ const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-bike-matrix-'))
 const stores = []
 let pairs = 0
 let reachPairs = 0
+// On-demand loading: memory checks below count what the first bike request loads.
 function stream(city, requests) {
   const child = spawnSync(binary, ['stream', '--city', city], {
     input: requests.map(q => JSON.stringify(q)).join('\n') + '\n', encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+    env: { ...process.env, VIGO_PREPARE_BIKE: '0' },
   })
   assert.equal(child.status, 0, child.stderr)
   const replies = child.stdout.trim().split('\n').map(line => JSON.parse(line))

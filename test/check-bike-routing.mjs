@@ -57,12 +57,41 @@ try {
   assert.equal(ordered.status,'ok'); assert(ordered.journey.cyclingSeconds > 0)
   const residentRequests = [{kind:'info'}, {...query,kind:'route'}, {kind:'info'},
     {...query,kind:'route',bike:{profile:'quiet'}}, {kind:'info'}]
-  const resident = spawnSync(binary,['stream','--city',city],{input:residentRequests.map(q=>JSON.stringify(q)).join('\n')+'\n',encoding:'utf8'})
+  const resident = spawnSync(binary,['stream','--city',city],{input:residentRequests.map(q=>JSON.stringify(q)).join('\n')+'\n',encoding:'utf8',
+    env:{...process.env,VIGO_PREPARE_BIKE:'0'}})
   assert.equal(resident.status,0,resident.stderr)
   const replies=resident.stdout.trim().split('\n').map(line=>JSON.parse(line))
-  assert.equal(replies[0].memory.ledger.bike,null,'Bike must remain unloaded before its first query')
+  assert.equal(replies[0].memory.ledger.bike,null,'Without preparation, bike must remain unloaded before its first query')
   assert(replies[2].memory.ledger.bike.networkHeapBytes > 0)
   assert.equal(replies[4].memory.ledger.bike.networkHeapBytes,replies[2].memory.ledger.bike.networkHeapBytes,'Profiles share one graph')
+  // A resident stream prepares bike on opening; its answers are those of an on-demand open.
+  const answer = reply => { const { sequence, meta, ...rest } = reply; const { computeUs, requestId, ...kept } = meta ?? {}; return JSON.stringify({ ...rest, meta: kept }) }
+  const preparing = spawn(binary,['stream','--city',city],{stdio:['pipe','pipe','pipe']})
+  const preparedReplies = []
+  let pendingLine = ''
+  const nextReply = () => new Promise((resolve, reject) => {
+    const take = () => { const newline = pendingLine.indexOf('\n'); if (newline < 0) return false; const line = pendingLine.slice(0, newline); pendingLine = pendingLine.slice(newline + 1); resolve(JSON.parse(line)); return true }
+    if (take()) return
+    const timer = setTimeout(() => reject(new Error('Prepared stream did not answer')), 30000)
+    preparing.stdout.on('data', function data(chunk) { pendingLine += chunk; if (take()) { clearTimeout(timer); preparing.stdout.off('data', data) } })
+  })
+  let ledger = null
+  for (let attempt = 0; attempt < 200 && !ledger; attempt++) {
+    preparing.stdin.write(JSON.stringify({kind:'info'}) + '\n')
+    ledger = (await nextReply()).memory.ledger.bike
+    if (!ledger) await new Promise(resolve => setTimeout(resolve, 25))
+  }
+  assert(ledger?.networkHeapBytes > 0, 'A resident stream must open bike before its first bike query')
+  assert(ledger.hierarchyHeapBytes > 0, 'A resident stream must prepare the default bike hierarchy before its first bike query')
+  for (const request of residentRequests.filter(q => q.kind === 'route')) {
+    preparing.stdin.write(JSON.stringify(request) + '\n')
+    preparedReplies.push(await nextReply())
+  }
+  preparing.stdin.end()
+  assert.equal(await new Promise(resolve => preparing.once('close', resolve)), 0)
+  assert.deepEqual(preparedReplies.map(answer), [replies[1], replies[3]].map(answer), 'Preparation must not change bike answers')
+  const invalid = spawnSync(binary,['stream','--city',city],{input:'',encoding:'utf8',env:{...process.env,VIGO_PREPARE_BIKE:'yes'}})
+  assert.notEqual(invalid.status,0); assert.match(invalid.stderr,/VIGO_PREPARE_BIKE must be 0 or 1/)
   const requestPath = path.join(directory,'query.json'); fs.writeFileSync(requestPath,JSON.stringify(query))
   const cli = JSON.parse(execFileSync(process.execPath,['public/vigo.mjs','route',`--city=${city}`,`--request=${requestPath}`],{cwd:root,encoding:'utf8'}))
   assert.equal(cli.status,'ok')

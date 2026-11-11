@@ -1,5 +1,9 @@
 # Version history
 
+## Unreleased
+
+- A single-City `stream` or `serve` worker opens its bicycle network and prepares the default hierarchy in the background as soon as it opens a City with bicycle data, so the first bicycle request no longer waits for it. A request that arrives earlier waits only for what remains, and answers are unchanged. Set `VIGO_PREPARE_BIKE=0` to prepare on the first bicycle request instead. Bicycle caches remove temporary files that an interrupted process left for over an hour.
+
 ## 1.0.0 — 2026-11-09
 
 - Express-to-local journeys stay on the express to a later shared platform also where the feed publishes a minimum connection time, when that platform's rule, minimum and the requested buffer still catch the same local train. Previously any published minimum kept the earlier interchange: in New York, MetroTech to Columbia changed from the 2 or 3 to the 1 at 72 St instead of 96 St, whose 3-minute minimum the connection meets. Arrival, boardings and walking are unchanged.

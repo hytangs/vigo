@@ -147,6 +147,14 @@ try {
     assert(replies.includes(503), 'Full connection/query capacity must reject work')
     assert(replies.includes(504), 'Stalled worker must time out')
     checks += 3
+    // The HTTP deadline can answer 504 before the supervisor discards the
+    // stopped worker. Wait for the reap itself, or replacing the server below
+    // would orphan a stopped worker instead of testing its cleanup.
+    const reapedBy = Date.now() + 5000
+    while (true) {
+      try { process.kill(worker, 0) } catch (error) { if (error.code === 'ESRCH') break; throw error }
+      assert(Date.now() < reapedBy, 'Timed-out process must be reaped'); await new Promise(resolve => setTimeout(resolve, 25))
+    }
     const firstRecovery = Date.now() + 5000
     while ((await fetch(`${origin}/readyz`)).status !== 200) {
       assert(Date.now() < firstRecovery); await new Promise(resolve => setTimeout(resolve, 25))
