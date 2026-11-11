@@ -313,7 +313,7 @@ Prepared files are tied to the source revision, routing policy, and format. Miss
 
 ### Scenario
 
-A Scenario is an immutable set of changes applied to one City revision. Planned service changes apply to Reach. Supplied traffic applies to Drive Route and Drive Matrix, and a supplied realtime snapshot applies to transit Route; requests carry these as `scenario`, `traffic`, and `realtimeSnapshot`. Walking limits, departure times, and cutoffs remain query options. A complete alternative GTFS source is a new City revision, not a Scenario.
+A Scenario is an immutable set of changes applied to one City revision. Planned service changes apply to Reach, and in the engine also to transit Route. Supplied traffic applies to Drive Route and Drive Matrix. A supplied realtime snapshot applies to transit Route, and in the engine also to transit Matrix and Reach. Requests carry these as `scenario`, `traffic`, and `realtimeSnapshot`. Walking limits, departure times, and cutoffs remain query options. A complete alternative GTFS source is a new City revision, not a Scenario.
 
 VIGO rejects unsupported combinations before computing. It never silently drops a change or moves a Scenario to a newer City revision. See [Scenarios](#scenario-semantics).
 
@@ -337,13 +337,13 @@ A Result is the immutable answer to one Query: status, values, warnings, timing,
 
 | Query | Travel mode | Time constraint | Supplied changes or observations |
 | --- | --- | --- | --- |
-| Route | Transit | Depart-at or arrive-by; waypoints and departure windows have their own limits | Matched GTFS-RT Trip Updates when realtime is explicitly selected |
-| Route | Walk or Drive | Street routing with the chosen time direction | Supplied traffic for Drive in realtime mode |
-| Matrix | Transit | Fixed departure or arrival deadline | Scheduled timetable only |
-| Matrix | Walk or Drive | Static street metric; arrive-by does not introduce time-varying traffic | Supplied traffic for Drive in realtime mode |
-| Reach | Transit with walking, or Walk | Fixed departure and time cutoffs | Planned-service Scenario; scheduled analysis |
+| Route | Transit | Depart-at or arrive-by; waypoints and departure windows have their own limits | Matched GTFS-RT Trip Updates when realtime is explicitly selected; a planned-service Scenario in the engine |
+| Route | Walk, Drive, or Bike | Street routing with the chosen time direction; a dated Bike request checks timed roads and turns | Supplied traffic for Drive in realtime mode |
+| Matrix | Transit | Fixed departure or arrival deadline | Scheduled timetable; matched GTFS-RT Trip Updates in the engine |
+| Matrix | Walk, Drive, or Bike | Street metric; arrive-by does not introduce time-varying traffic, and a dated Bike request checks timed roads and turns | Supplied traffic for Drive in realtime mode |
+| Reach | Transit with walking, Walk, Drive, or Bike | Depart-at from an origin or arrive-by at a destination, with time cutoffs | Planned-service Scenario for transit; matched GTFS-RT Trip Updates for transit in the engine |
 
-`vigo capabilities` describes the running build. Queries default to scheduled mode. Drive traffic needs both the `traffic` object and an explicit `routingDataMode: "realtime"`; VIGO never fetches a traffic provider. A visible vehicle, alert, or added trip is not itself a routing update.
+"In the engine" means the `vigo` executable and its HTTP API accept that combination; the compiler and Python reject it. `vigo capabilities` describes the running build. Queries default to scheduled mode. Drive traffic needs both the `traffic` object and an explicit `routingDataMode: "realtime"`; VIGO never fetches a traffic provider. A visible vehicle, alert, or added trip is not itself a routing update.
 
 ### Outcomes
 
@@ -721,7 +721,7 @@ Request scalar output when only times are needed. Journey queries also share boa
 
 ## Reach and isochrones
 
-Reach finds the streets and areas reachable from one origin within a time budget, by scheduled transit with walking or by walking alone. Arrive-by Reach asks the reverse: from where a destination can be reached by a deadline. It does not measure access to jobs or people unless your analysis adds those opportunities. The [Reach request reference](guides/rust-standalone.md#9-reach-and-isochrones) lists every field.
+Reach finds the streets and areas reachable from one origin within a time budget, by transit with walking, or by walking, driving, or cycling alone. Arrive-by Reach asks the reverse: from where a destination can be reached by a deadline. It does not measure access to jobs or people unless your analysis adds those opportunities. The [Reach request reference](guides/rust-standalone.md#9-reach-and-isochrones) lists every field.
 
 ### Send a Reach request
 
@@ -742,7 +742,7 @@ Reach finds the streets and areas reachable from one origin within a time budget
 vigo reach --city ./boston --request reach.json --output reach-result.json
 ```
 
-`mode: "walk"` requests walking-only Reach and needs no service date. Drive and realtime Reach are unavailable. Planned transit changes use transit with street sampling.
+`mode: "walk"` requests walking-only Reach and needs no service date. `mode: "drive"` routes to each cell center over the directed driving network with road-speed estimates, without live traffic or transit scenarios. `mode: "bike"` uses the [bicycle hierarchy](guides/rust-standalone.md#bicycle-route-and-matrix) and needs a City prepared with bicycle streets. The engine can also run transit Reach on a realtime snapshot; the compiler and Python keep Reach scheduled. Planned transit changes use transit with street sampling.
 
 For arrive-by Reach, send a `destination` instead of the origin, with `"timePreference": "arrive_by"` and the deadline as `time`. Each value is how long before the deadline a traveler must leave that place, including any wait after an early arrival. Walking keeps each street's permitted direction toward the destination. The Node and Rust CLIs and Python send this same request, and all run Reach in the `vigo` executable.
 
@@ -795,7 +795,7 @@ A Scenario is an immutable set of changes tied to exactly one City revision. It 
 
 Scenarios never edit the imported GTFS or OSM, and a complete alternative feed is another City revision. Drawing geometry in an editor creates no computational change until it is attached to a valid service edit. Several nonconflicting planned changes may coexist; conflicts need an explicit resolution. A Scenario never moves to another City revision, and expired live state cannot be queried.
 
-In VIGO 1.0.0, planned service changes apply to Reach, supplied traffic to Drive Route and Drive Matrix, and supplied realtime predictions to transit Route. Transit Matrix and Reach remain scheduled. Studio can also route transit journeys on a saved scenario, on the scheduled timetable. Unsupported combinations are rejected with an explanation. The [Scenario request reference](guides/rust-standalone.md#10-scenarios) lists every field.
+In VIGO 1.0.0, planned service changes apply to Reach, supplied traffic to Drive Route and Drive Matrix, and supplied realtime predictions to transit Route. The engine also applies planned service changes to transit Route, and realtime predictions to transit Matrix and Reach; a Reach scenario then applies on top of the realtime timetable. The compiler and Python keep transit Matrix and Reach scheduled. Studio can also route transit journeys on a saved scenario, on the scheduled timetable. Unsupported combinations are rejected with an explanation. The [Scenario request reference](guides/rust-standalone.md#10-scenarios) lists every field.
 
 ### Planned service
 
@@ -862,15 +862,15 @@ Python's `Result.to_dict()` keeps its detailed, minute-valued payload. Use the [
 
 ## Realtime journey routing
 
-Route can use supplied GTFS-Realtime Trip Updates. This chapter explains how predictions are admitted and how to read the outcome; the [realtime input reference](guides/rust-standalone.md#12-realtime-transit-and-supplied-traffic) lists the snapshot fields.
+Route can use supplied GTFS-Realtime Trip Updates, and in the engine so can transit Matrix and Reach. This chapter explains how predictions are admitted and how to read the outcome; the [realtime input reference](guides/rust-standalone.md#12-realtime-transit-and-supplied-traffic) lists the snapshot fields.
 
 ### Two modes, one engine
 
-Route exposes `routingDataMode: "realtime" | "scheduled"`, shown in Studio as **Realtime** and **Scheduled · Research**. The command-line runtimes default to scheduled and use a supplied `realtimeSnapshot`; they never fetch feeds. The compiler also accepts `--data-mode realtime|scheduled`.
+Route exposes `routingDataMode: "realtime" | "scheduled"`, shown in Studio as **Realtime** and **Scheduled · Research**. The command-line runtimes default to scheduled and use a supplied `realtimeSnapshot`; only the engine's HTTP service fetches feeds, through [automatic polling](guides/rust-standalone.md#automatic-gtfs-rt-polling). The compiler also accepts `--data-mode realtime|scheduled`.
 
 Scheduled research requires an explicit service date and time. The server removes realtime and traffic observations before processing, enforces the exact date, and disables date substitution. Studio keeps the selected date and time and ignores feed polling in this mode; live refreshes, expiry checks, and mode changes cancel obsolete realtime requests, and switching modes never shows the other mode's old result.
 
-Both transit modes use the same native algorithms, stop identities, walking and transfer policies, and coordinate search; only the timetable presented to the engine differs. Transit Matrix and Reach remain scheduled and reject realtime requests.
+Both transit modes use the same native algorithms, stop identities, walking and transfer policies, and coordinate search; only the timetable presented to the engine differs. The engine searches the same realtime timetable for transit Route, Matrix, and Reach; the compiler and Python keep Matrix and Reach scheduled and reject realtime requests for them.
 
 Results for an explicit mode include `diagnostics.routingDataMode` and `routingDataProvenance`: source timetable and street identity, service date and timezone, query time, walking and search settings, engine contract version, and a reproducibility key. Realtime results also identify the prediction snapshot, and ordered journeys reject changed data identities between legs. The manifest identifies inputs but does not archive them; retain the City, the VIGO build, the request, and the returned diagnostics to reproduce a result.
 
@@ -1093,7 +1093,7 @@ VIGO models the City revision and query it is given. It does not certify real-wo
 
 ### Realtime
 
-- Realtime transit applies to Route only, and only with a supplied `realtimeSnapshot` and explicit realtime selection. Transit Matrix and Reach reject realtime requests. Vehicle Positions and Alerts do not change route costs or close services.
+- Realtime transit needs explicit realtime selection and a supplied `realtimeSnapshot`, or a snapshot the engine's HTTP service polls. It applies to Route in every runtime, and to transit Matrix and Reach only in the engine; the compiler and Python reject realtime Matrix and Reach requests. Vehicle Positions never change routing. In the engine, a fresh `NO_SERVICE` [Service Alert](guides/rust-standalone.md#service-alerts) closes the boardings and alightings it selects; other alerts are reported on the legs they describe.
 - Only `FULL_DATASET` feeds are decoded. Updates modify matched scheduled trips, remove `CANCELED` and `DELETED` trips, and omit `SKIPPED` calls. Added, duplicated, replacement, and unscheduled trips without a supported scheduled instance are unsupported for routing, though Studio can [display them](#added-service).
 - Feed and record timestamps must pass freshness checks: up to 180 seconds old and 60 seconds ahead of the captured clock. Missing timestamps do not establish freshness. See [realtime routing](#realtime-journey-routing).
 
@@ -1106,7 +1106,7 @@ VIGO models the City revision and query it is given. It does not certify real-wo
 
 ### Scenario and Reach
 
-- Planned transit service changes apply to Reach; supplied traffic applies to Drive Route and Drive Matrix. Other combinations are rejected.
+- Planned transit service changes apply to transit Reach, and in the engine also to transit Route; supplied traffic applies to Drive Route and Drive Matrix. Drive Reach uses road-speed estimates without traffic or scenarios. Other combinations are rejected.
 - `maxTransfers` limits changes between vehicles in both baseline and scenario Reach; zero permits one ride, and walking never counts as a boarding.
 - After the last ride, Reach follows the same declared station exits as coordinate egress, and a stop reached only by a transfer walk does not restart the walking allowance. Reach rasterizes reached street edges while Matrix evaluates destination coordinates, so their cells can differ under matching settings.
 - Reach measures modeled travel time, not people, jobs, demand, welfare, observed behavior, or operational feasibility.
