@@ -71,9 +71,9 @@ pub(crate) fn allocator_memory() -> Value {
     Value::Null
 }
 
-// Large timetable preparation temporarily allocates sorting and import arrays.
-// Return freed pages after a service change instead of retaining allocator
-// arenas for every scenario. This never runs on an unchanged warm timetable.
+// Timetable preparation, network opening and Reach or Matrix searches
+// allocate large temporary arrays. Return their freed pages instead of
+// leaving them charged to the worker. This never runs on a warm Route.
 pub(crate) fn release_preparation_memory() {
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     {
@@ -83,6 +83,17 @@ pub(crate) fn release_preparation_memory() {
         // glibc's allocator owns these pages and performs its own locking.
         unsafe {
             malloc_trim(0);
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        unsafe extern "C" {
+            fn malloc_zone_pressure_relief(zone: *mut std::ffi::c_void, goal: usize) -> usize;
+        }
+        // A null zone with no goal releases free pages from every zone;
+        // libmalloc performs its own locking.
+        unsafe {
+            malloc_zone_pressure_relief(std::ptr::null_mut(), 0);
         }
     }
 }

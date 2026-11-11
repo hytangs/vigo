@@ -105,7 +105,6 @@ struct State {
 /// A source reader owned by the same lifetime as the JS routing store. Reading
 /// directly into native points avoids one JS object and two coordinate copies
 /// per shape point. It does not retain shapes or itinerary answers.
-#[cfg_attr(feature = "node", napi)]
 pub struct ShapeGeometrySource {
     db: Option<Connection>,
 }
@@ -141,9 +140,7 @@ fn coordinate_number(value: ValueRef<'_>) -> Option<f64> {
     number.is_finite().then_some(number)
 }
 
-#[cfg_attr(feature = "node", napi)]
 impl ShapeGeometrySource {
-    #[cfg_attr(feature = "node", napi(constructor))]
     pub fn new(store_path: String) -> Result<Self> {
         let db = Connection::open_with_flags(
             store_path,
@@ -156,7 +153,6 @@ impl ShapeGeometrySource {
         Ok(Self { db: Some(db) })
     }
 
-    #[cfg_attr(feature = "node", napi)]
     pub fn read_shape(&self, shape_id: String) -> Result<Option<ShapeGeometry>> {
         let db = self
             .db
@@ -178,11 +174,6 @@ impl ShapeGeometrySource {
             return Ok(None);
         }
         ShapeGeometry::from_points(points).map(Some)
-    }
-
-    #[cfg_attr(feature = "node", napi)]
-    pub fn close(&mut self) {
-        self.db.take();
     }
 }
 
@@ -508,6 +499,7 @@ impl ShapeGeometry {
 
 /// The line used when no shape aligns: stop coordinates with consecutive
 /// identical stops collapsed. A missing coordinate makes the distance unknown.
+#[cfg(feature = "standalone")]
 pub(crate) fn stop_sequence_polyline(stops: &[[f64; 2]]) -> (Vec<[f64; 2]>, Option<f64>) {
     let mut line: Vec<[f64; 2]> = Vec::with_capacity(stops.len());
     for &point in stops {
@@ -544,19 +536,6 @@ impl LegPolyline {
             distance_m,
         }
     }
-}
-
-#[cfg(feature = "node")]
-#[napi]
-pub fn stop_sequence_line(values: Float64Array) -> Result<LegPolyline> {
-    if !values.len().is_multiple_of(2) {
-        return Err(Error::from_reason(
-            "Stop coordinates must be longitude/latitude pairs.",
-        ));
-    }
-    let stops: Vec<[f64; 2]> = values.chunks_exact(2).map(|v| [v[0], v[1]]).collect();
-    let (line, distance) = stop_sequence_polyline(&stops);
-    Ok(LegPolyline::new(&line, distance))
 }
 
 /// Preserve JavaScript String iteration: valid surrogate pairs are one code

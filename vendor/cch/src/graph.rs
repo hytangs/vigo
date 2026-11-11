@@ -1,11 +1,5 @@
 //! Input graph type in Compressed-Sparse-Row (CSR) format.
 
-/// Node identifier (index into the CSR `first_out` array).
-pub type NodeId = u32;
-
-/// Arc identifier (index into the CSR `head`/`weight` arrays).
-pub type ArcId = u32;
-
 /// A directed, weighted graph stored in Compressed-Sparse-Row format.
 ///
 /// Invariants (caller-enforced at construction time):

@@ -54,6 +54,7 @@ pub(crate) struct Snapshot {
 }
 
 impl Snapshot {
+    #[cfg(feature = "standalone")]
     pub(crate) fn heap_bytes(&self) -> usize {
         self.fixed_heap_bytes
             + self

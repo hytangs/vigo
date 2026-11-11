@@ -380,6 +380,7 @@ impl SurfaceEnds {
 
 // Most paths serve every destination; a private road narrows that set. Intern
 // those sets once instead of repeating a full search for each machine word.
+#[derive(Clone)]
 struct SurfaceMasks {
     sets: Vec<std::sync::Arc<[u64]>>,
     ids: HashMap<std::sync::Arc<[u64]>, u32>,
@@ -695,8 +696,9 @@ impl BikeKernel {
         // this prefix keeps its exact full-radius distance and order, so a
         // certified minimum is the full-radius minimum. Cells the
         // certificate cannot settle repeat with every candidate below.
-        let bounds = hierarchy::node_bounds(self, &starts, opt, arrive)?;
-        let tiles = Tiles::new(self, &bounds.minimum, targets, max_walk);
+        let area = Tiles::area(targets, max_walk);
+        let bounds = hierarchy::node_bounds(self, &starts, opt, arrive, |p| area.contains(p))?;
+        let tiles = Tiles::new(self, &bounds, area);
         let near = self.near_endpoint(&starts, origin, targets, max_walk);
         let first = in_parallel(targets.len(), |i, scratch| {
             let point = targets[i];
@@ -865,6 +867,26 @@ impl BikeKernel {
     }
 }
 
+/// Where a surface's walking candidates can lie.
+#[cfg(any(feature = "standalone", test))]
+#[derive(Clone, Copy)]
+struct Area {
+    west: f64,
+    east: f64,
+    south: f64,
+    north: f64,
+    kx: f64,
+    ky: f64,
+    radius: f64,
+}
+
+#[cfg(any(feature = "standalone", test))]
+impl Area {
+    fn contains(&self, [x, y]: [f64; 2]) -> bool {
+        x >= self.west && x < self.east && y >= self.south && y < self.north
+    }
+}
+
 /// The least relaxed node cost in each map tile around the grid. A walking
 /// candidate in a tile costs at least that minimum plus the walk to the
 /// tile's nearest point, which bounds how far a cell must search.
@@ -884,9 +906,10 @@ struct Tiles {
 impl Tiles {
     const SIZE_M: f64 = 100.;
 
-    fn new(kernel: &BikeKernel, node_minimum: &[f64], targets: &[[f64; 2]], max_walk: f64) -> Self {
-        // Walks follow network edges, so they are never shorter than the
-        // straight-line distance; the margin covers projection error.
+    /// The cells' bounding box widened by the farthest walk a cell searches.
+    /// Walks follow network edges, so they are never shorter than the
+    /// straight-line distance; the margin covers projection error.
+    fn area(targets: &[[f64; 2]], max_walk: f64) -> Area {
         let radius = max_walk * 1.02 + 30.;
         let latitude = targets.iter().map(|p| p[1]).sum::<f64>() / targets.len().max(1) as f64;
         let (ky, kx) = (110_574., 111_320. * latitude.to_radians().cos().max(1e-6));
@@ -902,16 +925,34 @@ impl Tiles {
             south = south.min(p[1]);
             north = north.max(p[1]);
         }
-        west -= radius / kx;
-        east += radius / kx;
-        south -= radius / ky;
-        north += radius / ky;
+        Area {
+            west: west - radius / kx,
+            east: east + radius / kx,
+            south: south - radius / ky,
+            north: north + radius / ky,
+            kx,
+            ky,
+            radius,
+        }
+    }
+
+    fn new(kernel: &BikeKernel, bounds: &hierarchy::NodeBounds, area: Area) -> Self {
+        let Area {
+            west,
+            east,
+            south,
+            north,
+            kx,
+            ky,
+            radius,
+        } = area;
         let columns = (((east - west) * kx / Self::SIZE_M).ceil() as usize).max(1);
         let rows = (((north - south) * ky / Self::SIZE_M).ceil() as usize).max(1);
         let mut minimum = vec![f64::INFINITY; columns * rows];
-        for (node, &cost) in node_minimum.iter().enumerate() {
-            let (x, y) = (kernel.lons[node], kernel.lats[node]);
-            if cost.is_finite() && x >= west && x < east && y >= south && y < north {
+        for &node in &bounds.nodes {
+            let cost = bounds.minimum[node as usize];
+            let (x, y) = (kernel.lons[node as usize], kernel.lats[node as usize]);
+            if cost.is_finite() {
                 let column = (((x - west) * kx / Self::SIZE_M) as usize).min(columns - 1);
                 let row = (((y - south) * ky / Self::SIZE_M) as usize).min(rows - 1);
                 let tile = &mut minimum[row * columns + column];

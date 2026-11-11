@@ -1175,6 +1175,7 @@ impl BikeKernel {
 
     /// Ordered bicycle segments retain their actual incoming edge and via-way
     /// history. One shared graph is used; no continuation IDs enter the API.
+    #[cfg(any(feature = "standalone", test))]
     pub fn route_through(
         &self,
         points: &[[f64; 2]],
@@ -1434,32 +1435,6 @@ mod node {
                 )
                 .map_err(napi::Error::from_reason)?;
             serde_json::to_string(&result).map_err(|e| napi::Error::from_reason(e.to_string()))
-        }
-        #[napi]
-        pub fn route_through(&self, request: String) -> napi::Result<String> {
-            let q: Request = serde_json::from_str(&request)
-                .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-            let clock = q
-                .clock
-                .map(|c| BikeClock::service(&c.service_date, &c.time_zone, c.seconds))
-                .transpose()
-                .map_err(napi::Error::from_reason)?;
-            let points: Vec<_> = std::iter::once(q.origin)
-                .chain(q.via)
-                .chain([q.destination])
-                .collect();
-            let r = self
-                .0
-                .route_through(
-                    &points,
-                    q.bike,
-                    q.max_walk_meters,
-                    q.walking_speed_kph,
-                    q.max_distance_meters,
-                    clock.filter(|_| !q.arrive_by),
-                )
-                .map_err(napi::Error::from_reason)?;
-            serde_json::to_string(&r).map_err(|e| napi::Error::from_reason(e.to_string()))
         }
         #[napi]
         pub fn route(&self, request: String) -> napi::Result<String> {
@@ -2090,6 +2065,8 @@ mod tests {
                 < 1e-8
         );
         k.windows.schedules[id as usize - 1] = vec![(480, 484)];
+        // A kernel is immutable once open; prepare again from the edited one.
+        *k.cch_prepared.lock().unwrap() = None;
         assert_eq!(
             k.route_at(
                 nodes[0],
@@ -3927,6 +3904,9 @@ mod tests {
                     // jump must not invent a legal combination of weekly rules.
                     k.attributes[1] |= TIMED_EDGE;
                     k.edge_windows.insert(1, 1);
+                    // A kernel is immutable once open; prepare again from
+                    // the edited one.
+                    *k.cch_prepared.lock().unwrap() = None;
                     let blocked = k
                         .route_at(
                             nodes[0],

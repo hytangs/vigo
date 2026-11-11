@@ -214,46 +214,34 @@ impl Point<'_> {
             .filter(|a| k.attributes[a.edge as usize] & (1 << 22) != 0)
             .map(|a| k.destination_components[k.source(a.edge) as usize])
             .collect();
-        let mut masks = SurfaceMasks::new(1);
+        // Dated movements depend only on the profile and on whether the query
+        // is dated, so their admission is shared. Private movements of the
+        // endpoints' components are admitted on top of it.
+        let guard = self.prepared.guard(k, opt, self.clock.is_some())?;
+        let mut masks = guard.admitted.masks.clone();
         let permission: HashMap<_, _> = access
             .iter()
             .map(|&component| (component, masks.all))
             .collect();
-        let permits = |road| {
-            k.allowed_edge(road, opt)
-                && (k.attributes[road as usize] & (1 << 22) == 0
-                    || access.contains(&k.destination_components[k.source(road) as usize]))
+        // Every query starts from the shared admission; endpoints reaching
+        // private components add their private movements and any dated
+        // movement on a private road they reach.
+        let inputs;
+        let (allowed, extra) = if access.is_empty() {
+            (&guard.allowed[..], &[][..])
+        } else {
+            inputs = endpoint_inputs(
+                k,
+                moves,
+                opt,
+                &access,
+                guard,
+                self.clock.is_some(),
+                masks.all,
+            )?;
+            (&inputs.0[..], &inputs.1[..])
         };
-        let mut allowed: Vec<_> = moves
-            .roads
-            .iter()
-            .zip(&moves.dynamic)
-            .map(|(&road, &dynamic)| !dynamic && permits(road))
-            .collect();
-        let reference = self
-            .clock
-            .map(|_| BikeClock::service("2026-01-05", "UTC", 0.))
-            .transpose()?;
-        let mut guarded = Vec::new();
-        for &(component, input) in &moves.private {
-            if access.contains(&component) && allowed[input as usize] {
-                guarded.push((input, masks.all));
-            }
-        }
-        for (from, road, range) in &moves.timed {
-            if !permits(*road) {
-                continue;
-            }
-            let (states, _, _) =
-                possible_successors(k, &moves.states, *from, *road, reference, 0., 604799.)?;
-            for i in range.clone() {
-                if states.contains(&moves.input.head[i]) {
-                    allowed[i] = true;
-                    guarded.push((i as u32, masks.all));
-                }
-            }
-        }
-        let terminals = self.terminals(&allowed)?;
+        let terminals = self.terminals(allowed)?;
         let hard_time = self.max_elapsed.unwrap_or(f64::MAX / 4.);
         let replay = point_path::Replay {
             kernel: k,
@@ -271,23 +259,19 @@ impl Point<'_> {
             let b = self.end.candidate(&g, witness.destination);
             replay.path(self.origin, self.destination, a, b, witness, reverse_seed)
         };
-        let zeros = vec![0.; h.graph.node_count()];
-        let unconstrained = scoped::Corridor {
-            start: &zeros,
-            remaining: &zeros,
-            cap: f64::INFINITY,
-            start_scale: 1.,
-            remaining_scale: 1.,
-        };
-        let mut metric = scoped::Metric::new(h, &masks);
-        metric.admit(
-            k,
-            moves,
-            opt,
-            guarded.iter().copied(),
-            &mut masks,
-            &unconstrained,
-        );
+        let zeros = zero_bounds(h.graph.node_count());
+        let unconstrained = corridor(&zeros);
+        let mut metric = scoped::Metric::new(h, &masks).reuse(&guard.admitted);
+        if !extra.is_empty() {
+            metric.admit(
+                k,
+                moves,
+                opt,
+                extra.iter().copied(),
+                &mut masks,
+                &unconstrained,
+            );
+        }
         let Some(cheap) = self.minimum(&metric, &terminals, &mut masks, false, rate) else {
             return Ok(None);
         };
@@ -304,17 +288,19 @@ impl Point<'_> {
             return Ok(feasible);
         }
         if feasible.is_none() && self.max_elapsed.is_none() {
-            let lengths = Weights::distance(k, moves, &h.graph, opt);
-            let mut metric = scoped::Metric::weighted(h, &lengths, &masks);
-            metric.admit_weighted(
-                k,
-                moves,
-                opt,
-                guarded.iter().copied(),
-                &mut masks,
-                &unconstrained,
-                |road| k.distances[road as usize] as f64 / 100.,
-            );
+            let (lengths, admitted) = self.prepared.lengths(k, opt, guard);
+            let mut metric = scoped::Metric::weighted(h, lengths, &masks).reuse(admitted);
+            if !extra.is_empty() {
+                metric.admit_weighted(
+                    k,
+                    moves,
+                    opt,
+                    extra.iter().copied(),
+                    &mut masks,
+                    &unconstrained,
+                    |road| k.distances[road as usize] as f64 / 100.,
+                );
+            }
             let Some(shortest) = self.minimum(&metric, &terminals, &mut masks, true, rate) else {
                 return Ok(None);
             };
@@ -547,4 +533,203 @@ impl Point<'_> {
         }
         Ok(feasible)
     }
+}
+
+/// The movements every point query on one profile admits — dated movements
+/// any time of the week allows, nothing private — and the metrics after
+/// admitting them, which queries extend for their endpoints.
+pub(super) struct Guarded {
+    allowed: Vec<bool>,
+    guarded: Vec<(u32, u32)>,
+    admitted: scoped::Admitted,
+    lengths: std::sync::OnceLock<(Weights, scoped::Admitted)>,
+}
+
+fn zero_bounds(nodes: usize) -> Vec<f64> {
+    vec![0.; nodes]
+}
+
+impl Prepared {
+    fn guard(
+        &self,
+        kernel: &BikeKernel,
+        opt: BikeOptions,
+        dated: bool,
+    ) -> Result<&Guarded, String> {
+        self.guards[usize::from(dated)]
+            .get_or_init(|| {
+                let moves = &self.movements;
+                let mut masks = SurfaceMasks::new(1);
+                let mut allowed: Vec<_> = moves
+                    .roads
+                    .iter()
+                    .zip(&moves.dynamic)
+                    .map(|(&road, &dynamic)| !dynamic && public(kernel, opt, road))
+                    .collect();
+                let reference = dated_reference(dated)?;
+                let mut guarded = Vec::new();
+                for (from, road, range) in &moves.timed {
+                    if public(kernel, opt, *road) {
+                        dated_inputs(
+                            kernel,
+                            moves,
+                            *from,
+                            *road,
+                            range,
+                            reference,
+                            masks.all,
+                            &mut allowed,
+                            &mut guarded,
+                        )?;
+                    }
+                }
+                let zeros = zero_bounds(self.hierarchy.graph.node_count());
+                let mut metric = scoped::Metric::new(&self.hierarchy, &masks);
+                metric.admit(
+                    kernel,
+                    moves,
+                    opt,
+                    guarded.iter().copied(),
+                    &mut masks,
+                    &corridor(&zeros),
+                );
+                Ok(Guarded {
+                    allowed,
+                    guarded,
+                    admitted: metric.admitted(masks),
+                    lengths: std::sync::OnceLock::new(),
+                })
+            })
+            .as_ref()
+            .map_err(Clone::clone)
+    }
+
+    /// The shared admission on the distance metric, built on first use.
+    fn lengths<'a>(
+        &'a self,
+        kernel: &BikeKernel,
+        opt: BikeOptions,
+        guard: &'a Guarded,
+    ) -> (&'a Weights, &'a scoped::Admitted) {
+        let (lengths, admitted) = guard.lengths.get_or_init(|| {
+            let lengths = Weights::distance(kernel, &self.movements, &self.hierarchy.graph, opt);
+            let mut masks = guard.admitted.masks.clone();
+            let zeros = zero_bounds(self.hierarchy.graph.node_count());
+            let mut metric = scoped::Metric::weighted(&self.hierarchy, &lengths, &masks);
+            metric.admit_weighted(
+                kernel,
+                &self.movements,
+                opt,
+                guard.guarded.iter().copied(),
+                &mut masks,
+                &corridor(&zeros),
+                |road| kernel.distances[road as usize] as f64 / 100.,
+            );
+            let admitted = metric.admitted(masks);
+            (lengths, admitted)
+        });
+        (lengths, admitted)
+    }
+}
+
+fn corridor(zeros: &[f64]) -> scoped::Corridor<'_> {
+    scoped::Corridor {
+        start: zeros,
+        remaining: zeros,
+        cap: f64::INFINITY,
+        start_scale: 1.,
+        remaining_scale: 1.,
+    }
+}
+
+/// Usable without private access.
+fn public(k: &BikeKernel, opt: BikeOptions, road: u32) -> bool {
+    k.allowed_edge(road, opt) && k.attributes[road as usize] & (1 << 22) == 0
+}
+
+/// Dated movements are admitted as any time of the week allows them; a
+/// dated query is classified against one fixed reference clock.
+fn dated_reference(dated: bool) -> Result<Option<BikeClock>, String> {
+    dated
+        .then(|| BikeClock::service("2026-01-05", "UTC", 0.))
+        .transpose()
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Keep the admission inputs explicit."
+)]
+fn dated_inputs(
+    k: &BikeKernel,
+    moves: &MovementGraph,
+    from: u32,
+    road: u32,
+    range: &std::ops::Range<usize>,
+    reference: Option<BikeClock>,
+    all: u32,
+    allowed: &mut [bool],
+    guarded: &mut Vec<(u32, u32)>,
+) -> Result<(), String> {
+    let (states, _, _) = possible_successors(k, &moves.states, from, road, reference, 0., 604799.)?;
+    for i in range.clone() {
+        if states.contains(&moves.input.head[i]) {
+            allowed[i] = true;
+            guarded.push((i as u32, all));
+        }
+    }
+    Ok(())
+}
+
+/// Allowed movements, and the inputs a query admits beyond the shared ones.
+type EndpointInputs = (Vec<bool>, Vec<(u32, u32)>);
+
+/// For endpoints that reach private components: the movements they may
+/// use, and the inputs the shared admission lacks — their private movements
+/// and the dated movements on private roads they reach.
+fn endpoint_inputs(
+    k: &BikeKernel,
+    moves: &MovementGraph,
+    opt: BikeOptions,
+    access: &HashSet<u32>,
+    shared: &Guarded,
+    dated: bool,
+    all: u32,
+) -> Result<EndpointInputs, String> {
+    let reached = |road: u32| {
+        k.allowed_edge(road, opt)
+            && k.attributes[road as usize] & (1 << 22) != 0
+            && access.contains(&k.destination_components[k.source(road) as usize])
+    };
+    let mut allowed: Vec<_> = moves
+        .roads
+        .iter()
+        .zip(&moves.dynamic)
+        .map(|(&road, &dynamic)| !dynamic && (public(k, opt, road) || reached(road)))
+        .collect();
+    let mut extra = Vec::new();
+    for &(component, input) in &moves.private {
+        if access.contains(&component) && allowed[input as usize] {
+            extra.push((input, all));
+        }
+    }
+    for &(input, _) in &shared.guarded {
+        allowed[input as usize] = true;
+    }
+    let reference = dated_reference(dated)?;
+    for (from, road, range) in &moves.timed {
+        if reached(*road) {
+            dated_inputs(
+                k,
+                moves,
+                *from,
+                *road,
+                range,
+                reference,
+                all,
+                &mut allowed,
+                &mut extra,
+            )?;
+        }
+    }
+    Ok((allowed, extra))
 }

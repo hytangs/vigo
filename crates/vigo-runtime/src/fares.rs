@@ -1017,12 +1017,6 @@ impl FareEngine {
         candidate
     }
 
-    /// Whether this ride's fare depends on its scheduled clock time.
-    #[cfg_attr(not(feature = "node"), allow(dead_code))]
-    pub(crate) fn needs_scheduled_time(&mut self, leg: &FareLeg) -> bool {
-        self.index.as_ref().is_some_and(|i| i.v2) && self.candidate(leg).is_ok_and(|c| c.timed)
-    }
-
     /// The published boarding fare options for one ride, or why none applies.
     pub(crate) fn quote(&mut self, leg: &FareLeg, service_date: &str) -> Value {
         if let Some(reason) = &self.unavailable_reason {
@@ -1116,23 +1110,6 @@ pub(crate) mod node {
             self.engine.usable()
         }
 
-        #[napi]
-        pub fn needs_scheduled_time(
-            &mut self,
-            route_id: String,
-            from_stop_id: String,
-            to_stop_id: String,
-        ) -> bool {
-            self.engine.needs_scheduled_time(&FareLeg {
-                route_id: &route_id,
-                from_stop_id: &from_stop_id,
-                to_stop_id: &to_stop_id,
-                departure_seconds: 0.,
-                arrival_seconds: 0.,
-                realtime_adjusted: false,
-            })
-        }
-
         /// The quote as JSON, shared byte-for-byte with the standalone runtime.
         #[napi]
         #[allow(clippy::too_many_arguments)]
@@ -1156,49 +1133,6 @@ pub(crate) mod node {
             };
             self.engine.quote(&leg, &service_date).to_string()
         }
-    }
-
-    #[napi(object)]
-    pub struct FareEventDayResult {
-        pub date: String,
-        pub weekday: String,
-        pub seconds: u32,
-    }
-
-    /// Engine primitives exposed for parity checks against the JS runtime.
-    #[napi]
-    pub fn fare_currency_scales() -> Vec<String> {
-        CURRENCY_DIGITS
-            .iter()
-            .map(|(code, digits)| format!("{code}:{digits}"))
-            .collect()
-    }
-
-    #[napi]
-    pub fn native_parse_fare_amount(amount: String, currency: String) -> Option<f64> {
-        parse_fare_amount(&json!(amount), &json!(currency))
-    }
-
-    #[napi]
-    pub fn native_fare_event_day(
-        service_date: String,
-        service_seconds: f64,
-        agency_timezone: String,
-        event_timezone: Option<String>,
-    ) -> Option<FareEventDayResult> {
-        let event = event_timezone.unwrap_or_else(|| agency_timezone.clone());
-        fare_event_day(&service_date, service_seconds, &agency_timezone, &event).map(|day| {
-            FareEventDayResult {
-                date: day.date,
-                weekday: day.weekday.into(),
-                seconds: day.seconds,
-            }
-        })
-    }
-
-    #[napi]
-    pub fn native_public_fare_url(text: String) -> Option<String> {
-        public_fare_url(&text)
     }
 }
 

@@ -4,6 +4,17 @@ use chrono_tz::Tz;
 use rusqlite::Connection;
 use std::collections::HashMap;
 
+/// The instant a GTFS service date's clock starts: local noon minus twelve
+/// hours, so service times stay continuous across daylight-saving changes.
+pub(crate) fn service_epoch(zone: Tz, day: NaiveDate) -> Result<i64, &'static str> {
+    Ok(zone
+        .from_local_datetime(&day.and_hms_opt(12, 0, 0).unwrap())
+        .single()
+        .ok_or("Service date has no unambiguous local noon")?
+        .timestamp()
+        - 43_200)
+}
+
 // Prepared object kind and source identifier to compact permission window.
 type WindowIds = HashMap<(u8, i64), u32>;
 
@@ -24,8 +35,7 @@ impl BikeClock {
             return Err("Invalid bicycle service clock".into());
         }
         let zone: Tz = zone.parse().map_err(|_| "Invalid bicycle timeZone")?;
-        let epoch =
-            crate::realtime::service_epoch(zone, day).map_err(|e| e.to_string())? as f64 + seconds;
+        let epoch = service_epoch(zone, day)? as f64 + seconds;
         Ok(Self { epoch, zone })
     }
 

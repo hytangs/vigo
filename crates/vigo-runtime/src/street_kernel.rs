@@ -11,6 +11,7 @@ pub(super) fn open_street_cch_bundles(
 }
 
 impl CoordinateKernel {
+    #[cfg(feature = "standalone")]
     pub(crate) fn memory_ledger(&self) -> serde_json::Value {
         let mut mapped = self.snapshot.mmap.len();
         let mut workspace = self.origin_workspace.byte_length()

@@ -306,7 +306,7 @@ fn realtime_diagnostics(overlay: &realtime::Overlay, snapshot: &Value) -> Value 
 pub(crate) struct Drive {
     pub automatic_traffic: Option<std::sync::Arc<vigo_traffic::Snapshot>>,
     pub kernel: DriveKernel,
-    pub image: Image,
+    pub image: Arc<Image>,
 }
 pub struct City {
     pub(crate) path: PathBuf,
@@ -1860,36 +1860,35 @@ impl City {
 }
 
 fn open_drive(city: &Path) -> Result<Drive> {
-    {
-        let path = city.join("osm/street-index.sqlite.drive-accelerator-v2.bin");
-        let image = Image::open(&path, false)?;
-        if image.header["magic"] != "vigo.drive.accelerator" || image.header["version"] != 2 {
-            return fail("Unsupported drive snapshot");
-        }
-        let (structure, time, distance) = cch_files(&path, "drive")?;
-        let lons = image.f64("nodeLons")?;
-        let lats = image.f64("nodeLats")?;
-        // The kernel owns the coordinates; it attaches free points to roads.
-        let kernel = DriveKernel::new(DriveKernelInput {
-            node_count: lons.len() as u32,
-            node_lons: lons,
-            node_lats: lats,
-            edge_offsets: image.u32("edgeOffsets")?,
-            edge_targets: image.u32("edgeTargets")?,
-            edge_distances: None,
-            edge_travel_times: None,
-            edge_distance_units: Some(image.u32("edgeDistanceUnits")?),
-            edge_time_units: Some(image.u32("edgeTimeUnits")?),
-            cch_structure_path: Some(structure),
-            cch_time_metric_path: Some(time),
-            cch_distance_metric_path: distance,
-        })?;
-        Ok(Drive {
-            automatic_traffic: None,
-            kernel,
-            image,
-        })
+    let path = city.join("osm/street-index.sqlite.drive-accelerator-v2.bin");
+    let image = Arc::new(Image::open(&path, false)?);
+    if image.header["magic"] != "vigo.drive.accelerator" || image.header["version"] != 2 {
+        return fail("Unsupported drive snapshot");
     }
+    let (structure, time, distance) = cch_files(&path, "drive")?;
+    // The kernel reads the graph in place from the immutable accelerator
+    // and owns its coordinates for attaching free points to roads.
+    use crate::exact_routing::{F64Column, U32Column};
+    let lons = F64Column::mapped(&image, "nodeLons")?;
+    let kernel = DriveKernel::new(DriveKernelInput {
+        node_count: lons.len() as u32,
+        node_lons: lons,
+        node_lats: F64Column::mapped(&image, "nodeLats")?,
+        edge_offsets: U32Column::mapped(&image, "edgeOffsets")?,
+        edge_targets: U32Column::mapped(&image, "edgeTargets")?,
+        edge_distances: None,
+        edge_travel_times: None,
+        edge_distance_units: Some(U32Column::mapped(&image, "edgeDistanceUnits")?),
+        edge_time_units: Some(U32Column::mapped(&image, "edgeTimeUnits")?),
+        cch_structure_path: Some(structure),
+        cch_time_metric_path: Some(time),
+        cch_distance_metric_path: distance,
+    })?;
+    Ok(Drive {
+        automatic_traffic: None,
+        kernel,
+        image,
+    })
 }
 
 // Realtime views keep every original trip, so the source's tables still apply.

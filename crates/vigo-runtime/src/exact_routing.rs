@@ -180,6 +180,19 @@ impl PersistedDriveCch {
     }
 
     fn path(&mut self, minimize_distance: bool, source: u32, target: u32) -> Option<Vec<u32>> {
+        let (query, metric) = self.query_and_metric(minimize_distance);
+        query.path(&metric, source, target)
+    }
+
+    fn distances(&mut self, minimize_distance: bool, sources: &[u32], targets: &[u32]) -> Vec<u32> {
+        let (query, metric) = self.query_and_metric(minimize_distance);
+        query.distance_matrix(&metric, sources, targets)
+    }
+
+    fn query_and_metric(
+        &mut self,
+        minimize_distance: bool,
+    ) -> (&mut cch::PathQuery<'static>, cch::MetricView<'_>) {
         self.prepare_path_query();
         let Self {
             path_query,
@@ -199,10 +212,10 @@ impl PersistedDriveCch {
         } else {
             time_metric.view()
         };
-        path_query
+        let query = path_query
             .as_mut()
-            .expect("drive CCH path query was prepared")
-            .path(&metric, source, target)
+            .expect("drive CCH path query was prepared");
+        (query, metric)
     }
 }
 
@@ -214,6 +227,26 @@ struct InMemoryDriveCch {
     traffic_active: bool,
 }
 
+impl InMemoryDriveCch {
+    /// The path query with the metric a query minimizes, borrowed apart.
+    fn query_and_metric(
+        &mut self,
+        minimize_distance: bool,
+    ) -> (&mut cch::OwnedPathQuery, cch::MetricView<'_>) {
+        let metric = if minimize_distance {
+            self.distance_metric.view()
+        } else if self.traffic_active {
+            self.traffic_metric
+                .as_ref()
+                .expect("active drive traffic metric was customized")
+                .view()
+        } else {
+            self.time_metric.view()
+        };
+        (&mut self.path_query, metric)
+    }
+}
+
 enum DriveCch {
     InMemory(Box<InMemoryDriveCch>),
     Persisted(Box<PersistedDriveCch>),
@@ -223,57 +256,22 @@ impl DriveCch {
     fn path(&mut self, minimize_distance: bool, source: u32, target: u32) -> Option<Vec<u32>> {
         match self {
             Self::InMemory(index) => {
-                let metric = if minimize_distance {
-                    index.distance_metric.view()
-                } else if index.traffic_active {
-                    index
-                        .traffic_metric
-                        .as_ref()
-                        .expect("active drive traffic metric was customized")
-                        .view()
-                } else {
-                    index.time_metric.view()
-                };
-                index.path_query.path(&metric, source, target)
+                let (query, metric) = index.query_and_metric(minimize_distance);
+                query.path(&metric, source, target)
             }
             Self::Persisted(index) => index.path(minimize_distance, source, target),
         }
     }
 
-    fn distances(&self, minimize_distance: bool, sources: &[u32], targets: &[u32]) -> Vec<u32> {
+    /// Candidate costs on the prepared path query, so no node-sized scratch
+    /// is allocated or validated per call.
+    fn distances(&mut self, minimize_distance: bool, sources: &[u32], targets: &[u32]) -> Vec<u32> {
         match self {
-            Self::InMemory(index) => cch::distance_matrix(
-                &index.path_query.structure().view(),
-                &if minimize_distance {
-                    index.distance_metric.view()
-                } else if index.traffic_active {
-                    index
-                        .traffic_metric
-                        .as_ref()
-                        .expect("active drive traffic metric was customized")
-                        .view()
-                } else {
-                    index.time_metric.view()
-                },
-                sources,
-                targets,
-            ),
-            Self::Persisted(index) => cch::distance_matrix(
-                &index.structure.view(),
-                &if minimize_distance {
-                    index.distance_metric.view()
-                } else if index.traffic_active {
-                    index
-                        .traffic_metric
-                        .as_ref()
-                        .expect("active drive traffic metric was customized")
-                        .view()
-                } else {
-                    index.time_metric.view()
-                },
-                sources,
-                targets,
-            ),
+            Self::InMemory(index) => {
+                let (query, metric) = index.query_and_metric(minimize_distance);
+                query.distance_matrix(&metric, sources, targets)
+            }
+            Self::Persisted(index) => index.distances(minimize_distance, sources, targets),
         }
     }
 
@@ -508,19 +506,28 @@ fn initialize_drive_cch(
     )
 }
 
+// The addon keeps the caller's typed arrays; the executable reads the drive
+// accelerator's columns in place from its mapped file.
+#[cfg(feature = "node")]
+type F64Column = Float64Array;
+#[cfg(feature = "node")]
+type U32Column = Uint32Array;
+#[cfg(not(feature = "node"))]
+pub(crate) type F64Column = crate::standalone_types::Column<f64>;
+#[cfg(not(feature = "node"))]
+pub(crate) type U32Column = crate::standalone_types::Column<u32>;
+
 #[cfg_attr(feature = "node", napi(object))]
-#[cfg_attr(not(feature = "node"), derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(not(feature = "node"), serde(rename_all = "camelCase"))]
 pub struct DriveKernelInput {
     pub node_count: u32,
-    pub node_lats: Float64Array,
-    pub node_lons: Float64Array,
-    pub edge_offsets: Uint32Array,
-    pub edge_targets: Uint32Array,
+    pub node_lats: F64Column,
+    pub node_lons: F64Column,
+    pub edge_offsets: U32Column,
+    pub edge_targets: U32Column,
     pub edge_distances: Option<Float64Array>,
     pub edge_travel_times: Option<Float64Array>,
-    pub edge_distance_units: Option<Uint32Array>,
-    pub edge_time_units: Option<Uint32Array>,
+    pub edge_distance_units: Option<U32Column>,
+    pub edge_time_units: Option<U32Column>,
     pub cch_structure_path: Option<String>,
     pub cch_time_metric_path: Option<String>,
     pub cch_distance_metric_path: Option<String>,
@@ -780,14 +787,14 @@ fn blocked_drive_result(
 pub struct DriveKernel {
     node_count: usize,
     borrowed_source_bytes: usize,
-    node_lons: Float64Array,
-    node_lats: Float64Array,
+    node_lons: F64Column,
+    node_lats: F64Column,
     /// Built when the kernel first attaches a free coordinate.
     road_index: Option<RoadIndex>,
-    edge_offsets: Uint32Array,
-    edge_targets: Uint32Array,
-    edge_distance_units: Uint32Array,
-    edge_time_units: Uint32Array,
+    edge_offsets: U32Column,
+    edge_targets: U32Column,
+    edge_distance_units: U32Column,
+    edge_time_units: U32Column,
     traffic_edge_time_units: Vec<u32>,
     traffic_snapshot_key: Option<String>,
     traffic_updated_edges: u32,
@@ -861,13 +868,18 @@ impl DriveKernel {
             .sum::<usize>()
                 * 4
         }
-        let mut network = (self.edge_offsets.capacity()
-            + self.edge_targets.capacity()
-            + self.edge_distance_units.capacity()
-            + self.edge_time_units.capacity())
-            * 4
-            + (self.node_lons.capacity() + self.node_lats.capacity()) * 8
+        let integers = [
+            &self.edge_offsets,
+            &self.edge_targets,
+            &self.edge_distance_units,
+            &self.edge_time_units,
+        ];
+        let coordinates = [&self.node_lons, &self.node_lats];
+        let mut network = integers.iter().map(|c| c.heap_bytes()).sum::<usize>()
+            + coordinates.iter().map(|c| c.heap_bytes()).sum::<usize>()
             + self.road_index.as_ref().map_or(0, RoadIndex::byte_length);
+        let columns = integers.iter().map(|c| c.mapped_bytes()).sum::<usize>()
+            + coordinates.iter().map(|c| c.mapped_bytes()).sum::<usize>();
         let mut workspace = (self.node_head.capacity()
             + self.node_generation.capacity()
             + self.target_generation.capacity())
@@ -899,7 +911,7 @@ impl DriveKernel {
             }
         };
         serde_json::json!({"networkHeapBytes":network,"workspaceHeapBytes":workspace,
-            "trafficHeapBytes":traffic,"trafficSnapshotEstimatedHeapBytes":self.traffic_engine.estimated_heap_bytes(),"mappedFileBytes":mapped,"source":self.cch.source(),
+            "trafficHeapBytes":traffic,"trafficSnapshotEstimatedHeapBytes":self.traffic_engine.estimated_heap_bytes(),"mappedFileBytes":mapped + columns,"source":self.cch.source(),
             "inMemoryPathScratchCounted":false})
     }
 
@@ -1375,7 +1387,7 @@ impl DriveKernel {
         // owned vectors. Neither interface needs a second full graph copy.
         let edge_offsets = input.edge_offsets;
         let edge_targets = input.edge_targets;
-        let (edge_distance_units, edge_time_units): (Uint32Array, Uint32Array) = match (
+        let (edge_distance_units, edge_time_units): (U32Column, U32Column) = match (
             input.edge_distance_units,
             input.edge_time_units,
             input.edge_distances,
@@ -2426,8 +2438,8 @@ impl DriveKernel {
     /// Durations and distances from every origin to every destination, each
     /// priced as `route_coordinates` prices one trip. Unreachable pairs are
     /// infinite.
-    #[cfg_attr(feature = "node", napi)]
-    pub fn route_coordinate_matrix(
+    #[cfg(feature = "standalone")]
+    pub(crate) fn route_coordinate_matrix(
         &mut self,
         input: DriveCoordinateMatrixInput,
     ) -> napi::Result<DriveMatrixResult> {
@@ -2509,37 +2521,128 @@ impl DriveKernel {
 #[cfg(all(test, not(feature = "node")))]
 mod ownership_tests {
     use super::*;
-    #[test]
-    fn drive_admission_moves_integer_arrays_without_copying() {
-        let input = DriveKernelInput {
+    use crate::standalone_types::Column;
+
+    fn input(lons: F64Column, lats: F64Column, integers: [U32Column; 4]) -> DriveKernelInput {
+        let [edge_offsets, edge_targets, distances, times] = integers;
+        DriveKernelInput {
             node_count: 2,
-            node_lats: vec![38., 38.],
-            node_lons: vec![0., 0.001],
-            edge_offsets: vec![0, 1, 1],
-            edge_targets: vec![1],
-            edge_distance_units: Some(vec![100]),
-            edge_time_units: Some(vec![100]),
+            node_lats: lats,
+            node_lons: lons,
+            edge_offsets,
+            edge_targets,
+            edge_distance_units: Some(distances),
+            edge_time_units: Some(times),
             edge_distances: None,
             edge_travel_times: None,
             cch_structure_path: None,
             cch_time_metric_path: None,
             cch_distance_metric_path: None,
-        };
-        let pointers = [
+        }
+    }
+
+    fn pointers(input: &DriveKernelInput) -> [*const u32; 4] {
+        [
             input.edge_offsets.as_ptr(),
             input.edge_targets.as_ptr(),
             input.edge_distance_units.as_ref().unwrap().as_ptr(),
             input.edge_time_units.as_ref().unwrap().as_ptr(),
-        ];
-        let kernel = DriveKernel::new(input).unwrap();
-        assert_eq!(
-            pointers,
+        ]
+    }
+
+    fn kernel_pointers(kernel: &DriveKernel) -> [*const u32; 4] {
+        [
+            kernel.edge_offsets.as_ptr(),
+            kernel.edge_targets.as_ptr(),
+            kernel.edge_distance_units.as_ptr(),
+            kernel.edge_time_units.as_ptr(),
+        ]
+    }
+
+    #[test]
+    fn drive_admission_moves_integer_arrays_without_copying() {
+        let input = input(
+            vec![0., 0.001].into(),
+            vec![38., 38.].into(),
             [
-                kernel.edge_offsets.as_ptr(),
-                kernel.edge_targets.as_ptr(),
-                kernel.edge_distance_units.as_ptr(),
-                kernel.edge_time_units.as_ptr()
-            ]
+                vec![0, 1, 1].into(),
+                vec![1].into(),
+                vec![100].into(),
+                vec![100].into(),
+            ],
         );
+        let before = pointers(&input);
+        let kernel = DriveKernel::new(input).unwrap();
+        assert_eq!(before, kernel_pointers(&kernel));
+    }
+
+    #[test]
+    fn drive_admission_reads_mapped_columns_in_place() {
+        // A two-node accelerator: a JSON header page, then 8-aligned columns.
+        let f64s = |values: &[f64]| {
+            values
+                .iter()
+                .flat_map(|v| v.to_le_bytes())
+                .collect::<Vec<_>>()
+        };
+        let u32s = |values: &[u32]| {
+            values
+                .iter()
+                .flat_map(|v| v.to_le_bytes())
+                .collect::<Vec<_>>()
+        };
+        let columns = [
+            ("nodeLons", "Float64Array", f64s(&[0., 0.001]), 2),
+            ("nodeLats", "Float64Array", f64s(&[38., 38.]), 2),
+            ("edgeOffsets", "Uint32Array", u32s(&[0, 1, 1]), 3),
+            ("edgeTargets", "Uint32Array", u32s(&[1]), 1),
+            ("edgeDistanceUnits", "Uint32Array", u32s(&[100]), 1),
+            ("edgeTimeUnits", "Uint32Array", u32s(&[100]), 1),
+        ];
+        let mut body = Vec::new();
+        let mut arrays = serde_json::Map::new();
+        for (name, kind, bytes, length) in &columns {
+            body.resize(body.len().next_multiple_of(8), 0);
+            arrays.insert(
+                (*name).into(),
+                serde_json::json!({"type":kind,"offset":4096 + body.len(),"length":length}),
+            );
+            body.extend(bytes);
+        }
+        let mut file = serde_json::json!({"byteLength":4096 + body.len(),"arrays":arrays})
+            .to_string()
+            .into_bytes();
+        file.resize(4096, b' ');
+        file.extend(body);
+        let path =
+            std::env::temp_dir().join(format!("vigo-drive-columns-{}.bin", std::process::id()));
+        fs::write(&path, file).unwrap();
+        let image = std::sync::Arc::new(vigo_format::Snapshot::open(&path, false).unwrap());
+        let u32_column = |name| U32Column::mapped(&image, name).unwrap();
+        let input = input(
+            F64Column::mapped(&image, "nodeLons").unwrap(),
+            F64Column::mapped(&image, "nodeLats").unwrap(),
+            [
+                u32_column("edgeOffsets"),
+                u32_column("edgeTargets"),
+                u32_column("edgeDistanceUnits"),
+                u32_column("edgeTimeUnits"),
+            ],
+        );
+        assert!(matches!(input.node_lons, Column::Mapped { .. }));
+        assert_eq!(*input.node_lons, [0., 0.001]);
+        assert_eq!(*input.edge_offsets, [0, 1, 1]);
+        let before = pointers(&input);
+        drop(image);
+        let kernel = DriveKernel::new(input).unwrap();
+        assert_eq!(before, kernel_pointers(&kernel));
+        assert_eq!(
+            kernel.edge_targets.heap_bytes() + kernel.node_lats.heap_bytes(),
+            0
+        );
+        assert_eq!(kernel.edge_targets.mapped_bytes(), 4);
+        assert_eq!(*kernel.node_lats, [38., 38.]);
+        drop(kernel);
+        fs::remove_file(path).unwrap();
     }
 }

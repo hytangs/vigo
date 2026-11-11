@@ -20,13 +20,6 @@ pub struct TimetableKernel {
 
 #[napi]
 impl TimetableKernel {
-    #[napi]
-    pub fn shared_ride_options(&self, input: SharedRideQuery) -> Result<SharedRideResult> {
-        self.inner
-            .shared_ride_options(input.into())
-            .map(Into::into)
-            .map_err(node_error)
-    }
     #[napi(constructor)]
     pub fn new(input: TimetableKernelInput) -> Result<Self> {
         vigo_route::timetable::TimetableKernel::new(input.into())
@@ -149,14 +142,6 @@ pub fn compile_station_paths(input: StationPathsInput) -> Result<StationPathsRes
 #[napi]
 pub fn validate_station_paths(input: StationPathsValidationInput) -> Result<()> {
     vigo_route::timetable::validate_station_paths(input.into()).map_err(node_error)
-}
-#[napi]
-pub fn compile_scenario_timetable(
-    input: ScenarioTimetableInput,
-) -> Result<ScenarioTimetableResult> {
-    vigo_route::timetable::compile_scenario_timetable(input.into())
-        .map(Into::into)
-        .map_err(node_error)
 }
 #[napi]
 pub fn read_service_timetable(input: ServiceTimetableInput) -> Result<ServiceTimetableResult> {
