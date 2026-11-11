@@ -131,7 +131,7 @@
     "@vitejs/plugin-react": "6.0.4",
     "electron": "44.9.3",
     "prettier": "3.6.2",
-    "typescript": "~5.7.2",
+    "typescript": "~7.0.2",
     "vite": "8.1.6"
   }
 }
