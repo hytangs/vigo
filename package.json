@@ -130,7 +130,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "6.0.4",
     "electron": "44.9.3",
-    "prettier": "3.6.2",
+    "prettier": "3.9.10",
     "typescript": "~5.7.2",
     "vite": "8.1.6"
   }
