@@ -198,6 +198,7 @@ impl Store {
             options.mode(0o600);
         }
         directories.create(&self.source.directory)?;
+        super::cache::sweep_abandoned(&self.source.directory);
         let file = self.file(kind);
         let temporary = file.with_extension(format!(
             "{kind}.{}-{}.tmp",

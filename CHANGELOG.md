@@ -1,5 +1,9 @@
 # Version history
 
+## Unreleased
+
+- A single-City `stream` or `serve` worker opens its bicycle network and prepares the default hierarchy in the background as soon as it opens a City with bicycle data, so the first bicycle request no longer waits for it. A request that arrives earlier waits only for what remains, and answers are unchanged. Set `VIGO_PREPARE_BIKE=0` to prepare on the first bicycle request instead. Bicycle caches remove temporary files that an interrupted process left for over an hour.
+
 ## 1.0.0 — 2026-11-09
 
 - Bicycle Route and Reach no longer fail with "Temporal contraction exceeded its path workspace" around timed roads and turns. One cell whose only access is timed, such as a parkway that is one-way during the morning rush, previously raised the price ceiling of every cell to the whole cutoff, so hundreds of dated movements entered the exact search. Such cells are now bounded by a legal earliest arrival, or for arrival queries a legal latest departure, or proved unreachable when no legal movement reaches them in time. A second legal path search keyed on price tightens these ceilings for preferences such as Quiet. Point routes bound a relaxed path that must wait for a road to reopen the same way. Corridors too wide to customize, or profiles that outgrow their workspace, resolve dated movements by searching the movement graph directly instead of failing. Answers are unchanged.

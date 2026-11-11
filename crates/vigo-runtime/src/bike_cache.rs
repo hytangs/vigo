@@ -20,6 +20,42 @@ const HEADER: usize = 80;
 const MAX_BYTES: usize = 2 * 1024 * 1024 * 1024;
 const MIN_SOURCE_BYTES: u64 = 4 * 1024 * 1024;
 static NEXT: AtomicU64 = AtomicU64::new(0);
+/// A write unfinished for this long was interrupted: no write takes minutes.
+const ABANDONED_AFTER: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// Remove temporary files that an interrupted process left in a cache
+/// directory, once per directory and process. Completed files are published
+/// by rename, so only `.tmp` names can be partial; recent ones may belong to a
+/// running writer and are kept.
+pub(super) fn sweep_abandoned(directory: &Path) {
+    static SWEPT: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+    let Ok(mut swept) = SWEPT.lock() else {
+        return;
+    };
+    if swept.iter().any(|done| done == directory) {
+        return;
+    }
+    swept.push(directory.to_owned());
+    drop(swept);
+    let Ok(entries) = fs::read_dir(directory) else {
+        return;
+    };
+    let now = SystemTime::now();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|e| e == "tmp")
+            && let Ok(meta) = entry.metadata()
+            && meta.is_file()
+            && meta
+                .modified()
+                .ok()
+                .and_then(|m| now.duration_since(m).ok())
+                .is_some_and(|age| age >= ABANDONED_AFTER)
+        {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
 
 #[derive(Serialize)]
 struct FileStamp {
@@ -325,6 +361,7 @@ fn store(path: &Path, binding: &Binding, kernel: &BikeKernel) -> Result<()> {
         directories.mode(0o700);
     }
     directories.create(parent)?;
+    sweep_abandoned(parent);
     let temporary = path.with_extension(format!(
         "{}-{}.tmp",
         std::process::id(),
@@ -378,6 +415,47 @@ fn store(path: &Path, binding: &Binding, kernel: &BikeKernel) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn sweep_removes_only_abandoned_temporaries() {
+        let root = std::env::temp_dir().join(format!(
+            "vigo-bike-sweep-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let old = SystemTime::now() - ABANDONED_AFTER - std::time::Duration::from_secs(60);
+        let abandoned = root.join("graph.bin.1-0.tmp");
+        let running = root.join("graph.bin.2-0.tmp");
+        let published = root.join("graph.bin");
+        for path in [&abandoned, &running, &published] {
+            fs::write(path, b"x").unwrap();
+        }
+        for path in [&abandoned, &published] {
+            File::options()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_modified(old)
+                .unwrap();
+        }
+        sweep_abandoned(&root);
+        assert!(!abandoned.exists(), "An interrupted write is removed");
+        assert!(running.exists(), "A recent write may still be running");
+        assert!(published.exists(), "Published files are never swept");
+        fs::write(&abandoned, b"x").unwrap();
+        File::options()
+            .write(true)
+            .open(&abandoned)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        sweep_abandoned(&root);
+        assert!(
+            abandoned.exists(),
+            "Each directory is swept once per process"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn compiled_graph_is_exact_and_invalidates_changed_sources_and_corrupt_files() {
         let root = std::env::temp_dir().join(format!(
