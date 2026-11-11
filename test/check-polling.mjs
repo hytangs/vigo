@@ -1,7 +1,9 @@
 import { readFile } from 'node:fs/promises'
-import ts from 'typescript'
+import { transformWithOxc } from 'vite'
 import { runElectronCheck } from './helpers/electron-check.mjs'
-const module = ts.transpileModule(await readFile(new URL('../src/app/polling.ts', import.meta.url), 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText.replace('export function', 'function')
+// TypeScript 7 has no JavaScript transpile API; Vite's own transform strips the types.
+const source = new URL('../src/app/polling.ts', import.meta.url)
+const module = (await transformWithOxc(await readFile(source, 'utf8'), source.pathname, { target: 'es2022' })).code.replace('export function', 'function')
 await runElectronCheck(`
 await app.whenReady();
 // This check exercises timers and request ownership. Desktop occlusion must not
