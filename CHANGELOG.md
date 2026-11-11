@@ -6,6 +6,9 @@
 
 ## 1.0.0 — 2026-11-09
 
+- Bicycle Route and Reach no longer fail with "Temporal contraction exceeded its path workspace" around timed roads and turns. One cell whose only access is timed, such as a parkway that is one-way during the morning rush, previously raised the price ceiling of every cell to the whole cutoff, so hundreds of dated movements entered the exact search. Such cells are now bounded by a legal earliest arrival, or for arrival queries a legal latest departure, or proved unreachable when no legal movement reaches them in time. A second legal path search keyed on price tightens these ceilings for preferences such as Quiet. Point routes bound a relaxed path that must wait for a road to reopen the same way. Corridors too wide to customize, or profiles that outgrow their workspace, resolve dated movements by searching the movement graph directly instead of failing. Answers are unchanged.
+- Bicycle walking connectors keep one walking metric for both directions plus the few arcs where one-way links make them differ, instead of a second full copy. A DC worker's bicycle hierarchy holds 535 MB instead of 644 MB; answers are bit-identical.
+- Remove the scoped timing-window helpers left from the previous bicycle router.
 - Route, Matrix and Reach share a bicycle contraction hierarchy that enforces timed roads, turns and endpoint access. Walking connectors use the pedestrian hierarchy. Source-bound local indexes keep only the upward hierarchy and shortcut witnesses and rebuild exact weights on open; existing Cities remain readable. Reach bounds each cell's walking search with one relaxed hierarchy sweep.
 - Release the engine and the Python package from one workflow and one `v<VERSION>` tag.
 - Load bicycle walking identities without an external SQLite sort, retaining coordinate and duplicate-identity validation for dense and sparse links.
