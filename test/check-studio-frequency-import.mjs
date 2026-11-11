@@ -100,14 +100,17 @@ try {
       maxWalkKm: 0.2, cutoffsMinutes: [45], includeStreetEdges: false,
       monteCarlo: { startMinutes: 480, endMinutes: 482, draws: 8, seed: 42, percentiles: [50] } }
     const first = (await request(`${base}/reach`, 'POST', reachBody)).result
-    assert.equal(first.distributions.baseline.sampling.stochastic, true)
-    assert.equal(first.distributions.baseline.sampling.sampleCount, 8)
+    // GTFS frequencies are concrete departures every headway, so the
+    // distribution takes one sample per departure minute (480 and 481), not
+    // random draws.
+    assert.equal(first.distributions.baseline.sampling.stochastic, false)
+    assert.equal(first.distributions.baseline.sampling.sampleCount, 2)
     const repeated = (await request(`${base}/reach`, 'POST', reachBody)).result
     assert.deepEqual(first.distributions, repeated.distributions)
     const after = (await request(`${base}/national-route`, 'POST', routeBody)).choices[0]
     assert.deepEqual(after.legs, ordinary.legs, 'Sampling must not change ordinary transit journeys')
   }
-  console.log('Studio pure/mixed frequency imports, imported bike routing, seeded Monte Carlo and ordinary transit isolation passed.')
+  console.log('Studio pure/mixed frequency imports, imported bike routing, deterministic Monte Carlo and ordinary transit isolation passed.')
 } finally {
   await runtime?.stop()
   await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
