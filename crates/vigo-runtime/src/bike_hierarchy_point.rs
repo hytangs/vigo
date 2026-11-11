@@ -112,6 +112,29 @@ pub(in crate::bike) fn segment(
         result.reason = Some("no_bike_attachment");
         return Ok(result);
     }
+    // Every edge is at least `minimum_length_ratio` times its chord, so a ride
+    // between two attachments is at least that times the straight-line
+    // distance between their vertices, less both attachment edges. Beyond the
+    // distance cap no search can succeed; answer as the search would.
+    let edge_meters = |edge: u32| {
+        kernel
+            .distances
+            .get(edge as usize)
+            .map_or(0., |&cm| f64::from(cm) / 100.)
+    };
+    if max_meters.is_finite()
+        && starts.candidates.iter().all(|s| {
+            ends.candidates.iter().all(|e| {
+                vigo_route::geo::haversine_m(kernel.point(s.node), kernel.point(e.node))
+                    * kernel.minimum_length_ratio
+                    - edge_meters(s.edge)
+                    - edge_meters(e.edge)
+                    > max_meters + 1.
+            })
+        })
+    {
+        return Ok(result);
+    }
     let (prepared, _) = kernel.hierarchy(options)?;
     let solve_guarded = |mut result: BikeResult, timed_expansion| -> Result<BikeResult, String> {
         let mut wide = None;

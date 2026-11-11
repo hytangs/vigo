@@ -23,6 +23,19 @@ fn idle_release_after() -> Result<Option<Duration>> {
     Ok((milliseconds > 0).then(|| Duration::from_millis(milliseconds)))
 }
 
+/// Whether a long-lived `stream` or worker prepares bicycles on opening.
+fn prepare_bike_on_open() -> Result<bool> {
+    match env::var("VIGO_PREPARE_BIKE") {
+        Ok(value) => match value.trim() {
+            "1" => Ok(true),
+            "0" => Ok(false),
+            _ => fail("VIGO_PREPARE_BIKE must be 0 or 1"),
+        },
+        Err(env::VarError::NotPresent) => Ok(true),
+        Err(error) => Err(error.into()),
+    }
+}
+
 const HELP: &str = "VIGO — standalone Rust routing and isochrones
 
   vigo serve --city ./city --host 0.0.0.0 --port 8080
@@ -250,6 +263,9 @@ fn run() -> Result<()> {
         io::stdout().flush()?;
     }
     if command == "stream" || command == "_worker" {
+        if prepare_bike_on_open()? {
+            city.prepare_in_background()?;
+        }
         let stream_output = options
             .get("stream-output")
             .map(String::as_str)

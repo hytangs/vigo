@@ -1699,6 +1699,7 @@ The environment variables for the Rust runtime are:
 | `VIGO_RESIDENT_HEAP_BYTES` | Collection retained-heap budget; default min(1 GiB, detected memory / 3), positive integer |
 | `VIGO_TIMETABLE_CACHE_BYTES` | Fixed inactive scheduled-timetable budget per City or collection; by default a standalone City starts at 134217728 bytes and grows to hold one inactive view of its own size, up to 1/16 of memory; `0` disables retention |
 | `VIGO_IDLE_RELEASE_MS` | Idle time after which a single-City `stream` frees its street search scratch; default 30000, `0` keeps it |
+| `VIGO_PREPARE_BIKE` | `1` (default): a single-City `stream` or `serve` worker opens its bicycle network and prepares the default hierarchy (Balanced, 18 km/h) in the background as soon as it opens a City with bicycle data, and keeps them resident; `0` waits for the first bicycle request |
 | `VIGO_ENDPOINT_CACHE_MAX_BYTES` | Shared endpoint-cache budget |
 | `VIGO_SHAPE_GEOMETRY_CACHE_MAX_BYTES` | Shared geometry-cache budget |
 
