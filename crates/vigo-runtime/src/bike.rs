@@ -4477,4 +4477,40 @@ mod tests {
                 .is_err()
         );
     }
+
+    #[test]
+    fn a_ride_beyond_the_distance_cap_is_answered_without_a_search() {
+        // Twelve nodes on the equator, about 111 m apart. At half scale the
+        // edges are stored at half their chord, so the bound must use the
+        // City's own length ratio rather than assume roads exceed chords.
+        let nodes: Vec<[f64; 2]> = (0..12).map(|i| [f64::from(i) * 0.001, 0.]).collect();
+        let chord = vigo_route::geo::haversine_m(nodes[0], nodes[1]);
+        for scale in [1., 0.5] {
+            let cm = (chord * 100. * scale).round() as u32;
+            let edges: Vec<_> = (0..11)
+                .map(|i| (i, i + 1, cm, i64::from(i) + 10, CYCLE))
+                .collect();
+            let ride = 11. * f64::from(cm) / 100.;
+            let (first, last) = (nodes[0], nodes[11]);
+            let k = fixture(&nodes, &edges, &[]);
+            let far = k
+                .route_at(first, last, Default::default(), 0., 4.8, 50., None)
+                .unwrap();
+            assert_eq!((far.status, far.reason), ("blocked", Some("no_path")));
+            assert!(
+                k.cch_prepared.lock().unwrap().is_none(),
+                "An impossible ride must not prepare a hierarchy"
+            );
+            for cap in [ride, ride + 1., 5000.] {
+                let near = k
+                    .route_at(first, last, Default::default(), 0., 4.8, cap, None)
+                    .unwrap_or_else(|e| panic!("scale {scale}, cap {cap}, ride {ride}: {e}"));
+                assert_eq!(near.status, "ready", "scale {scale}, cap {cap}");
+            }
+            let short_cap = k
+                .route_at(first, last, Default::default(), 0., 4.8, ride - 1., None)
+                .unwrap();
+            assert_eq!(short_cap.status, "blocked", "scale {scale}");
+        }
+    }
 }

@@ -77,13 +77,19 @@ impl TimetableKernel {
                     continue;
                 };
                 let stop = from[j];
-                // Scoped rules and nonzero same-stop minima retain the exact
-                // certified transfer. Never infer platform permission from
-                // station names, coordinates, or a matching public line.
+                // The later transfer must satisfy the rule, same-stop minimum
+                // and buffer the search would apply to these two vehicles.
+                // Never infer platform permission from station names,
+                // coordinates, or a matching public line.
                 if board[j] != 1
-                    || self.boarding_needs_transfer_context(stop)
-                    || f64::from(arr[i]) + f64::from(self.minimum_transfer_buffer_seconds)
-                        > f64::from(dep[j])
+                    || self
+                        .same_stop_transfer_ready(
+                            stop,
+                            f64::from(arr[i]),
+                            (trip, sequence[i]),
+                            (onward, sequence[j]),
+                        )
+                        .is_none_or(|ready| ready > f64::from(dep[j]))
                     || i - old_exit >= j - old_enter
                     || f64::from(arr[i]) - first.arrival > f64::from(dep[j]) - next.departure
                 {
@@ -220,6 +226,65 @@ mod tests {
             let before = serde_json::to_value(&j).unwrap();
             k.improve_interchanges(&mut j);
             assert_eq!(serde_json::to_value(j).unwrap(), before);
+        }
+    }
+    #[test]
+    fn a_met_same_stop_minimum_still_moves_the_interchange() {
+        // The express reaches stop 4 at 35 and the local leaves it at 40.
+        for (buffer, minimum, moves) in [(0, 5, true), (2, 3, true), (2, 4, false), (0, 6, false)] {
+            let mut j = journey();
+            kernel(buffer, false, minimum, 1, 1, 35).improve_interchanges(&mut j);
+            let expected = if moves { Some(4) } else { Some(1) };
+            assert_eq!(
+                j.legs[0].to_stop, expected,
+                "buffer {buffer}, minimum {minimum}"
+            );
+            assert_eq!((j.departure, j.arrival, j.boardings), (0., 50., 2));
+        }
+    }
+    #[test]
+    fn feed_rules_at_the_later_platform_decide_the_interchange() {
+        let rule = |kind, minimum, from_trip| TransferRule {
+            from_stop: 4,
+            to_stop: 4,
+            from_route: None,
+            to_route: None,
+            from_trip,
+            to_trip: Some(1),
+            kind,
+            minimum,
+            stop_depth: 0,
+        };
+        // (buffer, stop minimum, rule, moves). The express reaches stop 4 at
+        // 35 and the local leaves it at 40.
+        for (buffer, stop_minimum, rule, moves) in [
+            // A matching rule replaces the stop's own minimum.
+            (0, 10, rule(2, 5, None), true),
+            (0, 0, rule(2, 6, None), false),
+            (0, 10, rule(0, 0, None), true),
+            // Forbidden only for the express trip, or only for another trip.
+            (0, 0, rule(3, 0, Some(0)), false),
+            (0, 0, rule(3, 0, Some(1)), true),
+            // A timed transfer needs no buffer.
+            (9, 10, rule(1, 0, Some(0)), true),
+            (9, 0, rule(2, 0, Some(0)), false),
+        ] {
+            let mut k = kernel(buffer, false, stop_minimum, 1, 1, 35);
+            k.set_service_semantics(ServiceSemantics {
+                rules: vec![rule.clone()],
+                trip_routes: vec![0, 1],
+                ..Default::default()
+            })
+            .unwrap();
+            let mut j = journey();
+            k.improve_interchanges(&mut j);
+            let expected = if moves { Some(4) } else { Some(1) };
+            assert_eq!(
+                j.legs[0].to_stop,
+                expected,
+                "buffer {buffer}, stop minimum {stop_minimum}, rule {:?}",
+                (rule.kind, rule.minimum, rule.from_trip)
+            );
         }
     }
     #[test]

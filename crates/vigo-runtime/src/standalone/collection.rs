@@ -107,6 +107,14 @@ impl Runtime {
             super::release_preparation_memory();
         }
     }
+    /// A single City prepares its bicycle hierarchy while it waits for the
+    /// first request. A collection opens Cities on demand and keeps that.
+    pub(crate) fn prepare_in_background(&mut self) -> Result<()> {
+        match self {
+            Self::Single(city) => city.prepare_bike_in_background(),
+            Self::Collection(_) => Ok(()),
+        }
+    }
     pub(crate) fn install_realtime(&mut self, message: &mut Value) -> Result<()> {
         let Self::Single(city) = self else {
             return fail("GTFS-RT polling requires a single City");
@@ -237,6 +245,7 @@ impl Runtime {
     fn execute_output(&mut self, kind: &str, request: &Value, detailed: bool) -> Result<Value> {
         match self {
             Self::Single(city) => {
+                city.adopt_prepared_bike();
                 if detailed {
                     city.execute_detailed(kind, request)
                 } else {

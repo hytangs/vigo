@@ -103,8 +103,10 @@ impl Replay<'_> {
                 after: None,
             });
         }
+        // The same relative tolerance as the guard's shortest-path admission,
+        // so a ride exactly at the cap is not lost to summation order.
         if a.walk_meters + b.walk_meters + parts.iter().map(|part| part.meters).sum::<f64>()
-            > self.max_meters
+            > self.max_meters * (1. + 1e-12)
             || parts.iter().any(|p| {
                 p.meters > 1e-7
                     && kernel.attributes[p.edge as usize] & (1 << 22) != 0
