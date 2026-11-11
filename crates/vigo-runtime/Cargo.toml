@@ -48,6 +48,6 @@ flate2 = "1.1"
 sha2 = { version = "0.10", features = ["asm"] }
 
 [build-dependencies]
-syn = { version = "2", features = ["full"] }
+syn = { version = "3", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"
