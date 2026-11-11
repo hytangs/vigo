@@ -132,6 +132,6 @@
     "electron": "44.9.3",
     "prettier": "3.6.2",
     "typescript": "~5.7.2",
-    "vite": "8.1.6"
+    "vite": "8.3.6"
   }
 }
