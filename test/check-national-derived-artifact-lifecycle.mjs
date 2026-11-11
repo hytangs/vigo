@@ -15,7 +15,6 @@ import {
   inspectNationalStaticTopologySidecar,
   nationalStaticTopologySidecarPath,
   prepareNationalGtfsRoutingContext,
-  routeNationalGtfsStore,
 } from '../src/server/national-gtfs-store.mjs'
 
 const execFileAsync = promisify(execFile)
@@ -104,18 +103,6 @@ function createFixture() {
     CREATE INDEX stop_modes_type_stop ON stop_modes(route_type, stop_id);
   `)
   db.close()
-}
-
-function request() {
-  return {
-    origin: { label: 'Origin', coordinate: [-71.06, 42.35], stopId: 'O', source: 'national-search' },
-    destination: { label: 'Destination', coordinate: [-71.12, 42.37], stopId: 'D', source: 'national-search' },
-    departMinutes: 8 * 60,
-    serviceDate,
-    serviceDay: 'weekday',
-    maxWalkKm: 0.3,
-    horizonMinutes: 120,
-  }
 }
 
 async function kernelFiles() {
@@ -231,18 +218,6 @@ try {
   const stale = inspectNationalStaticTopologySidecar(storePath, sidecarPath)
   assert.equal(stale.ready, false)
   assert.match(stale.reason, /^source(?:_storage)?_mismatch$/)
-  const rebuiltFromCurrentStore = routeNationalGtfsStore(storePath, request())
-  assert.equal(rebuiltFromCurrentStore.status, 'ready')
-  assert.match(
-    rebuiltFromCurrentStore.diagnostics?.algorithm ?? '',
-    /^rust_exact_connection_scan_(?:scalar|bounded_pareto)_no_heuristic$/u,
-    'A stale analysis sidecar must not block rebuilding the exact Rust kernel from the current SQLite source.',
-  )
-  assert.deepEqual(
-    rebuiltFromCurrentStore.diagnostics?.searchStats?.engineInvocationsThisPass,
-    { rustTimetable: 1, sqlite: 0 },
-    'SQLite may rebuild a stale native snapshot, but it must never execute the route search.',
-  )
   disposeAllNationalGtfsStores()
 
   const refreshed = await ensureNationalGtfsDerivedArtifactsCurrent(storePath)
@@ -267,12 +242,6 @@ try {
     'vigo.routing.active-service-kernel.v15-portable',
   )
   assert.equal(rebuiltContext.activeServiceKernel.persistenceState, 'written')
-  const exact = routeNationalGtfsStore(storePath, request())
-  assert.equal(exact.diagnostics?.searchStats?.heuristicMode, 'none')
-  assert.equal(
-    Object.hasOwn(exact.diagnostics?.searchStats ?? {}, 'heuristicWeight'),
-    false,
-  )
 
   disposeAllNationalGtfsStores()
   const reloadedContext = prepareNationalGtfsRoutingContext(storePath, { serviceDate, serviceDay: 'weekday' })
@@ -284,7 +253,6 @@ try {
   const repairedAccess = prepareNationalGtfsRoutingContext(storePath, { serviceDate, serviceDay: 'weekday' })
   assert.equal(repairedAccess.accessMaterialization.persistenceState, 'written')
   assert.match(repairedAccess.accessMaterialization.persistenceError, /truncated/)
-  assert.equal(routeNationalGtfsStore(storePath, request()).arriveMinutes, exact.arriveMinutes)
   disposeAllNationalGtfsStores()
 
   const regularPolicyKernel = await prepareKernelInWalkingPolicy()
@@ -363,12 +331,6 @@ try {
   assert.equal(inspectNationalStaticTopologySidecar(rawRoutingPath).ready, true)
   const rawProject = JSON.parse(await fs.readFile(path.join(rawProjectsRoot, 'fixture/.vigo/project.json'), 'utf8'))
   assert(rawProject.osmStreetIndex.driveEdgeCount > 0, 'The City must retain its rebuilt driving-network counts.')
-  const rawPlan = routeNationalGtfsStore(rawRoutingPath, {
-    ...request(),
-    origin: { label: 'Alpha', coordinate: [-77.05, 38.9], stopId: 'A' },
-    destination: { label: 'Bravo', coordinate: [-77.03, 38.91], stopId: 'B' },
-  })
-  assert.equal(rawPlan.status, 'ready')
 
   console.log(JSON.stringify({
     status: 'passed',

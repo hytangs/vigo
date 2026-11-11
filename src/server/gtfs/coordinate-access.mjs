@@ -32,7 +32,7 @@ function stopHasDirectService(store, stopId) {
   return Boolean(indexedProfile && indexedProfile.departureCount > 0)
 }
 
-export function stopSupportsStationAccessRole(store, stopId, accessRole) {
+function stopSupportsStationAccessRole(store, stopId, accessRole) {
   if (accessRole !== 'destination') return stopHasDirectService(store, stopId)
   return store.stopAccessIndex.arrivalServiceStopIds?.has(stopId) === true
 }

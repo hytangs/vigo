@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import JSZip from 'jszip'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
-import { buildNationalGtfsStore, routeNationalGtfsStore, disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
+import { buildNationalGtfsStore, disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
 // Regression for a City whose stop_times run backward within a trip.
 // OVERLAP reproduces the published timing example without copying the source feed.
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-time-repair-'))
@@ -42,14 +42,6 @@ try {
   assert.deepEqual(overlap.map(row => [row.departure, row.arrival]), [[59638, 59638], [59638, 60000]])
   assert.equal(db.prepare('SELECT COUNT(*) n FROM connections WHERE arrival < departure').get().n, 0)
   db.close()
-  const plan = routeNationalGtfsStore(outputPath, {
-    origin: { coordinate: [-77.050, 38.900], label: 'Alpha', source: 'map' },
-    destination: { coordinate: [-77.030, 38.910], label: 'Bravo', source: 'map' },
-    departMinutes: 989, serviceDay: 'weekday', serviceDate: '2026-07-15', maxWalkKm: 0.01,
-  })
-  assert.equal(plan.status, 'ready')
-  assert.equal(plan.arriveMinutes, 1000)
-  assert.equal(plan.legs.find(leg => leg.type === 'ride').tripId, 'OVERLAP')
   assert.equal(await digest(), before, 'Never rewrite the imported ZIP')
   console.log('Backward-time preparation: small regressions repaired; large regressions excluded atomically with diagnostics; after-midnight times and source archive preserved.')
 } finally { disposeAllNationalGtfsStores(); await fs.rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

@@ -6,7 +6,7 @@ import path from 'node:path'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 import { standaloneBinary as binary } from './helpers/standalone-runtime.mjs'
-import { routeNationalStreetMatrix, disposeNationalOsmStore } from '../src/server/national-osm-store.mjs'
+import { disposeNationalOsmStore } from '../src/server/national-osm-store.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-bike-matrix-'))
@@ -41,22 +41,6 @@ try {
       '--street-modes=walk,bike', `--output=${city}`], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'] })
     const fixed = variant === 'footpath' ? [-77.054, 38.9]
       : variant.startsWith('access') ? [-77.049, 38.9005] : [-77.05, 38.9]
-    if (variant === 'ordinary') {
-      // Node's existing public limit is 100,000 pairs; standalone has its own
-      // smaller protocol cap. Native batching must not narrow the Node limit.
-      const large = routeNationalStreetMatrix(store, { mode: 'bike',
-        origins: Array(257).fill(fixed), destinations: Array(256).fill([-77.03, 38.91]) })
-      assert.equal(large.rows.length, 65792)
-      assert.equal(large.diagnostics.pointQueries, 1)
-      assert(large.rows.every(row => row.status === 'ready'))
-      const via = [-77.04, 38.905], end = [-77.03, 38.91]
-      const ordered = routeNationalStreetMatrix(store, { mode: 'bike', origins: [fixed], destinations: [end], via: [via] })
-      const first = routeNationalStreetMatrix(store, { mode: 'bike', origins: [fixed], destinations: [via] })
-      const second = routeNationalStreetMatrix(store, { mode: 'bike', origins: [via], destinations: [end] })
-      assert.equal(ordered.rows[0].status, 'ready')
-      close(ordered.rows[0].distanceKm, first.rows[0].distanceKm + second.rows[0].distanceKm,
-        'Ordered Matrix retains the sum of segment distances')
-    }
     const targets = variant.startsWith('access')
       ? Array.from({ length: 128 }, (_, i) => {
         const t = .1 + (i % 64) / 64 * .8
@@ -86,9 +70,6 @@ try {
       assert.equal(matrix.trace.diagnostics[arrive ? 'uniqueDestinations' : 'uniqueOrigins'], 1)
       assert.equal(after.memory.ledger.bike.networkHeapBytes, loaded.memory.ledger.bike.networkHeapBytes,
         'Matrix must not retain an additional graph or endpoint cache')
-      const nodeRequest = { ...common, origins, destinations, departMinutes: 510, arriveMinutes: 510, timeZone: 'America/New_York' }
-      const node = routeNationalStreetMatrix(store, nodeRequest)
-      assert.equal(node.diagnostics.sharedFields, 1)
       routes.forEach((route, index) => {
         assert(['ok', 'not_found'].includes(route.status), JSON.stringify(route))
         const i = Math.floor(index / destinations.length), j = index % destinations.length
@@ -97,19 +78,8 @@ try {
         const label = `${variant} ${profile} ${arrive} ${i},${j}`
         close(matrix.trace.durationsMinutes[i][j] == null ? null : matrix.trace.durationsMinutes[i][j] * 60, seconds, label + ' native seconds')
         close(matrix.distancesMeters[i][j], meters, label + ' native meters')
-        close(node.rows[index].durationMinutes == null ? null : node.rows[index].durationMinutes * 60, seconds, label + ' Node seconds')
-        close(node.rows[index].distanceKm == null ? null : node.rows[index].distanceKm * 1000, meters, label + ' Node meters')
-        assert.equal(node.rows[index].originIndex, i); assert.equal(node.rows[index].destinationIndex, j)
         pairs++
       })
-      // Supplying cancellation retains the point path and its interruption checks.
-      const cancellable = routeNationalStreetMatrix(store, { ...nodeRequest, origins: origins.slice(0, 2), destinations: destinations.slice(0, 2) }, { isCancelled: () => false })
-      cancellable.rows.forEach(row => {
-        const index = row.originIndex * destinations.length + row.destinationIndex
-        close(row.durationMinutes, node.rows[index].durationMinutes, 'cancellation path')
-        close(row.distanceKm, node.rows[index].distanceKm, 'cancellation distance')
-      })
-      assert.throws(() => routeNationalStreetMatrix(store, nodeRequest, { isCancelled: () => true }), /cancel|abort/i)
       if (variant === 'access' && profile === 'fast' && !arrive) {
         const bounds = [-77.0290001, 38.9104999, -77.0289999, 38.9105001], size = 16
         const cells = Array.from({ length: size * size }, (_, i) => [
@@ -139,7 +109,7 @@ try {
     }
     disposeNationalOsmStore(store)
   }
-  console.log(`Bike Matrix: ${pairs} independent Route pairs matched in native and Node time/distance; ${reachPairs} additional Reach cells matched point Route. Three profiles, both directions, timed turns, footpaths, restricted shortcuts and detours, distance caps, duplicates, blocked endpoints and resident graph size passed.`)
+  console.log(`Bike Matrix: ${pairs} independent Route pairs matched in native time/distance; ${reachPairs} additional Reach cells matched point Route. Three profiles, both directions, timed turns, footpaths, restricted shortcuts and detours, distance caps, duplicates, blocked endpoints and resident graph size passed.`)
 } finally {
   for (const store of stores) disposeNationalOsmStore(store)
   fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })

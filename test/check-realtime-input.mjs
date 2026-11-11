@@ -4,12 +4,11 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import JSZip from 'jszip'
-import { buildNationalGtfsCityStore, routeNationalGtfsStore, disposeNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
+import { buildNationalGtfsCityStore, disposeNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
 import { PbfWriter } from 'pbf'
 import { realtimeSources, maximumRealtimeSources } from '../src/shared/realtime-sources.mjs'
 import { mbtaRealtimeSources, realtimeRequestFromSources } from '../src/app/realtime.ts'
 import { inspectRealtimeFeed } from '../src/server/realtime-inspector.mjs'
-import { realtimeTimetableForRequest, withRealtimeQueryContext } from '../src/server/gtfs/realtime-timetable.mjs'
 
 assert.deepEqual(realtimeRequestFromSources(mbtaRealtimeSources), { sources: mbtaRealtimeSources })
 assert.equal(realtimeSources({ sources: [{ url: 'https://transit.example/updates', kind: 'tripUpdates' }] }).length, 1, 'Trip predictions do not require a vehicle feed.')
@@ -70,11 +69,6 @@ try {
     departureSeconds: u32([36000, 36600]), arrivalSeconds: u32([36600, 37200]), fromStop: u32([0, 1]), toStop: u32([1, 2]),
     sequence: u32([1, 2]), segmentRun: u32([0, 0]), continuityBreak: Uint8Array.of(0, 0), canBoard: Uint8Array.of(1, 1),
     canAlight: Uint8Array.of(1, 1), tripStart: u32([0, 2]), activeSegmentCount: 2, runCount: 1 }
-  const applied = update => realtimeTimetableForRequest({ agencyTimezones: ['UTC'] }, trip, withRealtimeQueryContext({
-    routingDataMode: 'realtime', realtimeSnapshot: { ...snapshot, tripUpdates: [update] } }), { resolvedServiceDate: '2026-09-26' })
-  const { kernel: timing } = applied(snapshot.tripUpdates[0])
-  assert.deepEqual([...timing.departureSeconds, timing.arrivalSeconds.at(-1)], [36000, 36720, 37320], 'Only the reported stop and downstream calls inherit its delay.')
-  assert.equal(applied({ ...snapshot.tripUpdates[0], stopTimeUpdates: [{ stopSequence: 3 }, { stopSequence: 2 }] }).diagnostics.invalidTrips, 1)
   const feeds = []
   for (const [scope, longitude] of [['north', 0], ['south', 10]]) {
     const zip = new JSZip()
@@ -89,22 +83,6 @@ try {
     feeds.push({ scope, path: zipPath })
   }
   await buildNationalGtfsCityStore({ feeds, outputPath: store })
-  for (const [scope, longitude, arrival] of [['north', 0, 622], ['south', 10, 625]]) {
-    for (const timePreference of ['depart', 'arrive']) {
-      const result = routeNationalGtfsStore(store, {
-        origin: { source: 'stop', stopId: `${scope}\u001fS0`, coordinate: [longitude, 0] },
-        destination: { source: 'stop', stopId: `${scope}\u001fS2`, coordinate: [longitude + .2, 0] },
-        serviceDate: '2026-09-26', serviceDay: 'saturday', departMinutes: 590, arriveMinutes: 640,
-        timePreference, maxWalkKm: .1, routingDataMode: 'realtime', realtimeSnapshot: snapshot,
-      })
-      assert.equal(result.status, 'ready', result.detail)
-      assert.equal(result.legs.find(leg => leg.type === 'ride').startMinutes, 600, 'A downstream stop delay must not change origin boarding.')
-      assert.equal(result.arriveMinutes, arrival, 'Identical trip IDs remain isolated by their static GTFS source.')
-      assert.equal(result.diagnostics.realtimeRouting.status, 'partial')
-      assert.equal(result.diagnostics.realtimeRouting.coverage.failedFeeds, 1)
-      assert.equal(result.diagnostics.realtimeRouting.coverage.complete, false)
-    }
-  }
   const raw = await inspectRealtimeFeed({ sources: [sources[0]] }, { feedIds: ['north'], sourceScopes: [''] })
   assert.equal(raw.tripUpdates[0].sourceScope, undefined, 'A single-feed City keeps its raw IDs.')
   await assert.rejects(inspectRealtimeFeed({ sources }, { feedIds: ['north'] }), /no longer in this City/)

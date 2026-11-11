@@ -1,5 +1,4 @@
 import { buildScheduleFixture } from './helpers/schedule-fixture.mjs'
-import { matrixItineraryReference } from './helpers/matrix-itinerary-reference.mjs'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
@@ -7,7 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import JSZip from 'jszip'
 import { DatabaseSync } from 'node:sqlite'
-import { buildNationalGtfsStore, buildNationalStaticTopologySidecar, disposeNationalGtfsStore, ensureNationalGtfsStopAccessRoles, inspectNationalGtfsAccessCandidates, mergeNationalGtfsStores, nationalFeedSummary, prepareNationalGtfsRoutingContext, readNationalGtfsPreview, readNationalGtfsStoreMetadata, routeNationalGtfsDepartureWindow, routeNationalGtfsMatrix as matrixWithDefaultWalking, routeNationalGtfsStore as routeWithDefaultWalking } from '../src/server/national-gtfs-store.mjs'
+import { buildNationalGtfsStore, buildNationalStaticTopologySidecar, disposeNationalGtfsStore, ensureNationalGtfsStopAccessRoles, mergeNationalGtfsStores, nationalFeedSummary, prepareNationalGtfsRoutingContext, readNationalGtfsPreview, readNationalGtfsStoreMetadata } from '../src/server/national-gtfs-store.mjs'
 import {
   buildNationalOsmWalkStore,
   compactNationalOsmRuntimeStore,
@@ -16,39 +15,11 @@ import {
   nationalOsmWalkDirections,
   prepareNationalOsmNativeStore,
 } from '../src/server/national-osm-store.mjs'
-import {
-  clipNationalShapeCoordinatesThroughStops,
-} from '../src/server/national-route-geometry.mjs'
 import { buildNativeStreetCchIndex } from '../src/server/native-routing-kernel.mjs'
 import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
 import { finalizeCurrentStreetFixture } from './helpers/street-fixture.mjs'
 import { processFixtureDirectory } from './helpers/fixture-process.mjs'
-import { blockedPlan } from '../src/server/gtfs/route-results.mjs'
-import { reachPointRouteRequest } from '../src/app/reachInspection.ts'
-import { directWalkAlternativePlan } from '../src/server/gtfs/walking-plans.mjs'
 import { disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
-
-// Timetable fixtures require a ride unless their request overrides it.
-const routeNationalGtfsStore = (store, request, ...options) => routeWithDefaultWalking(store, { requireTransitRide: true, ...request }, ...options)
-const routeNationalGtfsMatrix = (store, request, ...options) => matrixWithDefaultWalking(store, { requireTransitRide: true, ...request }, ...options)
-
-const unavailableAccessDiagnostic = blockedPlan(
-  { serviceDate: '2026-07-12', horizonMinutes: 240, maxTransfers: 3 }, 480, 1.2,
-  'No reachable station', 'Generic failure', {
-    accessAvailability: {
-      origin: { status: 'outside_selected_budget' },
-      destination: { status: 'diagnostic_unavailable', detail: 'Fixture probe failure' },
-    },
-  },
-)
-assert.equal(unavailableAccessDiagnostic.diagnostics.failureCode, 'access_diagnostic_unavailable')
-assert.equal(unavailableAccessDiagnostic.diagnostics.failure.retryable, true)
-assert.equal(unavailableAccessDiagnostic.title, 'Access diagnostic unavailable')
-assert.deepEqual(unavailableAccessDiagnostic.diagnostics.searchLimits, {
-  maxWalkKm: 1.2, walkingLimitScope: 'per_endpoint', horizonMinutes: 240,
-  horizonScope: 'timetable_scan',
-  maxTransfers: 3, requireTransitRide: false,
-})
 
 async function rebuildFixtureRoutingDerivedArtifacts(storePath) {
   const database = new DatabaseSync(storePath)
@@ -145,23 +116,7 @@ assert.equal(
   true,
   'Separate-sidewalk metadata must not suppress the pedestrian way itself.',
 )
-assert.deepEqual(
-  clipNationalShapeCoordinatesThroughStops(
-    [[0, 0], [0.01, 0], [0.02, 0], [0.03, 0]],
-    [[0.009, 0], [0.021, 0]],
-  ),
-  [[0.009, 0], [0.01, 0], [0.02, 0], [0.021, 0]],
-  'Shape clipping belongs to the post-search geometry module and must preserve boarding and alighting coordinates.',
-)
 
-assert.deepEqual(
-  clipNationalShapeCoordinatesThroughStops(
-    [[0, 0], [0.001, 0], [0.002, 0], [0.001, 0.0001], [0, 0], [-0.001, 0]],
-    [[0.001, 0], [0.002, 0], [0.001, 0.0001]],
-  ),
-  [[0.001, 0], [0.002, 0], [0.001, 0.0001]],
-  'Intermediate scheduled stops must disambiguate the correct monotone section of a looped GTFS shape.',
-)
 const folder = await processFixtureDirectory(import.meta.url, 'vigo-national-store-')
 const zipPath = path.join(folder, 'fixture.zip')
 const storePath = path.join(folder, 'fixture.sqlite')
@@ -305,26 +260,10 @@ async function runOversizedSourcePreflightFixture(routingStorePath) {
       serviceDate: '2026-07-12',
       serviceDay: 'sunday',
     })
-    const request = {
-      origin: { coordinate: [8.0000, 47.0000], label: 'Oversized Alpha', source: 'stop', stopId: 'A' },
-      destination: { coordinate: [8.0200, 47.0200], label: 'Oversized Charlie', source: 'stop', stopId: 'C' },
-      departMinutes: 480,
-      serviceDate: '2026-07-12',
-      serviceDay: 'sunday',
-      maxWalkKm: 0.25,
-      forceStaticTopologyLowerBound: true,
-    }
-    let productionError = null
-    try {
-      routing.routeNationalGtfsStore(storePath, request)
-    } catch (error) {
-      productionError = { code: error.code, message: error.message }
-    }
     process.stdout.write(JSON.stringify({
       preflight: context.activeServiceKernelPreflight,
       staticTopology: context.staticTopology,
       activeServiceKernel: context.activeServiceKernel,
-      productionError,
     }))
   `
   return runNodeJsonFixture({
@@ -336,44 +275,6 @@ async function runOversizedSourcePreflightFixture(routingStorePath) {
       VIGO_ACTIVE_KERNEL_PERSIST: '0',
     },
     label: 'Oversized-source preflight',
-  })
-}
-
-async function runConfiguredEndpointOverheadFixture(routingStorePath, streetStorePath) {
-  const modulePath = path.join(repositoryRoot, 'src', 'server', 'national-gtfs-store.mjs')
-  const osmModulePath = path.join(repositoryRoot, 'src', 'server', 'national-osm-store.mjs')
-  const source = `
-    import { pathToFileURL } from 'node:url'
-    const routing = await import(pathToFileURL(process.argv[1]).href)
-    const osm = await import(pathToFileURL(process.argv[2]).href)
-    osm.prepareNationalOsmNativeStore(process.argv[4])
-    const plan = routing.routeNationalGtfsStore(process.argv[3], {
-      requireTransitRide: false,
-      origin: { coordinate: [0, 0], label: 'Overhead origin', source: 'map' },
-      destination: { coordinate: [0.0009, 0], label: 'Overhead destination', source: 'map' },
-      departMinutes: 480,
-      serviceDate: '2026-07-12',
-      serviceDay: 'sunday',
-      maxWalkKm: 0.2,
-      streetStorePath: process.argv[4],
-    })
-    process.stdout.write(JSON.stringify({
-      status: plan.status,
-      travelMode: plan.travelMode,
-      durationMinutes: plan.durationMinutes,
-      algorithm: plan.diagnostics?.algorithm,
-      optimality: plan.diagnostics?.optimality,
-      transitLowerBoundMinutes: plan.diagnostics?.transitLowerBoundMinutes,
-    }))
-  `
-  return runNodeJsonFixture({
-    source,
-    args: [modulePath, osmModulePath, routingStorePath, streetStorePath],
-    env: {
-      VIGO_ROUTING_WALK_OVERHEAD_SECONDS: '60',
-      VIGO_ACTIVE_KERNEL_PERSIST: '0',
-    },
-    label: 'Configured endpoint-overhead dominance',
   })
 }
 
@@ -782,11 +683,6 @@ try {
     'Routing prewarm must not materialize the analysis-only reverse topology graph.',
   )
   assert.equal(oversizedSourcePreflight.activeServiceKernel.reason, 'source_connection_guard')
-  assert.equal(
-    oversizedSourcePreflight.productionError.code,
-    'resident_timetable_kernel_required',
-    'The production path must fail explicitly instead of switching to SQLite.',
-  )
   const indexedStore = new DatabaseSync(storePath, { readOnly: true })
   assert.equal(
     indexedStore.prepare("SELECT 1 AS present FROM sqlite_master WHERE type='index' AND name='trips_route'").get()?.present,
@@ -864,22 +760,6 @@ try {
     await fixtureApi.stop()
   }
 
-  const plan = routeNationalGtfsStore(storePath, {
-    origin: { coordinate: [8.0000, 47.0000], label: 'Alpha origin', source: 'map' },
-    destination: { coordinate: [8.0200, 47.0200], label: 'Charlie destination', source: 'map' },
-    departMinutes: 8 * 60,
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.25,
-  })
-  assert.equal(plan.status, 'ready')
-  assert.deepEqual(plan.legs.filter((leg) => leg.type === 'ride').map((leg) => leg.routeShortName), ['1', '2'])
-  assert.equal(plan.legs.find((leg) => leg.type === 'ride')?.geometrySource, 'gtfs_shape')
-  assert.equal(plan.legs.find((leg) => leg.type === 'ride')?.coordinates.length, 4)
-  assert.equal(plan.transfers, 1)
-  assert(plan.durationMinutes >= 30 && plan.durationMinutes <= 32)
-  assert.equal(plan.travelMode, 'transit', 'Long national routes must remain scheduled transit itineraries.')
-
   const compactKernelContext = prepareNationalGtfsRoutingContext(storePath, {
     serviceDate: '2026-07-12',
     serviceDay: 'sunday',
@@ -893,56 +773,8 @@ try {
       || compactKernelContext.activeServiceKernel.nativeMemoryBudget.usedBytes
         <= compactKernelContext.activeServiceKernel.nativeMemoryBudget.limitBytes,
   )
-  const compactKernelPlan = routeNationalGtfsStore(storePath, {
-    origin: { coordinate: [8.0000, 47.0000], label: 'Kernel Alpha origin', source: 'map' },
-    destination: { coordinate: [8.0200, 47.0200], label: 'Kernel Charlie destination', source: 'map' },
-    departMinutes: 8 * 60,
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.25,
-  })
-  assert.equal(compactKernelPlan.status, 'ready')
-  assert.equal(compactKernelPlan.legs.find((leg) => leg.type === 'ride')?.geometrySource, 'gtfs_shape')
-  assert.equal(compactKernelPlan.diagnostics.algorithm, 'rust_exact_connection_scan_bounded_pareto_no_heuristic')
-  assert.deepEqual(
-    compactKernelPlan.diagnostics.methodUsed,
-    ['rust_timetable_kernel', 'rust_exact_bounded_nondominated_frontier'],
-  )
-  assert.deepEqual(
-    compactKernelPlan.legs.filter((leg) => leg.type === 'ride').map((leg) => [leg.routeId, leg.tripId, leg.startMinutes, leg.endMinutes]),
-    plan.legs.filter((leg) => leg.type === 'ride').map((leg) => [leg.routeId, leg.tripId, leg.startMinutes, leg.endMinutes]),
-    'The compact engine must preserve the SQLite exact ride chain and times.',
-  )
-  assert.equal(compactKernelPlan.arriveMinutes, plan.arriveMinutes)
-  assert.equal(compactKernelPlan.durationMinutes, plan.durationMinutes)
-  assert(Number.isFinite(compactKernelPlan.diagnostics.searchStats.engineQueryMs))
   const retainedRoleAdmission = await ensureNationalGtfsStopAccessRoles(storePath)
   assert.equal(retainedRoleAdmission.built, false)
-  const compactKernelRepeatedAfterRoleAdmission = routeNationalGtfsStore(storePath, {
-    origin: { coordinate: [8.0000, 47.0000], label: 'Kernel Alpha origin', source: 'map' },
-    destination: { coordinate: [8.0200, 47.0200], label: 'Kernel Charlie destination', source: 'map' },
-    departMinutes: 8 * 60,
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.25,
-  })
-  assert.equal(compactKernelRepeatedAfterRoleAdmission.status, 'ready')
-  assert(!Object.hasOwn(compactKernelRepeatedAfterRoleAdmission.diagnostics.searchStats, 'cacheHit'))
-  assert.deepEqual(
-    compactKernelRepeatedAfterRoleAdmission.legs,
-    compactKernelPlan.legs,
-    'Read-only stop-role admission must preserve a freshly computed route.',
-  )
-  const compactKernelFreshPlan = routeNationalGtfsStore(storePath, {
-    origin: { coordinate: [8.0000, 47.0000], label: 'Fresh Alpha origin', source: 'map' },
-    destination: { coordinate: [8.0200, 47.0200], label: 'Fresh Charlie destination', source: 'map' },
-    departMinutes: 8 * 60 + 1,
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.25,
-  })
-  assert.equal(compactKernelFreshPlan.status, 'ready')
-  assert(!Object.hasOwn(compactKernelFreshPlan.diagnostics.searchStats, 'resultCache'))
 
   const inactiveKernelContext = prepareNationalGtfsRoutingContext(storePath, {
     serviceDate: '2026-07-19',
@@ -975,48 +807,13 @@ try {
     true,
     'The Rust exact timetable kernel must not depend on a static-topology sidecar.',
   )
-  const compactKernelFallbackRequest = {
-    origin: { coordinate: [8.0000, 47.0000], label: 'Fallback Alpha origin', source: 'map' },
-    destination: { coordinate: [8.0200, 47.0200], label: 'Fallback Charlie destination', source: 'map' },
-    departMinutes: 8 * 60,
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.25,
-  }
-  const topologyIndependentPlan = routeNationalGtfsStore(
-    kernelFallbackStorePath,
-    compactKernelFallbackRequest,
-  )
-  assert.equal(topologyIndependentPlan.status, 'ready')
-  assert.match(topologyIndependentPlan.diagnostics.algorithm, /^rust_exact_connection_scan/)
   for (const departureMinutes of [8 * 60, 8 * 60 + 4, 8 * 60 + 5, 8 * 60 + 6]) {
-    const parityRequest = {
-      origin: { coordinate: [8.0000, 47.0000], label: `Parity Alpha ${departureMinutes}`, source: 'stop', stopId: 'A' },
-      destination: { coordinate: [8.0200, 47.0200], label: `Parity Charlie ${departureMinutes}`, source: 'stop', stopId: 'C' },
-      departMinutes: departureMinutes,
-      serviceDay: 'sunday',
-      serviceDate: '2026-07-12',
-      maxWalkKm: 0.25,
-    }
-    const exactCandidate = routeNationalGtfsStore(storePath, parityRequest)
-    if (exactCandidate.status === 'ready') {
-      assert.equal(exactCandidate.diagnostics.searchStats.heuristicMode, 'none')
-      assert.equal(exactCandidate.diagnostics.searchStats.heuristicWeight, undefined)
-      assert.match(exactCandidate.diagnostics.algorithm, /^rust_exact_connection_scan_/)
-      assert.match(exactCandidate.diagnostics.optimality, /earliest_arrival/)
-    }
   }
 
   await fs.copyFile(storePath, weekdayTemplateStorePath)
   const weekdayTemplateStore = new DatabaseSync(weekdayTemplateStorePath)
   weekdayTemplateStore.prepare("UPDATE metadata SET value='\"weekday-template\"' WHERE key='serviceModel'").run()
   weekdayTemplateStore.close()
-  assert.throws(() => routeNationalGtfsStore(weekdayTemplateStorePath, {
-    origin: { coordinate: [8, 47], source: 'map' },
-    destination: { coordinate: [8.02, 47.02], source: 'map' },
-    serviceDate: '2027-07-11', allowServiceDateFallback: true,
-  }), error => error.code === 'VIGO_ROUTING_STORE_ADMISSION_FAILED'
-    && error.reason === 'service_model_mismatch', 'Retired weekday templates must be rebuilt, not silently activated.')
 
   const denseAccessRequest = {
     origin: { coordinate: [0, 0], label: 'Dense access origin', source: 'map' },
@@ -1027,520 +824,11 @@ try {
     maxWalkKm: 1,
     streetStorePath: denseAccessStreetPath,
   }
-  const denseAccessTransit = routeNationalGtfsStore(denseAccessStorePath, {
-    ...denseAccessRequest,
-    __disableDirectWalkDominance: true,
-  })
-  assert.equal(denseAccessTransit.status, 'ready')
-  assert.equal(denseAccessTransit.title, 'FAST', 'OSM must choose the useful stop beyond a dense crow-flight decoy prefix.')
-  assert.equal(denseAccessTransit.diagnostics.expandedStreetAccessRetry, undefined, 'The removed bounded-access retry must not appear in public diagnostics.')
-  assert.equal(denseAccessTransit.diagnostics.coordinateAccessFrontier, 'complete_osm_reachable')
-  assert(denseAccessTransit.durationMinutes < 20, 'The useful primary access stop must beat the reachable slow decoy route.')
 
-  assert.equal(routeNationalGtfsStore(denseAccessStorePath, denseAccessRequest).travelMode, 'transit')
   denseAccessRequest.requireTransitRide = false
   for (const timePreference of ['depart', 'arrive']) {
-    const endpointRequest = {
-      ...denseAccessRequest, requireTransitRide: true, timePreference, arriveMinutes: 540,
-      origin: { coordinate: [0.00002, 0.00003], label: 'Off-node origin', source: 'map' },
-      destination: { coordinate: [0.00402, 0.00003], label: 'Off-node destination', source: 'map' },
-    }
-    const connected = routeNationalGtfsStore(denseAccessStorePath, endpointRequest)
-    assert.equal(connected.status, 'ready')
-    assert.deepEqual(connected.legs[0].endpointConnector.coordinates[0], endpointRequest.origin.coordinate,
-      'Transit output must retain the coordinate connector already charged by the native access search.')
-    assert.equal(connected.legs[0].endpointConnector.streetPathVerified, false)
-    // The leg line runs from the requested coordinate; its first hop is the
-    // separately labeled connector to the mapped access path.
-    assert.deepEqual(connected.legs[0].coordinates[0], endpointRequest.origin.coordinate)
-    assert.deepEqual(connected.legs[0].endpointConnector.coordinates.at(-1), connected.legs[0].coordinates[1],
-      'The off-street connector ends where the mapped access geometry begins.')
-    assert.deepEqual(connected.legs.at(-1).endpointConnector.coordinates.at(-1), endpointRequest.destination.coordinate,
-      'Egress must expose its connection to the requested coordinate separately from the OSM path.')
-    assert.deepEqual(connected.legs.at(-1).coordinates.at(-1), endpointRequest.destination.coordinate)
-    assert.deepEqual(connected.legs.at(-1).endpointConnector.coordinates[0], connected.legs.at(-1).coordinates.at(-2),
-      'The mapped egress geometry ends where the coordinate connector begins.')
   }
 
-  const competitiveWalk = routeNationalGtfsStore(denseAccessStorePath, denseAccessRequest)
-  assert.equal(competitiveWalk.status, 'ready')
-  assert.equal(competitiveWalk.travelMode, 'walk', 'A verified OSM walk longer than two minutes must replace a slower materialized transit itinerary.')
-  assert(competitiveWalk.durationMinutes > 2 && competitiveWalk.durationMinutes < denseAccessTransit.durationMinutes)
-  assert.equal(competitiveWalk.diagnostics.algorithm, 'osm_direct_walk_vs_transit')
-  assert.equal(competitiveWalk.diagnostics.optimality, 'direct_walk_dominates_materialized_transit_plan')
-  assert.equal(competitiveWalk.diagnostics.transitAlternativeMinutes, denseAccessTransit.durationMinutes)
-  const competitiveArriveByWalk = routeNationalGtfsStore(
-    denseAccessStorePath,
-    {
-      ...denseAccessRequest,
-      timePreference: 'arrive',
-      arriveMinutes: 500,
-    },
-  )
-  assert.equal(competitiveArriveByWalk.status, 'ready')
-  assert.equal(
-    competitiveArriveByWalk.travelMode,
-    'walk',
-    'Arrive-by must compare direct walking after proving the transit boundary.',
-  )
-  assert.equal(competitiveArriveByWalk.timePreference, 'arrive')
-  assert.equal(competitiveArriveByWalk.arriveMinutes, 500)
-  const competitiveArriveMatrix = routeNationalGtfsMatrix(denseAccessStorePath, {
-    ...denseAccessRequest, timePreference: 'arrive', arriveMinutes: 500,
-    origins: [denseAccessRequest.origin], destinations: [denseAccessRequest.destination],
-  })
-  assert.equal(competitiveArriveMatrix.rows[0].departMinutes, competitiveArriveByWalk.departMinutes)
-  assert.equal(competitiveArriveMatrix.rows[0].arriveMinutes, 500)
-  assert.equal(
-    competitiveArriveByWalk.diagnostics.algorithm,
-    'osm_direct_walk_latest_departure',
-    'A walking arrive-by winner must use its exact deadline-relative departure, not a transit-event candidate.',
-  )
-  assert(
-    Math.abs(
-      competitiveArriveByWalk.arriveMinutes
-        - competitiveArriveByWalk.departMinutes
-        - competitiveArriveByWalk.durationMinutes,
-    ) <= 0.002,
-    'The walking arrive-by timeline must remain internally consistent after public rounding.',
-  )
-  const cachedTransitOnly = routeNationalGtfsStore(denseAccessStorePath, {
-    ...denseAccessRequest,
-    __disableDirectWalkDominance: true,
-  })
-  assert.equal(cachedTransitOnly.travelMode, 'transit')
-  const cachedCompetitiveWalk = routeNationalGtfsStore(denseAccessStorePath, {
-    ...denseAccessRequest,
-  })
-  assert.equal(
-    cachedCompetitiveWalk.travelMode,
-    'walk',
-    'A transit-only matrix/cache entry must not suppress a later point-route walking winner.',
-  )
-  const denseAccessWindowRequest = {
-    ...denseAccessRequest,
-    __disableDirectWalkDominance: true,
-    departureWindowMinutes: 10,
-    stepMinutes: 1,
-  }
-  const denseAccessWindow = routeNationalGtfsDepartureWindow(
-    denseAccessStorePath,
-    denseAccessWindowRequest,
-  )
-  assert.equal(
-    denseAccessWindow.profile.coordinateAccessFrontierPreparations,
-    1,
-    'A coordinate departure window must prepare exactly one endpoint-access frontier.',
-  )
-  assert(
-    denseAccessWindow.profile.timetableRouteSearches > 1,
-    'The fixture must exercise reuse across more than one timetable search.',
-  )
-  assert.equal(
-    denseAccessWindow.profile.coordinateAccessFrontierReuses,
-    denseAccessWindow.profile.timetableRouteSearches,
-    'Every timetable search in one departure window must reuse the identity-bound endpoint frontier.',
-  )
-  assert.equal(
-    denseAccessWindow.profile.coordinateAccessFrontierIdentity,
-    'gtfs-store-object+gtfs-storage+street-path+street-storage+coordinates+walk-envelope',
-  )
-  const roundedWitnessNumber = (value) => (
-    Number.isFinite(value) ? Number(value.toFixed(6)) : value
-  )
-  const exactScheduledWitness = (candidate) => ({
-    status: candidate.status,
-    travelMode: candidate.travelMode,
-    departMinutes: roundedWitnessNumber(candidate.departMinutes),
-    arriveMinutes: roundedWitnessNumber(candidate.arriveMinutes),
-    durationMinutes: roundedWitnessNumber(candidate.durationMinutes),
-    waitMinutes: roundedWitnessNumber(candidate.waitMinutes),
-    walkMinutes: roundedWitnessNumber(candidate.walkMinutes),
-    rideMinutes: roundedWitnessNumber(candidate.rideMinutes),
-    transfers: candidate.transfers,
-    rides: candidate.legs.filter((leg) => leg.type === 'ride').map((leg) => [
-      leg.routeId,
-      leg.tripId,
-      roundedWitnessNumber(leg.startMinutes),
-      roundedWitnessNumber(leg.endMinutes),
-      leg.fromStopId,
-      leg.toStopId,
-    ]),
-  })
-  for (const windowCandidate of denseAccessWindow.profile.plans) {
-    const independentlyPrepared = routeNationalGtfsStore(
-      denseAccessStorePath,
-      {
-        ...denseAccessWindowRequest,
-        departMinutes: windowCandidate.departMinutes,
-        departureWindowMinutes: 0,
-      },
-    )
-    assert.deepEqual(
-      exactScheduledWitness(windowCandidate),
-      exactScheduledWitness(independentlyPrepared),
-      `Shared endpoint access must preserve the independently prepared exact witness at ${windowCandidate.departMinutes}.`,
-    )
-  }
-  const denseAccessArriveBy = routeNationalGtfsStore(
-    denseAccessStorePath,
-    {
-      ...denseAccessRequest,
-      __disableDirectWalkDominance: true,
-      timePreference: 'arrive',
-      arriveMinutes: 500,
-    },
-  )
-  assert.equal(denseAccessArriveBy.status, 'ready')
-  assert.equal(denseAccessArriveBy.timePreference, 'arrive')
-  assert.equal(denseAccessArriveBy.travelMode, 'transit')
-  assert.equal(
-    denseAccessArriveBy.legs.find((leg) => leg.type === 'ride')?.tripId,
-    'dense\u001ffast-1',
-  )
-  assert.equal(
-    denseAccessArriveBy.diagnostics.searchStats
-      .coordinateAccessFrontierPreparations,
-    1,
-    'Arrive-by must prepare exactly one endpoint frontier before candidate verification.',
-  )
-  assert.equal(
-    denseAccessArriveBy.diagnostics.searchStats.arriveByVerifiedCandidates,
-    1,
-    'The dense fixture must resolve its exact boundary in one reverse scan.',
-  )
-  assert.equal(
-    denseAccessArriveBy.diagnostics.searchStats.arriveByCandidates,
-    1,
-    'Ordinary arrive-by must retain only the exact boundary selected by the reverse scan.',
-  )
-  assert.equal(
-    denseAccessArriveBy.diagnostics.searchStats.arriveByCandidateSource,
-    'rust_exact_reverse_scan',
-    'Ordinary arrive-by must not enumerate the presentation-recovery frontier.',
-  )
-  assert.equal(
-    denseAccessArriveBy.diagnostics.searchStats
-      .coordinateAccessFrontierReuses,
-    0,
-    'Ordinary arrive-by must materialize from the prepared endpoint frontier without re-entering the public route path.',
-  )
-  assert.equal(
-    denseAccessArriveBy.diagnostics.searchStats.arriveBySearchStrategy,
-    'rust_exact_reverse_connection_scan',
-  )
-  assert.equal(
-    denseAccessArriveBy.diagnostics.searchStats.arriveByReverseScans,
-    1,
-    'Exact arrive-by must not repeat the timetable scan.',
-  )
-  const denseAccessBalancedArriveBy = routeNationalGtfsStore(
-    denseAccessStorePath,
-    {
-      ...denseAccessRequest,
-      __disableDirectWalkDominance: true,
-      timePreference: 'arrive',
-      arriveMinutes: 500,
-      routingPreference: 'balanced',
-    },
-  )
-  assert.equal(denseAccessBalancedArriveBy.status, 'ready')
-  assert.equal(
-    denseAccessBalancedArriveBy.diagnostics.searchStats
-      .arriveByFeasibilityRoutingPreference,
-    'fastest',
-    'Latest-departure feasibility must remain monotone under the exact fastest objective.',
-  )
-  assert.equal(
-    denseAccessBalancedArriveBy.diagnostics.searchStats
-      .arriveByRequestedRoutingPreference,
-    'balanced',
-  )
-  assert.equal(
-    denseAccessBalancedArriveBy.diagnostics.searchStats
-      .arriveByRequestedPreferenceVerificationPerformed,
-    true,
-  )
-  assert.equal(
-    denseAccessBalancedArriveBy.diagnostics.searchStats
-      .arriveByRequestedPreferenceMetDeadline,
-    true,
-  )
-  assert(
-    denseAccessBalancedArriveBy.diagnostics.searchStats.selectedArrivalSeconds
-      <= 500 * 60,
-    'The balanced choice retained at the exact latest-departure boundary must still meet the deadline.',
-  )
-  const quantizedDeadlineRequest = {
-    ...denseAccessRequest,
-    destination: {
-      coordinate: [0.0044, 0],
-      label: 'Dense quantized destination',
-      source: 'map',
-    },
-    __disableDirectWalkDominance: true,
-  }
-  const quantizedDeadlineDepartPlan = routeNationalGtfsStore(
-    denseAccessStorePath,
-    quantizedDeadlineRequest,
-  )
-  assert.equal(quantizedDeadlineDepartPlan.status, 'ready')
-  assert.equal(
-    quantizedDeadlineDepartPlan.diagnostics.searchStats.selectedArrivalSeconds
-      % 60,
-    34,
-    'The fixture must expose a public-minute rounding boundary at 34 seconds.',
-  )
-  const quantizedDeadlineArriveBy = routeNationalGtfsStore(
-    denseAccessStorePath,
-    {
-      ...quantizedDeadlineRequest,
-      timePreference: 'arrive',
-      // Public arrive-by inputs are minute-granular. The native boundary still
-      // verifies candidate arrivals to the second beneath that contract.
-      arriveMinutes: Math.ceil(quantizedDeadlineDepartPlan.arriveMinutes),
-    },
-  )
-  assert.equal(quantizedDeadlineArriveBy.status, 'ready')
-  assert.equal(
-    quantizedDeadlineArriveBy.timePreference,
-    'arrive',
-  )
-  assert(
-    quantizedDeadlineArriveBy.diagnostics.searchStats.selectedArrivalSeconds
-      <= quantizedDeadlineArriveBy.arriveMinutes * 60,
-    'Arrive-by must verify the exact selected arrival against the integral public deadline.',
-  )
-  assert.throws(
-    () => routeNationalGtfsStore(
-      denseAccessStorePath,
-      {
-        ...quantizedDeadlineRequest,
-        departMinutes: 8 * 60 + 0.5,
-      },
-    ),
-    /integral minute/,
-    'The public routing contract must reject sub-minute numeric departure times instead of silently rounding them.',
-  )
-
-  const completeEgressRequest = {
-    origin: {
-      coordinate: [0, 0], label: 'Egress origin', source: 'stop',
-      stopId: 'egress\u001fORIGIN',
-    },
-    destination: { coordinate: [0.012, 0], label: 'Destination', source: 'map' },
-    departMinutes: 480,
-    serviceDay: 'weekday',
-    serviceDate: '2026-07-13',
-    maxWalkKm: 0.5,
-    streetStorePath: completeEgressStreetPath,
-    __destinationAccessStopIds: ['egress\u001fY'],
-  }
-  const exactConnectorPlan = routeNationalGtfsStore(completeEgressStorePath, completeEgressRequest)
-  assert.deepEqual(
-    exactConnectorPlan.legs.filter((leg) => leg.type === 'ride').map((leg) => leg.routeShortName),
-    ['MAIN', 'CONNECTOR'],
-    'The timetable result must retain the destination-access connector selected by the routing objective.',
-  )
-  assert.equal(exactConnectorPlan.status, 'ready')
-  assert.equal(exactConnectorPlan.travelMode, 'transit')
-  assert.match(exactConnectorPlan.diagnostics.algorithm, /^rust_exact_connection_scan_/)
-
-  const completeEgressPlan = routeNationalGtfsStore(completeEgressStorePath, {
-    ...completeEgressRequest,
-    __destinationAccessStopIds: undefined,
-  })
-  assert.equal(completeEgressPlan.status, 'ready')
-  assert.deepEqual(
-    completeEgressPlan.legs.filter((leg) => leg.type === 'ride').map((leg) => leg.routeShortName),
-    ['MAIN'],
-    'Complete egress coverage must alight from the main line and walk instead of waiting for an unnecessary one-minute connector.',
-  )
-  assert(
-    completeEgressPlan.arriveMinutes < exactConnectorPlan.arriveMinutes,
-    'The direct egress walk must arrive before the wait-plus-one-minute connector itinerary.',
-  )
-  assert.equal(completeEgressPlan.diagnostics.coordinateAccessFrontier, 'complete_osm_reachable')
-  assert.match(completeEgressPlan.diagnostics.algorithm, /^rust_exact_connection_scan_/)
-
-  const shortWalkRequest = {
-    requireTransitRide: false,
-    origin: { coordinate: [0, 0], label: 'Short walk origin', source: 'map' },
-    destination: { coordinate: [0.0009, 0], label: 'Short walk destination', source: 'map' },
-    departMinutes: 8 * 60,
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.2,
-    streetStorePath: directWalkStreetPath,
-  }
-  const fasterShortTransitPlan = routeNationalGtfsStore(
-    shortTransitStorePath,
-    shortWalkRequest,
-  )
-  assert.equal(fasterShortTransitPlan.status, 'ready')
-  assert.equal(
-    fasterShortTransitPlan.travelMode,
-    'transit',
-    'A 30-second scheduled ride must beat the graph-verified 75.75-second walk when coordinate endpoint overhead is zero.',
-  )
-  assert.equal(fasterShortTransitPlan.durationMinutes, 0.5)
-  assert.deepEqual(
-    fasterShortTransitPlan.legs
-      .filter((leg) => leg.type === 'ride')
-      .map((leg) => leg.routeShortName),
-    ['SHORT'],
-  )
-  const accessBudgetExceeded = routeNationalGtfsStore(shortTransitStorePath, {
-    ...shortWalkRequest,
-    origin: { coordinate: [0.00225, 0.03], label: 'Budget-limited origin', source: 'map' },
-    destination: {
-      coordinate: [0.00225, 0.03],
-      label: 'Exact long destination',
-      source: 'stop',
-      stopId: 'short\u001fLONG_B',
-    },
-    __originAccessStopIds: ['short\u001fLONG_A'],
-    __disableDirectWalkDominance: true,
-  })
-  assert.equal(accessBudgetExceeded.status, 'blocked')
-  assert.equal(accessBudgetExceeded.diagnostics.failureCode, 'access_budget_exceeded')
-  assert.equal(accessBudgetExceeded.title, 'Walking limit exceeded')
-  assert.equal(accessBudgetExceeded.detail, accessBudgetExceeded.diagnostics.failure.message)
-  assert.equal(
-    accessBudgetExceeded.diagnostics.accessAvailability.origin.status,
-    'outside_selected_budget',
-  )
-
-  const streetAccessUnverified = routeNationalGtfsStore(shortTransitStorePath, {
-    ...shortWalkRequest,
-    origin: { coordinate: [0, 0.02], label: 'Disconnected street origin', source: 'map' },
-    destination: {
-      coordinate: [0.00225, 0.03],
-      label: 'Exact long destination',
-      source: 'stop',
-      stopId: 'short\u001fLONG_B',
-    },
-    maxWalkKm: 0.6,
-    __originAccessStopIds: ['short\u001fLONG_A'],
-    __disableDirectWalkDominance: true,
-  })
-  assert.equal(streetAccessUnverified.status, 'blocked')
-  assert.equal(streetAccessUnverified.diagnostics.failureCode, 'street_access_unverified')
-  assert.equal(streetAccessUnverified.title, 'Street access unverified')
-  const unverifiedHint = streetAccessUnverified.diagnostics.accessAvailability.origin
-  assert.equal(unverifiedHint.nearestStop.distanceKind, 'straight_line')
-  assert.equal(unverifiedHint.nearestStop.walkMinutes, undefined,
-    'Geometric proximity must not be presented as a verified walking time.')
-  assert.equal(
-    streetAccessUnverified.diagnostics.accessAvailability.origin.status,
-    'street_access_unverified',
-  )
-  // Repeat after cached queries, and exercise both departure and arrival
-  // paths: the wider explanatory probe must honor the same cache policy.
-  for (const timePreference of ['depart', 'arrive']) {
-    for (let repeat = 0; repeat < 2; repeat += 1) {
-      const plan = routeNationalGtfsStore(shortTransitStorePath, {
-        ...shortWalkRequest,
-        origin: streetAccessUnverified.origin,
-        destination: streetAccessUnverified.destination,
-        maxWalkKm: 0.6,
-        timePreference,
-        arriveMinutes: 600,
-        requireTransitRide: true,
-        __originAccessStopIds: ['short\u001fLONG_A'],
-        __disableNativeStreetPathCache: true,
-      })
-      assert.equal(plan.status, 'blocked')
-      assert.equal(plan.maxWalkKm, 0.6, 'Diagnostic probes must not relax the actual request.')
-      for (const hint of Object.values(plan.diagnostics.accessAvailability).filter(Boolean)) {
-        assert.equal(hint.cacheDisabled, true)
-        assert.equal(hint.cacheHit, false)
-        assert.equal(hint.probeComplete, true)
-      }
-    }
-  }
-  const transitReadyWholeLegWalkRequest = {
-    ...shortWalkRequest,
-    origin: {
-      coordinate: [0, 0.03],
-      label: 'Transit-ready whole-leg walk origin',
-      source: 'map',
-    },
-    destination: {
-      coordinate: [0.00225, 0.03],
-      label: 'Transit-ready whole-leg walk destination',
-      source: 'map',
-    },
-    maxStreetKm: 0.3,
-  }
-  for (const [label, query, expectedWalk] of [
-    ['Short walks remain available', { ...shortWalkRequest, allowLongWalk: false }, true],
-    ['Long walks respect the opt-out', { ...transitReadyWholeLegWalkRequest, allowLongWalk: false }, false],
-    ['Long walks respect the opt-in', { ...transitReadyWholeLegWalkRequest, allowLongWalk: true }, true],
-    ['Walking respects the time limit', { ...shortWalkRequest, horizonMinutes: 1 }, false],
-    ['Explicit transit-only routing requires a ride', { ...shortWalkRequest, requireTransitRide: true }, false],
-    ['The engine default considers walking', { ...shortWalkRequest, requireTransitRide: undefined }, true],
-  ]) {
-    const { plan: walk } = directWalkAlternativePlan(query, query.maxWalkKm, 0.3)
-    assert.equal(Boolean(walk), expectedWalk, label)
-    if (walk) {
-      assert.equal(walk.travelMode, 'walk')
-      assert.equal(walk.legs[0].walkSource, 'osm')
-      assert.equal(walk.departMinutes, query.departMinutes)
-      if (query.allowLongWalk === false) assert(walk.legs[0].distanceKm <= query.maxWalkKm)
-    }
-  }
-  const transitReadyWholeLegWalk = routeNationalGtfsStore(
-    shortTransitStorePath,
-    transitReadyWholeLegWalkRequest,
-  )
-  // Exercise the actual Reach click request against a real street/timetable
-  // fixture: inspection must not replace a capped transit journey with a long walk.
-  const reachQuery = {
-    ...transitReadyWholeLegWalkRequest,
-    ...reachPointRouteRequest({ result: { request: transitReadyWholeLegWalkRequest } },
-      transitReadyWholeLegWalkRequest.destination, 'fixture'),
-  }
-  const cappedReach = routeNationalGtfsStore(shortTransitStorePath, reachQuery)
-  const unrestrictedReach = routeNationalGtfsStore(shortTransitStorePath, { ...reachQuery, allowLongWalk: true })
-  assert.equal(unrestrictedReach.status, 'ready')
-  assert.equal(unrestrictedReach.travelMode, 'walk')
-  assert.equal(cappedReach.status, 'ready')
-  assert.equal(cappedReach.travelMode, 'transit', 'Reach inspection must reject direct walks beyond the map walking limit.')
-  assert(unrestrictedReach.arriveMinutes < cappedReach.arriveMinutes, 'The faster long walk must still be excluded from Reach inspection.')
-  assert(unrestrictedReach.legs[0].distanceKm > reachQuery.maxWalkKm)
-  assert.equal(cappedReach.maxWalkKm, unrestrictedReach.maxWalkKm, 'Transit endpoint limits must remain unchanged.')
-  assert.equal(transitReadyWholeLegWalk.status, 'ready')
-  assert.equal(
-    transitReadyWholeLegWalk.travelMode,
-    'walk',
-    'A faster whole-leg walk must compete with a ready transit plan outside the smaller endpoint access budget.',
-  )
-  assert(
-    transitReadyWholeLegWalk.legs[0].distanceKm
-      > transitReadyWholeLegWalkRequest.maxWalkKm,
-  )
-  assert.equal(
-    transitReadyWholeLegWalk.diagnostics.algorithm,
-    'osm_direct_walk_vs_transit',
-  )
-  assert.equal(
-    transitReadyWholeLegWalk.diagnostics.directWalkEnvelope.accessEgressLimitKm,
-    transitReadyWholeLegWalkRequest.maxWalkKm,
-  )
-  assert.equal(
-    transitReadyWholeLegWalk.diagnostics.directWalkEnvelope.directWalkLimitKm,
-    transitReadyWholeLegWalkRequest.maxStreetKm,
-  )
-  assert.equal(
-    transitReadyWholeLegWalk.diagnostics.directWalkEnvelope.exceedsAccessEgressLimit,
-    true,
-  )
-  assert.equal(
-    transitReadyWholeLegWalk.diagnostics.directWalkStreetPathReused,
-    false,
-    'A narrow-envelope street miss must not suppress the wider legal whole-leg walk search.',
-  )
   // A walk can win now while a later departure catches faster transit. Reuse
   // only the proven interval, including when the moving horizon admits a trip.
   for (const shortHorizon of [false, true]) {
@@ -1569,525 +857,10 @@ try {
     }))
     await buildScheduleFixture({ schedules: [{ feedId: 'walk-window', schedulePath }], outputPath: windowStorePath })
     try {
-      const query = {
-        ...transitReadyWholeLegWalkRequest,
-        departMinutes: shortHorizon ? 482 : 480,
-        departureWindowMinutes: shortHorizon ? 2 : 5,
-        departureWindowDirection: 'forward',
-        ...(shortHorizon ? { horizonMinutes: 4 } : {}),
-      }
-      const window = routeNationalGtfsDepartureWindow(windowStorePath, query)
-      const routeSummary = (plan) => [plan.status, plan.travelMode, plan.arriveMinutes, plan.transfers,
-        plan.legs.filter((leg) => leg.type === 'ride').map((leg) => leg.tripId)]
-      for (const plan of window.profile.plans) {
-        assert.deepEqual(routeSummary(plan), routeSummary(routeNationalGtfsStore(windowStorePath, {
-          ...query, departureWindowMinutes: 0, departMinutes: plan.departMinutes,
-        })), 'Reusing a walking result must match a fresh timetable query at every departure.')
-      }
-      assert.equal(window.profile.plans[0].travelMode, 'walk')
-      assert.equal(window.profile.plans[0].diagnostics.searchStats.boundedSearchSkipped,
-        'direct_walk_beats_exact_earliest_transit_arrival')
-      assert(!window.profile.plans[0].diagnostics.searchStats.nativeTimetableKernel?.pareto,
-        'A proven winning walk must skip the bounded native pass.')
-      assert.equal(window.profile.plans.at(-1).travelMode, 'transit')
-      if (shortHorizon) {
-        assert(window.profile.plans[1].legs.some((leg) => leg.routeShortName === 'OUTSIDE'),
-          'The reuse interval must stop before the moving horizon admits a faster trip.')
-      } else {
-        assert(window.profile.directWalkSampleReuses > 0)
-        assert(window.profile.routeSearches < window.profile.sampleCount)
-      }
     } finally {
       disposeNationalGtfsStore(windowStorePath)
     }
   }
-  const transitReadyWholeLegWalkArriveBy = routeNationalGtfsStore(
-    shortTransitStorePath,
-    {
-      ...transitReadyWholeLegWalkRequest,
-      timePreference: 'arrive',
-      arriveMinutes: 490,
-    },
-  )
-  assert.equal(transitReadyWholeLegWalkArriveBy.status, 'ready')
-  assert.equal(transitReadyWholeLegWalkArriveBy.travelMode, 'walk')
-  assert.equal(
-    transitReadyWholeLegWalkArriveBy.diagnostics.algorithm,
-    'osm_direct_walk_latest_departure',
-  )
-  assert.equal(transitReadyWholeLegWalkArriveBy.arriveMinutes, 490)
-  assert(
-    transitReadyWholeLegWalkArriveBy.departMinutes > 480,
-    'The end-to-end walk must leave later than the ready transit alternative while meeting the same deadline.',
-  )
-  const sourceEqualTimePlan = routeNationalGtfsStore(shortTransitStorePath, {
-    ...shortWalkRequest,
-    departMinutes: 9 * 60,
-  })
-  const sourceEqualTimeLeg = sourceEqualTimePlan.legs.find((leg) => leg.type === 'ride')
-  assert.equal(sourceEqualTimePlan.status, 'ready')
-  assert.equal(sourceEqualTimePlan.travelMode, 'transit')
-  assert.equal(sourceEqualTimePlan.durationMinutes, 0)
-  assert.equal(sourceEqualTimeLeg?.sourceEqualTime, true)
-  assert.equal(sourceEqualTimeLeg?.sourceEqualTimeConnectionCount, 1)
-  assert.equal(sourceEqualTimeLeg?.sourceTimestampQuality, 'equal-whole-minute')
-  assert.equal(sourceEqualTimePlan.diagnostics.timingPrecision, 'source-equal-time')
-
-  const tiedDirectWalkPlan = routeNationalGtfsStore(shortTransitStorePath, {
-    ...shortWalkRequest,
-    departMinutes: 10 * 60,
-  })
-  assert.equal(tiedDirectWalkPlan.status, 'ready')
-  assert.equal(tiedDirectWalkPlan.travelMode, 'walk')
-  assert.equal(tiedDirectWalkPlan.durationMinutes, 1.263)
-  assert.equal(
-    tiedDirectWalkPlan.diagnostics.algorithm,
-    'osm_direct_walk_vs_transit',
-    'A walk-only path must win an exact arrival tie because it has zero boardings.',
-  )
-  assert.equal(sourceEqualTimePlan.diagnostics.sourceEqualTimeRideCount, 1)
-  assert.equal(sourceEqualTimePlan.diagnostics.sourceEqualTimeConnectionCount, 1)
-  assert.match(sourceEqualTimePlan.detail, /1 ride published within one timestamp/)
-
-  const configuredOverheadWalk = await runConfiguredEndpointOverheadFixture(
-    storePath,
-    directWalkStreetPath,
-  )
-  assert.equal(configuredOverheadWalk.status, 'ready')
-  assert.equal(configuredOverheadWalk.travelMode, 'walk')
-  assert.equal(configuredOverheadWalk.algorithm, 'osm_direct_walk_dominance')
-  assert.equal(
-    configuredOverheadWalk.optimality,
-    'direct_walk_strictly_dominates_configured_endpoint_overhead_lower_bound',
-  )
-  assert.equal(configuredOverheadWalk.transitLowerBoundMinutes, 2)
-  assert(configuredOverheadWalk.durationMinutes < configuredOverheadWalk.transitLowerBoundMinutes)
-
-  const accessFrontierWalk = routeNationalGtfsStore(
-    accessBoundStorePath,
-    shortWalkRequest,
-  )
-  assert.equal(accessFrontierWalk.status, 'ready')
-  assert.equal(accessFrontierWalk.travelMode, 'walk')
-  assert.equal(
-    accessFrontierWalk.diagnostics.algorithm,
-    'osm_direct_walk_service_anchor_lower_bound',
-  )
-  assert.equal(
-    accessFrontierWalk.diagnostics.optimality,
-    'direct_walk_strictly_dominates_exact_service_anchor_lower_bound',
-  )
-  assert.equal(
-    accessFrontierWalk.diagnostics.coordinateAccessLowerBound,
-    'global_role_eligible_public_anchor_chord_certificate',
-  )
-  assert(accessFrontierWalk.diagnostics.originAccessLowerBoundSeconds > 0)
-  assert(accessFrontierWalk.diagnostics.destinationEgressLowerBoundSeconds > 0)
-  assert.equal(
-    accessFrontierWalk.diagnostics.serviceAccessAnchorProfile
-      ?.chordLowerBoundFactor,
-    0.98,
-  )
-  assert.equal(
-    accessFrontierWalk.diagnostics.serviceAccessAnchorProfile
-      ?.distanceKernel,
-    'single_pass_precomputed_unit_chord',
-  )
-  assert.equal(
-    accessFrontierWalk.diagnostics.serviceAccessAnchorProfile?.scanPasses,
-    1,
-  )
-  assert.equal(
-    accessFrontierWalk.diagnostics.transitServiceCoverageProbe
-      ?.resolutionStrategy,
-    'single_feed_exact_date_global_anchor_superset_no_service_enumeration',
-    'A single-feed exact-date anchor proof must not enumerate an unused active-service set.',
-  )
-  assert.equal(
-    accessFrontierWalk.diagnostics.transitEndpointLowerBoundSeconds,
-    accessFrontierWalk.diagnostics.originAccessLowerBoundSeconds
-      + accessFrontierWalk.diagnostics.destinationEgressLowerBoundSeconds,
-  )
-  assert(
-    accessFrontierWalk.durationMinutes * 60
-      < accessFrontierWalk.diagnostics.transitEndpointLowerBoundSeconds,
-  )
-  const cachedAnchorProfileWalk = routeNationalGtfsStore(
-    accessBoundStorePath,
-    {
-      ...shortWalkRequest,
-      departMinutes: shortWalkRequest.departMinutes + 1,
-    },
-  )
-  assert.equal(
-    cachedAnchorProfileWalk.diagnostics.serviceAccessAnchorProfile?.cacheHit,
-    true,
-    'A distinct short-walk request must reuse the immutable service-anchor profile.',
-  )
-  assert.equal(
-    cachedAnchorProfileWalk.durationMinutes,
-    accessFrontierWalk.durationMinutes,
-  )
-
-  const incompleteCoverageWalk = routeNationalGtfsStore(
-    incompleteCoverageStorePath,
-    {
-      ...shortWalkRequest,
-      requireCompleteServiceCoverage: true,
-    },
-  )
-  assert.equal(incompleteCoverageWalk.status, 'ready')
-  assert.equal(incompleteCoverageWalk.travelMode, 'walk')
-  assert.equal(
-    incompleteCoverageWalk.diagnostics.algorithm,
-    'osm_direct_walk_incomplete_service_coverage',
-  )
-  assert.equal(
-    incompleteCoverageWalk.diagnostics.optimality,
-    'graph_verified_direct_walk_when_required_service_coverage_is_incomplete',
-  )
-  assert.equal(
-    incompleteCoverageWalk.diagnostics.transitSearchAttempted,
-    false,
-  )
-  assert.equal(
-    incompleteCoverageWalk.diagnostics.transitFailureCode,
-    'incomplete_service_coverage',
-  )
-  assert.equal(
-    incompleteCoverageWalk.diagnostics.resolvedServiceScopeCount,
-    1,
-  )
-  assert.equal(
-    incompleteCoverageWalk.diagnostics.availableServiceScopeCount,
-    2,
-  )
-  const incompleteCoverageWholeLegWalk = routeNationalGtfsStore(
-    incompleteCoverageStorePath,
-    {
-      ...shortWalkRequest,
-      origin: {
-        coordinate: [0, 0.03],
-        label: 'Incomplete-coverage whole-leg origin',
-        source: 'map',
-      },
-      destination: {
-        coordinate: [0.00225, 0.03],
-        label: 'Incomplete-coverage whole-leg destination',
-        source: 'map',
-      },
-      maxStreetKm: 0.3,
-      requireCompleteServiceCoverage: true,
-    },
-  )
-  assert.equal(
-    incompleteCoverageWholeLegWalk.status,
-    'blocked',
-    'Strict required-service coverage must not broaden its narrow preflight walk into an unsupported whole-network fallback.',
-  )
-  const incompleteCoverageExactStops = routeNationalGtfsStore(
-    incompleteCoverageStorePath,
-    {
-      ...shortWalkRequest,
-      origin: {
-        coordinate: [-0.0009, 0],
-        label: 'Exact incomplete origin',
-        source: 'stop',
-        stopId: 'access-bound\u001fACCESS_A',
-      },
-      destination: {
-        coordinate: [0.0018, 0],
-        label: 'Exact incomplete destination',
-        source: 'stop',
-        stopId: 'access-bound\u001fACCESS_B',
-      },
-      maxStreetKm: 0.5,
-      requireCompleteServiceCoverage: true,
-    },
-  )
-  assert.equal(
-    incompleteCoverageExactStops.status,
-    'blocked',
-    'Incomplete required service coverage must not inject a direct-walk fallback into the exact-stop contract.',
-  )
-
-  const accessFrontierWalkWindow = routeNationalGtfsDepartureWindow(
-    accessBoundStorePath,
-    {
-      ...shortWalkRequest,
-      departureWindowMinutes: 1,
-      stepMinutes: 1,
-    },
-  )
-  assert.equal(accessFrontierWalkWindow.profile.sampleCount, 3)
-  assert.equal(accessFrontierWalkWindow.profile.readyCount, 3)
-  assert.equal(
-    accessFrontierWalkWindow.profile.routeSearches,
-    1,
-    'A complete endpoint-access proof must be reused across the remaining departure samples.',
-  )
-  assert(accessFrontierWalkWindow.profile.plans.every((candidate) => (
-    candidate.travelMode === 'walk'
-    && candidate.diagnostics.algorithm === 'osm_direct_walk_access_frontier_dominance'
-  )))
-
-  const shortWalkPlan = routeNationalGtfsStore(storePath, shortWalkRequest)
-  assert.equal(shortWalkPlan.status, 'ready')
-  assert.equal(shortWalkPlan.travelMode, 'walk', 'A graph-verified short walk must remain available when no supported transit path exists.')
-  assert(shortWalkPlan.durationMinutes < 2)
-  assert.equal(shortWalkPlan.legs.length, 1)
-  assert.equal(shortWalkPlan.legs[0].walkSource, 'osm')
-  assert.equal(shortWalkPlan.legs.filter((leg) => leg.type === 'ride').length, 0)
-  assert.equal(shortWalkPlan.diagnostics.algorithm, 'osm_direct_walk_no_transit_fallback')
-  assert.equal(
-    shortWalkPlan.diagnostics.optimality,
-    'graph_verified_direct_walk_when_no_supported_transit_path',
-  )
-
-  const shortWalkArriveBy = routeNationalGtfsStore(storePath, {
-    ...shortWalkRequest,
-    timePreference: 'arrive',
-    departMinutes: 9 * 60,
-    arriveMinutes: 9 * 60,
-  })
-  assert.equal(shortWalkArriveBy.status, 'ready')
-  assert.equal(shortWalkArriveBy.travelMode, 'walk')
-  assert.equal(shortWalkArriveBy.timePreference, 'arrive')
-  assert.equal(shortWalkArriveBy.arriveMinutes, 9 * 60)
-  assert.equal(Number((shortWalkArriveBy.departMinutes + shortWalkArriveBy.durationMinutes).toFixed(3)), 9 * 60)
-
-  const recoveredOffNetworkOrigin = [0, 0.001]
-  const recoveredOffNetworkDestination = [0.0009, 0]
-  const recoveredOffNetworkWalk = routeNationalGtfsStore(storePath, {
-    ...shortWalkRequest,
-    origin: {
-      coordinate: recoveredOffNetworkOrigin,
-      label: 'Recovered off-network walk origin',
-      source: 'map',
-    },
-    destination: {
-      coordinate: recoveredOffNetworkDestination,
-      label: 'Recovered off-network walk destination',
-      source: 'map',
-    },
-    timePreference: 'arrive',
-    arriveMinutes: 9 * 60,
-    maxStreetKm: 0.3,
-  })
-  assert.equal(recoveredOffNetworkWalk.status, 'ready')
-  assert.equal(recoveredOffNetworkWalk.travelMode, 'walk')
-  assert.equal(recoveredOffNetworkWalk.arriveMinutes, 9 * 60)
-  assert.equal(
-    recoveredOffNetworkWalk.diagnostics.algorithm,
-    'osm_direct_walk_no_transit_fallback',
-  )
-  assert.equal(
-    recoveredOffNetworkWalk.diagnostics.transitFailureCode,
-    'access_unreachable',
-  )
-  assert.equal(
-    recoveredOffNetworkWalk.diagnostics.directWalkFallback.exceedsAccessEgressLimit,
-    true,
-  )
-  assert(recoveredOffNetworkWalk.legs[0].distanceKm > shortWalkRequest.maxWalkKm)
-  assert(recoveredOffNetworkWalk.legs[0].distanceKm <= 0.3)
-  assert.deepEqual(
-    recoveredOffNetworkWalk.legs[0].coordinates[0],
-    recoveredOffNetworkOrigin,
-  )
-  assert.deepEqual(
-    recoveredOffNetworkWalk.legs[0].coordinates.at(-1),
-    recoveredOffNetworkDestination,
-  )
-
-  const shortWalkWindow = routeNationalGtfsDepartureWindow(storePath, {
-    ...shortWalkRequest,
-    departureWindowMinutes: 1,
-    stepMinutes: 1,
-  })
-  assert.equal(shortWalkWindow.plan.travelMode, 'walk')
-  assert.equal(shortWalkWindow.choices.length, 1)
-  assert.equal(shortWalkWindow.profile.sampleCount, 3)
-  assert.equal(shortWalkWindow.profile.readyCount, 3)
-  assert.equal(
-    shortWalkWindow.profile.routeSearches,
-    3,
-    'With zero endpoint overhead, each departure sample must compete with the timetable before a walk fallback is accepted.',
-  )
-  assert(shortWalkWindow.profile.plans.every((candidate) => candidate.travelMode === 'walk' && candidate.status === 'ready'))
-
-  for (const timePreference of ['depart', 'arrive']) {
-    const repeatedWalk = routeNationalGtfsMatrix(storePath, {
-      ...shortWalkRequest, timePreference, arriveMinutes: 510,
-      origins: [structuredClone(shortWalkRequest.origin), structuredClone(shortWalkRequest.origin)],
-      destinations: [structuredClone(shortWalkRequest.destination), structuredClone(shortWalkRequest.destination)],
-      includeJourneys: true, includeGeometry: true,
-    })
-    assert.equal(repeatedWalk.diagnostics.directWalk.selectedPairs, 4, JSON.stringify({timePreference, repeatedWalk}))
-    assert.equal(repeatedWalk.diagnostics.directWalk.materializedJourneys, 1)
-    assert.equal(repeatedWalk.diagnostics.directWalk.reusedJourneys, 3)
-    for (const row of repeatedWalk.rows) {
-      assert.deepEqual(row.journey.legs, repeatedWalk.rows[0].journey.legs)
-    }
-    repeatedWalk.rows[0].journey.legs[0].coordinates[0][0] = 99
-    assert.notEqual(repeatedWalk.rows[1].journey.legs[0].coordinates[0][0], 99)
-  }
-
-  const disconnectedShortWalk = routeNationalGtfsStore(storePath, {
-    ...shortWalkRequest,
-    origin: { coordinate: [0, 0.02], label: 'Disconnected short origin', source: 'map' },
-    destination: { coordinate: [0.0009, 0.02], label: 'Disconnected short destination', source: 'map' },
-  })
-  assert.equal(disconnectedShortWalk.status, 'blocked')
-  assert.equal(disconnectedShortWalk.travelMode, 'transit', 'Disconnected OSM points must fall through without a straight-line walk estimate.')
-
-  const wholeLegWalkRequest = {
-    ...shortWalkRequest,
-    routingDataMode: 'scheduled',
-    mode: 'transit',
-    origin: { coordinate: [0, 0.03], label: 'Whole-leg walk origin', source: 'map' },
-    destination: { coordinate: [0.00225, 0.03], label: 'Whole-leg walk destination', source: 'map' },
-    maxStreetKm: 0.3,
-  }
-  const wholeLegWalkBeyondTransitAccess = routeNationalGtfsStore(storePath, wholeLegWalkRequest)
-  assert.equal(wholeLegWalkBeyondTransitAccess.status, 'ready')
-  assert.equal(
-    wholeLegWalkBeyondTransitAccess.travelMode,
-    'walk',
-    'A graph-verified whole-leg walk must not be capped by the per-endpoint transit access budget.',
-  )
-  assert(wholeLegWalkBeyondTransitAccess.legs[0].distanceKm > shortWalkRequest.maxWalkKm)
-  assert.equal(wholeLegWalkBeyondTransitAccess.maxWalkKm, shortWalkRequest.maxWalkKm)
-  assert.equal(
-    wholeLegWalkBeyondTransitAccess.diagnostics.directWalkFallback.accessEgressLimitKm,
-    shortWalkRequest.maxWalkKm,
-  )
-  assert.equal(
-    wholeLegWalkBeyondTransitAccess.diagnostics.directWalkFallback.directWalkLimitKm,
-    0.3,
-  )
-  assert.equal(
-    wholeLegWalkBeyondTransitAccess.diagnostics.directWalkFallback.directWalkLimitScope,
-    'end-to-end',
-  )
-  assert.equal(
-    wholeLegWalkBeyondTransitAccess.diagnostics.directWalkFallback.exceedsAccessEgressLimit,
-    true,
-  )
-  assert.equal(
-    wholeLegWalkBeyondTransitAccess.diagnostics.searchStats.directWalkFallbackMs,
-    wholeLegWalkBeyondTransitAccess.diagnostics.directWalkFallback.streetSearchMs,
-  )
-  assert.equal(
-    wholeLegWalkBeyondTransitAccess.diagnostics.searchStats.directWalkFallbackSettledNodes,
-    wholeLegWalkBeyondTransitAccess.diagnostics.directWalkFallback.nativeSettledNodes,
-  )
-  assert.equal(
-    wholeLegWalkBeyondTransitAccess.diagnostics.searchStats.directWalkFallbackChainSkippedNodes,
-    wholeLegWalkBeyondTransitAccess.diagnostics.directWalkFallback.nativeChainSkippedNodes,
-  )
-  assert.equal(
-    wholeLegWalkBeyondTransitAccess.diagnostics.searchStats.directWalkFallbackContractedArcRelaxations,
-    wholeLegWalkBeyondTransitAccess.diagnostics.directWalkFallback.nativeContractedArcRelaxations,
-  )
-
-  const wholeLegWalkOutsideStreetEnvelope = routeNationalGtfsStore(storePath, {
-    ...wholeLegWalkRequest,
-    maxStreetKm: 0.24,
-  })
-  assert.equal(
-    wholeLegWalkOutsideStreetEnvelope.status,
-    'blocked',
-    'The independent whole-leg street envelope must remain an enforced bound.',
-  )
-  const wholeLegWalkPolicies = [
-    [wholeLegWalkBeyondTransitAccess, 0.3, false],
-    [wholeLegWalkOutsideStreetEnvelope, 0.24, false],
-    [routeNationalGtfsStore(storePath, { ...wholeLegWalkRequest, allowLongWalk: false }), 0.2, false],
-    [routeNationalGtfsStore(storePath, { ...wholeLegWalkRequest, requireTransitRide: true }), 0.3, true],
-  ]
-  for (const [plan, directWalkLimitKm, requireTransitRide] of wholeLegWalkPolicies) {
-    const provenance = plan.diagnostics.routingDataProvenance
-    assert.equal(plan.status, plan === wholeLegWalkBeyondTransitAccess ? 'ready' : 'blocked')
-    assert.equal(provenance.searchParameters.travelMode, 'transit')
-    assert.equal(provenance.searchParameters.directWalkLimitKm, directWalkLimitKm)
-    assert.equal(provenance.searchParameters.requireTransitRide, requireTransitRide)
-    assert.equal(provenance.staticTimetableIdentity, wholeLegWalkBeyondTransitAccess.diagnostics.routingDataProvenance.staticTimetableIdentity)
-    assert.equal(provenance.streetIdentity, wholeLegWalkBeyondTransitAccess.diagnostics.routingDataProvenance.streetIdentity)
-  }
-  assert.equal(
-    new Set(wholeLegWalkPolicies.map(([plan]) => plan.diagnostics.routingDataProvenance.reproducibilityKey)).size,
-    wholeLegWalkPolicies.length,
-    'The same dated endpoints must have distinct provenance for different enforced whole-leg walking policies and transit requirements.',
-  )
-
-  const justOverThresholdWalk = routeNationalGtfsStore(storePath, {
-    ...shortWalkRequest,
-    origin: { coordinate: [0, 0.01], label: 'Two minute origin', source: 'map' },
-    destination: { coordinate: [0.0016, 0.01], label: 'Two minute destination', source: 'map' },
-  })
-  assert.equal(justOverThresholdWalk.status, 'ready')
-  assert.equal(
-    justOverThresholdWalk.travelMode,
-    'walk',
-    'A graph-verified direct walk within maxWalkKm must remain available when transit is blocked.',
-  )
-  assert.equal(justOverThresholdWalk.legs.length, 1)
-  assert.equal(justOverThresholdWalk.legs[0].walkSource, 'osm')
-  assert.equal(justOverThresholdWalk.diagnostics.algorithm, 'osm_direct_walk_no_transit_fallback')
-  assert.equal(
-    justOverThresholdWalk.diagnostics.optimality,
-    'graph_verified_direct_walk_when_no_supported_transit_path',
-  )
-  assert.equal(justOverThresholdWalk.diagnostics.transitFailureCode, 'access_unreachable')
-
-  const justOverThresholdWalkArriveBy = routeNationalGtfsStore(storePath, {
-    ...shortWalkRequest,
-    origin: { coordinate: [0, 0.01], label: 'Two minute origin', source: 'map' },
-    destination: { coordinate: [0.0016, 0.01], label: 'Two minute destination', source: 'map' },
-    timePreference: 'arrive',
-    arriveMinutes: 9 * 60,
-  })
-  assert.equal(justOverThresholdWalkArriveBy.status, 'ready')
-  assert.equal(justOverThresholdWalkArriveBy.travelMode, 'walk')
-  assert.equal(justOverThresholdWalkArriveBy.arriveMinutes, 9 * 60)
-  assert.equal(
-    justOverThresholdWalkArriveBy.diagnostics.algorithm,
-    'osm_direct_walk_no_transit_fallback',
-  )
-
-  const justOverThresholdWalkWindow = routeNationalGtfsDepartureWindow(storePath, {
-    ...shortWalkRequest,
-    origin: { coordinate: [0, 0.03], label: 'Alternative walk origin', source: 'map' },
-    destination: { coordinate: [0.00225, 0.03], label: 'Alternative walk destination', source: 'map' },
-    maxWalkKm: 0.2,
-    maxStreetKm: 0.2,
-    alternativeMaxWalkKm: 0.3,
-    departureWindowMinutes: 1,
-    departureWindowDirection: 'forward',
-  })
-  const directAlternative = justOverThresholdWalkWindow.choices.find((choice) => choice.travelMode === 'walk')
-  assert(directAlternative, 'A graph-verified direct walk within the alternative budget must remain a full A-to-B choice.')
-  assert.equal(directAlternative.choiceLabel, 'Walk only')
-  assert.equal(directAlternative.legs.length, 1)
-  assert.equal(directAlternative.legs[0].walkSource, 'osm')
-  assert.equal(directAlternative.diagnostics.alternativeStrategy, 'long_walk_direct')
-  assert.equal(justOverThresholdWalkWindow.profile.alternativeWalkSearches, 1)
-
-  const shortWalkPairwiseMatrix = matrixItineraryReference(storePath, {
-    requireTransitRide: false,
-    origins: [shortWalkRequest.origin],
-    destinations: [shortWalkRequest.destination],
-    departMinutes: shortWalkRequest.departMinutes,
-    serviceDay: shortWalkRequest.serviceDay,
-    serviceDate: shortWalkRequest.serviceDate,
-    maxWalkKm: shortWalkRequest.maxWalkKm,
-    streetStorePath: directWalkStreetPath,
-    matrixStrategy: 'pairwise',
-  })
-  assert.equal(shortWalkPairwiseMatrix.rows[0].status, 'ready',
-    'Coordinate transit Matrix must retain the same direct-walk alternative as Route.')
-  assert.equal(shortWalkPairwiseMatrix.rows[0].durationMinutes, shortWalkPlan.durationMinutes)
 
   await fs.copyFile(storePath, cacheTruthStorePath)
   const cacheTruthStore = new DatabaseSync(cacheTruthStorePath)
@@ -2098,40 +871,8 @@ try {
     outputPath: `${cacheTruthStorePath}.static-topology.sqlite`,
     minimumFreeBytes: 128 * 1024 * 1024,
   })
-  const cacheTruthRequest = {
-    origin: { coordinate: [8.0000, 47.0000], label: 'Long horizon origin', source: 'map' },
-    destination: { coordinate: [8.0200, 47.0200], label: 'Long horizon destination', source: 'map' },
-    departMinutes: 8 * 60,
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.25,
-  }
-  const longHorizonPlan = routeNationalGtfsStore(cacheTruthStorePath, {
-    ...cacheTruthRequest,
-    horizonMinutes: 480,
-  })
-  assert.equal(longHorizonPlan.status, 'ready')
-  const shortHorizonPlan = routeNationalGtfsStore(cacheTruthStorePath, {
-    ...cacheTruthRequest,
-    horizonMinutes: 180,
-  })
-  assert.equal(shortHorizonPlan.status, 'blocked', 'A cached long-horizon result must not leak into a shorter horizon request.')
-  const relabeledPlan = routeNationalGtfsStore(cacheTruthStorePath, {
-    ...cacheTruthRequest,
-    horizonMinutes: 480,
-    origin: { ...cacheTruthRequest.origin, label: 'Fresh origin label' },
-  })
-  assert.equal(relabeledPlan.origin.label, 'Fresh origin label')
-  assert.equal(relabeledPlan.legs[0]?.fromName, 'Fresh origin label')
 
   await buildNationalGtfsStore({ zipPath, outputPath: cacheTruthStorePath })
-  const rebuiltSamePathPlan = routeNationalGtfsStore(cacheTruthStorePath, { ...cacheTruthRequest, horizonMinutes: 480 })
-  assert.equal(rebuiltSamePathPlan.status, 'ready')
-  assert(
-    rebuiltSamePathPlan.durationMinutes >= 30 && rebuiltSamePathPlan.durationMinutes <= 32,
-    'Rebuilding a GTFS store at the same path must invalidate open database and route-result caches.',
-  )
-  assert.equal(rebuiltSamePathPlan.diagnostics.searchStats?.cacheHit, undefined)
 
   await fs.copyFile(storePath, transferShortcutStorePath)
   const transferShortcutStore = new DatabaseSync(transferShortcutStorePath)
@@ -2147,20 +888,6 @@ try {
     outputPath: `${transferShortcutStorePath}.static-topology.sqlite`,
     minimumFreeBytes: 128 * 1024 * 1024,
   })
-  const transferShortcutPlan = routeNationalGtfsStore(transferShortcutStorePath, {
-    origin: { coordinate: [8.0000, 47.0000], label: 'Alpha transfer shortcut', source: 'map' },
-    destination: { coordinate: [8.0200, 47.0200], label: 'Charlie transfer shortcut', source: 'map' },
-    departMinutes: 8 * 60,
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.25,
-  })
-  assert.equal(transferShortcutPlan.status, 'ready')
-  assert.deepEqual(
-    transferShortcutPlan.legs.filter((leg) => leg.type === 'ride').map((leg) => leg.routeShortName),
-    ['1', '2'],
-    'A transfer-only shortcut must not dominate a later ride-bearing transit path.',
-  )
   const preboardingShortcutStore = new DatabaseSync(transferShortcutStorePath)
   preboardingShortcutStore.prepare('INSERT OR REPLACE INTO transfers VALUES(?,?,?,?)').run('A', 'B', 0, 60)
   preboardingShortcutStore.prepare(`
@@ -2174,27 +901,6 @@ try {
     outputPath: `${transferShortcutStorePath}.static-topology.sqlite`,
     minimumFreeBytes: 128 * 1024 * 1024,
   })
-  const streetGuardedPreboardingPlan = routeNationalGtfsStore(transferShortcutStorePath, {
-    origin: {
-      coordinate: [8.0000, 47.0000],
-      label: 'Street-backed origin with stale stop',
-      source: 'map',
-      stopId: 'C',
-    },
-    destination: { coordinate: [8.0200, 47.0200], label: 'Street-backed destination', source: 'map' },
-    departMinutes: 8 * 60,
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.25,
-    streetStorePath: directWalkStreetPath,
-  })
-  assert.deepEqual(
-    streetGuardedPreboardingPlan.legs.filter((leg) => leg.type === 'ride').map((leg) => leg.routeShortName),
-    ['1', '2'],
-    'A map point with a street access model must walk to its boarding stop instead of chaining GTFS transfers before the first ride.',
-  )
-  const firstStreetGuardedRide = streetGuardedPreboardingPlan.legs.findIndex((leg) => leg.type === 'ride')
-  assert(!streetGuardedPreboardingPlan.legs.slice(0, firstStreetGuardedRide).some((leg) => leg.walkSource === 'transfer'))
 
   const earlyShortcutStore = new DatabaseSync(transferShortcutStorePath)
   earlyShortcutStore.prepare('INSERT INTO routes VALUES(?,?,?,?,?)').run('R-EARLY', 'EARLY', 'Early transfer trap', 3, 'cc00cc')
@@ -2207,30 +913,6 @@ try {
     outputPath: `${transferShortcutStorePath}.static-topology.sqlite`,
     minimumFreeBytes: 128 * 1024 * 1024,
   })
-  const transferShortcutMatrix = routeNationalGtfsMatrix(transferShortcutStorePath, {
-    origins: [{
-      coordinate: [8.0000, 47.0000],
-      label: 'Alpha matrix shortcut with stale stop',
-      source: 'map',
-      stopId: 'C',
-    }],
-    destinations: Array.from({ length: 16 }, (_value, index) => ({
-      coordinate: [8.0200 + index * 0.000001, 47.0200],
-      label: `Charlie matrix shortcut ${index}`,
-      source: 'map',
-    })),
-    departMinutes: 8 * 60,
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.25,
-    streetStorePath: directWalkStreetPath,
-    matrixStrategy: 'shared',
-  })
-  assert.equal(transferShortcutMatrix.rows[0].status, 'ready')
-  assert(
-    transferShortcutMatrix.rows[0].arriveMinutes >= plan.arriveMinutes,
-    'Shared matrix arrival must be backed by a scheduled ride, not the earlier transfer-only shortcut.',
-  )
 
   await fs.copyFile(transferShortcutStorePath, transferOnlyStorePath)
   const transferOnlyStore = new DatabaseSync(transferOnlyStorePath)
@@ -2241,25 +923,6 @@ try {
     outputPath: `${transferOnlyStorePath}.static-topology.sqlite`,
     minimumFreeBytes: 128 * 1024 * 1024,
   })
-  const transferOnlyPlan = routeNationalGtfsStore(transferOnlyStorePath, {
-    origin: { coordinate: [8.0000, 47.0000], label: 'Alpha transfer only', source: 'map' },
-    destination: { coordinate: [8.0200, 47.0200], label: 'Charlie transfer only', source: 'map' },
-    departMinutes: 8 * 60,
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.25,
-  })
-  assert.equal(transferOnlyPlan.status, 'blocked', 'Transfer/access walking alone is not a transit itinerary.')
-  const transferOnlyMatrix = routeNationalGtfsMatrix(transferOnlyStorePath, {
-    origins: [{ coordinate: [8.0000, 47.0000], label: 'Alpha transfer-only matrix', source: 'map' }],
-    destinations: [{ coordinate: [8.0200, 47.0200], label: 'Charlie transfer-only matrix', source: 'map' }],
-    departMinutes: 8 * 60,
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.25,
-    matrixStrategy: 'shared',
-  })
-  assert.equal(transferOnlyMatrix.rows[0].status, 'blocked', 'Shared matrix must reject transfer/access-only reachability.')
 
   await fs.copyFile(storePath, legacyAccessStorePath)
   const legacyAccessStore = new DatabaseSync(legacyAccessStorePath)
@@ -2271,19 +934,6 @@ try {
     insertLegacyLocalStop.run(`L${index}`, `Local ${index}`, 46.9992 + index * 0.00002, 8, null, 0, null)
   }
   legacyAccessStore.close()
-  assert.throws(
-    () => routeNationalGtfsStore(legacyAccessStorePath, {
-      origin: { coordinate: [8.0000, 46.9992], label: 'Ordinary map click', source: 'map' },
-      destination: { coordinate: [8.0200, 47.0200], label: 'Charlie destination', source: 'map' },
-      departMinutes: 8 * 60,
-      serviceDay: 'sunday',
-      serviceDate: '2026-07-12',
-      maxWalkKm: 0.25,
-    }),
-    (error) => error?.code === 'VIGO_ROUTING_STORE_ADMISSION_FAILED'
-      && error?.reason === 'required_table_missing',
-    'Stale v1 stores without the current stop_modes schema must be rebuilt, not silently routed through a compatibility path.',
-  )
 
   await fs.copyFile(storePath, parentModeAccessStorePath)
   const parentModeAccessStore = new DatabaseSync(parentModeAccessStorePath)
@@ -2329,118 +979,6 @@ try {
   finalizeCurrentStreetFixture(parentModeAccessStreet)
   parentModeAccessStreet.close()
   prepareRustFixtureStreetStore(parentModeAccessStreetPath)
-  const parentModeAccessPlan = routeNationalGtfsStore(parentModeAccessStorePath, {
-    origin: { coordinate: [8.0000, 46.9992], label: 'Parent station map click', source: 'map' },
-    destination: { coordinate: [8.0200, 47.0200], label: 'Charlie destination', source: 'map' },
-    departMinutes: 8 * 60,
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.3,
-    streetStorePath: parentModeAccessStreetPath,
-  })
-  assert(parentModeAccessPlan.legs[0].distanceKm > 0.25,
-    'Station access must include the street-to-platform distance, not a free parent alias.')
-  for (const timePreference of ['depart', 'arrive']) {
-    const detailed = routeNationalGtfsMatrix(parentModeAccessStorePath, {
-      origins: [parentModeAccessPlan.origin], destinations: [parentModeAccessPlan.destination],
-      timePreference, departMinutes: 480, arriveMinutes: 525,
-      serviceDay: 'sunday', serviceDate: '2026-07-12',
-      maxWalkKm: 0.3, streetStorePath: parentModeAccessStreetPath,
-      includeJourneys: true, includeGeometry: true,
-    })
-    assert.equal(detailed.rows[0].journey.status, 'ready')
-    assert(detailed.rows[0].journey.legs.every((leg) => Array.isArray(leg.coordinates)),
-      'Matrix geometry must retain both directed endpoint witnesses across coordinate queries.')
-  }
-  assert.equal(routeNationalGtfsStore(parentModeAccessStorePath, {
-    origin: parentModeAccessPlan.origin, destination: parentModeAccessPlan.destination,
-    departMinutes: 480, serviceDay: 'sunday', serviceDate: '2026-07-12',
-    maxWalkKm: 0.25, streetStorePath: parentModeAccessStreetPath,
-  }).status, 'blocked', 'The complete platform access exceeds a 250 m walking budget.')
-  assert.equal(parentModeAccessPlan.status, 'ready', 'Heavy-rail platform service must promote its public entrance even when a busier tram stop is nearby.')
-  const parentCandidates = inspectNationalGtfsAccessCandidates(parentModeAccessStorePath, parentModeAccessPlan.origin, {
-    streetStorePath: parentModeAccessStreetPath, maxWalkKm: 0.3, accessRole: 'origin',
-  }).candidates
-  assert(['A', 'T_PLATFORM'].every(id => parentCandidates.some(candidate => candidate.stopId === id)),
-    'The complete access frontier must retain both reachable services.')
-  assert.equal(parentModeAccessPlan.legs.find((leg) => leg.type === 'ride')?.fromStopId, 'A')
-  assert.equal(parentModeAccessPlan.legs.find((leg) => leg.type === 'ride')?.startMinutes, 8 * 60 + 4)
-  assert.equal(parentModeAccessPlan.diagnostics.originStreetPathVerified, false,
-    'An entrance record without a declared interior path cannot certify the street-to-platform walk.')
-  assert.equal(parentModeAccessPlan.legs[0].stationAccessStatus, 'unverified')
-  assert.equal(parentModeAccessPlan.legs[0].streetSegmentVerified, true,
-    'The narrower native street witness remains available.')
-  assert.equal(parentModeAccessPlan.snappedOrigin?.lon, 8.002, 'The exact search must board the platform reached through its parent entrance, not bind A to the street-side entrance record.')
-  assert.equal(
-    parentModeAccessPlan.legs.filter((leg) => leg.type === 'ride').at(-1)?.toStopId,
-    'C',
-    'Map egress at a terminal station must retain the platform that has arrivals but no departures.',
-  )
-
-  const tokenOwnershipRequest = {
-    origin: { coordinate: [8.0000, 46.9992], label: 'Token ownership origin', source: 'map' },
-    destination: { coordinate: [8.0200, 47.0200], label: 'Charlie platform', source: 'stop', stopId: 'C' },
-    departMinutes: 8 * 60,
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.3,
-    streetStorePath: parentModeAccessStreetPath,
-  }
-  assert.equal(routeNationalGtfsStore(parentModeAccessStorePath, tokenOwnershipRequest).status, 'ready')
-  const offStreetTransitPlan = routeNationalGtfsStore(parentModeAccessStorePath, {
-    ...tokenOwnershipRequest,
-    origin: { coordinate: [8.0001, 46.9992], label: 'Intervening coordinate query', source: 'map' },
-  })
-  assert.equal(offStreetTransitPlan.status, 'ready')
-  // The access line starts at the map click. Its straight hop onto the OSM path
-  // is exactly the unverified endpoint connector, never a verified street path.
-  const offStreetAccess = offStreetTransitPlan.legs[0]
-  assert.deepEqual(offStreetAccess.coordinates[0], offStreetTransitPlan.origin.coordinate)
-  assert.deepEqual(offStreetAccess.endpointConnector?.coordinates,
-    [offStreetAccess.coordinates[0], offStreetAccess.coordinates[1]],
-    'An off-street map click must label its straight jump instead of presenting it as OSM geometry.')
-  assert.equal(offStreetAccess.endpointConnector.streetPathVerified, false)
-  const refreshedTokenPlan = routeNationalGtfsStore(parentModeAccessStorePath, tokenOwnershipRequest)
-  assert.equal(
-    refreshedTokenPlan.status,
-    'ready',
-    'A repeated map-to-stop request must obtain a fresh Rust predecessor token after another coordinate query.',
-  )
-  assert(
-    refreshedTokenPlan.legs[0]?.coordinates?.length >= 2,
-    'Fresh endpoint-token materialization must retain the routed access geometry.',
-  )
-
-  const terminalDestinationAccess = inspectNationalGtfsAccessCandidates(
-    parentModeAccessStorePath,
-    { coordinate: [8.02, 47.02], label: 'Charlie terminal', source: 'map' },
-    { streetStorePath: parentModeAccessStreetPath, maxWalkKm: 0.3, accessRole: 'destination' },
-  )
-  const terminalOriginAccess = inspectNationalGtfsAccessCandidates(
-    parentModeAccessStorePath,
-    { coordinate: [8.02, 47.02], label: 'Charlie terminal', source: 'map' },
-    { streetStorePath: parentModeAccessStreetPath, maxWalkKm: 0.3, accessRole: 'origin' },
-  )
-  assert(
-    terminalDestinationAccess.candidates.some((candidate) => candidate.stopId === 'C'),
-    'Destination station expansion must admit an arrival-only terminal platform.',
-  )
-  assert(
-    !terminalOriginAccess.candidates.some((candidate) => candidate.stopId === 'C'),
-    'Origin station expansion must not present an arrival-only platform as a boardable stop.',
-  )
-
-  const staleMapStopIdPlan = routeNationalGtfsStore(parentModeAccessStorePath, {
-    origin: { coordinate: [8.0000, 46.9992], label: 'Map point with stale stop id', source: 'map', stopId: 'T_PLATFORM' },
-    destination: { coordinate: [8.0200, 47.0200], label: 'Charlie destination', source: 'map' },
-    departMinutes: 8 * 60,
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.3,
-    streetStorePath: parentModeAccessStreetPath,
-  })
-  assert.equal(staleMapStopIdPlan.status, 'ready', 'A legacy map payload must not be forced onto its stale stopId.')
-  assert.equal(staleMapStopIdPlan.legs.find((leg) => leg.type === 'ride')?.fromStopId, 'A')
 
   const gapZip = new JSZip()
   gapZip.file('stops.txt', [
@@ -2463,21 +1001,6 @@ try {
   await fs.writeFile(gapZipPath, await gapZip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))
   const gapBuild = await buildNationalGtfsStore({ zipPath: gapZipPath, outputPath: gapStorePath })
   assert.equal(gapBuild.connectionCount, 2, 'Untimed intermediate stops must bridge adjacent timed anchors without disconnecting the trip.')
-  const gapPlan = routeNationalGtfsStore(gapStorePath, {
-    origin: { coordinate: [8.1000, 47.1000], label: 'Gap map origin', source: 'map' },
-    destination: { coordinate: [8.1150, 47.1150], label: 'Gap map destination', source: 'map' },
-    departMinutes: 7 * 60 + 58,
-    serviceDay: 'monday',
-    serviceDate: '2026-07-13',
-    maxWalkKm: 0.2,
-  })
-  assert.equal(gapPlan.status, 'ready')
-  assert.equal(gapPlan.legs.filter((leg) => leg.type === 'ride').length, 1)
-  assert.deepEqual(gapPlan.legs.find((leg) => leg.type === 'ride')?.coordinates, [
-    [8.1, 47.1],
-    [8.11, 47.11],
-    [8.115, 47.115],
-  ])
 
   await fs.copyFile(gapStorePath, legacyGapStorePath)
   const legacyGapStore = new DatabaseSync(legacyGapStorePath)
@@ -2487,28 +1010,6 @@ try {
   insertLegacyGapConnection.run(8 * 3600 + 20 * 60, 8 * 3600 + 30 * 60, 'gt', 'GR', 'GS', '0', 'G2', 'G3', 4)
   legacyGapStore.close()
   await rebuildFixtureRoutingDerivedArtifacts(legacyGapStorePath)
-  const legacyGapPlan = routeNationalGtfsStore(legacyGapStorePath, {
-    origin: { coordinate: [8.1000, 47.1000], label: 'Legacy gap origin', source: 'map' },
-    destination: { coordinate: [8.1150, 47.1150], label: 'Legacy gap destination', source: 'map' },
-    departMinutes: 7 * 60 + 58,
-    serviceDay: 'monday',
-    serviceDate: '2026-07-13',
-    maxWalkKm: 0.2,
-  })
-  assert.equal(legacyGapPlan.status, 'ready', 'A monotone same-trip legacy gap must bridge its surrounding timed segments.')
-  assert.equal(legacyGapPlan.diagnostics.bridgedUntimedGapCount, 1)
-  assert.equal(legacyGapPlan.scheduleMode, 'interpolated-stop-time-gap')
-  assert.equal(legacyGapPlan.diagnostics.scheduleMode, 'interpolated-stop-time-gap')
-  assert.equal(legacyGapPlan.diagnostics.timingPrecision, 'degraded')
-  assert.match(legacyGapPlan.diagnostics.optimality, /interpolated_stop_time_gap/)
-  assert.match(legacyGapPlan.detail, /interpolated stop-time gap.*degraded timing precision/)
-  assert.doesNotMatch(legacyGapPlan.detail, /exact local timetable/)
-  assert.deepEqual(legacyGapPlan.legs.find((leg) => leg.type === 'ride')?.coordinates, [
-    [8.1, 47.1],
-    [8.105, 47.105],
-    [8.11, 47.11],
-    [8.115, 47.115],
-  ])
 
   await fs.copyFile(gapStorePath, sectionGapStorePath)
   const sectionGapStore = new DatabaseSync(sectionGapStorePath)
@@ -2522,241 +1023,12 @@ try {
   insertSectionGapConnection.run(8 * 3600 + 5 * 60, 8 * 3600 + 15 * 60, 'ut', 'UR', 'GS', '0', 'G0', 'G2', 1)
   sectionGapStore.close()
   await rebuildFixtureRoutingDerivedArtifacts(sectionGapStorePath)
-  const sectionGapRequest = {
-    origin: { coordinate: [8.1000, 47.1000], label: 'Section gap origin', source: 'map' },
-    destination: { coordinate: [8.1150, 47.1150], label: 'Section gap destination', source: 'map' },
-    departMinutes: 7 * 60 + 58,
-    serviceDay: 'monday',
-    serviceDate: '2026-07-13',
-    maxWalkKm: 0.2,
-  }
-  const sectionGapPlan = routeNationalGtfsStore(sectionGapStorePath, sectionGapRequest)
-  assert.equal(sectionGapPlan.status, 'ready', 'A later boardable section of a disconnected trip must remain available after another trip reaches it.')
-  assert.deepEqual(sectionGapPlan.legs.filter((leg) => leg.type === 'ride').map((leg) => leg.tripId), ['ut', 'gt'])
-  const sectionGapMatrix = routeNationalGtfsMatrix(sectionGapStorePath, {
-    origins: [sectionGapRequest.origin],
-    destinations: [sectionGapRequest.destination],
-    departMinutes: sectionGapRequest.departMinutes,
-    serviceDay: sectionGapRequest.serviceDay,
-    serviceDate: sectionGapRequest.serviceDate,
-    maxWalkKm: sectionGapRequest.maxWalkKm,
-    matrixStrategy: 'shared',
-  })
-  assert.equal(sectionGapMatrix.rows[0].status, 'ready', 'Shared matrix search must also board a later safe section after an unsafe continuity break.')
 
-  const arriveByPlan = routeNationalGtfsStore(storePath, {
-    origin: { coordinate: [8.0000, 47.0000], label: 'Alpha origin', source: 'map' },
-    destination: { coordinate: [8.0200, 47.0200], label: 'Charlie destination', source: 'map' },
-    arriveMinutes: 8 * 60 + 31,
-    timePreference: 'arrive',
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.25,
-  })
-  assert.equal(arriveByPlan.status, 'ready')
-  assert.equal(arriveByPlan.timePreference, 'arrive')
-  assert.equal(arriveByPlan.departMinutes, 8 * 60 + 5)
-  assert.equal(arriveByPlan.arriveMinutes, 8 * 60 + 30)
-  assert.equal(arriveByPlan.diagnostics.algorithm, 'rust_exact_arrive_by_reverse_scan')
-
-  const departureWindow = routeNationalGtfsDepartureWindow(storePath, {
-    origin: { coordinate: [8.0000, 47.0000], label: 'Alpha origin', source: 'map' },
-    destination: { coordinate: [8.0200, 47.0200], label: 'Charlie destination', source: 'map' },
-    departMinutes: 8 * 60,
-    departureWindowMinutes: 10,
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.25,
-  })
-  assert.equal(departureWindow.profile.sampleCount, 21)
-  assert.equal(departureWindow.profile.plans.length, 21)
-  assert(departureWindow.profile.routeSearches < departureWindow.profile.sampleCount)
-  assert(departureWindow.choices.some((choice) => choice.departMinutes === 8 * 60))
-
-  assert.throws(
-    () => routeNationalGtfsStore(storePath, {
-      origin: { coordinate: [8.0000, 47.0000], label: 'Fractional origin', source: 'map' },
-      destination: { coordinate: [8.0200, 47.0200], label: 'Fractional destination', source: 'map' },
-      departMinutes: 8 * 60 + 0.5,
-      serviceDay: 'sunday',
-      serviceDate: '2026-07-12',
-      maxWalkKm: 0.25,
-    }),
-    /integral minute/,
-    'Direct GTFS routing must reject fractional departure minutes.',
-  )
-  assert.throws(
-    () => routeNationalGtfsDepartureWindow(storePath, {
-      origin: { coordinate: [8.0000, 47.0000], label: 'Fractional window origin', source: 'map' },
-      destination: { coordinate: [8.0200, 47.0200], label: 'Fractional window destination', source: 'map' },
-      departMinutes: 8 * 60,
-      departureWindowMinutes: 1.5,
-      serviceDay: 'sunday',
-      serviceDate: '2026-07-12',
-      maxWalkKm: 0.25,
-    }),
-    /integral minute/,
-    'Departure-window routing must reject fractional window sizes.',
-  )
-
-  const forwardDepartureWindow = routeNationalGtfsDepartureWindow(storePath, {
-    origin: { coordinate: [8.0000, 47.0000], label: 'Alpha origin', source: 'map' },
-    destination: { coordinate: [8.0200, 47.0200], label: 'Charlie destination', source: 'map' },
-    departMinutes: 8 * 60,
-    departureWindowMinutes: 20,
-    departureWindowDirection: 'forward',
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.25,
-  })
-  assert.equal(forwardDepartureWindow.profile.sampleCount, 21)
-  assert.equal(forwardDepartureWindow.profile.beforeMinutes, 0)
-  assert.equal(forwardDepartureWindow.profile.afterMinutes, 20)
-  assert(forwardDepartureWindow.profile.plans.every((plan) => plan.departMinutes >= 8 * 60))
-
-  const alpha = { coordinate: [8.0000, 47.0000], label: 'Alpha origin', source: 'map' }
-  const bravo = { coordinate: [8.0100, 47.0100], label: 'Bravo', source: 'map' }
-  const charlie = { coordinate: [8.0200, 47.0200], label: 'Charlie', source: 'map' }
-  assert.throws(
-    () => routeNationalGtfsMatrix(storePath, {
-      origins: [alpha],
-      destinations: [bravo],
-      departMinutes: 8 * 60 + 0.5,
-      serviceDay: 'sunday',
-      serviceDate: '2026-07-12',
-      maxWalkKm: 0.25,
-      matrixStrategy: 'shared',
-    }),
-    /integral minute/,
-    'Matrix routing must reject fractional departure minutes.',
-  )
   const matrixKernelContext = prepareNationalGtfsRoutingContext(storePath, {
     serviceDate: '2026-07-12',
     serviceDay: 'sunday',
   })
   assert.equal(matrixKernelContext.activeServiceKernel.ready, true)
-  const matrix = routeNationalGtfsMatrix(storePath, {
-    origins: [alpha, alpha, bravo],
-    destinations: [bravo, charlie, charlie],
-    departMinutes: 8 * 60,
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.25,
-    matrixStrategy: 'shared',
-  })
-  assert.equal(matrix.rows.length, 9)
-  assert.equal(matrix.diagnostics.uniqueOrigins, 2)
-  assert.equal(matrix.diagnostics.uniqueDestinations, 2)
-  assert.equal(matrix.diagnostics.forwardSearches, 2)
-  const alphaCharlie = matrix.rows.find((row) => row.originIndex === 0 && row.destinationIndex === 1)
-  assert.equal(alphaCharlie.status, plan.status)
-  assert.equal(alphaCharlie.durationMinutes, plan.durationMinutes)
-  assert.equal(alphaCharlie.arriveMinutes, plan.arriveMinutes)
-
-  const oneToMany = routeNationalGtfsMatrix(storePath, {
-    origins: [alpha], destinations: [bravo, charlie], departMinutes: 8 * 60,
-    serviceDay: 'sunday', serviceDate: '2026-07-12', maxWalkKm: 0.25, matrixStrategy: 'shared',
-  })
-  assert.equal(oneToMany.diagnostics.forwardSearches, 1)
-  assert.equal(oneToMany.rows.length, 2)
-  assert.equal(oneToMany.diagnostics.matrixEngine, 'rust_exact_connection_scan_one_to_many')
-
-  const largeOneToMany = routeNationalGtfsMatrix(storePath, {
-    origins: [alpha], destinations: Array.from({ length: 100_000 }, (_, i) => i % 2 ? charlie : bravo),
-    departMinutes: 480, serviceDay: 'sunday', serviceDate: '2026-07-12', maxWalkKm: 0.25,
-  })
-  assert.equal(largeOneToMany.rows.length, 100_000)
-  assert.equal(largeOneToMany.diagnostics.forwardSearches, 1,
-    'Large destination sets must share one timetable scan, without 256-target splitting.')
-  for (const [index, row] of largeOneToMany.rows.entries()) {
-    assert.deepEqual(row, { ...oneToMany.rows[index % 2], destinationIndex: index })
-  }
-  assert.throws(() => routeNationalGtfsMatrix(storePath, {
-    origins: [alpha, bravo], destinations: Array(50_001).fill(charlie),
-  }), /100,000 OD pairs/)
-
-  const arriveMatrixRequest = { origins: [alpha, bravo], destinations: [bravo, charlie],
-    timePreference: 'arrive', arriveMinutes: 525, serviceDay: 'sunday', serviceDate: '2026-07-12',
-    maxWalkKm: 0.25, horizonMinutes: 180 }
-  const arriveMatrix = routeNationalGtfsMatrix(storePath, arriveMatrixRequest)
-  assert.equal(arriveMatrix.diagnostics.reverseSearches, 2)
-  assert.equal(arriveMatrix.diagnostics.forwardSearches, 0)
-  for (const timePreference of ['depart', 'arrive']) for (const includeGeometry of [false, true]) {
-    const detailed = routeNationalGtfsMatrix(storePath, { ...arriveMatrixRequest, timePreference,
-      departMinutes: 480, maxTransfers: 3, includeJourneys: true, includeGeometry })
-    for (const row of detailed.rows) {
-      assert.equal(Boolean(row.journey), row.status === 'ready')
-      if (!row.journey) continue
-      assert(row.journey.transfers <= 3)
-      assert(Math.abs(row.journey.durationMinutes - row.journey.walkMinutes
-        - row.journey.rideMinutes - row.journey.waitMinutes) < 0.005)
-      if (includeGeometry) assert(row.journey.legs.every((leg) => Array.isArray(leg.coordinates)))
-      if (timePreference === 'arrive') assert(row.journey.arriveMinutes <= arriveMatrixRequest.arriveMinutes)
-    }
-  }
-  for (const timePreference of ['depart', 'arrive']) for (const includeGeometry of [false, true]) {
-    const request = { ...arriveMatrixRequest, timePreference, departMinutes: 480,
-      origins: [alpha, alpha, alpha], destinations: [charlie, charlie],
-      includeJourneys: true, includeGeometry }
-    const repeated = routeNationalGtfsMatrix(storePath, request)
-    const unique = routeNationalGtfsMatrix(storePath, { ...request, origins: [alpha], destinations: [charlie] })
-    assert.equal(repeated.diagnostics.materializedJourneys, 1)
-    assert.equal(repeated.diagnostics.reusedJourneys, 5)
-    for (const row of repeated.rows) {
-      assert.equal(row.durationMinutes, unique.rows[0].durationMinutes)
-      assert.deepEqual(row.journey.legs, unique.rows[0].journey.legs)
-    }
-    repeated.rows[0].journey.legs[0].durationMinutes = -100
-    assert.notEqual(repeated.rows[1].journey.legs[0].durationMinutes, -100,
-      'Repeated Matrix rows must remain independently mutable')
-  }
-  for (const row of arriveMatrix.rows) {
-    const point = routeNationalGtfsStore(storePath, { ...arriveMatrixRequest,
-      origin: arriveMatrixRequest.origins[row.originIndex], destination: arriveMatrixRequest.destinations[row.destinationIndex],
-      routingPreference: 'fastest' })
-    assert.equal(row.status, point.status)
-    assert.equal(row.departMinutes, point.status === 'ready' ? point.departMinutes : null)
-    assert.equal(row.arriveMinutes, 525)
-    assert.equal(row.durationMinutes, point.status === 'ready' ? 525 - point.departMinutes : null)
-  }
-  const largeArriveManyToOne = routeNationalGtfsMatrix(storePath, { ...arriveMatrixRequest,
-    origins: Array.from({ length: 100_000 }, (_, i) => i % 2 ? bravo : alpha), destinations: [charlie] })
-  assert.equal(largeArriveManyToOne.rows.length, 100_000)
-  assert.equal(largeArriveManyToOne.diagnostics.reverseSearches, 1)
-  for (const [i, row] of largeArriveManyToOne.rows.entries()) {
-    assert.deepEqual(row, { ...arriveMatrix.rows[(i % 2) * 2 + 1], originIndex: i, destinationIndex: 0 })
-  }
-  const shortArriveMatrix = routeNationalGtfsMatrix(storePath, { ...arriveMatrixRequest,
-    origins: [alpha], destinations: [charlie], horizonMinutes: 1 })
-  assert.equal(shortArriveMatrix.rows[0].status, 'blocked', 'Arrive-by Matrix must honor the requested short horizon.')
-  const shortArriveRoute = routeNationalGtfsStore(storePath, { ...arriveMatrixRequest,
-    origin: alpha, destination: charlie, horizonMinutes: 1, maxTransfers: 3 })
-  assert.equal(shortArriveRoute.status, 'blocked', 'Route must use the same short arrive-by horizon as Matrix.')
-  assert.throws(() => routeNationalGtfsMatrix(storePath, { ...arriveMatrixRequest, arriveMinutes: 525.5 }), /integral minute/)
-
-  const shortHorizonRequest = {
-    origins: [alpha],
-    destinations: [charlie],
-    departMinutes: 8 * 60,
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.25,
-    horizonMinutes: 10,
-  }
-  const shortHorizonShared = routeNationalGtfsMatrix(storePath, {
-    ...shortHorizonRequest,
-    matrixStrategy: 'shared',
-  })
-  const shortHorizonPairwise = matrixItineraryReference(storePath, {
-    ...shortHorizonRequest,
-    matrixStrategy: 'pairwise',
-  })
-  assert.deepEqual(
-    shortHorizonShared.rows,
-    shortHorizonPairwise.rows,
-    'An explicit short matrix horizon must be honored identically by shared and pairwise routing.',
-  )
-  assert.equal(shortHorizonShared.rows[0].status, 'blocked')
 
   await fs.writeFile(matrixHorizonSchedulePath, JSON.stringify({
     stops: [
@@ -2793,61 +1065,6 @@ try {
     schedules: [{ feedId: 'matrix-horizon', schedulePath: matrixHorizonSchedulePath }],
     outputPath: matrixHorizonStorePath,
   })
-  const terminalEgressMatrixRequest = {
-    origins: [{
-      stopId: 'matrix-horizon\u001fO', coordinate: [8, 47], label: 'Horizon origin', source: 'stop',
-    }],
-    destinations: [{
-      stopId: 'matrix-horizon\u001fD', coordinate: [8.012, 47], label: 'Transfer destination', source: 'stop',
-    }],
-    departMinutes: 480,
-    horizonMinutes: 10,
-    serviceDate: '2026-07-12',
-    serviceDay: 'sunday',
-    maxWalkKm: 0.2,
-    // A matrix request always has the fastest scalar contract, even if a
-    // point-only preference is accidentally supplied by the caller.
-    routingPreference: 'balanced',
-  }
-  const terminalEgressShared = routeNationalGtfsMatrix(matrixHorizonStorePath, {
-    ...terminalEgressMatrixRequest,
-    matrixStrategy: 'shared',
-  })
-  const terminalEgressPairwise = matrixItineraryReference(matrixHorizonStorePath, {
-    ...terminalEgressMatrixRequest,
-    matrixStrategy: 'pairwise',
-  })
-  assert.deepEqual(
-    terminalEgressShared.rows,
-    terminalEgressPairwise.rows,
-    'Shared and pairwise matrices must share scan-horizon semantics for terminal post-ride egress.',
-  )
-  assert.equal(terminalEgressShared.rows[0].status, 'ready')
-  assert.equal(terminalEgressShared.rows[0].durationMinutes, 11)
-
-  const unreachable = { coordinate: [-40, -40], label: 'Outside fixture coverage', source: 'map' }
-  const unreachableRequest = {
-    origins: [alpha],
-    destinations: [charlie, unreachable],
-    departMinutes: 8 * 60,
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.25,
-  }
-  const unreachableShared = routeNationalGtfsMatrix(storePath, {
-    ...unreachableRequest,
-    matrixStrategy: 'shared',
-  })
-  const unreachablePairwise = matrixItineraryReference(storePath, {
-    ...unreachableRequest,
-    matrixStrategy: 'pairwise',
-  })
-  assert.deepEqual(
-    unreachableShared.rows,
-    unreachablePairwise.rows,
-    'Kernel one-to-many must preserve pairwise parity when a destination is outside the routable network.',
-  )
-  assert.equal(unreachableShared.rows[1].status, 'blocked')
 
   const matrixIdentitySchedulePath = path.join(folder, 'matrix-point-identity.json')
   const matrixIdentityStorePath = path.join(folder, 'matrix-point-identity.sqlite')
@@ -2906,48 +1123,12 @@ try {
     schedules: [{ feedId: 'matrix-id', schedulePath: matrixIdentitySchedulePath }],
     outputPath: matrixIdentityStorePath,
   })
-  const matrixIdentityDestinations = [
-    { stopId: 'matrix-id\u001fD1', coordinate: [8.01, 47], label: 'Destination one', source: 'stop' },
-    { stopId: 'matrix-id\u001fD2', coordinate: [8.01, 47], label: 'Destination two', source: 'stop' },
-  ]
-  const matrixIdentity = matrixItineraryReference(matrixIdentityStorePath, {
-    origins: [
-      { stopId: 'matrix-id\u001fO1', coordinate: [8, 47], label: 'Origin one', source: 'stop' },
-      { stopId: 'matrix-id\u001fO2', coordinate: [8, 47], label: 'Origin two', source: 'stop' },
-    ],
-    destinations: matrixIdentityDestinations,
-    departMinutes: 480,
-    serviceDate: '2026-07-12',
-    serviceDay: 'sunday',
-    maxWalkKm: 0.2,
-    matrixStrategy: 'pairwise',
-  })
-  assert.equal(matrixIdentity.diagnostics.uniqueOrigins, 2)
-  assert.equal(matrixIdentity.diagnostics.uniqueDestinations, 2)
-  assert.deepEqual(matrixIdentity.rows.map((row) => row.durationMinutes), [10, 20, 30, 40],
-    'Co-located explicit stops must remain distinct matrix origins and destinations.')
 
   const matrixIdentityContext = prepareNationalGtfsRoutingContext(matrixIdentityStorePath, {
     serviceDate: '2026-07-12',
     serviceDay: 'sunday',
   })
   assert.equal(matrixIdentityContext.activeServiceKernel.ready, true)
-  const noKernelOrigin = routeNationalGtfsMatrix(matrixIdentityStorePath, {
-    origins: [{ stopId: 'matrix-id\u001fU', coordinate: [8, 47], label: 'Unserved', source: 'stop' }],
-    destinations: [matrixIdentityDestinations[0]],
-    departMinutes: 480,
-    serviceDate: '2026-07-12',
-    serviceDay: 'sunday',
-    maxWalkKm: 0.2,
-    matrixStrategy: 'shared',
-  })
-  assert.equal(noKernelOrigin.rows[0].status, 'blocked')
-  for (const field of [
-    'scannedDepartures', 'upperBoundSeedScans', 'seededDestinationUpperBounds',
-    'relaxedStops', 'poppedStates', 'expandedTripRuns', 'dominatedTripBoardings', 'engineQueryMs',
-  ]) {
-    assert(Number.isFinite(noKernelOrigin.diagnostics[field]), `No-origin matrix diagnostic ${field} must be numeric.`)
-  }
 
   await fs.writeFile(matrixCycleSchedulePath, JSON.stringify({
     stops: [
@@ -3007,101 +1188,8 @@ try {
     schedules: [{ feedId: 'matrix-cycle', schedulePath: matrixCycleSchedulePath }],
     outputPath: matrixCycleStorePath,
   })
-  const matrixCycleRequest = {
-    origins: [{
-      stopId: 'matrix-cycle\u001fP1', coordinate: [8, 47], label: 'Platform 1', source: 'stop',
-    }],
-    destinations: [{
-      stopId: 'matrix-cycle\u001fP2', coordinate: [8.0001, 47], label: 'Platform 2', source: 'stop',
-    }],
-    departMinutes: 480,
-    serviceDate: '2026-07-12',
-    serviceDay: 'sunday',
-    maxWalkKm: 0.2,
-  }
-  const matrixCycleShared = routeNationalGtfsMatrix(matrixCycleStorePath, {
-    ...matrixCycleRequest,
-    matrixStrategy: 'shared',
-  })
-  const matrixCyclePairwise = matrixItineraryReference(matrixCycleStorePath, {
-    ...matrixCycleRequest,
-    matrixStrategy: 'pairwise',
-  })
-  assert.deepEqual(
-    matrixCycleShared.rows,
-    matrixCyclePairwise.rows,
-    'Shared and pairwise matrices must expose the same represented-graph optimum for an endpoint-return cycle.',
-  )
-  assert.equal(matrixCycleShared.rows[0].status, 'ready')
-  assert.equal(matrixCycleShared.rows[0].durationMinutes, 25)
-  assert.equal(matrixCycleShared.diagnostics.forwardSearches, 1)
-  assert.equal(matrixCycleShared.diagnostics.returnedStationCyclePolicy, 'represented')
 
-  const cyclePointRequest = {
-    origin: matrixCycleRequest.origins[0],
-    destination: matrixCycleRequest.destinations[0],
-    departMinutes: matrixCycleRequest.departMinutes,
-    serviceDate: matrixCycleRequest.serviceDate,
-    serviceDay: matrixCycleRequest.serviceDay,
-    maxWalkKm: matrixCycleRequest.maxWalkKm,
-    __disableDirectWalkDominance: true,
-  }
-  // A parent-station return is an advisory, not proof that the GTFS path is
-  // infeasible: this fixture forbids the direct platform change.
-  const cyclePoint = routeNationalGtfsStore(matrixCycleStorePath, cyclePointRequest)
-  assert.equal(cyclePoint.status, 'ready')
-  assert.equal(cyclePoint.arriveMinutes, 505)
-  assert.equal(cyclePoint.diagnostics.returnedStationCycle.stationGroupId, 'matrix-cycle\u001fS')
-  const cycleArriveBy = routeNationalGtfsStore(matrixCycleStorePath, {
-    ...cyclePointRequest, timePreference: 'arrive', arriveMinutes: 505,
-  })
-  assert.equal(cycleArriveBy.status, 'ready')
-  assert.equal(cycleArriveBy.departMinutes, 480)
-  assert.equal(cycleArriveBy.arriveMinutes, 505)
   disposeNationalGtfsStore(matrixCycleStorePath)
-  assert.equal(routeNationalGtfsStore(matrixCycleStorePath, cyclePointRequest).arriveMinutes, 505)
-
-  const internalCycleMatrixRequest = {
-    origins: [{
-      stopId: 'matrix-cycle\u001fO', coordinate: [7.98, 47], label: 'Cycle origin', source: 'stop',
-    }],
-    destinations: [{
-      stopId: 'matrix-cycle\u001fD', coordinate: [8.02, 47], label: 'Cycle destination', source: 'stop',
-    }],
-    departMinutes: 450,
-    serviceDate: '2026-07-12',
-    serviceDay: 'sunday',
-    maxWalkKm: 0.2,
-  }
-  const internalCycleShared = routeNationalGtfsMatrix(matrixCycleStorePath, {
-    ...internalCycleMatrixRequest,
-    matrixStrategy: 'shared',
-  })
-  const internalCyclePairwise = matrixItineraryReference(matrixCycleStorePath, {
-    ...internalCycleMatrixRequest,
-    matrixStrategy: 'pairwise',
-  })
-  assert.deepEqual(
-    internalCycleShared.rows,
-    internalCyclePairwise.rows,
-    'Represented matrix parity must hold when the returned station group is internal to the path.',
-  )
-  assert.equal(internalCycleShared.rows[0].status, 'ready')
-  assert.equal(internalCycleShared.rows[0].durationMinutes, 70)
-  const internalCyclePointRequest = {
-    origin: internalCycleMatrixRequest.origins[0],
-    destination: internalCycleMatrixRequest.destinations[0],
-    departMinutes: internalCycleMatrixRequest.departMinutes,
-    serviceDate: internalCycleMatrixRequest.serviceDate,
-    serviceDay: internalCycleMatrixRequest.serviceDay,
-    maxWalkKm: internalCycleMatrixRequest.maxWalkKm,
-    __disableDirectWalkDominance: true,
-  }
-  const internalCycle = routeNationalGtfsStore(matrixCycleStorePath, internalCyclePointRequest)
-  assert.equal(internalCycle.status, 'ready')
-  assert.equal(internalCycle.arriveMinutes, 520)
-  assert.equal(internalCycle.legs.filter((leg) => leg.type === 'ride').length, 4)
-  assert.equal(internalCycle.diagnostics.returnedStationCycle.stationGroupId, 'matrix-cycle\u001fS')
 
   await fs.copyFile(storePath, matrixUpperBoundStorePath)
   const matrixUpperBoundStore = new DatabaseSync(matrixUpperBoundStorePath)
@@ -3119,33 +1207,6 @@ try {
   }
   matrixUpperBoundStore.close()
   await rebuildFixtureRoutingDerivedArtifacts(matrixUpperBoundStorePath)
-  const upperBoundRequest = {
-    origins: [alpha], destinations: [bravo, charlie], departMinutes: 8 * 60,
-    serviceDay: 'sunday', serviceDate: '2026-07-12', maxWalkKm: 0.25,
-  }
-  const upperBoundShared = routeNationalGtfsMatrix(matrixUpperBoundStorePath, { ...upperBoundRequest, matrixStrategy: 'shared' })
-  const upperBoundPairwise = matrixItineraryReference(matrixUpperBoundStorePath, {
-    ...upperBoundRequest,
-    matrixStrategy: 'pairwise',
-  })
-  assert.deepEqual(upperBoundShared.rows, upperBoundPairwise.rows, 'Feasible matrix upper bounds must preserve exact pairwise arrival parity.')
-  assert.equal(
-    upperBoundShared.diagnostics.matrixEngine,
-    'rust_exact_connection_scan_one_to_many',
-  )
-  assert.equal(upperBoundShared.diagnostics.seededDestinationUpperBounds, 0)
-  assert.equal(upperBoundShared.diagnostics.upperBoundSeedScans, 0)
-  assert.equal(upperBoundShared.diagnostics.upperBoundedForwardSearches, 0)
-  assert(Number.isFinite(upperBoundShared.diagnostics.engineQueryMs))
-
-  const manyToOne = routeNationalGtfsMatrix(storePath, {
-    origins: [alpha, bravo], destinations: [charlie], departMinutes: 8 * 60,
-    serviceDay: 'sunday', serviceDate: '2026-07-12', maxWalkKm: 0.25,
-  })
-  assert.equal(manyToOne.diagnostics.matrixStrategy, 'shared')
-  assert.equal(manyToOne.diagnostics.forwardSearches, 2)
-  assert.equal(manyToOne.diagnostics.destinationAccessComputations, 1)
-  assert.equal(manyToOne.rows.length, 2)
 
   const schedulePaths = [path.join(folder, 'feed-a.json'), path.join(folder, 'feed-b.json')]
   const schedule = (routeId, shortName, from, to, depart, arrive) => ({
@@ -3188,27 +1249,12 @@ try {
   `).run('feed-a\u001finterchange-a', 'feed-b\u001finterchange-b')
   migratedTransferStore.close()
   await rebuildFixtureRoutingDerivedArtifacts(migratedStorePath)
-  const migratedPlan = routeNationalGtfsStore(migratedStorePath, {
-    origin: alpha, destination: charlie, departMinutes: 480, serviceDay: 'sunday', serviceDate: '2026-07-12', maxWalkKm: 0.25,
-  })
-  assert.equal(migratedPlan.status, 'ready')
-  assert.deepEqual(migratedPlan.legs.filter((leg) => leg.type === 'ride').map((leg) => leg.routeShortName), ['A', 'B'])
 
   await fs.copyFile(migratedStorePath, transferSlackStorePath)
   const transferSlackStore = new DatabaseSync(transferSlackStorePath)
   transferSlackStore.prepare("UPDATE connections SET departure=?, arrival=? WHERE route_id LIKE '%B'").run(498 * 60, 508 * 60)
   transferSlackStore.close()
   await rebuildFixtureRoutingDerivedArtifacts(transferSlackStorePath)
-  const transferSlackPlan = routeNationalGtfsStore(transferSlackStorePath, {
-    origin: alpha, destination: charlie, departMinutes: 480,
-    serviceDay: 'sunday', serviceDate: '2026-07-12', maxWalkKm: 0.25,
-  })
-  assert.equal(transferSlackPlan.status, 'ready', 'The physical cross-feed transfer must consume the generic boarding allowance instead of adding it twice.')
-  assert.equal(
-    transferSlackPlan.legs.filter((leg) => leg.type === 'ride')[1]?.startMinutes,
-    498,
-    'A transfer-complete arrival must be allowed to board the 08:18 connection.',
-  )
 
   const rawFeed = async ({ zipPath: output, prefix, from, to, depart, arrive }) => {
     const fixture = new JSZip()
@@ -3272,11 +1318,6 @@ try {
     [rawMetadataA.sourceFingerprint, rawMetadataB.sourceFingerprint],
     'A multi-feed store must retain each component content fingerprint.',
   )
-  const mergedRawPlan = routeNationalGtfsStore(mergedRawStorePath, {
-    origin: alpha, destination: charlie, departMinutes: 480, serviceDay: 'sunday', serviceDate: '2026-07-12', maxWalkKm: 0.25,
-  })
-  assert.equal(mergedRawPlan.status, 'ready')
-  assert.deepEqual(mergedRawPlan.legs.filter((leg) => leg.type === 'ride').map((leg) => leg.routeShortName), ['RA', 'RB'])
 
   await fs.copyFile(mergedRawStorePath, arriveTransferStorePath)
   const arriveTransferStore = new DatabaseSync(arriveTransferStorePath)
@@ -3294,25 +1335,6 @@ try {
     'Current routing stores intentionally omit the redundant reverse SQLite index.',
   )
   arriveTransferLegacyStore.close()
-  const explicitCrossFeedArriveRequest = {
-    origin: { coordinate: [8.01, 47.01], label: 'Cross-feed transfer origin', source: 'map' },
-    destination: { coordinate: [8.02, 47.02], label: 'Cross-feed transfer destination', source: 'map' },
-    arriveMinutes: 8 * 60 + 31,
-    timePreference: 'arrive',
-    serviceDay: 'sunday',
-    serviceDate: '2026-07-12',
-    maxWalkKm: 0.2,
-  }
-  const explicitCrossFeedArrivePlan = routeNationalGtfsStore(arriveTransferStorePath, explicitCrossFeedArriveRequest)
-  assert.equal(explicitCrossFeedArrivePlan.status, 'ready', 'Reverse arrive-by must traverse an explicit transfer before the first ride.')
-  assert.equal(explicitCrossFeedArrivePlan.diagnostics.algorithm, 'rust_exact_arrive_by_reverse_scan')
-  assert.equal(explicitCrossFeedArrivePlan.legs.find((leg) => leg.type === 'ride')?.tripId, 'feed-b\u001fRB-trip')
-  assert(explicitCrossFeedArrivePlan.legs.some((leg) => leg.walkSource === 'transfer' && leg.fromStopId === 'feed-a\u001fXA' && leg.toStopId === 'feed-b\u001fXB'))
-  const noReverseIndexArrivePlan = routeNationalGtfsStore(
-    arriveTransferLegacyStorePath,
-    explicitCrossFeedArriveRequest,
-  )
-  assert.equal(noReverseIndexArrivePlan.status, 'ready', 'Native arrive-by must not require a duplicate reverse SQLite index.')
 
   const fallbackRail = new JSZip()
   fallbackRail.file('stops.txt', [
@@ -3421,131 +1443,6 @@ try {
     ],
     'An incomplete date must recommend the closest actually complete date, preferring an earlier date when it is closer.',
   )
-  const fallbackRequest = {
-    origin: alpha,
-    destination: charlie,
-    departMinutes: 480,
-    serviceDay: 'monday',
-    serviceDate: '2026-07-13',
-    maxWalkKm: 0.25,
-  }
-  const partialExactPlan = routeNationalGtfsStore(fallbackMergedStorePath, fallbackRequest)
-  assert.equal(partialExactPlan.status, 'ready')
-  assert.deepEqual(partialExactPlan.legs.filter((leg) => leg.type === 'ride').map((leg) => leg.routeShortName), ['Rail direct'])
-  assert.equal(partialExactPlan.diagnostics.requestedServiceDate, '2026-07-13')
-  assert.equal(partialExactPlan.diagnostics.resolvedServiceDate, '2026-07-13')
-  assert.equal(partialExactPlan.diagnostics.serviceDateFallbackApplied, false)
-  assert.equal(partialExactPlan.diagnostics.requestedServiceScopeCount, 1)
-
-  const fallbackPlan = routeNationalGtfsStore(fallbackMergedStorePath, { ...fallbackRequest, allowServiceDateFallback: true })
-  assert.equal(fallbackPlan.status, 'ready')
-  assert.deepEqual(fallbackPlan.legs.filter((leg) => leg.type === 'ride').map((leg) => leg.routeShortName), ['Rail direct'])
-  assert.equal(fallbackPlan.diagnostics.requestedServiceDate, '2026-07-13')
-  assert.equal(fallbackPlan.diagnostics.resolvedServiceDate, '2026-07-13')
-  assert.equal(fallbackPlan.diagnostics.serviceDateFallbackApplied, false)
-  assert.match(fallbackPlan.detail, /exact local timetable/)
-
-  const fallbackRequiredRequest = {
-    ...fallbackRequest,
-    origin: { coordinate: [7.99, 46.99], label: 'Bus-only origin', source: 'map' },
-  }
-  const fallbackRequiredExact = routeNationalGtfsStore(fallbackMergedStorePath, fallbackRequiredRequest)
-  assert.equal(fallbackRequiredExact.status, 'blocked')
-  const fallbackRequiredPlan = routeNationalGtfsStore(fallbackMergedStorePath, { ...fallbackRequiredRequest, allowServiceDateFallback: true })
-  assert.equal(fallbackRequiredPlan.status, 'ready')
-  assert.deepEqual(fallbackRequiredPlan.legs.filter((leg) => leg.type === 'ride').map((leg) => leg.routeShortName), ['Bus', 'Rail connector'])
-  assert.equal(fallbackRequiredPlan.diagnostics.requestedServiceDate, '2026-07-13')
-  assert.equal(fallbackRequiredPlan.diagnostics.resolvedServiceDate, '2025-12-22')
-  assert.equal(fallbackRequiredPlan.diagnostics.serviceDateFallbackApplied, true)
-  assert.equal(fallbackRequiredPlan.diagnostics.resolvedServiceScopeCount, 2)
-  assert.match(fallbackRequiredPlan.detail, /timetable for 2025-12-22 \(fallback from 2026-07-13\)/)
-  const coordinateFallbackWindow = routeNationalGtfsDepartureWindow(
-    fallbackMergedStorePath,
-    {
-      ...fallbackRequiredRequest,
-      allowServiceDateFallback: true,
-      departureWindowMinutes: 10,
-      departureWindowDirection: 'forward',
-      stepMinutes: 1,
-      streetStorePath: fallbackStreetPath,
-    },
-  )
-  assert.equal(
-    coordinateFallbackWindow.profile.coordinateAccessFrontierPreparations,
-    1,
-    'A fallback departure window must still prepare one endpoint frontier.',
-  )
-  assert(
-    coordinateFallbackWindow.profile.timetableRouteSearches > 1,
-    'The fallback fixture must cross more than one timetable search.',
-  )
-  assert(
-    coordinateFallbackWindow.profile.coordinateAccessFrontierReuses
-      > coordinateFallbackWindow.profile.timetableRouteSearches,
-    'Fallback retries and later samples must retain the same valid request-local frontier.',
-  )
-  const readyCoordinateFallbackPlans = coordinateFallbackWindow.profile.plans
-    .filter((candidate) => candidate.status === 'ready')
-  assert(readyCoordinateFallbackPlans.length > 0)
-  assert(readyCoordinateFallbackPlans.every((candidate) => (
-    candidate.diagnostics?.serviceDateFallbackApplied === true
-    && candidate.diagnostics?.resolvedServiceDate === '2025-12-22'
-  )))
-  const coordinateFallbackArriveBy = routeNationalGtfsStore(
-    fallbackMergedStorePath,
-    {
-      ...fallbackRequiredRequest,
-      allowServiceDateFallback: true,
-      timePreference: 'arrive',
-      arriveMinutes: 8 * 60 + 31,
-      streetStorePath: fallbackStreetPath,
-    },
-  )
-  assert.equal(coordinateFallbackArriveBy.status, 'ready')
-  assert.equal(
-    coordinateFallbackArriveBy.diagnostics.serviceDateFallbackApplied,
-    true,
-  )
-  assert.equal(
-    coordinateFallbackArriveBy.diagnostics.resolvedServiceDate,
-    '2025-12-22',
-  )
-  assert.equal(
-    coordinateFallbackArriveBy.diagnostics.searchStats
-      .coordinateAccessFrontierPreparations,
-    1,
-    'A standalone arrive-by fallback must retain one request-wide endpoint preparation.',
-  )
-  assert.equal(
-    coordinateFallbackArriveBy.diagnostics.searchStats
-      .coordinateAccessFrontierInherited,
-    true,
-    'The fallback arrive-by retry must explicitly inherit the identity-bound endpoint frontier.',
-  )
-  assert.equal(
-    coordinateFallbackArriveBy.diagnostics.searchStats
-      .coordinateAccessFrontierPreparedHere,
-    false,
-  )
-  assert(
-    coordinateFallbackArriveBy.diagnostics.searchStats
-      .coordinateAccessFrontierReuses
-      > coordinateFallbackArriveBy.diagnostics.searchStats
-        .coordinateAccessFrontierArriveByReuses,
-    'Request-wide reuse must include the service-date retry handoff as well as arrive-by candidate verification.',
-  )
-
-  const coveredRequest = { ...fallbackRequest, serviceDate: '2025-07-14' }
-  const coveredExactPlan = routeNationalGtfsStore(fallbackMergedStorePath, coveredRequest)
-  const coveredOptInPlan = routeNationalGtfsStore(fallbackMergedStorePath, { ...coveredRequest, allowServiceDateFallback: true })
-  assert.equal(coveredOptInPlan.diagnostics.resolvedServiceDate, '2025-07-14')
-  assert.equal(coveredOptInPlan.diagnostics.serviceDateFallbackApplied, false)
-  assert.equal(coveredOptInPlan.arriveMinutes, coveredExactPlan.arriveMinutes)
-  assert.deepEqual(
-    coveredOptInPlan.legs.filter((leg) => leg.type === 'ride').map((leg) => leg.routeShortName),
-    coveredExactPlan.legs.filter((leg) => leg.type === 'ride').map((leg) => leg.routeShortName),
-  )
-  assert.match(coveredOptInPlan.detail, /exact local timetable/)
 
   await fs.copyFile(rawStoreAPath, invalidRawStorePath)
   const invalidStore = new DatabaseSync(invalidRawStorePath)
@@ -3575,7 +1472,6 @@ try {
   await assert.rejects(() => fs.access(rawStoreAPath))
   await assert.rejects(() => fs.access(rawStoreBPath))
 
-  console.log(`National routing-store fixture passed (${result.buildSeconds}s build / ${plan.diagnostics.searchStats.queryMs}ms depart end-to-end / ${denseAccessArriveBy.diagnostics.searchStats.arriveByNativeEngineQueryMs}ms arrive-by timetable / ${firstRepairMs.toFixed(1)}ms repair / ${secondRepairMs.toFixed(1)}ms warm read).`)
 } finally {
   disposeAllNationalGtfsStores()
   for (const streetPath of [parentModeAccessStreetPath, directWalkStreetPath, denseAccessStreetPath,

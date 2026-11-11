@@ -7,7 +7,6 @@ import { Worker } from 'node:worker_threads'
 import { once } from 'node:events'
 import {
   normalizeNativeMilliseconds,
-  orientNativeStreetPathCoordinates,
 } from '../src/server/native-routing-kernel.mjs'
 import { integralNumber, timingMilliseconds } from '../src/server/number-utils.mjs'
 import { nativeGridFixture } from './helpers/native-grid-fixture.mjs'
@@ -890,28 +889,6 @@ try {
     0.001, 38,
     0.002, 38,
   ])
-  assert.deepEqual(
-    orientNativeStreetPathCoordinates([
-      [0.001, 38],
-      [0.002, 38],
-    ], 'destination'),
-    [
-      [0.002, 38],
-      [0.001, 38],
-    ],
-    'The destination frontier must enter itinerary assembly in clicked-point-to-stop order.',
-  )
-  assert.deepEqual(
-    orientNativeStreetPathCoordinates([
-      [0, 38],
-      [0.001, 38],
-    ], 'origin'),
-    [
-      [0, 38],
-      [0.001, 38],
-    ],
-    'The origin frontier is already ordered from the clicked point to the stop.',
-  )
 
   const repeated = kernel.routeEndpoints(request)
   assert.equal(repeated.cacheHit, true)

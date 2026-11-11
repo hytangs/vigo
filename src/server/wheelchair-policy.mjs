@@ -6,7 +6,7 @@ import { estimatedPathwaySeconds } from './gtfs/pathway-cost.mjs'
 // `inferred` can use ordinary pedestrian ways without a surface or wheelchair tag;
 // `verified` uses only ways tagged wheelchair=yes, which is sparse in most cities.
 export const wheelchairProfile = 'wheelchair-strict-v1'
-export const wheelchairStreetPolicies = Object.freeze({
+const wheelchairStreetPolicies = Object.freeze({
   inferred: 'inferred-step-free-v1',
   verified: 'wheelchair-yes-only',
 })
@@ -101,10 +101,6 @@ export function wheelchairPathwayCost(row, { accessibleEndpoints = false, sameLe
   if (width == null || (mode !== 5 && slope == null)) return null
   if (time != null && time > 0) return published(time)
   return null
-}
-
-export function wheelchairPathwaySeconds(row, options) {
-  return wheelchairPathwayCost(row, options)?.seconds ?? null
 }
 
 // Surfaces and trail grades on which a wheelchair cannot be assumed to pass.

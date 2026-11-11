@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { resolveServiceDay, serviceDayForDate } from '../src/server/service-day.mjs'
-import { serviceClock, serviceEpochSeconds } from '../src/server/gtfs/service-clock.mjs'
+import { serviceEpochSeconds } from '../src/server/gtfs/service-clock.mjs'
 
 assert.equal(serviceDayForDate('2026-07-17'), 'weekday')
 assert.equal(serviceDayForDate('2026-07-18'), 'saturday')
@@ -11,6 +11,10 @@ assert.throws(() => serviceDayForDate('2026-02-30'), /Invalid service date/)
 assert.throws(() => resolveServiceDay('2026-07-18', 'holiday'), /weekday, saturday, or sunday/)
 
 const epoch = iso => Date.parse(iso) / 1000
+const serviceClock = (serviceDate, timezone) => {
+  const origin = serviceEpochSeconds(serviceDate, timezone)
+  return timestamp => timestamp - origin
+}
 const autumn = serviceClock('2026-11-01', 'America/New_York')
 assert.equal(autumn(epoch('2026-11-01T05:30:00Z')), 1800)
 assert.equal(autumn(epoch('2026-11-01T06:30:00Z')), 5400)

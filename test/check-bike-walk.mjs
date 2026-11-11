@@ -7,7 +7,7 @@ import {execFileSync,spawnSync} from 'node:child_process'
 import {DatabaseSync} from 'node:sqlite'
 import {writeCliFixtureInputs} from './helpers/cli-fixture-inputs.mjs'
 import {standaloneBinary as binary} from './helpers/standalone-runtime.mjs'
-import {routeNationalStreetStore,disposeNationalOsmStore} from '../src/server/national-osm-store.mjs'
+import {disposeNationalOsmStore} from '../src/server/national-osm-store.mjs'
 const root=path.resolve(import.meta.dirname,'..')
 const directory=fs.mkdtempSync(path.join(os.tmpdir(),'vigo-bike-walk-'))
 const stores=[]
@@ -37,8 +37,6 @@ try {
       const actual=query(city,q)
       const permitted=connected&&!(variant==='directed'&&reverse)
       assert.equal(actual.status,permitted?'ok':'not_found',variant+' '+reverse)
-      const node=routeNationalStreetStore(store,{...q,origin:{coordinate:q.origin},destination:{coordinate:q.destination},departMinutes:480})
-      assert.equal(node.status==='ready',permitted,'Node '+variant+' '+reverse)
       if (!permitted) continue
       assert(actual.journey.legs.some(l=>l.type==='walk'&&l.distanceMeters>750),'Charge the full network walk')
       assert(actual.trace.legs.some(l=>l.geometrySource==='osm'&&l.streetPathVerified&&l.kind==='walk'),'Expose the pedestrian path witness')
@@ -49,7 +47,6 @@ try {
         assert.equal(route.status,'ok')
         const matrix=query(city,{...dated,origin:undefined,destination:undefined,origins:[q.origin],destinations:[q.destination]},'matrix')
         assert(Math.abs(matrix.durationsSeconds[0][0]-route.journey.durationSeconds)<=1)
-        assert(Math.abs(node.durationMinutes*60-route.journey.durationSeconds)<=1)
       }
     }
     if (variant==='connected') {

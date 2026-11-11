@@ -18,15 +18,14 @@ export function integralNumber(value, fallback = undefined) {
   return Number.isInteger(number) ? number : fallback
 }
 
-// Studio exposes 00:00..29:59; legacy GTFS callers can use the 48:00 boundary.
-// Native public requests separately admit seconds through 71:59:59.
-export const studioRoutingMinuteLimit = 1800
-export const gtfsRoutingMinuteMaximum = 2880
+// Studio exposes 00:00..29:59. Native public requests separately admit seconds
+// through 71:59:59.
+const studioRoutingMinuteLimit = 1800
 
-export function routingMinute(value, label, fallback = 480, maximum = gtfsRoutingMinuteMaximum, exclusive = false) {
+export function routingMinute(value, label, fallback = 480) {
   const parsed = integralNumber(value === undefined ? fallback : value)
-  if (!Number.isInteger(parsed) || parsed < 0 || (exclusive ? parsed >= maximum : parsed > maximum)) {
-    throw new Error(`${label} must be an integral minute in [0, ${maximum}${exclusive ? ')' : ']'}.`)
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed >= studioRoutingMinuteLimit) {
+    throw new Error(`${label} must be an integral minute in [0, ${studioRoutingMinuteLimit}).`)
   }
   return parsed
 }

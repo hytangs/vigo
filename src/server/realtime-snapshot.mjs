@@ -185,7 +185,6 @@ export function realtimeSnapshotFromFeed(feed, sourceUrl, fetchedAt, contentType
   }
 }
 
-
 export function realtimeSnapshotFromFeeds(records) {
   const successful = records.filter((record) => record.feed || record.snapshot)
   const snapshots = successful.map((record) => record.snapshot ?? realtimeSnapshotFromFeed(

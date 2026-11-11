@@ -4,9 +4,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import JSZip from 'jszip'
-import { buildNationalGtfsStore, buildNationalGtfsCityStore, disposeNationalGtfsStore, ensureNationalGtfsOsmStopTransfers, routeNationalGtfsReach } from '../src/server/national-gtfs-store.mjs'
+import { buildNationalGtfsStore, buildNationalGtfsCityStore, disposeNationalGtfsStore, ensureNationalGtfsOsmStopTransfers } from '../src/server/national-gtfs-store.mjs'
 import { buildNationalOsmWalkStore, compactNationalOsmRuntimeStore, disposeNationalOsmStore, prepareNationalOsmNativeStore } from '../src/server/national-osm-store.mjs'
-import { cityCaseFeedIds, assertCaseRouteSources, selectedSourceScopes, scopedServiceResolution } from '../src/server/gtfs/source-selection.mjs'
+import { cityCaseFeedIds, assertCaseRouteSources } from '../src/server/gtfs/source-selection.mjs'
 import { finalizeCurrentStreetFixture } from './helpers/street-fixture.mjs'
 import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
 
@@ -67,22 +67,6 @@ try {
   assert.throws(() => cityCaseFeedIds(project, { feedIds: ['bus'], feedId: 'express' }))
   assert.throws(() => cityCaseFeedIds({ ...project, feeds: [{ id: 'bus' }] }, { feedIds: ['bus'] }), /not ready/)
   assert.throws(() => assertCaseRouteSources({ services: [{ sourceRouteId: 'express::R' }] }, ['bus', 'rail'], true), /outside/)
-  const sourceStore = { sourceScopes: ['bus', 'rail', 'express'] }
-  assert.throws(() => selectedSourceScopes(sourceStore, { sourceScopes: ['other'] }))
-  const resolution = scopedServiceResolution(sourceStore, { services: new Set(['bus\u001fS', 'rail\u001fS']), availableServiceScopeCount: 3 }, { sourceScopes: ['bus', 'rail'] })
-  assert.equal(resolution.availableServiceScopeCount, 2); assert.equal(resolution.resolvedServiceScopeCount, 2)
-  const snapshots = async () => (await fs.readdir(path.dirname(storePath))).filter(name => name.includes('.active-service-kernel.')).sort()
-  const before = await snapshots()
-  for (const sourceScopes of [['bus', 'rail'], ['bus'], ['rail'], ['bus', 'rail']]) {
-    const result = routeNationalGtfsReach(storePath, { ...query, sourceScopes })
-    const reachedC = result.stops.filter(stop => stop.stopId.endsWith('\u001fC'))
-    if (sourceScopes.length === 2) {
-      assert(reachedC.length, `Selected feeds must transfer within one query: ${JSON.stringify({stops:result.stops,diagnostics:result.diagnostics})}`)
-      assert(reachedC.every(stop => stop.durationMinutes >= 12), 'Excluded express service leaked into the group.')
-      assert(reachedC.some(stop => Math.abs(stop.durationMinutes - 12) < .01), 'Bus to rail transfer did not match the timetable.')
-    } else assert.equal(reachedC.length, 0, 'A case borrowed a connection from an unselected timetable.')
-  }
-  assert.deepEqual(await snapshots(), before, 'Groups must not write a new persistent timetable copy.')
   api = await startInMemoryVigoApi({ repositoryRoot: path.resolve(import.meta.dirname, '..'), environment: {
     VIGO_PROJECTS_DIR: projectsRoot, VIGO_CONFIG_DIR: path.join(folder, 'config'),
   } })

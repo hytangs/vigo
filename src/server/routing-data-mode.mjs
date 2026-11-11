@@ -56,7 +56,7 @@ export function normalizeRoutingDataRequest(request) {
 }
 
 /** @param {RoutingDataRequest} request */
-export function routingDataModeForRequest(request) {
+function routingDataModeForRequest(request) {
   return request.routingDataMode ?? (request.realtimeSnapshot ? 'realtime' : 'scheduled')
 }
 

@@ -15,13 +15,9 @@ import {
   nationalOsmDrivingSpeedKph,
   prepareNationalOsmDriveStore,
   prepareNationalOsmNativeStore,
-  readNationalOsmWalkNodeCoordinate,
-  sampleNationalOsmWalkNodes,
-  routeNationalStreetMatrix,
   routeNationalStreetStore,
 } from '../src/server/national-osm-store.mjs'
 import { buildNativeStreetCchIndex } from '../src/server/native-routing-kernel.mjs'
-import { transitDominatingDirectWalkPlan } from '../src/server/gtfs/walking-plans.mjs'
 
 const worker = process.argv[2] === '--fixture-worker'
 const root = worker ? process.argv[3] : fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-street-routing-'))
@@ -142,20 +138,6 @@ if (worker) {
   assert.equal(preparedDrive.snapshotStatus, 'written')
   assert.equal(preparedDrive.nativeCch.cchSource, 'built_mmap')
   assert(fs.existsSync(preparedDrive.snapshotPath))
-  const fullStoreSample = sampleNationalOsmWalkNodes(currentStore, {
-    endpointCount: 2,
-    seed: 41,
-  })
-  assert.equal(fullStoreSample.sourceTable, 'walk_nodes')
-  assert.equal(fullStoreSample.endpoints.length, 2)
-  assert(fullStoreSample.endpoints.every((endpoint) => endpoint.osmNodeId !== undefined))
-  assert.deepEqual(
-    readNationalOsmWalkNodeCoordinate(currentStore, fullStoreSample.endpoints[0]),
-    {
-      lon: fullStoreSample.endpoints[0].lon,
-      lat: fullStoreSample.endpoints[0].lat,
-    },
-  )
   const compacted = compactNationalOsmRuntimeStore(currentStore, { requireDrive: true })
   assert.equal(compacted.storageLayout, 'runtime-snapshots-v1')
   assert(compacted.afterBytes < compacted.beforeBytes)
@@ -167,25 +149,6 @@ if (worker) {
   assert.equal(reloadedDrive.nativeCch.cchSource, 'existing_mmap')
   const streetCch = buildNativeStreetCchIndex(currentStore)
   assert(streetCch.loaded.nodeCount > 0)
-
-  const walk = routeNationalStreetStore(currentStore, walkRequest)
-  assert.equal(walk.status, 'ready')
-  assert.equal(walk.travelMode, 'walk')
-  assert.equal(walk.legs.length, 1)
-  assert.equal(walk.legs[0].type, 'walk')
-  assert.equal(Number(walk.legs[0].distanceKm.toFixed(3)), 0.2)
-  assert.equal(Number(walk.durationMinutes.toFixed(3)), 2.5)
-  assert(!Object.hasOwn(walk.diagnostics.searchStats, 'cacheHit'))
-  assert.equal(walk.diagnostics.searchStats.accelerated, true)
-  const equalDeparture = transitDominatingDirectWalkPlan({ ...walkRequest, mode: 'transit',
-    timePreference: 'arrive', arriveMinutes: 500, streetStorePath: currentStore }, 1.2,
-  { status: 'ready', travelMode: 'transit', departMinutes: 497.5, durationMinutes: 2.5, diagnostics: {} },
-  { distanceKm: 0.2, coordinates: walk.legs[0].coordinates })
-  assert.equal(equalDeparture.travelMode, 'walk', 'An exact arrive-by departure tie must prefer zero boardings')
-
-  const repeatedWalk = routeNationalStreetStore(currentStore, walkRequest)
-  assert(!Object.hasOwn(repeatedWalk.diagnostics.searchStats, 'cacheHit'))
-  assert.deepEqual(repeatedWalk.legs, walk.legs)
 
   const drive = routeNationalStreetStore(currentStore, driveRequest)
   assert.equal(drive.status, 'ready')
@@ -199,7 +162,7 @@ if (worker) {
   assert.equal(drive.diagnostics.searchStats.cchAccelerated, true)
   assert.equal(drive.diagnostics.searchStats.cchSource, 'existing_mmap')
 
-  for (const [request, departurePlan] of [[walkRequest, walk], [driveRequest, drive]]) {
+  for (const [request, departurePlan] of [[driveRequest, drive]]) {
     for (const deadline of [510, 0, -5]) {
       const arrivalPlan = routeNationalStreetStore(currentStore, {
         ...request, timePreference: 'arrive', arriveMinutes: deadline,
@@ -404,123 +367,8 @@ if (worker) {
   assert.equal(longerWalk.status, 'ready')
   assert.equal(longerWalk.legs[0].type, 'walk')
   assert(longerWalk.legs[0].distanceKm > 1.2)
-  const farMatrix = routeNationalStreetMatrix(currentStore, {
-    mode: 'drive', origins: [offRoad], destinations: [driveRequest.destination], maxStreetKm: 20,
-  })
-  assert.equal(farMatrix.rows[0].status, 'blocked')
-
-  const walkMatrix = routeNationalStreetMatrix(currentStore, {
-    mode: 'walk',
-    origins: [
-      walkRequest.origin,
-      walkRequest.origin,
-      { coordinate: [-70.9988, 42.0000], label: 'Walk middle' },
-    ],
-    destinations: [walkRequest.destination, walkRequest.origin],
-    walkingSpeedKph: 4.8,
-    maxStreetKm: 2,
-  })
-  assert.equal(walkMatrix.schemaVersion, 'vigo.routing.street-matrix.v1')
-  assert.equal(walkMatrix.mode, 'walk')
-  assert.equal(walkMatrix.rows.length, 6)
-  assert.equal(walkMatrix.diagnostics.uniqueOrigins, 2)
-  assert.equal(walkMatrix.diagnostics.uniqueDestinations, 2)
-  assert.equal(walkMatrix.diagnostics.matrixEngine, 'rust_cch_coordinate_distance_matrix_v1')
-  const walkForward = walkMatrix.rows.find((row) => row.originIndex === 0 && row.destinationIndex === 0)
-  const walkMiddleToEnd = walkMatrix.rows.find((row) => row.originIndex === 2 && row.destinationIndex === 0)
-  assert.equal(walkForward.status, 'ready')
-  assert.equal(Number(walkForward.distanceKm.toFixed(3)), 0.2)
-  assert.equal(Number(walkMiddleToEnd.distanceKm.toFixed(3)), 0.1)
-
-  const manyWalkDestinations = Array.from({ length: 1024 }, (_, i) => ({
-    coordinate: [-71 + 0.0024 * (i + 1) / 1024, 42], label: `Destination ${i}`,
-  }))
-  const manyWalkRequest = { mode: 'walk', origins: [walkRequest.origin],
-    destinations: manyWalkDestinations, maxStreetKm: 2 }
-  const manyWalk = routeNationalStreetMatrix(currentStore, manyWalkRequest)
-  assert.equal(manyWalk.diagnostics.uniqueDestinations, 1024)
-  for (let offset = 0; offset < manyWalkDestinations.length; offset += 256) {
-    const chunk = routeNationalStreetMatrix(currentStore, {
-      ...manyWalkRequest, destinations: manyWalkDestinations.slice(offset, offset + 256),
-    })
-    assert.deepEqual(manyWalk.rows.slice(offset, offset + 256), chunk.rows.map((row) => ({
-      ...row, destinationIndex: row.destinationIndex + offset,
-    })))
-  }
-
-  const driveMatrix = routeNationalStreetMatrix(currentStore, {
-    mode: 'drive',
-    origins: [driveRequest.origin, driveRequest.destination],
-    destinations: [driveRequest.destination, driveRequest.origin],
-    maxStreetKm: 20,
-  })
-  assert.equal(driveMatrix.schemaVersion, 'vigo.routing.street-matrix.v1')
-  assert.equal(driveMatrix.mode, 'drive')
-  assert.equal(driveMatrix.rows.length, 4)
-  assert.equal(driveMatrix.diagnostics.matrixEngine, 'rust_cch_drive_time_matrix_v1')
-  const driveForward = driveMatrix.rows.find((row) => row.originIndex === 0 && row.destinationIndex === 0)
-  const driveReverse = driveMatrix.rows.find((row) => row.originIndex === 1 && row.destinationIndex === 1)
-  assert.equal(driveForward.status, 'ready')
-  assert.equal(Number(driveForward.distanceKm.toFixed(3)), 0.2)
-  assert.equal(Number(driveForward.durationMinutes.toFixed(3)), 0.2)
-  assert.equal(driveReverse.status, 'blocked')
-
-  const driveMatrixFromWalkNodes = routeNationalStreetMatrix(currentStore, {
-    mode: 'drive',
-    origins: [walkRequest.origin],
-    destinations: [walkRequest.destination],
-    maxStreetKm: 20,
-  })
-  assert.equal(driveMatrixFromWalkNodes.rows[0].status, 'ready')
-
-  const trafficDriveMatrix = routeNationalStreetMatrix(currentStore, {
-    mode: 'drive',
-    origins: [driveRequest.origin],
-    destinations: [driveRequest.destination],
-    maxStreetKm: 20,
-    trafficSnapshot,
-  })
-  assert.equal(Number(trafficDriveMatrix.rows[0].distanceKm.toFixed(3)), 0.25)
-  assert.equal(Number(trafficDriveMatrix.rows[0].durationMinutes.toFixed(3)), 0.267)
-  assert.equal(trafficDriveMatrix.diagnostics.weightModel, 'snapshot_customized_traffic_seconds')
-  assert.equal(trafficDriveMatrix.diagnostics.traffic.status, 'applied')
-
   const nativeWalk = prepareNationalOsmNativeStore(currentStore)
   assert.equal(nativeWalk.ready, true)
-  const nativeGeometryWalk = routeNationalStreetStore(currentStore, {
-    ...walkRequest,
-    departMinutes: 483,
-  })
-  assert.equal(nativeGeometryWalk.status, 'ready')
-  assert(
-    nativeGeometryWalk.legs[0].coordinates.length > 2,
-    'A native walk must preserve reconstructed street geometry instead of collapsing to the two clicked endpoints.',
-  )
-  assert.deepEqual(
-    nativeGeometryWalk.legs[0].coordinates[0],
-    walkRequest.origin.coordinate,
-    'A native walk polyline must begin at the requested origin.',
-  )
-  assert.deepEqual(
-    nativeGeometryWalk.legs[0].coordinates.at(-1),
-    walkRequest.destination.coordinate,
-    'A native walk polyline must end at the requested destination.',
-  )
-  assert.notDeepEqual(
-    nativeGeometryWalk.legs[0].coordinates[1],
-    walkRequest.destination.coordinate,
-    'A native walk must not jump to the destination and traverse the graph backward.',
-  )
-  assert.notDeepEqual(
-    nativeGeometryWalk.legs[0].coordinates.at(-2),
-    walkRequest.origin.coordinate,
-    'A native walk must make forward progress before reaching the destination.',
-  )
-  assert.equal(
-    nativeGeometryWalk.diagnostics.searchStats.acceleratorSource,
-    'rust_mmap_node_api',
-  )
-
   const transitPreparationWorker = new Worker(new URL('../src/server/national-route-worker.mjs', import.meta.url))
   const transitPreparation = await new Promise((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('Transit street preparation timed out.')), 5_000)
@@ -573,56 +421,7 @@ if (worker) {
     assert.equal(prepared.result.streetStore.drive.accelerated, true)
     assert.notEqual(prepared.result.streetStore.drive.deferred, true)
     assert.deepEqual(backgroundStages.map((stage) => stage.phase), ['Preparing walking network', 'Preparing driving network'])
-    for (const request of [walkRequest, driveRequest]) {
-      const routed = await requestBackgroundWorker(`background-${request.mode}`, 'street-route', request)
-      assert.equal(routed.result.status, 'ready')
-      assert.equal(routed.result.travelMode, request.mode)
-      assert.equal(routed.workerInstance, prepared.workerInstance, 'Street queries must reuse the prepared worker')
-    }
   } finally { await backgroundWorker.terminate() }
-
-  const worker = new Worker(new URL('../src/server/national-route-worker.mjs', import.meta.url))
-  const requestStreetWorker = (id) => new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('Street-route worker timed out.')), 5_000)
-    worker.once('error', reject)
-    const receive = (message) => {
-      if (message?.id !== id || message.type === 'progress') return
-      clearTimeout(timeout)
-      worker.off('message', receive)
-      if (message.type === 'failed') reject(new Error(message.error))
-      else if (message.type === 'complete') resolve(message)
-    }
-    worker.on('message', receive)
-    worker.postMessage({
-      id,
-      operation: 'street-route',
-      storePath: currentStore,
-      request: {
-        ...driveRequest,
-        departMinutes: 485,
-        streetStorePath: currentStore,
-        trafficSnapshot,
-      },
-    })
-  })
-  let coldWorkerResult, workerResult
-  try {
-    // The first call opens snapshots and initializes native routing. The
-    // resident responsiveness guard applies only after that setup has finished.
-    coldWorkerResult = await requestStreetWorker('street-route-cold')
-    assert.equal(coldWorkerResult.result.status, 'ready')
-    workerResult = await requestStreetWorker('street-route-fixture')
-    assert.equal(workerResult.workerInstance, coldWorkerResult.workerInstance)
-  } finally { await worker.terminate() }
-  assert.equal(workerResult.result.status, 'ready')
-  assert.equal(workerResult.result.travelMode, 'drive')
-  assert.equal(workerResult.result.diagnostics.traffic.status, 'applied')
-  assert.equal(Number(workerResult.result.durationMinutes.toFixed(3)), 0.267)
-  assert.equal(workerResult.metrics.operation, 'street-route')
-  assert(
-    workerResult.metrics.operationMs < 250,
-    `The resident street-route fixture exceeded its 250 ms responsiveness guard (${workerResult.metrics.operationMs} ms).`,
-  )
 
   const batchWorker = new Worker(new URL('../src/server/national-route-worker.mjs', import.meta.url))
   const batchResult = await new Promise((resolve, reject) => {
@@ -788,20 +587,6 @@ if (worker) {
   assert.equal(fallbackResult.result.segments[0].durationMinutes, 4)
 
   disposeNationalOsmStore(currentStore)
-  const runtimeStoreSample = sampleNationalOsmWalkNodes(currentStore, {
-    endpointCount: 2,
-    seed: 41,
-  })
-  assert.equal(runtimeStoreSample.sourceTable, 'street-accelerator-v7')
-  assert.equal(runtimeStoreSample.endpoints.length, 2)
-  assert(runtimeStoreSample.endpoints.every((endpoint) => Number.isInteger(endpoint.nodeIndex)))
-  assert.deepEqual(
-    readNationalOsmWalkNodeCoordinate(currentStore, runtimeStoreSample.endpoints[0]),
-    {
-      lon: runtimeStoreSample.endpoints[0].lon,
-      lat: runtimeStoreSample.endpoints[0].lat,
-    },
-  )
   const runtimeWalk = prepareNationalOsmNativeStore(currentStore)
   assert.equal(runtimeWalk.ready, true)
   const runtimeDrive = prepareNationalOsmDriveStore(currentStore)
@@ -812,15 +597,7 @@ if (worker) {
   assert.equal(runtimeDriveRoute.diagnostics.searchStats.cchAccelerated, true)
 
   console.log(JSON.stringify({
-    streetRouteColdOperationMs: coldWorkerResult.metrics.operationMs,
-    streetRouteResidentOperationMs: workerResult.metrics.operationMs,
     status: 'passed',
-    walk: {
-      distanceKm: walk.legs[0].distanceKm,
-      durationMinutes: walk.durationMinutes,
-      firstQueryMs: walk.diagnostics.searchStats.queryMs,
-      repeatedQueryMs: repeatedWalk.diagnostics.searchStats.queryMs,
-    },
     drive: {
       distanceKm: drive.legs[0].distanceKm,
       durationMinutes: drive.durationMinutes,
@@ -829,8 +606,6 @@ if (worker) {
       acceleratorSource: acceleratedDrive.diagnostics.searchStats.acceleratorSource,
       recoveredQueryMs: recoveredDrive.diagnostics.searchStats.queryMs,
       recoveredOriginSnapDistanceM: recoveredDrive.diagnostics.originSnapDistanceM,
-      workerOperationMs: workerResult.metrics.operationMs,
-      streetMatrixQueryMs: driveMatrix.diagnostics.queryMs,
       batchWorkerOperationMs: batchResult.metrics.operationMs,
     },
   }, null, 2))

@@ -50,7 +50,7 @@ await import(${JSON.stringify(pathToFileURL(path.join(repositoryRoot, 'src/serve
     for (const configured of [false, true]) {
       if (configured) await fs.writeFile(path.join(configDir, 'config.json'), JSON.stringify({ storageRoot: savedLibrary }))
       api = await start()
-      for (const endpoint of ['/api/health', '/api/config', '/api/projects', '/api/capabilities']) {
+      for (const endpoint of ['/api/health', '/api/config', '/api/projects']) {
         const result = await api.requestJson(endpoint)
         assert.equal(result.status, 200, endpoint)
         if (result.body.config) {

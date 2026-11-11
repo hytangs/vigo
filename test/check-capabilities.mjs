@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import fs from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 import packageJson from '../package.json' with { type: 'json' }
-import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
 import {
   apiVersion,
   capabilityCatalog,
@@ -39,24 +36,5 @@ assert.equal(result.resultSchemaVersion, resultSchemaVersion)
 assert.deepEqual(result.publicCliCommands, publicCliCommands)
 assert.deepEqual(result.reachRasterSizes, supportedReachRasterSizes)
 assert.deepEqual(result.queries, capabilityCatalog.queries)
-
-const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-capability-api-'))
-let api
-try {
-  api = await startInMemoryVigoApi({
-    repositoryRoot: root,
-    environment: {
-      VIGO_PROJECTS_DIR: path.join(temporary, 'cities'),
-      VIGO_CONFIG_DIR: path.join(temporary, 'config'),
-    },
-  })
-  const response = await api.fetch('http://127.0.0.1/api/capabilities')
-  assert.equal(response.status, 200)
-  const body = await response.json()
-  assert.deepEqual(body.capabilities, result)
-} finally {
-  await api?.stop()
-  await fs.rm(temporary, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
-}
 
 console.log('VIGO product model passed.')

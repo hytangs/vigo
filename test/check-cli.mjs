@@ -475,12 +475,6 @@ try {
   assert.deepEqual(workerResults[1].map(result => result.sequence), [1, 2, 3])
   assert.deepEqual(workerResults[1].map(result => result.id), [undefined, 'bad', 'last'])
 
-  // A separate process releases native memory maps before Windows fixture cleanup.
-  execFileSync(process.execPath, [
-    path.join(root, 'test', 'helpers', 'assert-cli-matrix-parity.mjs'),
-    cityPath, String(route.result.durationMinutes),
-  ], { stdio: 'inherit' })
-
   const reachRequest = path.join(temporaryRoot, 'reach.json')
   fs.writeFileSync(reachRequest, JSON.stringify({ origin: 'A', cutoffsMinutes: [1.25, 15, 40], extentRadiusKm: 2, rasterSize: 48 }))
   const reachPath = path.join(temporaryRoot, 'reach-result.json')

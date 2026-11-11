@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { PbfWriter } from 'pbf'
-import { buildNationalOsmStore, compactNationalOsmRuntimeStore, prepareNationalOsmNativeStore, routeNationalStreetStore, disposeNationalOsmStore } from '../src/server/national-osm-store.mjs'
+import { buildNationalOsmStore, compactNationalOsmRuntimeStore, prepareNationalOsmNativeStore, disposeNationalOsmStore } from '../src/server/national-osm-store.mjs'
 import { buildNativeStreetCchIndex } from '../src/server/native-routing-kernel.mjs'
 import { buildNationalGtfsStore, disposeNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
 import { buildTerminalAccessStore } from '../src/server/terminal-access-store.mjs'
@@ -74,11 +74,6 @@ try {
     if (connected) {
       compactNationalOsmRuntimeStore(store, { requireDrive: false })
       prepareNationalOsmNativeStore(store); buildNativeStreetCchIndex(store)
-      for (const [from, to] of [[[-77.051, 38.9], [-77.048, 38.9]], [[-77.048, 38.9], [-77.051, 38.9]]]) {
-        const result = routeNationalStreetStore(store, { mode: 'walk', origin: { coordinate: from }, destination: { coordinate: to }, maxStreetKm: 1 })
-        assert.equal(result.status, 'ready')
-        assert(result.durationMinutes > 3 && result.durationMinutes < 4)
-      }
       const transit = path.join(dir, 'transit.sqlite')
       await buildNationalGtfsStore({ zipPath: gtfsPath, outputPath: transit })
       const overlay = await buildTerminalAccessStore({ pbfPath: osmPath, streetStorePath: store, routingStorePath: transit })

@@ -1,4 +1,3 @@
-import crypto from 'node:crypto'
 import { normalizeTiming, adjustScheduledTrip } from './scenario-timing.mjs'
 import { normalizeTimetables, activeTimetables } from './scenario-timetables.mjs'
 import { nativeOffStreetEstimates, nativeRasterAreas } from './native-routing-kernel.mjs'
@@ -462,7 +461,7 @@ function routeFeatures(directions) {
   })))
 }
 
-export function rasterBounds(origin, radiusKm) {
+function rasterBounds(origin, radiusKm) {
   const projection = localProjection(origin.coordinate[1])
   const latitudeRadius = radiusKm / projection.kmPerLatitudeDegree
   const longitudeRadius = radiusKm / projection.kmPerLongitudeDegree
@@ -1033,39 +1032,6 @@ export function compileReachScenario(value, serviceDate) {
     directions: compiled.directions,
     runDirections: compiled.runDirections,
   }
-}
-
-/**
- * The plan point-to-point routing applies to the timetable: the same compiled
- * runs as Reach, the trips and routes they remove, and per-direction labels
- * and geometry so journeys can describe planned service. Studio and the CLI
- * route scenarios natively; this JavaScript plan mirrors the native compiler
- * for frequency windows on the service date only, not adjacent service days.
- */
-export function compileRouteScenario(value, serviceDate) {
-  const { scenario, overlay, directions, runDirections } = compileReachScenario(value, serviceDate)
-  const changed = Boolean(overlay || scenario.flexZones.length || scenario.excludedRouteIds.length || scenario.excludedTripIds.length)
-  if (!changed) return null
-  const plan = {
-    id: scenario.id,
-    name: scenario.name,
-    overlay,
-    flexZones: scenario.flexZones,
-    runDirections,
-    directions: directions.map((direction) => ({
-      id: direction.id,
-      serviceId: direction.service.id,
-      name: direction.service.name,
-      operation: direction.service.operation,
-      sourceRouteId: direction.service.sourceRouteId,
-      inbound: direction.id.endsWith(':inbound'),
-      geometry: direction.geometry?.length >= 2 ? direction.geometry : direction.stops.map((stop) => stop.coordinate),
-    })),
-    excludedRouteIds: scenario.excludedRouteIds,
-    excludedTripIds: scenario.excludedTripIds,
-  }
-  plan.identity = crypto.createHash('sha256').update(JSON.stringify(plan)).digest('hex').slice(0, 24)
-  return plan
 }
 
 function roundedCoordinates(value) {

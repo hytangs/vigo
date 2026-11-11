@@ -23,30 +23,3 @@ export function lineDistanceKm(coordinates) {
   }
   return distanceKm
 }
-
-export function appendDistinctCoordinates(left, right) {
-  const coordinates = []
-  for (const coordinate of [...(left ?? []), ...(right ?? [])]) {
-    const previous = coordinates.at(-1)
-    if (!previous || previous[0] !== coordinate[0] || previous[1] !== coordinate[1]) coordinates.push(coordinate)
-  }
-  return coordinates
-}
-
-// Vertices closer than this are one public vertex, as in the Rust runtime.
-function samePublicPoint(left, right) {
-  return Math.abs(left[0] - right[0]) < 1e-10 && Math.abs(left[1] - right[1]) < 1e-10
-}
-
-// The public walking line drawn by every runtime: exact endpoints around the
-// witness vertices, collapsing each vertex that repeats its predecessor.
-export function publicWalkLine(start, interior, end) {
-  const line = []
-  for (const point of [start, ...interior, end]) {
-    if (!line.length || !samePublicPoint(line.at(-1), point)) line.push(point)
-  }
-  line[0] = start
-  if (line.length === 1) line.push(end)
-  line[line.length - 1] = end
-  return line
-}

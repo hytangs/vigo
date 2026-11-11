@@ -5,7 +5,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { createNativeBikeKernel } from '../src/server/native-routing-kernel.mjs'
+import { createRequire } from 'node:module'
+
+// The Rust bike search, through the routing kernel's BikeKernel binding.
+const { BikeKernel } = createRequire(import.meta.url)('../crates/vigo-runtime/vigo-routing-kernel.node')
 
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-bike-oracle-'))
 let state = 904, checked = 0
@@ -32,7 +35,7 @@ try {
         (30<<8)|(major ? (80<<14)|6 : (15<<14)|(2<<3)))
     }
     db.close()
-    const kernel=createNativeBikeKernel(file)
+    const kernel=new BikeKernel(file)
     for(const profile of ['fast','balanced','quiet']) for(const multiplier of [.9,1.5,5]) {
       const limit=meters(nodes[0],nodes[5])*multiplier
       let best=Infinity

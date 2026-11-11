@@ -9,10 +9,6 @@ const engines = new WeakMap()
 const quotes = new WeakMap()
 const invalid = Object.freeze({ status: 'unavailable', code: 'invalid_data', reason: 'The saved fare data is incomplete or inconsistent.' })
 
-export function fareEngineFromJson(json) {
-  return createNativeFareCatalog(json)
-}
-
 function fareEngine(catalog) {
   let engine = engines.get(catalog)
   if (!engine) {
@@ -52,10 +48,6 @@ export function quoteEngineFare(engine, leg, serviceDate) {
   } catch {
     return invalid
   }
-}
-
-export function engineFareNeedsScheduledTime(engine, leg) {
-  try { return engine.needsScheduledTime(text(leg.routeId), text(leg.fromStopId), text(leg.toStopId)) } catch { return false }
 }
 
 export function quoteBoardingFare(catalog, leg, serviceDate) {

@@ -41,25 +41,17 @@
     "test/check-cch-manifest.mjs"
   ],
   "check:national": [
-    "test/check-matrix-materialization.mjs",
     "test/check-national-routing-store.mjs"
   ],
   "check:accuracy": [
     "test/check-native-materialization.mjs",
-    "test/check-national-route-geometry.mjs",
     "test/check-ordered-objective.mjs",
-    "test/check-routing-accuracy.mjs",
-    "test/check-multitransfer-quality.mjs"
+    "test/check-routing-accuracy.mjs"
   ],
   "check:national-choices": [
-    "test/check-national-route-choices.mjs",
-    "test/check-studio-journey-selection.mjs",
-    "test/check-route-alternatives.mjs",
     "test/check-shared-legs.mjs",
-    "test/check-route-horizon.mjs",
     "test/check-bounded-search.mjs",
-    "test/check-equal-time-routing.mjs",
-    "test/check-arrive-by-boundary.mjs"
+    "test/check-equal-time-routing.mjs"
   ],
   "check:reach-scenarios": [
     "test/check-scenario-street-surface.mjs",
@@ -73,7 +65,6 @@
     "test/check-reach-geometry.mjs"
   ],
   "check:reach-engine": [
-    "test/check-transit-departures.mjs",
     "test/check-reach-blocks.mjs",
     "test/check-reach-engine.mjs"
   ],
@@ -81,9 +72,7 @@
     "test/check-station-access.mjs",
     "test/check-transfer-walking-floor.mjs",
     "test/check-national-stop-access-index.mjs",
-    "test/check-national-parent-transfer-routing.mjs",
-    "test/check-parent-minimum-routing.mjs",
-    "test/check-street-transfer-selection.mjs"
+    "test/check-parent-minimum-routing.mjs"
   ],
   "check:atlas": [
     "test/check-transport-atlas.mjs",
@@ -159,7 +148,6 @@
     "test/check-routing-accuracy.mjs",
     "test/check-multi-stop-routing-quality.mjs",
     "test/check-ordered-route-api.mjs",
-    "test/check-arrive-by-boundary.mjs",
     "test/check-transfer-walking-floor.mjs"
   ]
 }

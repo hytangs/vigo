@@ -2,22 +2,18 @@ import { buildScheduleFixture } from './helpers/schedule-fixture.mjs'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { performance } from 'node:perf_hooks'
 import { DatabaseSync } from 'node:sqlite'
 import {
   disposeNationalGtfsStore,
-  inspectNationalGtfsAccessCandidates,
   prepareNationalGtfsStore,
   prepareNationalGtfsNativeCoordinateAccess,
   prepareNationalGtfsRoutingReadiness,
   prepareNationalGtfsRoutingContext,
-  routeNationalGtfsStore,
 } from '../src/server/national-gtfs-store.mjs'
 import {
   buildNationalOsmWalkStore,
   compactNationalOsmRuntimeStore,
   disposeNationalOsmStore,
-  streetPathBetween,
 } from '../src/server/national-osm-store.mjs'
 import { buildNativeStreetCchIndex, disposeNativeRoutingKernel } from '../src/server/native-routing-kernel.mjs'
 import { processFixtureDirectory } from './helpers/fixture-process.mjs'
@@ -28,12 +24,9 @@ const storePath = path.join(folder, 'routing.sqlite')
 const streetPath = path.join(folder, 'street.sqlite')
 const usefulPrimaryStreetPath = path.join(folder, 'street-useful-primary.sqlite')
 const scope = 'crowded'
-const scoped = (id) => `${scope}\u001f${id}`
-const origin = [0, 0]
 const reachableCoordinate = [0.0085, 0]
 const transferLinkedRailCoordinate = [0.0095, 0]
 const colocatedStationCoordinate = [0.03, 0]
-const maxWalkKm = 1.2
 
 const disconnectedCoordinates = []
 for (let x = -5; x <= 5; x += 1) {
@@ -182,112 +175,14 @@ try {
   assert(buildNativeStreetCchIndex(streetPath).loaded.nodeCount > 0)
   assert(buildNativeStreetCchIndex(usefulPrimaryStreetPath).loaded.nodeCount > 0)
 
-  const point = { coordinate: origin, label: 'Crowded map point', source: 'map' }
-  const primary = inspectNationalGtfsAccessCandidates(storePath, point, { maxWalkKm, limit: 12 })
-  assert.equal(primary.candidates.some((candidate) => candidate.stopId === scoped('R')), false,
-    'The geometric inspection control must reproduce the crowded-stop miss without an OSM frontier.')
-
-  const startedAt = performance.now()
-  const recovered = inspectNationalGtfsAccessCandidates(storePath, point, {
-    maxWalkKm,
-    limit: 12,
-    streetStorePath: streetPath,
-  })
-  const wallMs = performance.now() - startedAt
-  const reachable = recovered.candidates.find((candidate) => candidate.stopId === scoped('R'))
-  assert(reachable, 'The complete OSM frontier must expose every street-reachable in-budget stop.')
-  const transferLinkedRail = recovered.candidates.find((candidate) => candidate.stopId === scoped('RSP'))
-  assert(transferLinkedRail,
-    'The complete native frontier must expose the nearby rail platform.')
-  if (transferLinkedRail.accessTransferFromStopId !== undefined) {
-    assert.equal(transferLinkedRail.accessTransferFromStopId, scoped('R'))
-    assert(transferLinkedRail.accessTransferSeconds > 0 && transferLinkedRail.accessTransferSeconds <= 180)
-  }
-  assert.equal(transferLinkedRail.streetPathVerified, false,
-    'A published station link is modeled separately from a verified OSM path.')
-  assert.equal(reachable.accessCandidateClass, 'complete-native-directed-frontier')
-  assert.equal(reachable.accessSearchComplete, true)
-  assert.equal(recovered.diagnostics.completeStreetAccessFrontier, true)
-  assert(recovered.candidates.every((candidate) => candidate.distanceKm <= maxWalkKm),
-    'Complete access must not relax the selected walking budget.')
-  assert(wallMs < 1_000, `Complete access inspection took ${wallMs.toFixed(3)} ms.`)
-  const zeroLengthPath = streetPathBetween(streetPath, origin, origin, maxWalkKm)
-  assert.equal(zeroLengthPath?.distanceKm, 0)
-  assert.equal(zeroLengthPath?.exactCoordinateIdentity, true)
-  assert.deepEqual(zeroLengthPath?.coordinates, [origin, origin])
-
-  const colocated = inspectNationalGtfsAccessCandidates(storePath, {
-    coordinate: colocatedStationCoordinate,
-    label: 'Coordinate-only rail station',
-    source: 'map',
-  }, {
-    maxWalkKm,
-    streetStorePath: streetPath,
-    accessRole: 'origin',
-  })
-  const colocatedPlatform = colocated.candidates.find(
-    (candidate) => candidate.stopId === scoped('CSP'),
-  )
-  assert(colocatedPlatform,
-    'An exact station-coordinate identity must survive when the station centroid cannot snap to OSM.')
-  assert.equal(colocatedPlatform.distanceKm, 0)
-  assert.equal(colocatedPlatform.exactStopAccess, true)
-  assert.equal(colocatedPlatform.accessCandidateClass, 'exact-coordinate-colocation')
-  assert.equal(colocatedPlatform.accessSearchComplete, true)
-  const colocatedPlan = routeNationalGtfsStore(storePath, {
-    origin: {
-      coordinate: colocatedStationCoordinate,
-      label: 'Coordinate-only rail station',
-      source: 'map',
-    },
-    destination: {
-      coordinate: [0.02, 0],
-      label: 'Destination stop',
-      source: 'map',
-    },
-    departMinutes: 539,
-    serviceDate: '2025-12-08',
-    serviceDay: 'weekday',
-    allowServiceDateFallback: true,
-    maxWalkKm,
-    horizonMinutes: 30,
-    streetStorePath: streetPath,
-  })
-  assert.equal(colocatedPlan.status, 'ready')
-  const colocatedWalkLegs = colocatedPlan.legs.filter((leg) => leg.type === 'walk')
-  assert.equal(colocatedWalkLegs.length, 2)
-  for (const leg of colocatedWalkLegs) {
-    assert.equal(leg.durationMinutes, 0)
-    assert.equal(leg.distanceKm, 0)
-    // A zero-length walk is a degenerate two-position line, valid GeoJSON.
-    assert.equal(leg.coordinates.length, 2)
-    assert.deepEqual(leg.coordinates[0], leg.coordinates.at(-1))
-  }
-
-  const reachableButUselessPrimary = inspectNationalGtfsAccessCandidates(storePath, point, {
-    maxWalkKm,
-    limit: 12,
-    streetStorePath: usefulPrimaryStreetPath,
-  })
-  const completeReachable = reachableButUselessPrimary.candidates.find((candidate) => candidate.stopId === scoped('R'))
-  assert(completeReachable,
-    'A nearer reachable but useless stop must not hide a farther useful stop from the complete frontier.')
-  assert.equal(completeReachable.streetPathVerified, true)
-  assert.equal(completeReachable.accessSearchComplete, true)
-
   const routingSource = await fs.readFile(path.join(import.meta.dirname, '..', 'src', 'server', 'national-gtfs-store.mjs'), 'utf8')
   const streetSource = await fs.readFile(path.join(import.meta.dirname, '..', 'src', 'server', 'national-osm-store.mjs'), 'utf8')
-  const nativeSource = await fs.readFile(path.join(import.meta.dirname, '..', 'src', 'server', 'native-routing-kernel.mjs'), 'utf8')
   assert(!routingSource.includes('expandedAccessRetryRequest'), 'The bounded expanded-access retry must be absent.')
-  assert(routingSource.includes('routeNativeCoordinateFrontiers'),
-    'Coordinate access must use the complete Rust directed frontier.')
   assert(!routingSource.includes('nearestStopsSqlFallback'),
     'Coordinate access must not retain a SQL query fallback after the resident access index is admitted.')
   assert(!routingSource.includes('const destinationByStop = new Map'),
     'The removed SQL route fallback must not reappear after the resident failure boundary.')
   assert(!streetSource.includes('directThresholdKm'), 'A close straight chord must not be labeled as graph-backed OSM access.')
-  assert(nativeSource.includes('streetPathVerified: !linked || linkStreetVerified !== 0'),
-    'GTFS station links must not be reported as verified street geometry.')
 
   const preparedRouting = prepareNationalGtfsRoutingContext(storePath, {
     serviceDate: '2025-12-08',
@@ -321,28 +216,10 @@ try {
   const completedAccessMaterialization = prepareNationalGtfsStore(storePath)
   assert.equal(completedAccessMaterialization.accessMaterialization.ready, true,
     'The deferred access graph must remain available to exact routing on demand.')
-  const recoveredPlan = routeNationalGtfsStore(storePath, {
-    origin: point,
-    destination: { coordinate: [0.02, 0], label: 'Destination stop', source: 'stop', stopId: scoped('D') },
-    departMinutes: 480,
-    serviceDate: '2025-12-08',
-    serviceDay: 'weekday',
-    allowServiceDateFallback: true,
-    maxWalkKm,
-    horizonMinutes: 180,
-    streetStorePath: usefulPrimaryStreetPath,
-  })
-  assert.equal(recoveredPlan.status, 'ready', 'The exact router must see the useful stop in its first complete access search.')
-  assert([recoveredPlan.diagnostics.methodUsed].flat().includes('rust_timetable_kernel'))
-  assert.match(
-    recoveredPlan.diagnostics.algorithm,
-    /^rust_exact_connection_scan_(?:scalar|bounded_pareto)_no_heuristic$/u,
-  )
-  assert.equal(recoveredPlan.diagnostics.expandedStreetAccessRetry, undefined)
-  assert.equal(recoveredPlan.diagnostics.coordinateAccessFrontier, 'complete_osm_reachable')
-  assert.equal(recoveredPlan.diagnostics.originStreetPathVerified, false)
-  assert(recoveredPlan.legs.some((leg) => leg.type === 'ride' && leg.routeShortName === 'S21' && leg.fromStopId === scoped('RSP')),
-    'The direct rail boarding must dominate riding away from a nearby transfer-linked station.')
+  // Preparing coordinate access persists the street profile snapshots that
+  // in-process routing used to write on its first query with each street store.
+  prepareNationalGtfsNativeCoordinateAccess(storePath, streetPath)
+  prepareNationalGtfsNativeCoordinateAccess(storePath, usefulPrimaryStreetPath)
   const accessProfileSnapshots = (await fs.readdir(folder))
     .filter((name) => name.startsWith('routing.sqlite.native-access-profile.'))
     .filter((name) => name.endsWith('.bin'))
@@ -364,26 +241,6 @@ try {
   assert.equal(retainedAccess.persistenceState, 'loaded',
     'Preparing another street profile must not overwrite an existing compatible snapshot.')
 
-  console.log(JSON.stringify({
-    schemaVersion: 'vigo.national.stop-access-index.check.v1',
-    status: 'passed',
-    primaryCandidateCount: primary.candidates.length,
-    primaryContainsReachable: false,
-    recoveredCandidateCount: recovered.candidates.length,
-    recoveredStopId: reachable.stopId,
-    completeSecondaryRecoveredStopId: completeReachable.stopId,
-    completePlanStatus: recoveredPlan.status,
-    recoveryClass: reachable.accessCandidateClass,
-    completeCandidateCount: recovered.candidates.length,
-    maxWalkKm,
-    wallMs: Number(wallMs.toFixed(3)),
-    nativeAccessPersistence: reloadedAccess.persistenceState,
-    readinessActiveKernelState: admittedReadiness.activeServiceKernel.reason,
-    readinessTransferValidationDeferred: admittedReadiness.transferSemanticsAdmission.ready === false,
-    timetableReadinessPersistence: timetableOnlyRouting.activeServiceKernel.persistenceState,
-    timetableReadinessAccessDeferred: timetableOnlyRouting.accessMaterialization.ready === false,
-    streetStrategy: streetPreparation.strategy,
-  }, null, 2))
 } finally {
   disposeNationalGtfsStore(storePath)
   disposeNationalOsmStore(streetPath)

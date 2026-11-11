@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 
 const schema = 'vigo.address-search.v1'
 const abbreviations = new Map(Object.entries({ st: 'street', ave: 'avenue', av: 'avenue', rd: 'road', blvd: 'boulevard', dr: 'drive', ln: 'lane', ct: 'court', pl: 'place', pkwy: 'parkway', hwy: 'highway', sq: 'square', ctr: 'center', n: 'north', s: 'south', e: 'east', w: 'west', ne: 'northeast', nw: 'northwest', se: 'southeast', sw: 'southwest' }))
-export function normalizeAddressQuery(value) {
+function normalizeAddressQuery(value) {
   return String(value ?? '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase()
     .replace(/&/g, ' and ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(/\s+/)
     .map(word => abbreviations.get(word) ?? word).join(' ')

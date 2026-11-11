@@ -10,7 +10,7 @@ import {
   buildNationalGtfsStore,
   buildNationalGtfsCityStore,
   disposeNationalGtfsStore,
-  routeNationalGtfsReach,
+  prepareNationalGtfsRoutingContext,
 } from '../src/server/national-gtfs-store.mjs'
 import {
   compactNationalOsmRuntimeStore,
@@ -34,7 +34,6 @@ const metaRoot = path.join(projectsRoot, projectId, '.vigo')
 const storePath = path.join(metaRoot, 'routing', 'fixture.sqlite')
 const streetStorePath = path.join(metaRoot, 'osm', 'street-index.sqlite')
 const mergedStorePath = path.join(folder, 'merged.sqlite')
-const terminalStorePath = path.join(folder, 'terminal-transfer.sqlite')
 let apiRuntime
 
 async function createRoutingFixture() {
@@ -160,96 +159,27 @@ function request(overrides = {}) {
 
 try {
   await createRoutingFixture()
-  const progress = []
-  const first = routeNationalGtfsReach(storePath, request(), {
-    streetStorePath,
-    onProgress: (event) => progress.push(event),
-  })
-  assert.equal(first.schemaVersion, 'vigo.result.reach.v1')
-  assert.equal(first.diagnostics.owner, 'rust_resident_timetable_kernel')
-  assert.equal(
-    first.diagnostics.algorithm,
-    'rust_resident_generation_tagged_connection_scan_one_to_many',
-  )
-  assert.equal(
-    first.diagnostics.access.kernel,
-    'rust_node_api_coordinate_timetable_one_to_many_v1',
-  )
-  assert.equal(first.diagnostics.access.nodeApiCalls, 1)
-  assert.equal(first.diagnostics.timetable.nationalConnectionScan, true)
-  assert.equal(first.surface.schemaVersion, 'vigo.street.network-raster.v1')
-  assert.equal(first.surface.values.length, 48 * 48)
-  assert(first.surface.nodes.length > 0, 'Reach must retain exact reached OSM node evidence.')
-  assert(first.surface.nodes.every((node) => (
-    node.coordinate.length === 2
-    && node.coordinate.every(Number.isFinite)
-    && Number.isFinite(node.durationMinutes)
-  )))
-  assert.equal(first.diagnostics.surface.owner, 'rust_resident_reach_pipeline')
-  assert.equal(first.diagnostics.stopSelection.sampled, false)
-  assert.equal(first.diagnostics.stopSelection.proof, 'no_geographic_pruning')
-  assert.equal(first.diagnostics.stopSelection.strategy, 'all_active_timetable_stops')
-  assert.equal(first.diagnostics.stopSelection.distanceSelection, 'none')
-  assert.equal(first.diagnostics.transit.status, 'reached')
-  assert.equal(first.diagnostics.transit.earliestScheduledDepartureMinutes, 481)
-  assert.deepEqual(
-    first.stops.map((stop) => stop.stopId).sort(),
-    ['A', 'D'],
-    'The fused query must return every reachable stop without geographic preselection.',
-  )
-  assert.deepEqual(
-    [...new Set(progress.map((event) => event.phase))],
-    ['access', 'targets', 'search', 'surface', 'complete'],
-  )
-  for (let index = 1; index < progress.length; index += 1) {
-    assert(progress[index].progress >= progress[index - 1].progress)
-  }
-
-  for (const cutoffMinutes of [1, 1.25, 2, 2.5, 4, 4.75, 5]) {
-    const short = routeNationalGtfsReach(storePath, request({ cutoffMinutes }), { streetStorePath })
-    assert(short.stops.every(stop => stop.durationMinutes <= cutoffMinutes),
-      `A ${cutoffMinutes}-minute Reach must not count later transit stops: ${JSON.stringify(short.stops.map(stop => [stop.stopId, stop.durationMinutes]))}`)
-    assert(short.surface.values.every(value => !Number.isFinite(value) || value <= cutoffMinutes + 1e-9),
-      `A ${cutoffMinutes}-minute street surface must not retain later walking arrivals.`)
-    assert(short.surface.values.some(Number.isFinite), 'Short Reach retains the origin walking context.')
-  }
-
+  // Prepare the resident timetable and coordinate access that the HTTP checks
+  // below read, as the removed in-process Reach queries did.
+  assert.equal(prepareNationalGtfsRoutingContext(storePath, {
+    serviceDate: request().serviceDate, serviceDay: request().serviceDay, streetStorePath,
+  }).activeServiceKernel.ready, true)
   const selectedOrigin = { coordinate: [8, 47], label: 'Imported origin', source: 'stop', stopId: 'feed-local::O' }
   const selectedDestination = { coordinate: [8, 47.005], label: 'Imported destination', source: 'stop', stopId: 'feed-local::D' }
   const selectedRequest = request({ origin: selectedOrigin })
   const normalized = normalizeRoutingPointIdentities(storePath, selectedRequest, 'feed-local')
-  for (const origin of [request().origin, normalized.origin]) {
-    for (const [maxTransfers, expected] of [
-      [0, ['A', 'D']], [1, ['A', 'B', 'D']], [2, ['A', 'B', 'D', 'X']],
-      [undefined, ['A', 'B', 'D', 'X']], [0, ['A', 'D']],
-    ]) {
-      const capped = routeNationalGtfsReach(storePath, request({ origin, cutoffMinutes: 40, maxTransfers }), { streetStorePath })
-      assert.deepEqual(capped.stops.map(stop => stop.stopId).sort(), expected,
-        `Reach must honor maxTransfers=${maxTransfers} for ${origin.source} origins on each resident request.`)
-    }
-  }
-  for (const maxTransfers of [-1, 0.5, 32, NaN, null, '1']) {
-    assert.throws(() => routeNationalGtfsReach(storePath, request({ maxTransfers }), { streetStorePath }),
-      /maxTransfers must be an integer/)
-  }
   assert.equal(normalized.origin.stopId, 'O')
   assert.equal(selectedRequest.origin.stopId, 'feed-local::O', 'Resolving an endpoint must not mutate a shared comparison request.')
-  const importedReach = routeNationalGtfsReach(storePath, normalized, { streetStorePath })
-  assert(importedReach.stops.some(stop => stop.stopId === 'D'), 'Desktop imported-stop IDs must reach scheduled destinations through the actual native engine.')
   for (const stopId of ['foreign-feed::O', 'feed-local::missing']) {
     const resolved = normalizeRoutingPointIdentities(storePath, request({ origin: { ...request().origin, source: 'stop', stopId } }), 'feed-local')
     assert.equal(resolved.origin.stopId, undefined)
     assert.equal(resolved.origin.source, 'map')
-    assert.deepEqual(routeNationalGtfsReach(storePath, resolved, { streetStorePath }).stops, first.stops,
-      'A foreign or missing selected stop must use its coordinates without borrowing a same-named local stop.')
   }
   assert.equal(normalizeRoutingPointIdentities(storePath, request({ origin: { ...request().origin, stopId: 'feed-local::O' } }), 'feed-local').origin.stopId, undefined,
     'Free coordinates remain authoritative even with stale stop metadata.')
   await buildNationalGtfsCityStore({ feeds: [{ scope: 'feed-local', path: zipPath }, { scope: 'foreign-feed', path: zipPath }], outputPath: mergedStorePath })
   const mergedRequest = normalizeRoutingPointIdentities(mergedStorePath, selectedRequest)
   assert.equal(mergedRequest.origin.stopId, 'feed-local\u001fO')
-  assert(routeNationalGtfsReach(mergedStorePath, mergedRequest, { streetStorePath }).stops.some(stop => stop.stopId === 'feed-local\u001fD'),
-    'Merged stores must preserve the source feed while resolving desktop IDs.')
   const opaqueStorePath = path.join(folder, 'opaque-stop-ids.sqlite')
   const opaqueStore = new DatabaseSync(opaqueStorePath)
   opaqueStore.exec('CREATE TABLE stops(stop_id TEXT PRIMARY KEY); CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT)')
@@ -416,159 +346,6 @@ try {
   await apiRuntime.stop()
   apiRuntime = null
 
-  const fullGeometry = routeNationalGtfsReach(
-    storePath,
-    request({
-      surface: {
-        ...request().surface,
-        includeNodes: false,
-        includeEdges: true,
-      },
-    }),
-    { streetStorePath },
-  )
-  assert.equal(fullGeometry.surface.diagnostics.edgeDetailLimit, 0)
-  assert.equal(fullGeometry.surface.diagnostics.edgeDetailTruncated, false)
-  assert.equal(fullGeometry.surface.diagnostics.fullSurfaceRaster, true)
-  assert.equal(fullGeometry.surface.edges.schemaVersion, 'vigo.street.edge-bundle.v2')
-  assert(
-    fullGeometry.surface.edges.count >=
-    fullGeometry.surface.diagnostics.reachedEdgeCount,
-    'Reach street paths must return every reached directed OSM edge.',
-  )
-  assert.equal(fullGeometry.surface.fullValues.length, 48 * 48)
-  assert(Array.isArray(fullGeometry.surface.fullBounds))
-  assert.notDeepEqual(
-    fullGeometry.surface.fullBounds,
-    request().surface.bounds,
-    'The complete vector surface must use the reached-edge envelope, not the requested rectangle.',
-  )
-  const edgeIdBytes = Buffer.from(fullGeometry.surface.edges.edgeIds, 'base64')
-  assert.equal(
-    edgeIdBytes.byteLength,
-    fullGeometry.surface.edges.count * 4,
-    'Full street bundles must carry one exact directed OSM edge ID per path.',
-  )
-  for (let offset = 4; offset < edgeIdBytes.byteLength; offset += 4) {
-    assert(
-      edgeIdBytes.readUInt32LE(offset) >= edgeIdBytes.readUInt32LE(offset - 4),
-      'Full street bundles must sort directed edge IDs for a linear comparison merge.',
-    )
-  }
-
-  const excluded = routeNationalGtfsReach(
-    storePath,
-    request({ excludedRouteIds: ['R1'] }),
-    { streetStorePath },
-  )
-  assert.deepEqual(excluded.stops.map((stop) => stop.stopId), ['D'])
-  assert(excluded.diagnostics.search.excludedTrips > 0)
-  assert(excluded.diagnostics.search.excludedDepartures > 0)
-
-  const scenarioOverlay = {
-      stops: [
-        { id: 'scenario-a', label: 'Scenario A', coordinate: [8.005, 47], stopId: 'A' },
-        { id: 'scenario-b', label: 'Scenario B', coordinate: [8.010, 47], stopId: 'B' },
-      ],
-      directionOffsets: [0, 2],
-      directionStops: [0, 1],
-      directionStopOffsetsSeconds: [0, 120],
-      serviceStartSeconds: [8 * 3_600 + 8 * 60],
-      serviceEndSeconds: [8 * 3_600 + 8 * 60],
-      serviceHeadwaySeconds: [600],
-  }
-  const overlay = routeNationalGtfsReach(storePath, request({ scenarioOverlay }), { streetStorePath })
-  for (const origin of [request().origin, normalized.origin]) {
-    for (const [maxTransfers, expected] of [
-      [0, ['A', 'D']], [1, ['A', 'B', 'D']], [2, ['A', 'B', 'D', 'X']],
-    ]) {
-      const capped = routeNationalGtfsReach(storePath, request({ origin, scenarioOverlay, maxTransfers }), { streetStorePath })
-      assert.deepEqual(capped.stops.map(stop => stop.stopId).sort(), expected,
-        `A scenario ride must count toward maxTransfers=${maxTransfers} for ${origin.source} origins.`)
-    }
-  }
-  assert.equal(
-    overlay.diagnostics.algorithm,
-    'rust_resident_query_overlay_connection_scan_one_to_many',
-  )
-  assert.equal(overlay.diagnostics.timetable.scenarioOverlay.mixedBaselineScenarioTransfers, true)
-  assert.equal(overlay.diagnostics.timetable.scenarioOverlay.overlayConnections, 1)
-  assert(overlay.diagnostics.timetable.scenarioOverlay.compileMs >= 0)
-  assert(overlay.diagnostics.timetable.scenarioOverlay.scanMs >= 0)
-  assert(overlay.diagnostics.timetable.scenarioOverlay.transientBytes > 0)
-  assert(overlay.diagnostics.timetable.scenarioOverlay.workspaceBytes > 0)
-  assert(
-    overlay.stops.some((stop) => stop.stopId === 'X'),
-    'The resident overlay scan must complete baseline feeder -> scenario service -> baseline tail.',
-  )
-  assert.deepEqual(
-    overlay.scenarioStops.map((stop) => stop.id),
-    ['scenario-a', 'scenario-b'],
-  )
-
-  const outsideWindow = routeNationalGtfsReach(
-    storePath,
-    request({ departMinutes: 420, cutoffMinutes: 5 }),
-    { streetStorePath },
-  )
-  assert.equal(outsideWindow.stops.length, 0)
-  assert.equal(outsideWindow.diagnostics.transit.status, 'outside_window')
-  assert.equal(outsideWindow.diagnostics.transit.earliestScheduledDepartureMinutes, 481)
-  assert(outsideWindow.diagnostics.timetable.departureLookupMs >= 0)
-
-  const noService = routeNationalGtfsReach(
-    storePath,
-    request({ serviceDate: '2026-07-21' }),
-    { streetStorePath },
-  )
-  assert.equal(noService.stops.length, 0)
-  assert.equal(noService.diagnostics.transit.status, 'no_service')
-  assert(noService.diagnostics.timetable.departureLookupMs >= 0)
-
-  const noServiceWindow = routeNationalGtfsReach(
-    storePath,
-    request({ departMinutes: 1_000 }),
-    { streetStorePath },
-  )
-  assert.equal(noServiceWindow.stops.length, 0)
-  assert.equal(noServiceWindow.diagnostics.transit.status, 'no_service_window')
-
-  const replay = routeNationalGtfsReach(storePath, request(), { streetStorePath })
-  assert.deepEqual(replay.diagnostics.transit, first.diagnostics.transit,
-    'Changing clocks and visiting an empty service date must preserve the original transit diagnostic.')
-  assert.deepEqual(
-    replay.stops,
-    first.stops,
-    'Generation-tagged exclusions must not leak into the next resident query.',
-  )
-
-  const terminalZip = await JSZip.loadAsync(await fsp.readFile(zipPath))
-  terminalZip.file('transfers.txt', 'from_stop_id,to_stop_id,transfer_type,min_transfer_time\nA,B,2,285\n')
-  const terminalZipPath = path.join(folder, 'terminal-transfer.zip')
-  await fsp.writeFile(terminalZipPath, await terminalZip.generateAsync({ type: 'nodebuffer' }))
-  await buildNationalGtfsStore({ zipPath: terminalZipPath, outputPath: terminalStorePath })
-  for (const origin of [request().origin, normalized.origin]) {
-    const terminal = routeNationalGtfsReach(terminalStorePath, request({ origin, maxTransfers: 0 }), { streetStorePath })
-    assert.deepEqual(terminal.stops.map(stop => stop.stopId).sort(), ['A', 'D'],
-      'A transfer walk after the last ride must not become a fresh full-budget Reach seed.')
-  }
-
-  let cancelled = false
-  await assert.rejects(
-    async () => routeNationalGtfsReach(
-      storePath,
-      request({ departMinutes: 481 }),
-      {
-        streetStorePath,
-        onProgress: (event) => {
-          if (event.phase === 'targets') cancelled = true
-        },
-        isCancelled: () => cancelled,
-      },
-    ),
-    (error) => error?.name === 'AbortError',
-  )
-
   const native = createRequire(import.meta.url)(
     path.join(repositoryRoot, 'crates', 'vigo-runtime', 'vigo-routing-kernel.node'),
   )
@@ -591,21 +368,11 @@ try {
   }
   assert(!fs.existsSync(path.join(repositoryRoot, 'src', 'server', 'regional-analysis-kernel.mjs')))
 
-  console.log(JSON.stringify({
-    ok: true,
-    reachedStops: first.stops.length,
-    targetStops: first.diagnostics.stopSelection.selected,
-    algorithm: first.diagnostics.algorithm,
-    coldMs: first.diagnostics.totalMs,
-    warmMs: replay.diagnostics.totalMs,
-    nativeQueryMs: replay.diagnostics.search.nativeQueryMs,
-    fusedNodeApiCalls: replay.diagnostics.access.nodeApiCalls,
-  }, null, 2))
+  console.log(JSON.stringify({ ok: true, scope: 'Reach request identity, Studio range adapters and the HTTP Reach boundary' }, null, 2))
 } finally {
   await apiRuntime?.stop()
   disposeNationalGtfsStore(storePath)
   disposeNationalGtfsStore(mergedStorePath)
-  disposeNationalGtfsStore(terminalStorePath)
   disposeNationalOsmStore(streetStorePath)
   await fsp.rm(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

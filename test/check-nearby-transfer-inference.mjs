@@ -7,7 +7,6 @@ import JSZip from 'jszip'
 import {
   buildNationalGtfsStore,
   disposeNationalGtfsStore,
-  routeNationalGtfsStore,
 } from '../src/server/national-gtfs-store.mjs'
 
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-nearby-transfer-'))
@@ -63,17 +62,6 @@ try {
     database.close()
   }
 
-  const plan = routeNationalGtfsStore(storePath, {
-    origin: { stopId: 'A', coordinate: [0, 0], label: 'Origin', source: 'stop' },
-    destination: { stopId: 'B', coordinate: [0.02, 0.0017], label: 'Destination', source: 'stop' },
-    departMinutes: 8 * 60,
-    timePreference: 'depart',
-    serviceDate: '2026-06-10',
-    serviceDay: 'weekday',
-    allowServiceDateFallback: false,
-    maxWalkKm: 0.25,
-  })
-  assert.equal(plan.status, 'blocked')
   assert.equal(result.transferCount, 1, 'Only the literal forbidden transfer belongs in the routable table.')
   assert.equal(result.transferSemanticsVersion, 'vigo.routing.transfers.v4')
   assert(result.transferGeneration.radialCandidateCount >= 2)

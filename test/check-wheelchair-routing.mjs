@@ -11,7 +11,9 @@ import { DatabaseSync } from 'node:sqlite'
 import JSZip from 'jszip'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 import { standaloneBinary } from './helpers/standalone-runtime.mjs'
-import { wheelchairBoardingValues, wheelchairPathwayCost, wheelchairPathwaySeconds, wheelchairWayAllowed, wheelchairNodeAllowed, wheelchairStreetPolicy } from '../src/server/wheelchair-policy.mjs'
+import { wheelchairBoardingValues, wheelchairPathwayCost, wheelchairWayAllowed, wheelchairNodeAllowed, wheelchairStreetPolicy } from '../src/server/wheelchair-policy.mjs'
+
+const wheelchairPathwaySeconds = (row, options) => wheelchairPathwayCost(row, options)?.seconds ?? null
 
 assert.deepEqual([...wheelchairBoardingValues(new Map([
   ['child', { boarding: 0, parent: 'parent' }], ['parent', { boarding: 1 }],

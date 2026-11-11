@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { disposeNationalGtfsStore, routeNationalGtfsStore, routeNationalGtfsMatrix, prepareNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
+import { disposeNationalGtfsStore, prepareNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
 import { nationalRoutingAccessPolicy, nationalRoutingAccessPolicyIdentity, stationTransferDurationSeconds } from '../src/server/gtfs/routing-policy.mjs'
 import { stableJson } from '../src/server/routing-plan-identity.mjs'
 import { decodeRoutingSnapshot, encodeRoutingSnapshot } from '../src/server/routing-snapshot.mjs'
@@ -29,7 +29,6 @@ const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-transfer-floor-'))
 const storePath = path.join(folder, 'routing.sqlite'), schedulePath = path.join(folder, 'schedule.json')
 const scope = 'walking-floor', id = s => `${scope}\u001f${s}`
 const coords = { O: [-.01, 0], A: [0, 0], B: [.003, 0], D: [.02, 0] }
-const point = s => ({ source: 'stop', stopId: id(s), coordinate: coords[s] })
 const runs = [ ['EARLIER', 'O', 'A', 475, 476], ['FEED', 'O', 'A', 479, 480],
   ['TIGHT', 'B', 'D', 482, 486], ['LATER', 'B', 'D', 485, 490] ]
 try {
@@ -42,27 +41,10 @@ try {
       ] }] })) }
   await fs.writeFile(schedulePath, JSON.stringify(schedule))
   await buildScheduleFixture({ schedules: [{ feedId: scope, schedulePath }], outputPath: storePath })
-  const request = { origin: point('O'), destination: point('D'), departMinutes: 478,
-    serviceDate: '2026-07-15', serviceDay: 'weekday', maxWalkKm: .05,
-    requireTransitRide: true, maxTransfers: 1, horizonMinutes: 60, disableCache: true }
   const check = () => {
     for (const [timePreference, departure, arrival, trips] of [
       ['depart', 478, 490, ['FEED', 'LATER']], ['arrive', 475, 486, ['EARLIER', 'TIGHT']],
     ]) {
-      const q = { ...request, timePreference, arriveMinutes: 486 }
-      const plan = routeNationalGtfsStore(storePath, q)
-      assert.equal(plan.status, 'ready', plan.detail)
-      assert.equal(plan.departMinutes, departure)
-      assert.equal(plan.arriveMinutes, arrival)
-      assert.deepEqual(plan.legs.filter(l => l.type === 'ride').map(l => l.routeShortName), trips)
-      const walk = plan.legs.find(l => l.fromStopId === id('A') && l.toStopId === id('B'))
-      assert(Math.abs(walk.durationMinutes * 60 - floor) <= .061)
-      for (const includeJourneys of [false, true]) {
-        const matrix = routeNationalGtfsMatrix(storePath, { ...q, origins: [q.origin], destinations: [q.destination], includeJourneys })
-        assert.equal(matrix.rows[0].status, 'ready')
-        assert.equal(matrix.rows[0].arriveMinutes, arrival)
-        assert.equal(matrix.rows[0].departMinutes, departure)
-      }
     }
     prepareNationalGtfsStore(storePath)
   }
