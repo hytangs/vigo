@@ -13,6 +13,8 @@ const compile = spawnSync(
   process.execPath,
   [
     resolve(root, 'node_modules/typescript/bin/tsc'),
+    // Compile only these files; TypeScript 7 otherwise rejects them beside tsconfig.json.
+    '--ignoreConfig',
     '--target',
     'ES2022',
     '--module',
