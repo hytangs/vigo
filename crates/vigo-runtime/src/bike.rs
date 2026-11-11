@@ -2412,7 +2412,11 @@ mod tests {
             k.edge_windows.insert(edge as u32, window);
         }
         let clock = BikeClock::service("2026-11-02", "America/New_York", 28800.).unwrap();
-        assert!(!k.windows.stable_until(clock, 400.));
+        assert!((1..=2).any(|window| {
+            k.windows
+                .next_change(window, clock, 0.)
+                .is_some_and(|next| next <= 400.)
+        }));
         for profile in [Profile::Fast, Profile::Balanced, Profile::Quiet] {
             let options = BikeOptions {
                 profile,
@@ -3596,6 +3600,22 @@ mod tests {
             "Shared arrival oracle: {shared_arrival_certificates} certified cells out of 12960"
         );
         println!("Arrival oracle: {arrival_verified} verified cases");
+    }
+
+    #[test]
+    fn dated_movement_search_matches_exhaustive_paths_waits_preferences_and_caps() {
+        // Wide corridors resolve dated gates by searching movements instead of
+        // customizing profiles; both must reach the same exhaustive optima.
+        use std::sync::atomic::Ordering;
+        let forced = &super::surface::hierarchy::SEARCH_MOVEMENTS;
+        forced.store(true, Ordering::Relaxed);
+        let outcome = std::panic::catch_unwind(
+            dated_search_matches_exhaustive_paths_waits_preferences_and_caps,
+        );
+        forced.store(false, Ordering::Relaxed);
+        if let Err(panic) = outcome {
+            std::panic::resume_unwind(panic);
+        }
     }
 
     #[test]

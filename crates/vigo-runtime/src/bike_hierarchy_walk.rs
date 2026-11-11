@@ -81,6 +81,15 @@ impl Metric {
         }
     }
 
+    fn same_as(&self, other: &Self) -> bool {
+        self.via[..] == other.via[..]
+            && self
+                .meters
+                .iter()
+                .zip(other.meters.iter())
+                .all(|(a, b)| a.to_bits() == b.to_bits())
+    }
+
     fn reduce(&mut self, arc: usize, meters: f64, via: u32) {
         if meters < self.meters[arc] {
             self.meters[arc] = meters;
@@ -154,7 +163,64 @@ pub(super) struct WalkHierarchy {
     structure: Topology,
     nodes: index::Column<u32>,
     forward: Metric,
-    backward: Metric,
+    backward: Backward,
+}
+
+/// Walking links almost always exist in both directions with equal lengths,
+/// so the backward metric differs from the forward one on very few arcs.
+enum Backward {
+    /// Bit-identical to the forward metric.
+    Same,
+    /// The forward metric except on these arcs.
+    Sparse(Overrides),
+    Full(Metric),
+}
+
+struct Overrides {
+    arcs: Vec<u32>,
+    meters: Vec<f64>,
+    via: Vec<u32>,
+    // Ranks with an overridden upward arc, and ranks an overridden arc enters.
+    tails: Vec<u64>,
+    heads: Vec<u64>,
+}
+impl Overrides {
+    fn find(&self, arc: usize) -> Option<usize> {
+        self.arcs.binary_search(&(arc as u32)).ok()
+    }
+    fn marked(bits: &[u64], rank: usize) -> bool {
+        bits[rank / 64] & (1 << (rank % 64)) != 0
+    }
+}
+
+/// One direction's metres and witnesses.
+#[derive(Clone, Copy)]
+struct Directed<'a> {
+    meters: &'a [f64],
+    via: &'a [u32],
+    overrides: Option<&'a Overrides>,
+}
+impl Directed<'_> {
+    fn meters(&self, arc: usize) -> f64 {
+        self.overrides
+            .and_then(|o| o.find(arc).map(|i| o.meters[i]))
+            .unwrap_or(self.meters[arc])
+    }
+    fn via(&self, arc: usize) -> u32 {
+        self.overrides
+            .and_then(|o| o.find(arc).map(|i| o.via[i]))
+            .unwrap_or(self.via[arc])
+    }
+    /// Whether the upward arcs of `rank` all read the plain metric.
+    fn plain_tail(&self, rank: usize) -> bool {
+        self.overrides
+            .is_none_or(|o| !Overrides::marked(&o.tails, rank))
+    }
+    /// Whether every upward arc entering `rank` reads the plain metric.
+    fn plain_head(&self, rank: usize) -> bool {
+        self.overrides
+            .is_none_or(|o| !Overrides::marked(&o.heads, rank))
+    }
 }
 
 #[derive(Default)]
@@ -247,6 +313,8 @@ struct WalkTriangles {
     forward_via: *mut u32,
     backward_meters: *mut f64,
     backward_via: *mut u32,
+    // Both directions share one metric; relax it once.
+    symmetric: bool,
 }
 unsafe impl Send for WalkTriangles {}
 unsafe impl Sync for WalkTriangles {}
@@ -273,6 +341,9 @@ impl WalkTriangles {
                     if forward < *self.forward_meters.add(top) {
                         *self.forward_meters.add(top) = forward;
                         *self.forward_via.add(top) = y as u32;
+                    }
+                    if self.symmetric {
+                        continue;
                     }
                     let backward =
                         *self.forward_meters.add(bottom) + *self.backward_meters.add(middle);
@@ -328,16 +399,26 @@ impl WalkHierarchy {
                 metric.reduce(index, lengths[e], NONE);
             }
         }
+        // With equal links both ways, each triangle adds the same two
+        // operands in the same order in both directions, so the customized
+        // metrics stay bit-identical and one of them serves both.
+        let symmetric = forward.same_as(&backward);
+        let mut backward = (!symmetric).then_some(backward);
         // The same lower triangles that customize the street metric, with
         // unrounded weights and the winning contraction vertex as witness.
         // Ranks of equal elimination-tree height run in parallel: x writes
         // only its own upward arcs and reads arcs of strict descendants, and
         // keeps the serial loop order, so the result is bit-identical.
+        let (backward_meters, backward_via) = match backward.as_mut() {
+            Some(metric) => (metric.meters.as_mut_ptr(), metric.via.as_mut_ptr()),
+            None => (forward.meters.as_mut_ptr(), forward.via.as_mut_ptr()),
+        };
         let shared = WalkTriangles {
             forward_meters: forward.meters.as_mut_ptr(),
             forward_via: forward.via.as_mut_ptr(),
-            backward_meters: backward.meters.as_mut_ptr(),
-            backward_via: backward.via.as_mut_ptr(),
+            backward_meters,
+            backward_via,
+            symmetric,
         };
         let levels = cch::Levels::from_parents(view.elimination_tree_parent);
         for level in levels.iter() {
@@ -350,6 +431,40 @@ impl WalkHierarchy {
                 level.par_iter().for_each(relax);
             }
         }
+        let backward = match backward {
+            None => Backward::Same,
+            Some(full) => {
+                let differing: Vec<usize> = (0..full.meters.len())
+                    .filter(|&arc| {
+                        full.meters[arc].to_bits() != forward.meters[arc].to_bits()
+                            || full.via[arc] != forward.via[arc]
+                    })
+                    .collect();
+                if differing.len() > full.meters.len() / 8 {
+                    Backward::Full(full)
+                } else {
+                    let words = view.rank.len().div_ceil(64);
+                    let (mut tails, mut heads) = (vec![0u64; words], vec![0u64; words]);
+                    for x in 0..view.rank.len() {
+                        let arcs = view.up_first_out[x] as usize..view.up_first_out[x + 1] as usize;
+                        for arc in arcs {
+                            if differing.binary_search(&arc).is_ok() {
+                                tails[x / 64] |= 1 << (x % 64);
+                                let y = view.up_head[arc] as usize;
+                                heads[y / 64] |= 1 << (y % 64);
+                            }
+                        }
+                    }
+                    Backward::Sparse(Overrides {
+                        arcs: differing.iter().map(|&arc| arc as u32).collect(),
+                        meters: differing.iter().map(|&arc| full.meters[arc]).collect(),
+                        via: differing.iter().map(|&arc| full.via[arc]).collect(),
+                        tails,
+                        heads,
+                    })
+                }
+            }
+        };
         Ok(Self {
             structure,
             nodes: nodes.into(),
@@ -358,12 +473,43 @@ impl WalkHierarchy {
         })
     }
 
+    fn forward(&self) -> Directed<'_> {
+        Directed {
+            meters: &self.forward.meters,
+            via: &self.forward.via,
+            overrides: None,
+        }
+    }
+
+    fn backward(&self) -> Directed<'_> {
+        match &self.backward {
+            Backward::Same => self.forward(),
+            Backward::Sparse(overrides) => Directed {
+                overrides: Some(overrides),
+                ..self.forward()
+            },
+            Backward::Full(metric) => Directed {
+                meters: &metric.meters,
+                via: &metric.via,
+                overrides: None,
+            },
+        }
+    }
+
     #[cfg(feature = "standalone")]
     pub fn memory(&self) -> (usize, usize) {
-        let metrics = [&self.forward, &self.backward]
-            .into_iter()
-            .map(|m| m.meters.capacity() * 8 + m.via.capacity() * 4)
-            .sum::<usize>();
+        let full = |m: &Metric| m.meters.capacity() * 8 + m.via.capacity() * 4;
+        let metrics = full(&self.forward)
+            + match &self.backward {
+                Backward::Same => 0,
+                Backward::Sparse(o) => {
+                    o.arcs.capacity() * 4
+                        + o.meters.capacity() * 8
+                        + o.via.capacity() * 4
+                        + (o.tails.capacity() + o.heads.capacity()) * 8
+                }
+                Backward::Full(metric) => full(metric),
+            };
         let topology = match &self.structure {
             Topology::Mapped(_) => 0,
             Topology::Owned(cch) => {
@@ -408,12 +554,10 @@ impl WalkHierarchy {
     ) -> Result<(), String> {
         let view = self.structure.view();
         let (up_metric, down_metric) = if origin {
-            (&self.forward, &self.backward)
+            (self.forward(), self.backward())
         } else {
-            (&self.backward, &self.forward)
+            (self.backward(), self.forward())
         };
-        let up_meters = &*up_metric.meters;
-        let down_meters = &*down_metric.meters;
         let nodes = &*self.nodes;
         let Scratch {
             up,
@@ -439,10 +583,23 @@ impl WalkHierarchy {
             descending.push(rank);
             let x = rank as usize;
             let arcs = view.up_first_out[x] as usize..view.up_first_out[x + 1] as usize;
-            for (&to, &distance) in view.up_head[arcs.clone()].iter().zip(&up_meters[arcs]) {
-                let meters = prefix + distance;
-                if meters <= maximum && up.improve(to, meters, rank)? {
-                    ascending.push(to);
+            if up_metric.plain_tail(x) {
+                for (&to, &distance) in view.up_head[arcs.clone()]
+                    .iter()
+                    .zip(&up_metric.meters[arcs])
+                {
+                    let meters = prefix + distance;
+                    if meters <= maximum && up.improve(to, meters, rank)? {
+                        ascending.push(to);
+                    }
+                }
+            } else {
+                for arc in arcs {
+                    let meters = prefix + up_metric.meters(arc);
+                    let to = view.up_head[arc];
+                    if meters <= maximum && up.improve(to, meters, rank)? {
+                        ascending.push(to);
+                    }
                 }
             }
         }
@@ -452,8 +609,15 @@ impl WalkHierarchy {
             let prefix = down.at(rank).meters;
             visit(nodes[rank as usize], prefix);
             let x = rank as usize;
+            let plain = down_metric.plain_head(x);
             for a in view.down_first_out[x] as usize..view.down_first_out[x + 1] as usize {
-                let meters = prefix + down_meters[view.down_to_up[a] as usize];
+                let arc = view.down_to_up[a] as usize;
+                let distance = if plain {
+                    down_metric.meters[arc]
+                } else {
+                    down_metric.meters(arc)
+                };
+                let meters = prefix + distance;
                 if meters <= maximum && down.improve(view.down_head[a], meters, rank)? {
                     descending.push(view.down_head[a]);
                 }
@@ -496,11 +660,11 @@ impl WalkHierarchy {
                 let a = arc(&view, from.min(to), from.max(to))
                     .expect("Bicycle walking witness is a hierarchy arc");
                 let metric = if (from < to) == origin {
-                    &self.forward
+                    self.forward()
                 } else {
-                    &self.backward
+                    self.backward()
                 };
-                let via = metric.via[a];
+                let via = metric.via(a);
                 if via == NONE {
                     nodes.push(self.nodes[to as usize]);
                 } else {
