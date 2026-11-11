@@ -789,6 +789,51 @@ impl TimetableKernel {
                 .as_ref()
                 .is_some_and(|s| s.reverse_rule_anchors[stop])
     }
+    /// The earliest clock at which a rider who stayed at `stop` after leaving
+    /// `from` = (trip, sequence) may board `to` = (trip, sequence): the same
+    /// rule, same-stop minimum and buffer the search applies to that transfer.
+    /// `None` when it is forbidden or its feed rules are ambiguous.
+    pub(super) fn same_stop_transfer_ready(
+        &self,
+        stop: u32,
+        arrival: f64,
+        from: (u32, u32),
+        to: (u32, u32),
+    ) -> Option<f64> {
+        let index = stop as usize;
+        if index >= self.stop_count {
+            return None;
+        }
+        let rule = match self.service {
+            Some(_) => self
+                .transfer_rule(
+                    stop,
+                    stop,
+                    self.physical_trip(from.0, from.1),
+                    self.physical_trip(to.0, to.1),
+                )
+                .ok()?,
+            None => None,
+        };
+        if !transfer_allowed(
+            self.forbidden_same_stop[index] != 0,
+            rule.map(|r| r.kind),
+            false,
+        ) {
+            return None;
+        }
+        let minimum = rule.map_or(self.same_stop_transfer_minimum[index], |r| {
+            if r.kind == 2 { r.minimum } else { 0 }
+        });
+        let buffer = if rule.is_some_and(|r| r.kind == 1) {
+            0
+        } else {
+            self.minimum_transfer_buffer_seconds
+        };
+        Some(transfer_ready_time::<false>(
+            arrival, arrival, minimum, buffer,
+        ))
+    }
     fn physical_trip(&self, trip: u32, sequence: u32) -> u32 {
         self.service
             .as_ref()
