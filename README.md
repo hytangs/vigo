@@ -19,7 +19,7 @@
 
 <br>
 
-VIGO compiles a public transit timetable (GTFS) and an OpenStreetMap street map into a **City**, once. Then it answers, exactly and offline, how people move through it.
+VIGO compiles a public transit timetable (GTFS) and an OpenStreetMap street map into a **City**, once. Then it answers, exactly and offline, how people move through it: by transit, on foot, by car or by bike.
 
 ```text
 $ vigo route --city ./boston --request route.json
@@ -36,52 +36,52 @@ Note: Part of this journey uses inferred station access; physical passage is not
 
 **From A to B. Find the earliest arrival.**
 
-Then choose the journey with fewer boardings and less walking. Leave at 08:00 or arrive by 09:00; add stops on the way, ask for alternatives, and get every walk, wait and ride with its clocks, stops, map geometry and published fare.
-
-Walk and Drive can compute a route and its duration without a departure clock. A dated Bike request also checks supported road and turn restrictions at the time you reach them.
+Then choose the journey with fewer boardings and less walking. Leave at 08:00 or arrive by 09:00, add stops on the way, ask for alternatives, and get every walk, wait and ride with its clocks, stops, map geometry and published fare.
 
 ## 02 — Reach
 
 **One origin. Every possibility.**
 
-Where can you get in 15, 30 or 45 minutes? Reach supports transit, walking, driving and cycling. It maps the places you can get to within a time budget; its boundary is an isochrone. It stretches along transit lines, as faster connections bring distant places within reach. Add a **Scenario**, such as a new line or a removed route, and measure the proposal against today's network.
+Where can you get in 15, 30 or 45 minutes? Reach maps everywhere you can get within a time budget; its boundary is an isochrone. It stretches along transit lines, as faster connections bring distant places within reach. Turn it around to see where people can set out and still arrive by a deadline. Add a **Scenario**, such as a new line or a removed route, and measure the proposal against today's network.
 
 ## 03 — Matrix
 
 **Ask more. Repeat less.**
 
-A thousand destinations shouldn't mean a thousand separate searches. Matrix shares the work across compatible requests, returning travel times or journeys for each pair. An unreachable pair stays `null`, never zero.
+A thousand destinations shouldn't mean a thousand separate searches. Matrix shares the work across compatible requests and returns a travel time, or a full journey, for every pair. An unreachable pair stays `null`, never zero.
 
-## The performance
+## Travel modes
 
-**Six cities in the paper’s transit benchmark.**
+Route, Matrix and Reach answer for each mode, leaving at a time or arriving by one.
 
-The paper’s frozen matched-request benchmark reports these median times for resident coordinate-to-coordinate transit requests, with walking access, journey selection and output included:
+| Mode | What VIGO models |
+| :--- | :--- |
+| **Transit** | The published timetable with walking access, transfers and station paths. Opt in to GTFS-Realtime trip updates, GTFS Flex or Monte Carlo departure windows. |
+| **Walk** | Mapped streets and station paths, with evidence for every assumed link. |
+| **Drive** | The directed road network. Route and Matrix can apply a traffic snapshot you supply. |
+| **Bike** | Balanced, quiet or fast preferences, with timed roads and turns enforced. |
+| **Wheelchair** | Scheduled transit and walking in a strict wheelchair City, built with `--wheelchair`. |
 
-| Anchorage | Las Vegas | Denver | Washington, DC | Boston | New York |
-| :---: | :---: | :---: | :---: | :---: | :---: |
-| **0.67 ms** | **0.94 ms** | **1.32 ms** | **1.64 ms** | **1.69 ms** | **2.11 ms** |
+**Bike** runs on a turn-aware customizable contraction hierarchy (CCH) shared by Route, Matrix and Reach. It models bicycle access, contraflow, surfaces, mapped incline, dismount sections and turn restrictions; on a dated request, it checks timed roads and turns at the moment you reach them. The preference chooses the path, while the Result reports actual cycling, walking and waiting time. Bike Reach covers departure and arrival isochrones. Bike data is optional in a City, and a worker can reopen the hierarchy from a local, source-checked cache without changing the City.
 
-VIGO had the lowest median latency among the nine interfaces in that benchmark. These are historical transit point-query measurements; City loading, bicycle isochrones and Matrix workloads have different costs. The paper, benchmark code and measurement method are linked from [vigo.city](https://vigo.city/).
+## Choose your interface
 
-Bicycle Route, Matrix and Reach use a turn-aware customizable contraction hierarchy (CCH). Reach shares rank sweeps across the grid in both time directions. A City can reopen source-checked hierarchy data from the local cache, which stores graph indexes and shortcut witnesses.
+The engine, the compiler and Python open the same City directory and run the same engine. Studio builds its own Cities from the same inputs.
 
-When timing a current build, measure the first request separately from repeated requests against a resident City. Record the data revision, mode, bicycle profile where applicable, surface size, time budget and worker count alongside the result.
-
-## Put VIGO to work
-
-Explore interactively, connect a web application, or run an analysis in Python. Every interface opens the same City and runs the same engine.
-
-| | | |
+| Interface | Use it to | Release asset |
 | :--- | :--- | :--- |
-| **01** | **[Studio](docs/guide.md#vigo-studio-desktop-guide)** | Interactive desktop software for exploring networks, planning journeys and mapping accessibility. No coding required. |
-| **02** | **[Engine & CLI](docs/guides/rust-standalone.md)** | Millisecond-scale routing for your web apps and services, through the command line or a self-hosted [HTTP API](docs/guides/rust-standalone.md#15-http-api-and-server-operation). |
-| **03** | **[Python](python/README.md)** | Routing and accessibility analysis alongside pandas, Jupyter notebooks and your existing Python tools. |
-| **04** | **[Route planner](https://app.vigo.city/)** | Plan a journey in the available Cities. For application integration, deploy the [HTTP API](docs/guides/rust-standalone.md#15-http-api-and-server-operation) with your own prepared data. |
+| **[Engine](docs/guides/rust-standalone.md)** (`vigo`) | Answer from the command line, a resident stream or a self-hosted [HTTP API](docs/guides/rust-standalone.md#15-http-api-and-server-operation). One executable; no Node, Python or network access needed. | `VIGO-Rust-…` |
+| **[Compiler](docs/guides/cli-only.md)** (`vigo.mjs`) | Build Cities and scenario collections from GTFS and OpenStreetMap, and query them. Needs Node.js 24.18 or newer. | `VIGO-CLI-…` |
+| **[Studio](docs/guide.md#vigo-studio-desktop-guide)** | Explore networks, plan journeys, map Reach and edit scenarios on the desktop. No coding required. | `VIGO-Studio-…` |
+| **[Python](python/README.md)** (`import vigo`) | Run studies, batches and notebooks, and export journey and leg tables. Needs Python 3.10 or newer. | `VIGO-Python-…` |
+
+Each [release](https://github.com/hytangs/vigo/releases) packages all four, built from one commit, for Linux x64 and ARM64, macOS on Apple Silicon and Windows x64. Every archive has a `.sha256` checksum, and each release also publishes the offline guide, the OpenAPI document and a release manifest.
+
+To plan a journey in your browser, open the [route planner](https://app.vigo.city/). To offer one for your own Cities, see the [public route planner guide](docs/guides/public-routing.md).
 
 ## Get started
 
-Build from source with Node.js 24.18+, npm 11.6+ and the Rust toolchain pinned in `rust-toolchain.toml`, or [download](https://github.com/hytangs/vigo/releases) a build for your platform. See [automatic build memory selection](docs/build-memory.md) for constrained build hosts.
+[Download](https://github.com/hytangs/vigo/releases) the engine and the compiler for your platform, or build both from source with Node.js 24.18+, npm 11.6+, a C toolchain and the Rust toolchain pinned in `rust-toolchain.toml`. On a constrained build host, see [automatic build memory selection](docs/build-memory.md).
 
 ```bash
 git clone https://github.com/hytangs/vigo.git && cd vigo
@@ -97,6 +97,8 @@ Build a City from a GTFS ZIP and an OpenStreetMap extract that covers it:
 ```bash
 vigo-build build --gtfs ./data/transit.zip --osm ./data/streets.osm.pbf --output ./city
 ```
+
+A City prepares walking and driving streets by default. Add `--street-modes walk` for a walk-and-transit City without driving data, or `--street-modes walk,bike` or `walk,drive,bike` to add cycling.
 
 Describe a journey. Coordinates are `[longitude, latitude]`; use places and a date your data covers:
 
@@ -117,33 +119,34 @@ vigo route --city ./city --request route.json
 vigo serve --city ./city --port 8080
 ```
 
-The service also serves the complete documentation at `http://127.0.0.1:8080/`, with an API console. The [Boston quickstart](docs/guide.md#quickstart) uses real MBTA and OpenStreetMap data and walks through Route, Matrix, Reach and a resident process.
+The service also serves the documentation, with an API console, at `http://127.0.0.1:8080/`. The [Boston quickstart](docs/guide.md#quickstart) builds a City from real MBTA and OpenStreetMap data and walks through Route, Matrix, Reach and a resident process.
 
 ## Built to be trusted
 
-- **Exact.** VIGO searches the published timetable and the mapped streets. It does not sample departures or draw a straight line where no path is mapped.
+- **Exact.** VIGO searches the published timetable and the mapped streets. It samples departures only when you ask for a Monte Carlo distribution.
 - **Explained.** Every answer carries its evidence: whether a walk follows mapped streets or an assumed station link, and where each geometry came from. [Known limits](docs/guide.md#known-limits) say plainly what the model does not establish.
-- **Offline.** A City is one portable directory. The engine is one executable that needs no Node, Python or internet connection to answer.
-- **Stable.** Cities stay readable by later releases without rebuilding ([City format contract](docs/reference/city-format.md)), and the public `vigo.route.v1`, `vigo.matrix.v1` and `vigo.reach.v1` schemas only gain optional fields.
+- **Offline.** A City is one portable directory. The engine needs no Node, Python or internet connection to answer.
+- **Stable.** Later releases read published Cities without rebuilding ([City format contract](docs/reference/city-format.md)), and the public `vigo.route.v1`, `vigo.matrix.v1` and `vigo.reach.v1` schemas only gain optional fields.
+
+The VIGO paper's six-city transit benchmark, with its data and method, is published at [vigo.city](https://vigo.city/). To time your own build, see [measuring performance](docs/developer.md#measuring-performance).
 
 ## Documentation
 
 One searchable, offline guide, [`docs/guide.html`](docs/guide.html): the page the engine serves at `/` and Studio opens under **Settings → Documentation**.
 
 - [Guide](docs/guide.md): install, quickstart, concepts, routing, Studio, deployment and troubleshooting.
-- [Engine reference](docs/guides/rust-standalone.md): command line, request fields, HTTP API, outputs and native operations.
+- [Engine reference](docs/guides/rust-standalone.md): commands, request fields, HTTP API and outputs, including [bicycle](docs/guides/rust-standalone.md#bicycle-route-and-matrix) and [wheelchair](docs/guides/rust-standalone.md#wheelchair-routing) routing.
+- [Monte Carlo and accessibility](docs/guides/monte-carlo.md): departure-window distributions for Route, Matrix and Reach.
 - [Read a Result](docs/reference/results.md) and [walking evidence](docs/reference/walking-evidence.md): what each answer establishes.
 - [VIGO Python](python/README.md), with a [walkthrough notebook](python/examples/walkthrough.ipynb).
-- [Developer resources](docs/developer.md#developer-resources): architecture, performance measurement and routing accuracy.
 - [Public route planner](docs/guides/public-routing.md): serve routing-only access to prepared Cities through a restricted gateway.
+- [Developer resources](docs/developer.md#developer-resources): architecture, performance measurement and routing accuracy.
 
 ## VIGO 1.0.0
 
-**A faster engine. From build to route.**
+Route, Matrix and Reach run in the Rust engine for every mode, now including Bike. The engine, compiler, Studio and Python package are built and released together from one commit. API 1.0, City format 1 and Result schema 1 keep their meanings, and published Cities open without rebuilding.
 
-VIGO's next chapter brings City compilation, scenario computation and routing into one shared Rust-native engine, built for faster network preparation, larger analyses and the applications you want to create. Follow it at [vigo.city](https://vigo.city/).
-
-Compatible prepared Cities remain readable in V1 without rebuilding; API 1.0, City format 1, and Result schema 1 are unchanged. [Release notes](docs/releases/1.0.0.md) · [Changelog](CHANGELOG.md) · [Prepared-data contract](docs/reference/city-format.md)
+[Release notes](docs/releases/1.0.0.md) · [Changelog](CHANGELOG.md) · [Prepared-data contract](docs/reference/city-format.md)
 
 ## Contribute
 
