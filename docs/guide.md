@@ -597,7 +597,7 @@ The declared type is descriptive: every supported entity present in the protobuf
 
 ### Supply observations to the engine
 
-Neither command-line runtime opens feed URLs. A Route request can carry a retained, normalized `realtimeSnapshot` with `routingDataMode: "realtime"`. In a combined City, each record can carry `sourceScope` equal to its build scope, alongside the original `tripId`, `sourceFeedTimestamp`, service date, and stop predictions. A single-source City uses raw GTFS IDs; omit `sourceScope` there. The [realtime input reference](guides/rust-standalone.md#12-realtime-transit-and-supplied-traffic) lists every record field.
+One-off commands never open feed URLs; the engine's HTTP service can poll them through [automatic polling](guides/rust-standalone.md#automatic-gtfs-rt-polling). A transit Route request, and in the engine a transit Matrix or Reach request, can carry a retained, normalized `realtimeSnapshot` with `routingDataMode: "realtime"`. In a combined City, each record can carry `sourceScope` equal to its build scope, alongside the original `tripId`, `sourceFeedTimestamp`, service date, and stop predictions. A single-source City uses raw GTFS IDs; omit `sourceScope` there. The [realtime input reference](guides/rust-standalone.md#12-realtime-transit-and-supplied-traffic) lists every record field.
 
 Keep source timestamps intact. Changing a capture's timestamps to make it look current changes the input and is not a replay of that observation. A repeated snapshot ages out of the routing cache.
 
