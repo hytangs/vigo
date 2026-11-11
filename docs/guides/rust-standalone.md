@@ -1872,9 +1872,9 @@ Use `vigo capabilities` to inspect the executable you are running. The standalon
 
 | Operation | Modes and coverage |
 | --- | --- |
-| Route and Matrix | Transit, walk, and drive; depart-at and arrive-by |
-| Reach | Transit, walk, and drive; driving uses a fixed grid with polygons and contours, without pedestrian street evidence |
-| Scenarios | Reach with exclusions, explicit schedules, or compiled overlays |
+| Route and Matrix | Transit, walk, drive, and bike; depart-at and arrive-by |
+| Reach | Transit, walk, drive, and bike; depart-at and arrive-by; driving uses a fixed grid with polygons and contours, without pedestrian street evidence |
+| Scenarios | Reach with exclusions, explicit schedules, or compiled overlays; transit Route with exclusions or planned services |
 | Realtime transit | Route, Matrix and Reach; supplied or polled, with Service Alerts |
 | Supplied traffic | Drive Route and Matrix |
 | Saved comparison | Reach surfaces |
