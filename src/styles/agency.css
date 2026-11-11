@@ -42,9 +42,3 @@
 .network-import-example small { display: block; font-size: 12px; color: var(--text-3); }
 .network-import-example > small { margin-top: 12px; }
 .network-import-example > small a { color: inherit; }
-
-/*
- * Network workspace. Routes read like signage: their own color, short name
- * and mode. Status color is reserved for service states (watch, alert).
- */
-@keyframes agency-live-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--good) 0%, transparent); } }

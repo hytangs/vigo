@@ -340,7 +340,7 @@
 .network-selection-name > h1 { color: var(--text-1); font: 600 var(--type-xl)/1.2 var(--font-display); letter-spacing: -0.02em; overflow-wrap: anywhere; }
 .network-selection > div.has-badge .network-selection-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .network-selection > div > p { flex-basis: 100%; color: var(--text-3); font-size: var(--type-sm); }
-.network-selection > div.has-badge > p { flex-basis: auto; flex: 1 1 140px; min-width: 0; color: var(--text-1); font: 600 var(--type-lg)/1.25 var(--font-display); letter-spacing: -0.01em; }
+.network-selection > div.has-badge > p { flex: 1 1 140px; min-width: 0; color: var(--text-1); font: 600 var(--type-lg)/1.25 var(--font-display); letter-spacing: -0.01em; }
 .agency-secondary-section { min-width: 0; }
 
 /* Service updates */
@@ -656,7 +656,6 @@
   color: var(--text-1);
   background: var(--material-strong);
   backdrop-filter: var(--material-blur);
-  -webkit-backdrop-filter: var(--material-blur);
   font-size: var(--type-md);
 }
 
