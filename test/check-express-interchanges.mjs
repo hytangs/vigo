@@ -55,5 +55,24 @@ try {
     assert.equal(rides[1].trip.id, 'local-late')
     assert.equal(rides[1].arrivalTime, '08:54:00')
   }
-  console.log('Express interchanges: native and CLI Route, departure window, arrive-by and detailed Matrix retain vehicles, arrival and transfer buffer.')
+  // A published minimum at the later platform decides it as the search would:
+  // 08:35 + 240 s + the 60 s buffer still catches the 08:40 local; 300 s does not.
+  for (const [minimum, expected] of [[240, 'Z'], [300, 'X']]) {
+    const variant = path.join(directory, `transfers-${minimum}.zip`)
+    zip.file('transfers.txt', `from_stop_id,to_stop_id,transfer_type,min_transfer_time\nZ,Z,2,${minimum}\n`)
+    await fs.writeFile(variant, await zip.generateAsync({ type: 'nodebuffer' }))
+    const output = path.join(directory, `city-${minimum}`)
+    execFileSync(process.execPath, ['public/vigo.mjs', 'build', '--gtfs', variant, '--osm', osmPath, '--output', output], { stdio: 'pipe' })
+    for (const [binary, prefix] of [[standaloneBinary, []], [process.execPath, ['public/vigo.mjs']]]) {
+      const row = JSON.parse(execFileSync(binary, [...prefix, 'stream', '--city', output], { input: JSON.stringify(query) + '\n', encoding: 'utf8' }))
+      assert.equal(row.status, 'ok', JSON.stringify(row))
+      const journey = row.journeys?.[0]?.[0] ?? row.choices?.[0]?.journey ?? row.journey ?? row
+      const rides = journey.legs.filter(l => l.type === 'transit')
+      assert.deepEqual(rides.map(r => r.trip.id), ['express', 'local'])
+      assert.equal(rides[0].to.stop.id, expected, `A ${minimum} s minimum at Z`)
+      assert.equal(rides[1].from.stop.id, expected)
+      assert.equal(rides[1].arrivalTime, '08:50:00')
+    }
+  }
+  console.log('Express interchanges: native and CLI Route, departure window, arrive-by and detailed Matrix retain vehicles, arrival and transfer buffer; a met published minimum at the later platform still moves the interchange.')
 } finally { await fs.rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }) }
