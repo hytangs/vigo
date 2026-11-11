@@ -21,6 +21,8 @@ pub(super) mod reverse;
 mod scoped;
 #[path = "bike_hierarchy_temporal.rs"]
 mod temporal;
+#[cfg(test)]
+pub(in crate::bike) use temporal::SEARCH_MOVEMENTS;
 
 const NONE: u32 = u32::MAX;
 const VIA: u32 = 1 << 31;
@@ -1890,7 +1892,7 @@ pub(super) fn measure(
     let feasible = reduce_terminals(
         kernel, ends, options, movements, hierarchy, &nodes, &admitted, &feasible, &masks, None,
     );
-    let bounds: Vec<_> = feasible
+    let mut bounds: Vec<_> = feasible
         .iter()
         .map(|&(cost, _, _)| {
             if distance_limit >= cost / rate * maximum_speed {
@@ -1900,6 +1902,87 @@ pub(super) fn measure(
             }
         })
         .collect();
+    // A cell without a clock-stable path keeps the whole cutoff as its price
+    // ceiling, which widens the horizon and dated gates of every cell. A legal
+    // earliest arrival through dated movements bounds such cells instead.
+    if bounds
+        .iter()
+        .zip(&possible)
+        .any(|(&bound, &active)| active && bound >= cutoff_cap)
+    {
+        let started = Instant::now();
+        let query = temporal::Query {
+            kernel,
+            movements,
+            hierarchy,
+            starts,
+            ends,
+            target_nodes: &nodes,
+            target_states: &targets,
+            options,
+            clock,
+            rate,
+            // Report every legal arrival: a price filter could hide one.
+            cap: f64::INFINITY,
+            horizon: cutoff,
+            distance_limit,
+            maximum_speed,
+            permissions: &permissions,
+            steady: &admitted,
+            reversed: false,
+            continuation: None,
+            lower_start: &lower_start,
+            lower_start_price: &lower_start,
+            lower_remaining: &lower_start,
+        };
+        let mut groups: Vec<_> = (0..bounds.len())
+            .filter(|&cell| possible[cell] && bounds[cell] >= cutoff_cap)
+            .map(|cell| ends.groups[cell])
+            .collect();
+        groups.sort_unstable();
+        groups.dedup();
+        let (mut tightened, mut unreachable) = (0, 0);
+        for &group in &groups {
+            let fastest = query.earliest(&mut masks, group, false, None)?;
+            let cheapest = query.earliest(&mut masks, group, true, None)?;
+            for (cell, (&(fast, arrival), &(cheap, _))) in fastest.iter().zip(&cheapest).enumerate()
+            {
+                if !possible[cell] || ends.groups[cell] != group || bounds[cell] < cutoff_cap {
+                    continue;
+                }
+                let cost = fast.min(cheap);
+                if !arrival.is_finite() || arrival > cutoff {
+                    // No legal movement sequence, waiting included, reaches
+                    // the cell inside the cutoff: every route arrives later.
+                    if !query.constrained() {
+                        possible[cell] = false;
+                        unreachable += 1;
+                    }
+                } else if cost < cutoff_cap {
+                    bounds[cell] = cost * (1. + 1e-9);
+                    tightened += 1;
+                }
+            }
+        }
+        if unreachable > 0 {
+            nodes.retain(|&node| {
+                ends.entries
+                    [ends.offsets[node as usize] as usize..ends.offsets[node as usize + 1] as usize]
+                    .iter()
+                    .any(|terminal| possible[terminal.target as usize])
+            });
+            targets = nodes
+                .iter()
+                .flat_map(|&node| movements.states.variants(node))
+                .collect();
+        }
+        trace("BIKE_TEMPORAL_HIERARCHY", || {
+            serde_json::json!({
+                "phase":"earliest-ceilings","tightenedCells":tightened,"unreachableCells":unreachable,
+                "groups":groups.len(),"earliestMs":ms(started),
+            })
+        });
+    }
     let cap = bounds
         .iter()
         .zip(&possible)

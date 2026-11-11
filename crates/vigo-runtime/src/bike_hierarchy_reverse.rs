@@ -699,6 +699,80 @@ pub(in crate::bike::surface) fn measure(
                     feasible[cell] = Some((cost, seconds));
                 }
             }
+            // A replayed path may wait for a dated road to reopen, and a cell
+            // whose replays all failed keeps the whole limit as its ceiling.
+            // Either widens the horizon and dated gates of every cell. A legal
+            // latest departure bounds each cell more tightly, or proves that
+            // no departure reaches the destination in time.
+            {
+                let started = std::time::Instant::now();
+                let free: Vec<bool> = movements.dynamic.iter().map(|&dynamic| !dynamic).collect();
+                let latest = temporal::Query {
+                    kernel,
+                    movements,
+                    hierarchy,
+                    starts: destination,
+                    ends: origins,
+                    target_nodes: &terminal_nodes,
+                    target_states: &terminal_states,
+                    options,
+                    clock,
+                    rate,
+                    // Report every legal departure: a price filter could hide one.
+                    cap: f64::INFINITY,
+                    horizon: limit,
+                    distance_limit: max_distance,
+                    maximum_speed: maximum_speed_kph.max(45.) / 3.6,
+                    permissions: &permission,
+                    lower_start: &lower_start,
+                    lower_start_price: &lower_start,
+                    lower_remaining: &lower_start,
+                    steady: &free,
+                    reversed: true,
+                    continuation: None,
+                };
+                let mut groups: Vec<_> = (0..active.len())
+                    .filter(|&cell| active[cell])
+                    .map(|cell| origins.groups[cell])
+                    .collect();
+                groups.sort_unstable();
+                groups.dedup();
+                let (mut tightened, mut unreachable) = (0, 0);
+                let backwards = latest.reverse_movements();
+                for &group in &groups {
+                    let latest_departures =
+                        latest.earliest(&mut masks, group, false, Some(&backwards))?;
+                    let cheapest = latest.earliest(&mut masks, group, true, Some(&backwards))?;
+                    for (cell, (&(fast, _), &(cheap, _))) in
+                        latest_departures.iter().zip(&cheapest).enumerate()
+                    {
+                        if !active[cell] || origins.groups[cell] != group {
+                            continue;
+                        }
+                        let cost = fast.min(cheap);
+                        if !fast.is_finite() {
+                            if !latest.constrained() {
+                                active[cell] = false;
+                                unresolved -= 1;
+                                unreachable += 1;
+                            }
+                        } else if cost < ceilings[cell] {
+                            ceilings[cell] = cost * (1. + 1e-9);
+                            tightened += 1;
+                        }
+                    }
+                }
+                trace("BIKE_TEMPORAL_HIERARCHY", || {
+                    serde_json::json!({
+                        "phase":"latest-ceilings","tightenedCells":tightened,
+                        "unreachableCells":unreachable,"groups":groups.len(),
+                        "latestMs":started.elapsed().as_secs_f64() * 1000.,
+                    })
+                });
+            }
+            if unresolved == 0 {
+                return Ok(result.into_iter().map(Some).collect());
+            }
             let cap = ceilings
                 .iter()
                 .zip(&active)
