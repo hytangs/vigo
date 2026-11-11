@@ -51,8 +51,6 @@ try {
   assert.match(linkedHtml, /Stay aboard/)
   assert.match(linkedHtml, /onboard layover/)
   assert.doesNotMatch(linkedHtml, /No time between vehicles|wait at Destination/)
-  const estimated={...plan,legs:plan.legs.map(leg=>({...leg,headwayEstimate:{headwaySeconds:600,expectedWaitSeconds:300,waitingAssumption:'half_headway'}}))}
-  assert.match(renderToStaticMarkup(createElement(RoutingItinerary,{plan:estimated})),/Estimated timing/)
   const routeHtml = renderToStaticMarkup(createElement(RoutingItinerary, { plan }))
   const reachHtml = renderToStaticMarkup(createElement(ReachPointInspector, { inspection: {
     point: destination, source: { id: 'fixture', result }, plan, loading: false, error: '', close() {}, retry() {},

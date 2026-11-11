@@ -172,11 +172,32 @@ impl<'a> PathQuery<'a> {
         }
     }
 
+    /// Reuse the validated order of an earlier query on this same structure,
+    /// so a query recreated after its scratch was released starts at once.
+    /// Panics if `order` was validated for a different structure.
+    #[must_use]
+    pub fn with_order(cch: &'a CchView<'a>, order: &ValidatedOrder) -> Self {
+        assert!(order.validates(cch), "ValidatedOrder belongs to another CchView");
+        Self {
+            cch,
+            state: PathQueryState::with_order(order.order.clone()),
+        }
+    }
+
+    /// This structure's validated inverse-rank order, for a later query.
+    #[must_use]
+    pub fn order(&self) -> ValidatedOrder {
+        ValidatedOrder {
+            order: self.state.order.clone(),
+            up_head: (self.cch.up_head.as_ptr() as usize, self.cch.up_head.len()),
+        }
+    }
+
     /// Retained buffer capacity, excluding the borrowed graph and allocator overhead.
     #[must_use]
     pub fn byte_length(&self) -> usize {
         let s = &self.state;
-        s.scratch_bytes() + s.order.capacity() * std::mem::size_of::<u32>()
+        s.scratch_bytes() + s.order.len() * std::mem::size_of::<u32>()
     }
 
     /// Return the shortest path, recycling the previous query's buffers.
@@ -205,6 +226,21 @@ impl<'a> PathQuery<'a> {
                     .path_from_prepared_source(self.cch, metric, source, target)
             })
             .collect()
+    }
+}
+
+/// An inverse-rank order whose structure's `up_head` was checked against its
+/// node count, bound to that exact `up_head` memory.
+#[derive(Clone)]
+pub struct ValidatedOrder {
+    order: std::sync::Arc<[u32]>,
+    up_head: (usize, usize),
+}
+
+impl ValidatedOrder {
+    fn validates(&self, cch: &CchView<'_>) -> bool {
+        self.order.len() == cch.node_count() as usize
+            && self.up_head == (cch.up_head.as_ptr() as usize, cch.up_head.len())
     }
 }
 
@@ -237,7 +273,7 @@ impl OwnedPathQuery {
 struct PathQueryState {
     /// Inverse rank: `order[rank[v]] = v`. Computed once in [`Self::new`] and
     /// never mutated thereafter (invariant; not part of the page reset).
-    order: Vec<u32>,
+    order: std::sync::Arc<[u32]>,
     /// Distances XOR-encoded with INF_WEIGHT: zero means unreachable.
     /// Zero-filled allocation avoids touching every graph page on a cold query.
     fwd_dist: PagedVec<u32>,
@@ -285,13 +321,16 @@ impl PathQueryState {
                 .fold(true, |valid, &h| valid & ((h as usize) < n)),
             "malformed CchView: up_head contains a node id >= node_count"
         );
-
         // order = inverse(rank): order[rank[v]] = v. Computed once.
         let mut order = vec![0u32; n];
         for v in 0..n {
             order[cch.rank[v] as usize] = v as u32; // v < node_count ≤ u32::MAX
         }
+        Self::with_order(order.into())
+    }
 
+    fn with_order(order: std::sync::Arc<[u32]>) -> Self {
+        let n = order.len();
         Self {
             order,
             fwd_dist: PagedVec::new(n, 0),

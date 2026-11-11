@@ -221,8 +221,6 @@ fn leg(v: &mut Value, geometry: bool) -> Value {
             } else {
                 "flex_estimate"
             }
-        } else if !v["headwayEstimate"].is_null() {
-            "headway_estimate"
         } else if v["realtimeTrip"] == true {
             "realtime"
         } else if v["sourceEqualTime"] == true
@@ -235,9 +233,6 @@ fn leg(v: &mut Value, geometry: bool) -> Value {
         out["quality"] = json!({"geometry":source,"schedule":schedule});
         if let Some(estimate) = v.get("flexEstimate") {
             out["quality"]["flex"] = estimate.clone();
-        }
-        if let Some(estimate) = v.get("headwayEstimate") {
-            out["quality"]["headway"] = estimate.clone();
         }
         if let Some(fare) = v.get("fare") {
             out["fare"] = fare.clone();

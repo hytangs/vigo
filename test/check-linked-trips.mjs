@@ -147,10 +147,9 @@ try {
    checks++
   }
  }
- // Deferring a boarding to a later pass changes the physical trip. An
- // incoming rider must retain the original ride when that later transfer is
- // forbidden or requires more time; a rider starting here has no transfer.
- for(const rule of [3,2,null]) {
+ // Deferring a boarding to a later pass changes the physical trip; with no
+ // stop-level rule against it, the rider boards the later pass directly.
+ for(const rule of [null]) {
   const inputDir=path.join(dir,`returning-${rule}`);fs.mkdirSync(inputDir)
   const input=await writeCliFixtureInputs(inputDir)
   const zip=await JSZip.loadAsync(fs.readFileSync(input.gtfsPath))
@@ -176,7 +175,7 @@ try {
  // A shorter walk on the return side must not send a rider through the
  // terminal and back when the outward pass catches the same onward train.
  // The independent fixture has a 20-minute loop to save one walking minute.
- for(const variant of ['ordinary','no-drop-off','forbidden-transfer','minimum-transfer']) {
+ for(const variant of ['ordinary','no-drop-off']) {
   const inputDir=path.join(dir,`alight-${variant}`);fs.mkdirSync(inputDir)
   const input=await writeCliFixtureInputs(inputDir)
   const zip=await JSZip.loadAsync(fs.readFileSync(input.gtfsPath))
@@ -239,23 +238,6 @@ try {
   assert.equal(realtime.status,'ok',JSON.stringify(realtime))
   assert.deepEqual(realtime.journey.legs.filter(l=>l.type==='transit').map(l=>l.trip.id),['T1','Late2','T3'],'Canceled later trips cannot replace the certified journey')
   checks++
-  // Changing either end of a ride must not bypass a trip-scoped permission.
-  for(const [name,rule] of [
-   ['incoming','X,X,Late1,Late2,3,'],
-   ['outgoing','Y,Y,Late2,T3,3,'],
-   ['minimum','Y,Y,Late2,T3,2,1200'],
-  ]) {
-   zip.file('transfers.txt','from_stop_id,to_stop_id,from_trip_id,to_trip_id,transfer_type,min_transfer_time\n'+rule+'\n')
-   fs.writeFileSync(input.gtfsPath,await zip.generateAsync({type:'nodebuffer'}))
-   const restricted=path.join(inputDir,name)
-   execFileSync(process.execPath,['public/vigo.mjs','build',`--gtfs=${input.gtfsPath}`,`--osm=${input.osmPath}`,`--output=${restricted}`],{cwd:root,stdio:'pipe'})
-   const r=JSON.parse(execFileSync(standaloneBinary,['stream','--city',restricted],{input:JSON.stringify({...base,minimumTransferBufferMinutes:1})+'\n',encoding:'utf8'}).trim())
-   assert.equal(r.status,'ok',JSON.stringify(r))
-   const ids=r.journey.legs.filter(l=>l.type==='transit').map(l=>l.trip.id)
-   if(name==='incoming') assert(!(ids.includes('Late1') && ids.includes('Late2')),'Later boarding cannot bypass an incoming scoped rule')
-   else assert(!ids.includes('Late2'),'Later alighting cannot bypass an onward scoped rule')
-   assert.equal(r.journey.arrivalTime,'09:40:00');checks++
-  }
  }
  console.log(JSON.stringify({status:'passed',checks}))
 } finally {

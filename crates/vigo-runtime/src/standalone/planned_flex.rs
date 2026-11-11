@@ -566,10 +566,7 @@ fn fixed_first_catch(plan: &Value, horizon: f64) -> Option<f64> {
     let legs = plan["legs"].as_array()?;
     let first = legs.iter().position(|leg| leg["kind"] == "ride")?;
     let ride = &legs[first];
-    if ride["flexEstimate"].is_object()
-        || legs.iter().any(|leg| leg["headwayEstimate"].is_object())
-        || plan["arrivalMinutes"].as_f64()? > horizon
-    {
+    if ride["flexEstimate"].is_object() || plan["arrivalMinutes"].as_f64()? > horizon {
         return None;
     }
     let walk: Option<f64> = legs[..first]

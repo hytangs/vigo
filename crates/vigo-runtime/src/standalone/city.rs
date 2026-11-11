@@ -325,6 +325,8 @@ pub struct City {
     /// A scenario Route keeps its view for the whole request.
     pub(crate) pinned_timetable: bool,
     pub(crate) frequency_sample: Option<(u64, u64)>,
+    /// Whether the installed scenario has non-exact frequency runs to sample.
+    pub(crate) scenario_random_runs: bool,
     /// Linked-trip candidates retained across timetables and date switches.
     pub(super) linked_candidates: super::linked_trips::CandidateCache,
     pub(crate) timetable_cache: super::timetable_cache::TimetableCache,
@@ -463,6 +465,17 @@ impl City {
         {
             let (k, v) = row?;
             metadata[k] = serde_json::from_str(&v).unwrap_or(Value::String(v));
+        }
+        // Inexact frequency templates are read as departures every headway;
+        // Cities compiled earlier describe the former waiting estimate.
+        if let Some(limitations) = metadata["routingLimitations"].as_array_mut() {
+            for limitation in limitations {
+                if limitation["code"] == "frequency_based_service" {
+                    limitation["detail"] = json!(
+                        "Frequency-based trips (GTFS exact_times=0) depart every headway from each window's start. Actual departures may differ; times are estimates."
+                    );
+                }
+            }
         }
         if metadata["maximumServiceTimeSeconds"].as_f64().is_none()
             || metadata["minimumServiceTimeSeconds"].as_f64().is_none()
@@ -736,6 +749,7 @@ impl City {
             scenario_views: HashMap::new(),
             pinned_timetable: false,
             frequency_sample: None,
+            scenario_random_runs: false,
             linked_candidates: Default::default(),
             static_heap_bytes: OnceLock::new(),
             served_stop_indices: OnceLock::new(),
@@ -911,6 +925,72 @@ impl City {
         }
         Ok(date)
     }
+    /// Stop-level GTFS transfer rules at one stop, ranked as GTFS ranks them:
+    /// a platform's own rule before the rule it inherits from its station.
+    /// Route- and trip-scoped rules are not applied.
+    fn resolve_stop_transfer_rules(
+        &self,
+        index: &HashMap<String, u32>,
+        forbidden_same_stop: &mut [u8],
+        same_stop_transfer_minimum: &mut [u32],
+    ) {
+        let rules = (|| -> rusqlite::Result<Vec<(String, String, u8, u32)>> {
+            let exists: bool = self.db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='transfer_rules')",
+                [],
+                |r| r.get(0),
+            )?;
+            if !exists {
+                return Ok(vec![]);
+            }
+            let mut statement = self.db.prepare(
+                "SELECT from_stop_id,to_stop_id,transfer_type,COALESCE(min_transfer_time,0) FROM transfer_rules \
+                 WHERE transfer_type<4 AND from_stop_id=to_stop_id AND from_route_id IS NULL AND to_route_id IS NULL \
+                 AND from_trip_id IS NULL AND to_trip_id IS NULL",
+            )?;
+            statement
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+                .collect()
+        })()
+        .unwrap_or_default();
+        if rules.is_empty() {
+            return;
+        }
+        // Each stop under itself and every ancestor station, with its hops.
+        let mut members = HashMap::<&str, Vec<(u32, u8)>>::new();
+        for (id, &stop) in index {
+            let mut current = id.as_str();
+            for depth in 0..=8u8 {
+                members.entry(current).or_default().push((stop, depth));
+                match self.stop(current).ok().map(|s| s.parent.as_str()) {
+                    Some(parent) if !parent.is_empty() && parent != current => current = parent,
+                    _ => break,
+                }
+            }
+        }
+        // (depth, kind, minimum): the shallowest rule governs; among equally
+        // specific ones the stricter (forbidden, then the longer minimum).
+        let mut governing = HashMap::<u32, (u8, u8, u32)>::new();
+        for (stop_id, _, kind, minimum) in &rules {
+            for &(stop, depth) in members.get(stop_id.as_str()).map_or(&[][..], Vec::as_slice) {
+                let rule = (depth, *kind, *minimum);
+                governing
+                    .entry(stop)
+                    .and_modify(|best| {
+                        let stricter = (rule.1 == 3, rule.2) > (best.1 == 3, best.2);
+                        if rule.0 < best.0 || (rule.0 == best.0 && stricter) {
+                            *best = rule;
+                        }
+                    })
+                    .or_insert(rule);
+            }
+        }
+        for (stop, (_, kind, minimum)) in governing {
+            let stop = stop as usize;
+            forbidden_same_stop[stop] = u8::from(kind == 3);
+            same_stop_transfer_minimum[stop] = if kind == 2 { minimum } else { 0 };
+        }
+    }
     fn transfer_inputs_for(&self, stop_ids: &[String]) -> TransferInputs {
         let index: HashMap<String, u32> = stop_ids
             .iter()
@@ -968,15 +1048,23 @@ impl City {
                 }
                 if let (Some(&a), Some(&b)) = (index.get(from), index.get(to)) {
                     let duration = edge.min_transfer_time.unwrap_or(0.);
+                    // Staying at a stop is governed by its minimum. A self-loop
+                    // walk would let a cheaper inherited rule bypass it.
+                    if a == b {
+                        same_stop_transfer_minimum[a as usize] = duration.max(0.) as u32;
+                        continue;
+                    }
                     transfer_from.push(a);
                     transfer_to.push(b);
                     transfer_seconds.push(duration);
-                    if a == b {
-                        same_stop_transfer_minimum[a as usize] = duration.max(0.) as u32;
-                    }
                 }
             }
         }
+        self.resolve_stop_transfer_rules(
+            &index,
+            &mut forbidden_same_stop,
+            &mut same_stop_transfer_minimum,
+        );
         let mut station_offset = vec![0];
         let mut station_members = vec![];
         for (from, shortcuts) in &saved.transfer_shortcuts {
@@ -1065,7 +1153,6 @@ impl City {
     pub(super) fn apply_transfer_buffer(&mut self, request: &Value) -> Result<()> {
         let buffer = number(request, "minimumTransferBufferMinutes", 0., 0., 60.)?;
         if let Some(timetable) = self.timetable.as_mut() {
-            timetable.kernel.set_frequency_sample(self.frequency_sample);
             timetable
                 .kernel
                 .set_minimum_transfer_buffer_seconds(buffer as u32 * 60);
@@ -1233,15 +1320,6 @@ impl City {
         } else {
             instances
         };
-        let service_offsets: HashMap<String, i32> = instances
-            .as_ref()
-            .map(|items: &Vec<ServiceInstance>| {
-                items
-                    .iter()
-                    .map(|i| (i.service_date.clone(), i.offset_seconds))
-                    .collect()
-            })
-            .unwrap_or_default();
         self.retire_timetable();
         self.timetable_preparations += 1;
         let mut services = self.services_on(date)?;
@@ -1433,27 +1511,7 @@ impl City {
         }
         let index_ms = index_started.elapsed().as_secs_f64() * 1000.;
         let kernel_started = std::time::Instant::now();
-        let permitted_paths = (!allow
-            || self.metadata["accessibility"]["profile"] == "wheelchair-strict-v1")
-            .then(|| {
-                (0..n)
-                    .flat_map(|from| {
-                        p.transfer_to
-                            [p.transfer_offset[from] as usize..p.transfer_offset[from + 1] as usize]
-                            .iter()
-                            .map(move |&to| (from as u32, to))
-                    })
-                    .collect::<HashSet<_>>()
-            });
-        let semantics = super::service::load(
-            &self.db,
-            &names,
-            &links,
-            &source,
-            &service_offsets,
-            permitted_paths.as_ref(),
-        )?;
-        let mut kernel = TimetableKernel::new(TimetableKernelInput {
+        let kernel = TimetableKernel::new(TimetableKernelInput {
             stop_count: source.stop_count,
             run_count: source.run_count,
             departure_seconds: source.departure_seconds,
@@ -1476,9 +1534,6 @@ impl City {
             same_stop_transfer_minimum: Some(transfers.same_stop_transfer_minimum.clone().into()),
             minimum_transfer_buffer_seconds: Some(buffer as u32 * 60),
         })?;
-        if let Some(semantics) = semantics {
-            kernel.set_service_semantics(semantics)?;
-        }
         self.timetable_preparation_profile = json!({"setupMs":calendar_ms,"sourceAndRealtimeMs":source_ms,"sourceReused":source_reused,
             "sourceReadMs":source_read_ms,"realtimeOverlayMs":realtime_overlay_ms,"realtimeAlertsMs":realtime_alerts_ms,
             "linkedCandidatesReused":linked_candidates_reused,"linkedCandidatesMs":linked_candidates_ms,"linkedTripsMs":linked_ms,

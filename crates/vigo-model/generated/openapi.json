@@ -1795,29 +1795,6 @@
         ],
         "type": "object"
       },
-      "HeadwayEstimate": {
-        "properties": {
-          "expectedWaitSeconds": {
-            "format": "uint32",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "headwaySeconds": {
-            "format": "uint32",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "waitingAssumption": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "headwaySeconds",
-          "waitingAssumption",
-          "expectedWaitSeconds"
-        ],
-        "type": "object"
-      },
       "HttpCapabilities": {
         "properties": {
           "boundedConnections": {
@@ -3072,9 +3049,6 @@
         "properties": {
           "note": {
             "type": "string"
-          },
-          "routingDispatch": {
-            "$ref": "#/components/schemas/RoutingDispatch"
           },
           "timingsUs": {
             "additionalProperties": {
@@ -4335,52 +4309,6 @@
         ],
         "type": "object"
       },
-      "RoutingDispatch": {
-        "description": "Result-search dispatch for the resident timetable, excluding certificate scans.",
-        "oneOf": [
-          {
-            "properties": {
-              "semantics": {
-                "const": "ordinary",
-                "type": "string"
-              }
-            },
-            "required": [
-              "semantics"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "counts": {
-                "description": "`resident_timetable_cumulative`; resets when the timetable is replaced.",
-                "type": "string"
-              },
-              "ordinarySearches": {
-                "format": "uint64",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "semantics": {
-                "const": "scoped",
-                "type": "string"
-              },
-              "statefulSearches": {
-                "format": "uint64",
-                "minimum": 0,
-                "type": "integer"
-              }
-            },
-            "required": [
-              "semantics",
-              "ordinarySearches",
-              "statefulSearches",
-              "counts"
-            ],
-            "type": "object"
-          }
-        ]
-      },
       "SampledAlternatives": {
         "properties": {
           "coverage": {
@@ -4636,11 +4564,6 @@
           {
             "const": "realtime",
             "description": "Realtime predictions for this trip were applied.",
-            "type": "string"
-          },
-          {
-            "const": "headway_estimate",
-            "description": "Expected timing under the declared headway waiting model.",
             "type": "string"
           },
           {
@@ -5457,9 +5380,6 @@
           "geometry": {
             "description": "Where the line came from: `gtfs_shape` (aligned to the feed's shape),\n`stop_sequence` (straight lines between stops) or `unknown`.",
             "type": "string"
-          },
-          "headway": {
-            "$ref": "#/components/schemas/HeadwayEstimate"
           },
           "schedule": {
             "$ref": "#/components/schemas/ScheduleQuality"

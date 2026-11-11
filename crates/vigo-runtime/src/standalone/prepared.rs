@@ -42,7 +42,7 @@ impl City {
         buffer: u32,
         complete_service_coverage: bool,
     ) -> Result<Timetable> {
-        if super::linked_trips::present(&self.db)? || super::service::present(&self.db)? {
+        if super::linked_trips::present(&self.db)? || frequency_templates(&self.db)? {
             return fail("Linked trips require source preparation");
         }
         let mut sorted: Vec<_> = services.iter().map(String::as_str).collect();
@@ -153,4 +153,20 @@ impl City {
             coverage_end: None,
         })
     }
+}
+
+/// Inexact frequency templates, which the reader expands into departures and
+/// the City compiler's prepared snapshot keeps as one template trip.
+fn frequency_templates(db: &rusqlite::Connection) -> Result<bool> {
+    let exists: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='headway_connections')",
+        [],
+        |r| r.get(0),
+    )?;
+    Ok(exists
+        && db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM headway_connections)",
+            [],
+            |r| r.get(0),
+        )?)
 }

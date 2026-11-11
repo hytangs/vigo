@@ -143,33 +143,7 @@ impl TimetableKernel {
             ));
         }
         let transfer_buffer_seconds = self.minimum_transfer_buffer_seconds;
-        if self.service.is_some() {
-            let safe = self.ordinary_forward_is_safe(
-                &input.origin_stops,
-                &input.origin_walk_seconds,
-                input.departure,
-                input
-                    .horizon
-                    .min(input.earliest_arrival + input.arrival_slack_seconds),
-                input.allow_pre_ride_transfers,
-                Some(input.boarding_upper_bound),
-                &[],
-            )?;
-            let mut result = if safe {
-                let service = self.service.take();
-                let result = self.pareto_rounds(input, distinct);
-                self.service = service;
-                self.record_ordinary_search();
-                result?
-            } else {
-                self.validated_service_pareto(&input, distinct)?
-            };
-            result.query_ns = started.elapsed().as_nanos() as f64;
-            return Ok(result);
-        }
         let Self {
-            service: _,
-            relaxed_graph: _,
             stop_count,
             run_count,
             departure_seconds,
@@ -209,7 +183,6 @@ impl TimetableKernel {
                     forward_workspace,
                     profile_workspace,
                     journey_workspace: _,
-                    capped_guard: _,
                     terminals: _,
                 },
         } = self;

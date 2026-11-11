@@ -1,5 +1,5 @@
-mod service;
-pub use service::{HeadwayWindow, ServiceSemantics, TransferRule, frequency_key};
+mod transfer_rule;
+pub use transfer_rule::TransferRule;
 mod columns;
 pub use columns::TimetableBlockPool;
 type SourceU32 = columns::Column<u32>;
@@ -3278,7 +3278,6 @@ fn boarding_ready_time(
 }
 
 pub struct TimetableKernel {
-    service: Option<service::ServiceIndex>,
     stop_count: usize,
     run_count: usize,
     departure_seconds: SourceU32,
@@ -3314,7 +3313,6 @@ pub struct TimetableKernel {
     exit_event_offset: Vec<u32>,
     exit_events: Vec<ExitEvent>,
     query: TimetableQueryWorkspace,
-    relaxed_graph: Option<relaxed::RelaxedGraph>,
 }
 
 // Query scratch is independent of the immutable schedule. A sequential worker
@@ -3325,17 +3323,9 @@ pub struct TimetableQueryWorkspace {
     forward_workspace: ForwardWorkspace,
     profile_workspace: ProfileWorkspace,
     journey_workspace: Option<journeys::JourneyWorkspace>,
-    capped_guard: CappedGuard,
     terminals: many::Terminals,
 }
 
-/// Lends the ordinary-service guard events to a capped scalar search, which
-/// can certify them from its unrestricted scan's labels (see `guarded_scalar`).
-#[derive(Default)]
-pub(crate) struct CappedGuard {
-    events: Option<Vec<(u32, u32, i64)>>,
-    certified: Option<bool>,
-}
 impl TimetableQueryWorkspace {
     fn new(stops: usize, runs: usize, trips: usize) -> Self {
         Self {
@@ -3344,7 +3334,6 @@ impl TimetableQueryWorkspace {
             forward_workspace: ForwardWorkspace::new(stops, runs),
             profile_workspace: ProfileWorkspace::new(stops * STATE_STRIDE, runs),
             journey_workspace: None,
-            capped_guard: CappedGuard::default(),
             terminals: many::Terminals::default(),
         }
     }
@@ -3494,7 +3483,6 @@ mod diagnostics;
 mod many;
 mod matrix;
 mod overlay;
-mod relaxed;
 
 pub fn boarding_layers(maximum: Option<u32>) -> Result<usize> {
     match maximum {

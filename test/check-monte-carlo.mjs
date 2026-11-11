@@ -129,8 +129,10 @@ try {
     if (process.env.VIGO_MONTE_CARLO_CORPUS) fs.writeFileSync(path.join(process.env.VIGO_MONTE_CARLO_CORPUS, `${mode}-access.json`), JSON.stringify({
       case: `monte-carlo/${mode}-access`, kind: 'matrix', exitCode: 0, request: opportunities.query, result: opportunities }))
     assert.equal(result.schema, 'vigo.distribution.v1')
-    assert.equal(result.sampling.stochastic, mode === 'frequency')
-    assert.equal(result.sampling.sampleCount, mode === 'frequency' ? 201 : 3)
+    // GTFS frequency templates, exact or not, are departures every headway;
+    // only a scenario's non-exact planned services sample phases.
+    assert.equal(result.sampling.stochastic, false)
+    assert.equal(result.sampling.sampleCount, 3)
     if (mode === 'exact-frequency') {
       const closed = ok(await run({ ...base, monteCarlo: { ...mc, startMinutes: 540, endMinutes: 541 } }))
       assert(closed.durationsSeconds.flat().every(value => value === null), 'City creation must not invent an exact departure at the frequency end time')
@@ -157,23 +159,16 @@ try {
         'Loading future frequency entries must not change sampling or its memory budget')
     }
     const different = ok(await run({ ...base, monteCarlo: { ...mc, seed: 43 } }))
-    if (mode === 'frequency') {
-      assert.notDeepEqual(different.durationsSeconds, result.durationsSeconds)
-      assert(result.durationsSeconds[0][0] >= 600)
-      assert(result.durationsSeconds[4][0] < 1200)
-      assert(result.durationsSeconds[2][0] > 800 && result.durationsSeconds[2][0] < 1000)
-      assert(result.reachableSamples[1] > 0 && result.reachableSamples[1] < 201, 'Transfers to exact trips retain unreachable draws')
-      assert.equal(result.durationsSeconds[4][1], null)
-    } else {
-      const samples = []
-      for (let minute = 480; minute < 483; minute++) samples.push(ok(await run({ ...base, timeMinutes: minute })).durationsSeconds.flat())
-      for (let cell = 0; cell < 4; cell++) {
-        const sorted = samples.map(row => row[cell] ?? Infinity).sort((a, b) => a - b)
-        mc.percentiles.forEach((p, i) => assert.equal(result.durationsSeconds[i][cell],
-          Number.isFinite(sorted[Math.max(0, Math.ceil(p * 3 / 100) - 1)]) ? sorted[Math.max(0, Math.ceil(p * 3 / 100) - 1)] : null))
-      }
-      assert.deepEqual(different.durationsSeconds, result.durationsSeconds)
+    // Every GTFS timetable here is deterministic: the distribution is the
+    // ordinary answer at each sampled minute, for any seed.
+    const samples = []
+    for (let minute = 480; minute < 483; minute++) samples.push(ok(await run({ ...base, timeMinutes: minute })).durationsSeconds.flat())
+    for (let cell = 0; cell < 4; cell++) {
+      const sorted = samples.map(row => row[cell] ?? Infinity).sort((a, b) => a - b)
+      mc.percentiles.forEach((p, i) => assert.equal(result.durationsSeconds[i][cell],
+        Number.isFinite(sorted[Math.max(0, Math.ceil(p * 3 / 100) - 1)]) ? sorted[Math.max(0, Math.ceil(p * 3 / 100) - 1)] : null))
     }
+    assert.deepEqual(different.durationsSeconds, result.durationsSeconds)
     assert.deepEqual(ok(await run({ ...base, timeMinutes: 480 })).durationsSeconds, ordinary.durationsSeconds, 'Sampling must not affect later ordinary queries')
     const route = ok(await run({ ...base, kind: 'route', origins: undefined, destinations: undefined,
       origin: { stopId: 'A' }, destination: { stopId: 'X' }, monteCarlo: mc }))

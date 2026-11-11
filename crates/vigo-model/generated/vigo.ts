@@ -530,12 +530,6 @@ export interface GtfsSource {
   name: string | null;
 }
 
-export interface HeadwayEstimate {
-  expectedWaitSeconds: number;
-  headwaySeconds: number;
-  waitingAssumption: string;
-}
-
 export interface HttpCapabilities {
   boundedConnections: boolean;
   boundedQueue: boolean;
@@ -937,7 +931,6 @@ export interface PreparedTraffic {
  */
 export interface Profile {
   note: string;
-  routingDispatch?: RoutingDispatch;
   /** Dotted scope names to integer microseconds. */
   timingsUs: Record<string, number>;
 }
@@ -1330,19 +1323,6 @@ export interface RouteResult {
   warnings?: Notice[];
 }
 
-/**
- * Result-search dispatch for the resident timetable, excluding certificate scans.
- */
-export type RoutingDispatch = {
-  semantics: "ordinary";
-} | {
-  /** `resident_timetable_cumulative`; resets when the timetable is replaced. */
-  counts: string;
-  ordinarySearches: number;
-  semantics: "scoped";
-  statefulSearches: number;
-};
-
 export interface SampledAlternatives {
   coverage: string;
   maximum: number;
@@ -1417,7 +1397,7 @@ export interface ScenarioTimetable {
 
 export type ScheduleMode = "frequency" | "preserve-trips";
 
-export type ScheduleQuality = "timetable" | "source_time_limitations" | "realtime" | "headway_estimate" | "flex_estimate";
+export type ScheduleQuality = "timetable" | "source_time_limitations" | "realtime" | "flex_estimate";
 
 export interface ScheduledTrip {
   arrivalOffsetsSeconds: number[];
@@ -1665,7 +1645,6 @@ export interface TransitQuality {
   /** Where the line came from: `gtfs_shape` (aligned to the feed's shape), */
   /** `stop_sequence` (straight lines between stops) or `unknown`. */
   geometry: string;
-  headway?: HeadwayEstimate;
   schedule: ScheduleQuality;
 }
 

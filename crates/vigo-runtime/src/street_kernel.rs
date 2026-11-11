@@ -143,6 +143,7 @@ impl CoordinateKernel {
         self.street_cch = Some(StreetCchIndex {
             path_query: None,
             path_view: None,
+            path_order: None,
             structure,
             metric,
             forward_query,

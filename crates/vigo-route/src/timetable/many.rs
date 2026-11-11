@@ -62,28 +62,6 @@ impl TimetableKernel {
                 "Rust arrive-by many-to-one query arrays or bounds are inconsistent.",
             ));
         }
-        if self.service.is_some() {
-            let safe = self.ordinary_reverse_is_safe(
-                &input.destination_stops,
-                &input.destination_walk_seconds,
-                input.earliest,
-                input.deadline,
-                input.allow_post_ride_transfers.unwrap_or(true),
-                input.maximum_boardings,
-                &input.excluded_trips,
-            )?;
-            let mut result = if safe {
-                let service = self.service.take();
-                let result = self.route_arrive_by_many_csa_scan::<ENDPOINTS>(input);
-                self.service = service;
-                self.record_ordinary_search();
-                result?
-            } else {
-                self.service_arrive_many(input)?
-            };
-            result.query_ns = started.elapsed().as_nanos() as f64;
-            return Ok(result);
-        }
         let forbidden_same_stop = self.forbidden_same_stop.as_ref();
         let maximum_layer = boarding_layers(input.maximum_boardings)?;
         let first_layer = usize::from(input.maximum_boardings.is_some());
@@ -341,7 +319,7 @@ impl TimetableKernel {
         &mut self,
         input: &TimetableManyQueryInput,
     ) -> Result<Option<TimetableManyQueryResult>> {
-        self.relaxed(|kernel| kernel.route_many_csa_impl(input))
+        self.route_many_csa_impl(input).map(Some)
     }
 
     pub(super) fn route_many_csa_impl(
@@ -401,28 +379,6 @@ impl TimetableKernel {
             ));
         }
 
-        if self.service.is_some() {
-            let safe = self.ordinary_forward_is_safe(
-                &input.origin_stops,
-                &input.origin_walk_seconds,
-                input.departure,
-                input.horizon,
-                input.allow_pre_ride_transfers,
-                input.maximum_boardings,
-                &input.excluded_trips,
-            )?;
-            let mut result = if safe {
-                let service = self.service.take();
-                let result = self.route_many_csa_impl(input);
-                self.service = service;
-                self.record_ordinary_search();
-                result?
-            } else {
-                self.windowed_service_many(input)?
-            };
-            result.query_ns = started.elapsed().as_nanos() as f64;
-            return Ok(result);
-        }
         let maximum_layer = boarding_layers(input.maximum_boardings)?;
         let first_layer = usize::from(input.maximum_boardings.is_some());
         let base_stop_count = self.stop_count;
@@ -434,8 +390,6 @@ impl TimetableKernel {
 
         let transfer_buffer_seconds = self.minimum_transfer_buffer_seconds;
         let Self {
-            service: _,
-            relaxed_graph: _,
             stop_count: _,
             run_count: _,
             departure_seconds: _,
@@ -475,7 +429,6 @@ impl TimetableKernel {
                     forward_workspace: _,
                     profile_workspace: _,
                     journey_workspace: _,
-                    capped_guard: _,
                     terminals,
                 },
         } = self;

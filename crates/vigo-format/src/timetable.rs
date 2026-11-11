@@ -119,7 +119,45 @@ mod scan {
         instances: Map<String, Vec<Instance>>,
         // Trip → stop_sequence bits → (can_board, can_alight).
         permissions: Map<String, Map<u64, (bool, bool)>>,
+        // Inexact (`exact_times=0`) frequency template → its departures.
+        frequencies: Map<String, Vec<f64>>,
         maximum: f64,
+    }
+
+    /// Each inexact frequency template's departures, every headway from each
+    /// window's start; GTFS `end_time` is exclusive. These are ordinary
+    /// scheduled trips, as the City compiler makes of `exact_times=1`.
+    fn frequency_departures(db: &Connection) -> Result<Map<String, Vec<f64>>> {
+        let mut departures: Map<String, Vec<f64>> = Map::default();
+        let table: bool = db
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='frequencies')",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(source_error)?;
+        if !table {
+            return Ok(departures);
+        }
+        let mut statement = db
+            .prepare("SELECT trip_id,start_time,end_time,headway_secs FROM frequencies WHERE exact_times=0")
+            .map_err(source_error)?;
+        let mut rows = statement.query([]).map_err(source_error)?;
+        while let Some(row) = rows.next().map_err(source_error)? {
+            let trip: String = row.get(0).map_err(source_error)?;
+            let [from, to, headway] = [1, 2, 3].map(|i| row.get::<_, f64>(i).unwrap_or(f64::NAN));
+            let count = ((to - from) / headway).ceil();
+            if !(headway > 0. && to > from && (1.0..=100_000.0).contains(&count)) {
+                continue;
+            }
+            let list = departures.entry(trip).or_default();
+            list.extend((0..count as usize).map(|i| from + i as f64 * headway));
+        }
+        for list in departures.values_mut() {
+            list.sort_by(f64::total_cmp);
+            list.dedup();
+        }
+        Ok(departures)
     }
 
     #[derive(Default)]
@@ -239,6 +277,7 @@ mod scan {
         } else {
             vec![]
         };
+        let frequencies = frequency_departures(&db)?;
         drop(db);
         let shared = Shared {
             path: input.store_path,
@@ -250,6 +289,7 @@ mod scan {
                 .collect(),
             instances,
             permissions,
+            frequencies,
             maximum: f64::from(input.maximum_departure_seconds.unwrap_or(u32::MAX)),
         };
         let chunks = if let Some(index) = index {
@@ -773,70 +813,80 @@ mod scan {
             all.dedup();
             all
         };
+        // A frequency template becomes one trip per departure of its windows,
+        // shifted from its own first departure; without a window it runs none.
+        let starts: &[f64] = if first.headway {
+            shared
+                .frequencies
+                .get(trip_id)
+                .map_or(&[][..], Vec::as_slice)
+        } else {
+            std::slice::from_ref(&first.departure)
+        };
         // The previous emitted row's state, for continuity.
         let mut previous: Option<(u32, u32, u32, f64, f64)> = None;
         for offset in offsets {
-            for row in rows {
-                let Some(instance) = instances(row).iter().find(|i| i.offset == offset) else {
-                    continue;
-                };
-                // A headway template is a relative shape, not a scheduled trip.
-                // Keep the full shape across midnight; its actual windows are
-                // resolved separately using the original service-day offset.
-                let shift = f64::from(offset)
-                    + if first.headway {
-                        (-(first.departure + f64::from(offset))).max(0.)
-                    } else {
-                        0.
+            for &start in starts {
+                // Each frequency departure is its own vehicle.
+                let mut fresh = first.headway;
+                if first.headway {
+                    previous = None;
+                }
+                for row in rows {
+                    let Some(instance) = instances(row).iter().find(|i| i.offset == offset) else {
+                        continue;
                     };
-                let departure = row.departure + shift;
-                if !(departure >= 0.0 && departure <= shared.maximum) {
-                    continue;
+                    let shift = f64::from(offset) + (start - first.departure);
+                    let departure = row.departure + shift;
+                    if !(departure >= 0.0 && departure <= shared.maximum) {
+                        continue;
+                    }
+                    let arrival = row.arrival + shift;
+                    let new_trip = std::mem::take(&mut fresh)
+                        || chunk.trip_ids.last().is_none_or(|id| id != trip_id)
+                        || chunk
+                            .trip_service_dates
+                            .last()
+                            .is_none_or(|day| *day != instance.date);
+                    let unsafe_gap = !new_trip
+                        && previous.is_some_and(|(to, route, service, sequence, arrival)| {
+                            to != row.from
+                                && !(row.sequence - sequence > 1.0
+                                    && route == row.route
+                                    && service == row.service
+                                    && departure >= arrival)
+                        });
+                    if new_trip {
+                        chunk.trip_start.push(chunk.departure.len() as u32);
+                        chunk.trip_offsets.push(offset);
+                        chunk.trip_ids.push(trip_id.to_owned());
+                        chunk.trip_service_dates.push(instance.date.clone());
+                        chunk
+                            .route_ids
+                            .push(table.values[row.route as usize].clone());
+                        chunk
+                            .service_ids
+                            .push(services.names[row.service as usize].clone());
+                        chunk
+                            .direction_ids
+                            .push(table.values[row.direction as usize].clone());
+                    }
+                    if new_trip || unsafe_gap {
+                        chunk.run_count += 1;
+                    }
+                    chunk.departure.push(seconds(departure));
+                    chunk.arrival.push(seconds(arrival));
+                    let (from, to) = (chunk.stop(row.from), chunk.stop(row.to));
+                    chunk.from.push(from);
+                    chunk.to.push(to);
+                    chunk.sequence.push(seconds(row.sequence));
+                    chunk.trip.push(chunk.trip_ids.len() as u32 - 1);
+                    chunk.run.push(chunk.run_count - 1);
+                    chunk.breaks.push(u8::from(unsafe_gap));
+                    chunk.board.push(u8::from(row.board));
+                    chunk.alight.push(u8::from(row.alight));
+                    previous = Some((row.to, row.route, row.service, row.sequence, arrival));
                 }
-                let arrival = row.arrival + shift;
-                let new_trip = chunk.trip_ids.last().is_none_or(|id| id != trip_id)
-                    || chunk
-                        .trip_service_dates
-                        .last()
-                        .is_none_or(|day| *day != instance.date);
-                let unsafe_gap = !new_trip
-                    && previous.is_some_and(|(to, route, service, sequence, arrival)| {
-                        to != row.from
-                            && !(row.sequence - sequence > 1.0
-                                && route == row.route
-                                && service == row.service
-                                && departure >= arrival)
-                    });
-                if new_trip {
-                    chunk.trip_start.push(chunk.departure.len() as u32);
-                    chunk.trip_offsets.push(offset);
-                    chunk.trip_ids.push(trip_id.to_owned());
-                    chunk.trip_service_dates.push(instance.date.clone());
-                    chunk
-                        .route_ids
-                        .push(table.values[row.route as usize].clone());
-                    chunk
-                        .service_ids
-                        .push(services.names[row.service as usize].clone());
-                    chunk
-                        .direction_ids
-                        .push(table.values[row.direction as usize].clone());
-                }
-                if new_trip || unsafe_gap {
-                    chunk.run_count += 1;
-                }
-                chunk.departure.push(seconds(departure));
-                chunk.arrival.push(seconds(arrival));
-                let (from, to) = (chunk.stop(row.from), chunk.stop(row.to));
-                chunk.from.push(from);
-                chunk.to.push(to);
-                chunk.sequence.push(seconds(row.sequence));
-                chunk.trip.push(chunk.trip_ids.len() as u32 - 1);
-                chunk.run.push(chunk.run_count - 1);
-                chunk.breaks.push(u8::from(unsafe_gap));
-                chunk.board.push(u8::from(row.board));
-                chunk.alight.push(u8::from(row.alight));
-                previous = Some((row.to, row.route, row.service, row.sequence, arrival));
             }
         }
         Ok(())

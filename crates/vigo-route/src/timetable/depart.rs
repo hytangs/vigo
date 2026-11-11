@@ -5,14 +5,12 @@ impl TimetableKernel {
         self.route_scalar_csa_impl::<true>(&input)
     }
 
-    /// Earliest arrival over the relaxed transfer graph: a lower bound on
-    /// the stateful transfer-rule search, for pruning. `None` when frequency
-    /// windows need the stateful search.
+    /// Earliest arrival without retaining a journey, for Flex pruning probes.
     pub fn route_scalar_relaxed_csa(
         &mut self,
         input: &TimetableQueryInput,
     ) -> Result<Option<TimetableQueryResult>> {
-        self.relaxed(|kernel| kernel.route_scalar_csa_impl::<false>(input))
+        self.route_scalar_csa_impl::<false>(input).map(Some)
     }
 
     pub(super) fn route_scalar_csa_impl<const RETAIN_JOURNEY: bool>(
@@ -44,15 +42,6 @@ impl TimetableKernel {
             ));
         }
 
-        if self.service.is_some() {
-            let mut result = if let Some(result) = self.guarded_scalar(input)? {
-                result
-            } else {
-                self.windowed_service_scalar(input)?
-            };
-            result.query_ns = started.elapsed().as_nanos() as f64;
-            return Ok(result);
-        }
         if let Some(maximum) = input.maximum_boardings {
             boarding_layers(Some(maximum))?;
             self.query.forward_workspace.scalar_identity = None;
@@ -63,7 +52,6 @@ impl TimetableKernel {
                 maximum_boardings: None,
                 ..input.clone()
             })?;
-            self.certify_capped_guard(input, &unrestricted, maximum);
             if unrestricted.status == "blocked" {
                 return Ok(TimetableQueryResult {
                     query_ns: started.elapsed().as_nanos() as f64,
@@ -177,8 +165,6 @@ impl TimetableKernel {
         }
         let transfer_buffer_seconds = self.minimum_transfer_buffer_seconds;
         let Self {
-            service: _,
-            relaxed_graph: _,
             stop_count: _,
             run_count: _,
             departure_seconds: _,
@@ -218,7 +204,6 @@ impl TimetableKernel {
                     forward_workspace,
                     profile_workspace: _,
                     journey_workspace: _,
-                    capped_guard: _,
                     terminals: _,
                 },
         } = self;

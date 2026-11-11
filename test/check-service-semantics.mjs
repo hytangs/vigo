@@ -14,7 +14,11 @@ let records = 0
 const corpus = process.env.VIGO_SERVICE_CORPUS
 if (corpus) fs.mkdirSync(corpus, { recursive: true })
 try {
-  for (const variant of ['scoped', 'scoped-street', 'headway', 'headway-only', 'headway-overnight']) {
+  // Inexact frequency templates (exact_times=0) depart every headway from
+  // each window's start, like exact ones. T2's own 08:15 time is a shape,
+  // not a departure: its window departures are 08:10, 08:20, ... A trip-scoped
+  // rule is present and, like every route- or trip-scoped rule, not applied.
+  for (const variant of ['scheduled', 'headway', 'headway-only', 'headway-overnight']) {
     const folder = path.join(dir, variant)
     fs.mkdirSync(folder)
     const inputs = await writeCliFixtureInputs(folder)
@@ -25,11 +29,6 @@ try {
       'trip_id,arrival_time,departure_time,stop_id,stop_sequence\nT0,07:59:00,07:59:00,A,1\nT0,08:09:00,08:09:00,X,2\nT1,08:00:00,08:00:00,A,1\nT1,08:10:00,08:10:00,X,2\nT2,08:15:00,08:15:00,X,1\nT2,08:30:00,08:30:00,B,2\n'
     )
     zip.file('transfers.txt', 'from_stop_id,to_stop_id,from_trip_id,to_trip_id,transfer_type\nX,X,T0,T2,3\n')
-    if (variant === 'scoped-street') {
-      zip.file('stops.txt', (await zip.file('stops.txt').async('string')) + 'Y,Separate street stop,38.905,-77.039\n')
-      zip.file('stop_times.txt', (await zip.file('stop_times.txt').async('string')).replace('T2,08:15:00,08:15:00,X,1', 'T2,08:15:00,08:15:00,Y,1'))
-      zip.file('transfers.txt', 'from_stop_id,to_stop_id,from_trip_id,to_trip_id,transfer_type,min_transfer_time\nX,Y,T0,T2,3,0\nX,Y,T1,T2,2,120\n')
-    }
     if (variant.startsWith('headway'))
       zip.file(
         'frequencies.txt',
@@ -96,33 +95,17 @@ try {
       const r = await run({
         ...base,
         ...(reverse
-          ? { timePreference: 'arrive_by', timeMinutes: variant === 'headway-only' ? 515 : 510 }
+          ? { timePreference: 'arrive_by', timeMinutes: 510 }
           : {})
       })
       assert.equal(r.status, 'ok', JSON.stringify(r))
-      assert.deepEqual(
-        r.journey.legs.filter((l) => l.type === 'transit').map((l) => l.trip.id),
-        ['T1', 'T2'],
-        JSON.stringify(r)
-      )
-      assert.equal(r.journey.arrivalTime, variant === 'headway-only' ? '08:35:00' : '08:30:00')
-      if (variant.startsWith('headway'))
-        assert.equal(
-          r.journey.legs.filter((l) => l.type === 'transit').at(-1).quality.schedule,
-          'headway_estimate'
-        )
+      const rides = r.journey.legs.filter((l) => l.type === 'transit')
+      assert.equal(rides.at(-1).trip.id, 'T2', JSON.stringify(r))
+      assert.equal(r.journey.arrivalTime, variant === 'scheduled' ? '08:30:00' : '08:25:00')
+      assert.equal(rides.at(-1).quality.schedule, 'timetable')
+      assert.equal(rides.at(-1).quality.headway, undefined)
     }
-    if (variant === 'scoped-street') {
-      for (const reverse of [false, true]) {
-        const blocked = await run({ ...base, allowStreetTransfers: false,
-          ...(reverse ? { timePreference: 'arrive_by', timeMinutes: 510 } : {}) })
-        assert.equal(blocked.status, 'not_found', JSON.stringify(blocked))
-      }
-      const restored = await run({ ...base, allowStreetTransfers: true })
-      assert.equal(restored.status, 'ok')
-      assert.deepEqual(restored.journey.legs.filter(l => l.type === 'transit').map(l => l.trip.id), ['T1', 'T2'])
-    }
-    const expected = variant === 'headway-only' ? 2220 : 1920
+    const expected = variant === 'scheduled' ? 1920 : 1620
     const matrix = await run({
       ...base,
       kind: 'matrix',
@@ -137,11 +120,7 @@ try {
       destinations: [base.destination], origin: undefined, destination: undefined,
       includeJourneys: true, includeGeometry: false, journeyFormat: 'compact' })
     assert.deepEqual(compact.durationsSeconds, matrix.durationsSeconds)
-    if (variant.startsWith('headway')) {
-      const ride = compact.trace.journeys[0][0].legs.find(leg => leg.headwayEstimate)
-      assert.deepEqual(ride.headwayEstimate, { headwaySeconds: 600,
-        waitingAssumption: 'half_headway', expectedWaitSeconds: 300 })
-    }
+    assert(compact.trace.journeys[0][0].legs.every(leg => leg.headwayEstimate === undefined))
 
     const reach = await run({
       kind: 'reach',
@@ -158,10 +137,11 @@ try {
     })
     assert.equal(reach.trace.stops.find((s) => s.stopId === 'B').durationMinutes, expected / 60)
     if (variant.startsWith('headway')) {
+      // The next departure every 600 s from 08:10, then the 15-minute ride.
       for (const minutes of [490, 492, 494, 500, 520]) {
         const r = await run({ ...base, origin: { stopId: 'X' }, timeMinutes: minutes })
         assert.equal(r.status, 'ok')
-        const total = minutes + 20
+        const total = 490 + Math.ceil((minutes - 490) / 10) * 10 + 15
         assert.equal(
           r.journey.arrivalTime,
           `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}:00`
@@ -177,7 +157,8 @@ try {
           ...(reverse ? { timePreference: 'arrive_by' } : {})
         })
         assert.equal(r.status, 'ok', JSON.stringify(r))
-        assert.equal(r.journey.durationSeconds, 1200, JSON.stringify(r))
+        // The previous service day's 24:10 departure, at 00:10.
+        assert.equal(r.journey.durationSeconds, 900, JSON.stringify(r))
       }
     }
     if (variant === 'headway-only') {
@@ -220,4 +201,4 @@ try {
   }))
   fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
-console.log('Scoped transfer and headway end-to-end checks passed')
+console.log('Frequency departures and stop transfer end-to-end checks passed')

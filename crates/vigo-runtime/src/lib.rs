@@ -1252,6 +1252,9 @@ struct StreetCchIndex {
     // routing request.
     path_query: Option<cch::PathQuery<'static>>,
     path_view: Option<Box<cch::bundle::CchView<'static>>>,
+    /// The structure's validated inverse-rank order. Unlike the query's search
+    /// scratch it survives an idle release, so recreating the query is free.
+    path_order: Option<cch::ValidatedOrder>,
     structure: Arc<cch::CchBundle>,
     metric: Arc<cch::MetricBundle>,
     forward_query: DynamicCchQuery,
@@ -1323,7 +1326,12 @@ impl StreetCchIndex {
         // SAFETY: `view_pointer` points into the Box stored in `path_view`, so
         // it remains stable until after `path_query` is dropped (see above).
         let static_view = unsafe { &*view_pointer };
-        self.path_query = Some(cch::PathQuery::new(static_view));
+        let query = match &self.path_order {
+            Some(order) => cch::PathQuery::with_order(static_view, order),
+            None => cch::PathQuery::new(static_view),
+        };
+        self.path_order = Some(query.order());
+        self.path_query = Some(query);
     }
 }
 

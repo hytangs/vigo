@@ -82,9 +82,7 @@ pub(super) fn depart_later(
         let Some(target) = onward.from_stop else {
             continue;
         };
-        if kernel.is_headway_trip(trip)
-            || kernel.is_headway_trip(onward.trip.unwrap())
-            || kernel.boarding_needs_transfer_context(target)
+        if kernel.boarding_needs_transfer_context(target)
             || (index != rides[0] && kernel.boarding_needs_transfer_context(from))
         {
             continue;
