@@ -3,6 +3,7 @@
 ## 1.0.0 — 2026-11-08
 
 - Publish Python metadata as `1.0.0` (PEP 440), corresponding to Engine `1.0.0`. Bundled wheels include the engine's faster bounded bicycle and driving searches and crash-safe City replacement.
+- Bundled wheels answer transit with one exact connection scan. GTFS frequency entries (`exact_times=0`) are fixed departures every headway, so Monte Carlo takes one sample per departure minute for them; only planned Scenario frequency services are randomly phased.
 - The Python API and defaults are unchanged.
 
 
