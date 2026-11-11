@@ -678,26 +678,78 @@ pub(crate) fn query_fingerprint(
 ) -> String {
     // Hash the caller's request (stop references canonicalized), so the same
     // request has one fingerprint in every runtime. Output switches are excluded.
+    const EXCLUDED: [&str; 6] = [
+        "id",
+        "kind",
+        "diagnostics",
+        "includeGeometry",
+        "reachFormat",
+        "includeLimitations",
+    ];
+    let kind = if kind == "isochrone" { "reach" } else { kind };
+    let live = raw["diagnostics"]["realtime"]["snapshot"]["id"].as_str();
+    let identity = |query: Value| {
+        let mut identity = json!({"kind":kind,"query":query,"cityRevision":revision,"engineVersion":env!("CARGO_PKG_VERSION")});
+        if let Some(id) = live {
+            identity["liveSnapshotId"] = json!(id);
+        }
+        identity
+    };
+    // A large inline realtime snapshot is serialized into the hashed bytes in
+    // place instead of being copied into the identity first.
+    const HOLE: &str = "\u{0}vigo.fingerprint.snapshot\u{0}";
+    if let Some(snapshot) = request.get("realtimeSnapshot").filter(|v| !names_stops(v))
+        && let Some(mut query) = without(request, &EXCLUDED)
+    {
+        query["realtimeSnapshot"] = json!(HOLE);
+        let _ = normalize_points(&mut query);
+        let bytes = serde_json::to_vec(&identity(query)).unwrap();
+        let hole = serde_json::to_vec(HOLE).unwrap();
+        let mut at = bytes
+            .windows(hole.len())
+            .enumerate()
+            .filter(|(_, w)| *w == hole.as_slice());
+        if let (Some((start, _)), None) = (at.next(), at.next()) {
+            let mut hash = Sha256::new();
+            hash.update(&bytes[..start]);
+            hash.update(serde_json::to_vec(snapshot).unwrap());
+            hash.update(&bytes[start + hole.len()..]);
+            return format!("{:x}", hash.finalize());
+        }
+    }
     let mut fingerprint_query = request.clone();
     let _ = normalize_points(&mut fingerprint_query);
     if let Some(o) = fingerprint_query.as_object_mut() {
-        for k in [
-            "id",
-            "kind",
-            "diagnostics",
-            "includeGeometry",
-            "reachFormat",
-            "includeLimitations",
-        ] {
+        for k in EXCLUDED {
             o.remove(k);
         }
     }
-    let kind = if kind == "isochrone" { "reach" } else { kind };
-    let mut identity = json!({"kind":kind,"query":fingerprint_query,"cityRevision":revision,"engineVersion":env!("CARGO_PKG_VERSION")});
-    if let Some(id) = raw["diagnostics"]["realtime"]["snapshot"]["id"].as_str() {
-        identity["liveSnapshotId"] = json!(id);
+    digest(&identity(fingerprint_query))
+}
+
+/// Whether [`normalize_points`] could change or reject this value.
+fn names_stops(v: &Value) -> bool {
+    match v {
+        Value::Object(o) => o.contains_key("stop") || o.values().any(names_stops),
+        Value::Array(a) => a.iter().any(names_stops),
+        _ => false,
     }
-    digest(&identity)
+}
+
+/// `request` without the `excluded` keys, copying only what remains. Absent
+/// when normalizing an excluded value first could differ: normalization
+/// stops at the first invalid stop reference in key order.
+fn without(request: &Value, excluded: &[&str]) -> Option<Value> {
+    let o = request.as_object()?;
+    if excluded.iter().any(|k| o.get(*k).is_some_and(names_stops)) {
+        return None;
+    }
+    Some(Value::Object(
+        o.iter()
+            .filter(|(k, _)| !excluded.contains(&k.as_str()))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect(),
+    ))
 }
 
 pub(crate) fn digest(v: &Value) -> String {
@@ -1862,10 +1914,72 @@ mod detailed_choice_tests {
 /// Routing assumptions shared by raw and public comparisons. Scenario and live
 /// observations are the compared interventions; output options do not affect costs.
 pub(crate) fn comparison_fingerprint(kind: &str, request: &Value, revision: &Value) -> String {
-    let mut assumptions = request.clone();
-    let _ = normalize_points(&mut assumptions);
-    if let Some(values) = assumptions.as_object_mut() {
-        for key in [
+    const EXCLUDED: [&str; 15] = [
+        "id",
+        "kind",
+        "diagnostics",
+        "includeGeometry",
+        "includeLimitations",
+        "scenario",
+        "scenarioId",
+        "realtimeSnapshot",
+        "trafficSnapshot",
+        "traffic",
+        "dataMode",
+        "routingDataMode",
+        "includeJourneys",
+        "reachFormat",
+        "surfaceReuse",
+    ];
+    // Snapshots and scenarios are excluded, so they are never copied.
+    let assumptions = without(request, &EXCLUDED).map_or_else(
+        || {
+            let mut assumptions = request.clone();
+            let _ = normalize_points(&mut assumptions);
+            if let Some(values) = assumptions.as_object_mut() {
+                for key in EXCLUDED {
+                    values.remove(key);
+                }
+            }
+            assumptions
+        },
+        |mut assumptions| {
+            let _ = normalize_points(&mut assumptions);
+            assumptions
+        },
+    );
+    digest(
+        &json!({"version":"vigo.assumptions.v1","kind":kind,"query":assumptions,"cityRevision":revision,"engineVersion":env!("CARGO_PKG_VERSION")}),
+    )
+}
+
+#[cfg(test)]
+mod fingerprint_tests {
+    use super::*;
+
+    // The fingerprints as first defined: copy the whole request, canonicalize
+    // stop references, then drop the excluded keys.
+    fn reference(kind: &str, request: &Value, revision: &Value, raw: &Value) -> [String; 2] {
+        let mut query = request.clone();
+        let _ = normalize_points(&mut query);
+        for k in [
+            "id",
+            "kind",
+            "diagnostics",
+            "includeGeometry",
+            "reachFormat",
+            "includeLimitations",
+        ] {
+            query.as_object_mut().unwrap().remove(k);
+        }
+        let kind_name = if kind == "isochrone" { "reach" } else { kind };
+        let mut identity = json!({"kind":kind_name,"query":query,"cityRevision":revision,"engineVersion":env!("CARGO_PKG_VERSION")});
+        if let Some(id) = raw["diagnostics"]["realtime"]["snapshot"]["id"].as_str() {
+            identity["liveSnapshotId"] = json!(id);
+        }
+        let mut assumptions = request.clone();
+        let _ = normalize_points(&mut assumptions);
+        for k in [
             "id",
             "kind",
             "diagnostics",
@@ -1882,10 +1996,44 @@ pub(crate) fn comparison_fingerprint(kind: &str, request: &Value, revision: &Val
             "reachFormat",
             "surfaceReuse",
         ] {
-            values.remove(key);
+            assumptions.as_object_mut().unwrap().remove(k);
+        }
+        [
+            digest(&identity),
+            digest(
+                &json!({"version":"vigo.assumptions.v1","kind":kind,"query":assumptions,"cityRevision":revision,"engineVersion":env!("CARGO_PKG_VERSION")}),
+            ),
+        ]
+    }
+
+    #[test]
+    fn fingerprints_match_their_whole_request_definition() {
+        let snapshot = json!({"feedTimestamp":1,"tripUpdates":[{"tripId":"T","delaySeconds":60,
+            "stopTimeUpdates":[{"stopId":"A","arrival":{"delay":60}}]}]});
+        let stop = json!({"stop":{"feed":"f","id":"A"}});
+        let requests = [
+            json!({"origin":[0,0],"destination":stop,"realtimeSnapshot":snapshot,"id":"x","diagnostics":"trace"}),
+            json!({"origin":stop,"destination":[1,1],"realtimeSnapshot":null}),
+            json!({"origin":stop,"realtimeSnapshot":snapshot,"scenario":{"services":[{"stops":[stop]}]}}),
+            json!({"origin":{"stop":{"id":""}},"realtimeSnapshot":snapshot,"zone":stop}),
+            json!({"origin":[0,0],"realtimeSnapshot":{"stop":{"id":"A"}}}),
+            json!({"origin":[0,0],"note":"\u{0}vigo.fingerprint.snapshot\u{0}","realtimeSnapshot":snapshot}),
+            json!({"origin":[0,0],"diagnostics":{"stop":{"id":""}},"realtimeSnapshot":snapshot}),
+            json!({"origin":[0,0]}),
+        ];
+        let raw = json!({"diagnostics":{"realtime":{"snapshot":{"id":"live-1"}}}});
+        for request in &requests {
+            for (kind, raw) in [("route", &json!({})), ("isochrone", &raw)] {
+                let revision = json!("rev");
+                assert_eq!(
+                    [
+                        query_fingerprint(kind, request, &revision, raw),
+                        comparison_fingerprint(kind, request, &revision),
+                    ],
+                    reference(kind, request, &revision, raw),
+                    "{request}"
+                );
+            }
         }
     }
-    digest(
-        &json!({"version":"vigo.assumptions.v1","kind":kind,"query":assumptions,"cityRevision":revision,"engineVersion":env!("CARGO_PKG_VERSION")}),
-    )
 }
