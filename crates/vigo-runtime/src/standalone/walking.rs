@@ -6,8 +6,19 @@ use serde_json::{Value, json};
 use std::collections::HashSet;
 use vigo_route::geo::haversine_m;
 
-/// An endpoint walk whose access stop the endpoint evidence does not list.
-pub(super) const MISSING_ACCESS_WITNESS: &str = "Selected access witness is missing";
+/// An endpoint walk whose access stop the endpoint evidence does not list:
+/// the journey was found with other endpoint evidence than the one supplied
+/// to rebuild it.
+#[derive(Debug)]
+pub(super) struct MissingAccessWitness;
+
+impl std::fmt::Display for MissingAccessWitness {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Selected access witness is missing")
+    }
+}
+
+impl std::error::Error for MissingAccessWitness {}
 
 /// Vertices closer than this are one public vertex (about 10 micrometers).
 fn same_point(a: [f64; 2], b: [f64; 2]) -> bool {
@@ -184,7 +195,7 @@ impl City {
                         && (f64::from(evidence.access_seconds[*index]) - duration).abs() < 0.001
                 })
                 .map(|(index, _)| index)
-                .ok_or(MISSING_ACCESS_WITNESS)?;
+                .ok_or(MissingAccessWitness)?;
             let priced = f64::from(evidence.access_seconds[index]);
             if (priced - duration).abs() > 0.001 {
                 return Err("Selected access cost does not match its journey".into());
