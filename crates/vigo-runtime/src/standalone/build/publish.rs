@@ -440,8 +440,54 @@ pub(crate) fn publish(staged: &Path, output: &Path, replace: bool, durable: bool
     if durable {
         sync_directory(output.parent().unwrap_or(Path::new(".")))?;
     }
+    // Validate the City at its published name before the previous copy goes:
+    // shared streets are links, and must resolve without the old copy.
+    let retiring = moved.then_some(backup.as_path());
+    if let Err(error) = validate_city(output).and_then(|_| check_street_links(output, retiring)) {
+        let restore = (|| -> std::io::Result<()> {
+            fs::rename(output, staged)?;
+            if moved {
+                fs::rename(&backup, output)?;
+            }
+            Ok(())
+        })();
+        if let Err(restore_error) = restore {
+            return Err(format!(
+                "The published City is unusable ({error}) and could not be rolled back ({restore_error}); the previous City is kept at {}.",
+                backup.display()
+            )
+            .into());
+        }
+        return Err(format!("The published City was rolled back: {error}").into());
+    }
     if moved {
         discard_previous(&backup, output);
+    }
+    Ok(())
+}
+
+/// The City's street files resolve (no dangling or looping link) and none of
+/// them lives in `retiring`, the copy about to be removed.
+pub(crate) fn check_street_links(city: &Path, retiring: Option<&Path>) -> Result<()> {
+    let streets = fs::canonicalize(city.join("osm"))
+        .map_err(|error| format!("Its street data does not resolve ({error})."))?;
+    let retiring = retiring.map(fs::canonicalize).transpose()?;
+    let inside_retiring = |path: &Path| retiring.as_ref().is_some_and(|r| path.starts_with(r));
+    if inside_retiring(&streets) {
+        return Err("Its street data lives in the copy being replaced.".into());
+    }
+    for entry in fs::read_dir(&streets)? {
+        let file = entry?.path();
+        let real = fs::canonicalize(&file).map_err(|error| {
+            format!("Street file {} does not resolve ({error}).", file.display())
+        })?;
+        if inside_retiring(&real) {
+            return Err(format!(
+                "Street file {} lives in the copy being replaced.",
+                file.display()
+            )
+            .into());
+        }
     }
     Ok(())
 }
@@ -712,6 +758,112 @@ mod tests {
                 Recovery::default()
             );
         }
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// Every file and link under `directory`: links by target, files by bytes.
+    #[cfg(unix)]
+    fn tree(directory: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+        let mut found = std::collections::BTreeMap::new();
+        let mut pending = vec![directory.to_path_buf()];
+        while let Some(current) = pending.pop() {
+            for entry in fs::read_dir(&current).unwrap() {
+                let path = entry.unwrap().path();
+                let kind = fs::symlink_metadata(&path).unwrap().file_type();
+                let relative = path.strip_prefix(directory).unwrap().to_path_buf();
+                if kind.is_symlink() {
+                    let target = fs::read_link(&path).unwrap();
+                    found.insert(relative, target.to_string_lossy().as_bytes().to_vec());
+                } else if kind.is_dir() {
+                    pending.push(path);
+                } else {
+                    found.insert(relative, fs::read(&path).unwrap());
+                }
+            }
+        }
+        found
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shared_streets_never_depend_on_the_city_they_replace() {
+        use std::os::unix::fs::symlink;
+        let root = fs::canonicalize(std::env::temp_dir())
+            .unwrap()
+            .join(format!("vigo-street-donor-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let template = template(&root);
+        let output = root.join("city");
+        write_package(&template, &output, "old");
+        let original = tree(&output);
+        let siblings = || {
+            let mut names: Vec<_> = fs::read_dir(&root)
+                .unwrap()
+                .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .filter(|n| n.starts_with(".city.vigo-"))
+                .collect();
+            names.sort();
+            names
+        };
+
+        // Refused before anything changes: the City itself, an alias of it,
+        // a donor inside it, and a donor whose streets live in it.
+        symlink(&output, root.join("alias")).unwrap();
+        let linked = root.join("linked-donor");
+        fs::create_dir_all(&linked).unwrap();
+        fs::copy(output.join("network.json"), linked.join("network.json")).unwrap();
+        copy_tree(&output.join("routing"), &linked.join("routing"));
+        symlink("../city/osm", linked.join("osm")).unwrap();
+        for (donor, why) in [
+            (output.clone(), "is the City being written to"),
+            (root.join("alias"), "is the City being written to"),
+            (output.join("osm"), "lies inside the City being written to"),
+            (linked.clone(), "shares streets stored in"),
+        ] {
+            let error = super::super::check_street_donor(&donor, &output).unwrap_err();
+            assert!(
+                error.to_string().contains(why),
+                "{}: {error}",
+                donor.display()
+            );
+            assert_eq!(tree(&output), original, "{}", donor.display());
+        }
+        assert!(super::super::check_street_donor(&output, &root.join("alias/inner")).is_err());
+
+        // Publication itself rolls back a City whose streets point into the
+        // copy it replaces, and keeps that copy.
+        let staged = staging_path(&output);
+        create_staging_directory(&output, &staged).unwrap();
+        fs::remove_dir(&staged).unwrap();
+        write_package(&template, &staged, "new");
+        fs::remove_dir_all(staged.join("osm")).unwrap();
+        symlink("../city/osm", staged.join("osm")).unwrap();
+        let error = publish(&staged, &output, true, true).unwrap_err();
+        assert!(error.to_string().contains("rolled back"), "{error}");
+        assert_eq!(tree(&output), original);
+        assert_eq!(
+            siblings(),
+            vec![staged.file_name().unwrap().to_string_lossy().into_owned()]
+        );
+        fs::remove_dir_all(&staged).unwrap();
+
+        // An independent donor publishes, and its links resolve once the
+        // previous City is gone.
+        let donor = root.join("donor");
+        write_package(&template, &donor, "donor");
+        super::super::check_street_donor(&donor, &output).unwrap();
+        let staged = staging_path(&output);
+        create_staging_directory(&output, &staged).unwrap();
+        fs::remove_dir(&staged).unwrap();
+        write_package(&template, &staged, "new");
+        fs::remove_dir_all(staged.join("osm")).unwrap();
+        symlink("../donor/osm", staged.join("osm")).unwrap();
+        publish(&staged, &output, true, true).unwrap();
+        assert_eq!(marker(&output), "new");
+        check_street_links(&output, None).unwrap();
+        validate_city(&output).unwrap();
+        assert!(siblings().is_empty(), "{:?}", siblings());
         fs::remove_dir_all(&root).unwrap();
     }
 }

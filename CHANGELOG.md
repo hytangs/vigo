@@ -11,6 +11,7 @@ API 1.0, City format 1 and Result schema 1 keep their meanings, and compatible p
 - Builds are faster. On one Apple M2 (8 cores, 16 GB) with the same local inputs, Boston (walking, driving and one prepared date) built in 48 s instead of 138 s, Boston with wheelchair routing in 42 s instead of 75 s, and Washington, DC (bus and rail feeds, one prepared date) in 100 s instead of 165 s. The single compiler process peaked at 1.8, 1.4 and 2.3 GiB resident memory, where the largest JavaScript compiler process peaked at 1.4, 1.3 and 1.8 GiB.
 - GTFS and OSM compile at the same time when installed memory, free memory and load allow it.
 - `--prepare-date` no longer fails a build whose feeds have frequency-based trips (`exact_times=0`); every runtime compiles those timetables when queried, and the build says so.
+- `--streets-from` refuses a donor that is the City being replaced (under any path or alias), lies inside or around it, or keeps its street files there; before, `--replace` with such a donor published a City whose streets linked to themselves and deleted the previous copy. Publication now also checks that the new City's street links resolve before the previous copy is removed, and restores that copy if they do not.
 - Ctrl-C or a termination signal removes an unfinished `vigo build`; internal compilers stop when the process that started them exits.
 
 ### Transit routing
