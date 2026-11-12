@@ -373,7 +373,9 @@ async function updateRuntimeConfig(body = {}) {
   }
   const openingLibrary = storageAccessRequired || requestedStorageRoot !== storageRoot
   if (requestedStorageRoot !== storageRoot) {
-    await Promise.all([nativeRuntime.closeAll(), nationalRouteWorkerPool.closeAll()])
+    // Switching library resets both runtimes: work admitted for the old
+    // library is refused and cannot retry into it, and both keep serving.
+    await Promise.all([nativeRuntime.reset(), nationalRouteWorkerPool.reset()])
     nationalRoutingServiceCoverageCache.clear()
     nationalPreviewRefreshes.clear()
     gtfsRouteAnalysisCache.clear()

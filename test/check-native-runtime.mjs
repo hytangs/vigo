@@ -203,8 +203,11 @@ for (const kind of ['route', 'matrix', 'reach']) {
     await new Promise(resolve => setTimeout(resolve, 20))
     const during = pool.query(layout, { kind, mode: 'bike', id: 'during-warmup' })
     await during
-    assert(pool.cities.get(layout.key).processes[1].child.requests.some(request => request.operation === 'bike.prepare'))
-    assert(!pool.cities.get(layout.key).processes[1].child.requests.some(request => request.id === 'bike-warmup'), 'Secondary initialization never repeats the queued route')
+    const secondary = pool.cities.get(layout.key).processes[1].child.requests
+    assert.deepEqual(secondary.slice(0, 2), [{ kind: 'info' }, { kind: 'native', operation: 'bike.prepare' }],
+      'A second process opens with a preparation, never the queued route')
+    const sends = spawned.flatMap(child => child.requests).filter(request => request.id === 'bike-warmup')
+    assert(sends.length <= 1, 'The queued route is written once')
     await Promise.all([busy, queued])
     const slow = pool.query(layout, { kind, mode: 'bike', id: 'occupy-primary', delayMs: 100 })
     const parallel = await pool.query(layout, { kind, mode: 'bike', id: 'warm-secondary' })
@@ -240,7 +243,7 @@ try {
   const parallel = await runtime.query(boston, { id: 'parallel' })
   assert.equal(parallel.process, 1, 'The ready idle process answers instead of queueing behind the slow one')
   assert.equal((await slow).process, 0)
-  assert.equal((await queued).process, 0, 'A request sent before the new process opened waits on the busy one')
+  assert.equal((await queued).process, 1, 'Work waiting when the new process opens goes to it, not behind the busy one')
   assert.equal(spawned.length, 2, 'No more than maxProcesses per City')
 
   // A Reach scenario grows from its baseline's process.
@@ -412,6 +415,190 @@ try {
     releaseClose()
     await barrier.closeAll().catch(() => {})
     fs.rmSync(parent, { recursive: true, force: true })
+  }
+
+  // ---- The serving contract (deep concurrency audit R1–R6) ----
+  const until = async (condition, label, timeoutMs = 2000) => {
+    const deadline = Date.now() + timeoutMs
+    while (!condition()) {
+      if (Date.now() > deadline) throw new Error(`Timed out waiting for ${label}`)
+      await new Promise(resolve => setTimeout(resolve, 2))
+    }
+  }
+  // A child whose answers wait for release(), so work can be held in place.
+  const gated = []
+  let gateOpen = true
+  const gatedSpawn = (...args) => {
+    const child = fakeSpawn(...args)
+    const write = child.stdin.write
+    child.stdin.write = line => {
+      if (gateOpen) return write(line)
+      gated.push(() => write(line))
+    }
+    return child
+  }
+  const releaseGate = () => { gateOpen = true; for (const send of gated.splice(0)) send() }
+
+  // R1: admission is bounded by count and bytes, globally and per City, with
+  // an explicit retryable overload; every outcome returns its permits.
+  {
+    const pool = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: gatedSpawn, maxCities: 4, maxProcesses: 1,
+      limits: { maxPending: 6, maxPendingBytes: 20_000, cityMaxPending: 4, cityMaxPendingBytes: 6_000 } })
+    const a = nativeLayout('/cities/admit-a')
+    const b = nativeLayout('/cities/admit-b')
+    try {
+      gateOpen = false
+      const held = [1, 2, 3].map(id => pool.query(a, { id: `a${id}` }))
+      const cancel = new AbortController()
+      const cancelled = pool.query(a, { id: 'a-cancelled' }, cancel.signal)
+      const overloaded = error => error.code === 'VIGO_NATIVE_OVERLOADED' && error.statusCode === 503 && error.retryable === true
+      await assert.rejects(pool.query(a, { id: 'a5' }), overloaded, 'The City count limit refuses explicitly')
+      cancel.abort()
+      await assert.rejects(cancelled, { name: 'AbortError' })
+      held.push(pool.query(a, { id: 'a-after-cancel' }))
+      await assert.rejects(pool.query(a, { id: 'big', padding: 'x'.repeat(7_000) }), overloaded, 'The City byte limit refuses explicitly')
+      held.push(pool.query(b, { id: 'b1' }), pool.query(b, { id: 'b2' }))
+      await assert.rejects(pool.query(b, { id: 'b3' }), overloaded, 'The global count limit refuses explicitly')
+      const admission = pool.snapshot().admission
+      assert.equal(admission.pending, 6)
+      assert(admission.pendingBytes > 0 && admission.pendingBytes <= 20_000)
+      releaseGate()
+      await Promise.all(held)
+      assert.deepEqual([pool.snapshot().admission.pending, pool.snapshot().admission.pendingBytes], [0, 0], 'Every permit returns')
+      // A held City that is retired returns its permits too.
+      gateOpen = false
+      const retiredWork = [pool.query(a, { id: 'r1' }), pool.query(a, { id: 'r2' })]
+      await pool.retire(a.root)
+      await Promise.all(retiredWork.map(work => assert.rejects(work)))
+      assert.equal(pool.snapshot().admission.pending, 0)
+    } finally { releaseGate(); await pool.closeAll() }
+  }
+
+  // R4: a request cancelled before admission opens, evicts and starts nothing.
+  {
+    const pool = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fakeSpawn, maxCities: 1 })
+    const warm = nativeLayout('/cities/warm-leased')
+    try {
+      pool.setResidency(warm, true, 'route')
+      await pool.query(warm, { id: 'warm' })
+      const before = spawned.length
+      const controller = new AbortController()
+      controller.abort()
+      for (let index = 0; index < 50; index += 1) {
+        await assert.rejects(pool.query(nativeLayout(`/cities/cold-${index}`), { id: index }, controller.signal), { name: 'AbortError' })
+      }
+      assert.equal(spawned.length, before, 'No process starts for cancelled requests')
+      assert.deepEqual(pool.snapshot().residentCities.map(city => city.root), [warm.root], 'The warm City stays resident')
+      assert.equal(pool.snapshot().admission.pending, 0)
+      assert.equal(pool.snapshot().counters.abortedBeforeAdmission, 50)
+    } finally { await pool.closeAll() }
+  }
+
+  // R5: a backlog reaches every process that becomes ready, including ones
+  // that start after the work arrived; each request is written exactly once.
+  {
+    const pool = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fakeSpawn, maxProcesses: 4 })
+    const layout = nativeLayout('/cities/burst')
+    try {
+      await pool.query(layout, { id: 'open' })
+      const first = spawned.length - 1
+      const ids = Array.from({ length: 40 }, (_, index) => `burst-${index}`)
+      const answers = await Promise.all(ids.map(id => pool.query(layout, { id, delayMs: 15 })))
+      const serving = new Set(answers.map(answer => answer.process))
+      assert(serving.size >= 3, `The burst spread over ${serving.size} processes`)
+      assert(answers.filter(answer => answer.process !== first).length >= 20, 'Most of the burst ran on processes added for it')
+      const writes = spawned.flatMap(child => child.requests).filter(request => ids.includes(request.id))
+      assert.equal(writes.length, ids.length, 'No request was written twice')
+    } finally { await pool.closeAll() }
+  }
+
+  // R6: one deadline per request, kept across its retry.
+  {
+    const pool = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fakeSpawn, maxProcesses: 1, timeoutMs: 300 })
+    const layout = nativeLayout('/cities/deadline')
+    try {
+      const crashOn = (await pool.query(layout, { id: 'probe' })).process
+      const started = performance.now()
+      await assert.rejects(pool.query(layout, { id: 'late', delayMs: 200, crash: 'once', crashOn }), /exceeded/)
+      const elapsed = performance.now() - started
+      assert(elapsed < 380, `The retry kept the original deadline (${elapsed.toFixed(0)} ms)`)
+      assert.equal(pool.snapshot().counters.retried, 1)
+    } finally { await pool.closeAll() }
+  }
+  // R6: a waiting request that expires leaves the queue; the process running
+  // someone else's request keeps running it.
+  {
+    const pool = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fakeSpawn, maxProcesses: 1 })
+    const layout = nativeLayout('/cities/expiry')
+    try {
+      await pool.query(layout, { id: 'open' })
+      const child = pool.cities.get(layout.key).processes[0].child
+      const running = pool.query(layout, { id: 'running', delayMs: 150 })
+      await assert.rejects(pool.query(layout, { id: 'waiting' }, null, { timeoutMs: 40 }), /exceeded/)
+      assert.equal((await running).id, 'running')
+      assert.equal(child.killed, false, 'The busy process was not stopped')
+      assert(!child.requests.some(request => request.id === 'waiting'), 'The expired request was never written')
+      assert.equal(pool.snapshot().counters.expiredWaiting, 1)
+    } finally { await pool.closeAll() }
+  }
+
+  // R2: a reset makes every earlier request stale. Nothing admitted before it
+  // is retried or answered, and nothing reopens the old City by itself.
+  {
+    const pool = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fakeSpawn, maxProcesses: 1 })
+    const layout = nativeLayout('/cities/reset')
+    try {
+      const crashOn = (await pool.query(layout, { id: 'probe' })).process
+      const crashing = pool.query(layout, { id: 'crashing', delayMs: 20, crash: 'once', crashOn })
+      const queued = pool.query(layout, { id: 'queued' })
+      // Let the crash happen and its retry start, then reset under it.
+      await until(() => pool.snapshot().counters.retried === 1, 'the retry')
+      const startsBefore = spawned.length
+      await pool.reset()
+      await Promise.all([assert.rejects(crashing), assert.rejects(queued)])
+      await new Promise(resolve => setTimeout(resolve, 60))
+      assert.equal(pool.cities.size, 0, 'No old request reopened the City after the reset')
+      assert.equal(spawned.length, startsBefore, 'No process started after the reset')
+      assert.equal(pool.snapshot().admission.pending, 0)
+      // The runtime still serves after a reset; shutdown is terminal.
+      assert.equal((await pool.query(layout, { id: 'after-reset' })).id, 'after-reset')
+      await pool.shutdown()
+      await assert.rejects(pool.query(layout, { id: 'after-shutdown' }), /shut down/)
+    } finally { await pool.closeAll() }
+  }
+
+  // S2: response bytes across processes stay within a budget. The process
+  // that started first finishes its line; others pause until it does.
+  {
+    const pool = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: gatedSpawn, maxCities: 2, maxProcesses: 1,
+      responseLimitBytes: 4096, limits: { responseBudgetBytes: 4096 } })
+    const a = nativeLayout('/cities/budget-a')
+    const b = nativeLayout('/cities/budget-b')
+    try {
+      gateOpen = false
+      const first = pool.query(a, { id: 'a' })
+      const second = pool.query(b, { id: 'b' })
+      const childA = pool.cities.get(a.key).processes[0].child
+      const childB = pool.cities.get(b.key).processes[0].child
+      for (const child of [childA, childB]) {
+        child.pauses = 0
+        child.resumes = 0
+        child.stdout.pause = () => { child.pauses += 1 }
+        child.stdout.resume = () => { child.resumes += 1 }
+      }
+      const body = id => `{"status":"ok","trace":{"id":"${id}","padding":"${'x'.repeat(3000)}"}}`
+      childA.stdout.emit('data', Buffer.from(body('a').slice(0, 2500)))
+      childB.stdout.emit('data', Buffer.from(body('b').slice(0, 2500)))
+      assert.equal(childB.pauses, 1, 'The later response pauses while over budget')
+      assert.equal(childA.pauses, 0, 'The first response always continues')
+      assert(pool.snapshot().responses.bufferedBytes <= 5000)
+      childA.stdout.emit('data', Buffer.from(`${body('a').slice(2500)}\n`))
+      assert.equal((await first).id, 'a')
+      assert.equal(childB.resumes, 1, 'The paused response resumes once under budget')
+      childB.stdout.emit('data', Buffer.from(`${body('b').slice(2500)}\n`))
+      assert.equal((await second).id, 'b')
+      assert.equal(pool.snapshot().responses.bufferedBytes, 0)
+    } finally { releaseGate(); await pool.closeAll() }
   }
   console.log(`Native runtime passed (${spawned.length} fake processes).`)
 } finally {
