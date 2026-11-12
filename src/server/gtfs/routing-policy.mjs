@@ -78,21 +78,10 @@ const accessPaddingFactor = nationalRoutingAccessPolicy.accessPaddingFactor
 
 const accessOverheadSeconds = nationalRoutingAccessPolicy.accessOverheadSeconds
 
-export const osmTransferGraphSchemaVersion = 'vigo.routing.osm-stop-transfers.v6'
-
 export const osmTransferMaximumWalkM = Math.max(
   50,
   Math.min(1_200, numeric(process.env.VIGO_ROUTING_TRANSFER_RADIUS_M, 500)),
 )
-
-export const osmTransferMaximumNeighbors = Math.max(
-  0,
-  Math.min(4_096, Math.floor(numeric(process.env.VIGO_ROUTING_TRANSFER_MAX_NEIGHBORS, 0))),
-)
-
-// Stored transfer seconds are a topology lower bound. The resident store
-// replaces them with the configured walking policy using path_distance_m.
-export const osmTransferLowerBoundSpeedKph = 8
 
 export function requiredServiceCoverageIncomplete(request, resolution) {
   return request.requireCompleteServiceCoverage === true

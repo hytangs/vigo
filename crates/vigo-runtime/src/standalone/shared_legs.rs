@@ -1,3 +1,4 @@
+use super::walking::MISSING_ACCESS_WITNESS;
 use super::{
     City, Result,
     materialize::MatrixMaterializationCache,
@@ -370,8 +371,21 @@ impl City {
                     - replacement.walking_seconds
                     - replacement.ride_seconds)
                     .max(0.);
-                let mut value =
-                    self.materialize(&replacement, endpoints, true, opt, access, Some(&mut cache))?;
+                // A window sample can carry a final walk from a stop its
+                // endpoint evidence does not list; the substitution then has
+                // no priced walk to reconstruct. Omit that one substitution
+                // instead of failing the journey it would only annotate.
+                let mut value = match self.materialize(
+                    &replacement,
+                    endpoints,
+                    true,
+                    opt,
+                    access,
+                    Some(&mut cache),
+                ) {
+                    Err(error) if error.to_string() == MISSING_ACCESS_WITNESS => continue,
+                    result => result?,
+                };
                 value["status"] = json!("ready");
                 value["mode"] = json!("transit");
                 options.push(json!({"legIndex":leg_index,"plan":value}));

@@ -157,7 +157,7 @@ impl City {
 
 /// Inexact frequency templates, which the reader expands into departures and
 /// the City compiler's prepared snapshot keeps as one template trip.
-fn frequency_templates(db: &rusqlite::Connection) -> Result<bool> {
+pub(crate) fn frequency_templates(db: &rusqlite::Connection) -> Result<bool> {
     let exists: bool = db.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='headway_connections')",
         [],

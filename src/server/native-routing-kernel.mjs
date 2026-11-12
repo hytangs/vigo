@@ -388,12 +388,6 @@ export function encodeNativeRoutingSnapshot(metadataJson, arrays) {
   return binding.encodeRoutingSnapshot(metadataJson, arrays)
 }
 
-export function compileNativeGtfsConnections(input) {
-  const binding = loadNativeBinding()
-  if (typeof binding.compileGtfsConnections !== 'function') throw new Error('Rust routing binding lacks GTFS connection compilation. Rebuild the native kernel.')
-  return binding.compileGtfsConnections(input)
-}
-
 export function readNativeServiceTimetable(input) {
   const binding = loadNativeBinding()
   if (typeof binding.readServiceTimetable !== 'function') throw new Error('Rust routing binding lacks service timetable compilation. Rebuild the native kernel.')
@@ -590,10 +584,6 @@ export function nativeRoutingAccessProfilePrepared(storePath, profileKey) {
     record?.profileMembers
     && record.profileKey === String(profileKey ?? ''),
   )
-}
-
-export function nativePublicAccessComponents(storePath) {
-  return preparedKernelRecord(storePath).kernel.publicAccessComponents()
 }
 
 export function prepareNativeRoutingKernel(storePath) {
@@ -832,38 +822,6 @@ export function configureNativeRoutingAccessProfile(storePath, profile, options 
     snapshotWriteMs,
     workspaceReservation: record.workspaceReservation,
     ...diagnostics,
-  }
-}
-
-export function buildNativeStopTransferGraph(storePath, request = {}) {
-  const record = kernelRecord(storePath)
-  if (!record.profileMembers || !record.profileKey) {
-    throw new Error('Rust routing access profile must be configured before building stop transfers.')
-  }
-  const result = record.kernel.buildStopTransferGraph({
-    maximumWalkM: Number(request.maximumWalkM),
-    maximumNeighbors: Math.max(0, Math.floor(Number(request.maximumNeighbors) || 0)),
-  })
-  if (
-    result.fromMemberIndices.length !== result.toMemberIndices.length
-    || result.fromMemberIndices.length !== result.distancesM.length
-  ) {
-    throw new Error('Rust stop-transfer graph returned inconsistent edge arrays.')
-  }
-  return {
-    fromMemberIndices: result.fromMemberIndices,
-    toMemberIndices: result.toMemberIndices,
-    distancesM: result.distancesM,
-    diagnostics: {
-      kernel: 'rust_node_api_stop_transfer_graph_v1',
-      profileKey: record.profileKey,
-      edgeCount: result.fromMemberIndices.length,
-      sourceSearches: result.sourceSearches,
-      candidatePairs: result.candidatePairs,
-      settledNodes: result.settledNodes,
-      relaxedEdges: result.relaxedEdges,
-      buildMs: normalizeNativeMilliseconds(result.buildNs),
-    },
   }
 }
 

@@ -2,7 +2,6 @@ import { publicCliCommands, supportedReachRasterSizes } from '../capabilities.mj
 
 // Help and validation share these definitions. Computation stays in the engines.
 export const options = {
-  "flex-driving": ["", "Prepare internal vehicle estimates for wheelchair Flex", "boolean"],
   format: ["FORMAT", "text or json (automatic terminal view by default)"],
   "workers": ["COUNT", "Resident stream workers, 1–4 (default 1); results retain input order"],
   "stream-output": ["FORMAT", "public (default) or detailed wrapper envelope; detailed payload is an internal ABI"],
@@ -46,11 +45,6 @@ export const options = {
   after: ['PATH', 'Saved result after a change'],
   help: ['', 'Show help for this command', 'flag'],
   version: ['', 'Print the VIGO version', 'flag'],
-  // Private worker arguments are validated but excluded from public help.
-  'city-name': ['VALUE', ''],
-  'osm-pbf': ['PATH', ''],
-  'output-store': ['PATH', ''],
-  'street-store': ['PATH', ''],
 }
 
 const queryOptions = ['format', 'diagnostics', 'include-geometry', 'include-limitations', 'city', 'request', 'output', 'wheelchair', 'mode', 'time', 'time-preference', 'objective',
@@ -126,11 +120,6 @@ export const commands = {
     options: ['before', 'after', 'output'],
     notes: ['Both results must be from the same query family. Reach results must use the same grid.'],
   },
-  '_build-city': { options: ['flex-driving', 'gtfs', 'gtfs-scope', 'osm', 'wheelchair', 'wheelchair-streets', 'private-access', 'street-modes', 'streets-from', 'prepare-date', 'output', 'city-name'] },
-  '_build-osm-store': { options: ['flex-driving', 'osm-pbf', 'output-store', 'street-modes', 'wheelchair', 'wheelchair-streets'] },
-  '_build-gtfs-store': { options: ['gtfs', 'gtfs-scope', 'output-store', 'wheelchair', 'wheelchair-streets'] },
-  '_prepare-osm-routing': { options: ['street-store'] },
-  '_prepare-osm-drive': { options: ['street-store'] },
 }
 
 export function usage(version, command = '') {

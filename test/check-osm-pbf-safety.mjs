@@ -4,14 +4,13 @@ import os from 'node:os'
 import path from 'node:path'
 import { deflateSync } from 'node:zlib'
 import { PbfWriter } from 'pbf'
-import { coordinate, forEachPbfBlock, osmPbfLimits } from '../src/server/osm-pbf-reader.mjs'
+import { DatabaseSync } from 'node:sqlite'
+import { buildNationalOsmStore, disposeNationalOsmStore } from '../src/server/national-osm-store.mjs'
 import { haversineKm } from '../src/server/geometry-utils.mjs'
 
-const coordinateBlock={latOffset:0,lonOffset:0,granularity:100}
-assert.deepEqual(coordinate(coordinateBlock,900_000_000,1_800_000_000),[180,90])
-for (const [lat,lon] of [[900_000_001,0],[-900_000_001,0],[0,1_800_000_001],[0,-1_800_000_001],[NaN,0],[0,Infinity]]) {
-  assert.throws(()=>coordinate(coordinateBlock,lat,lon),/invalid geographic coordinate/)
-}
+// The street compiler in the `vigo` executable reads every PBF. These cases
+// run it on malformed files and expect its reader to reject them.
+const osmPbfLimits = Object.freeze({ blobHeaderBytes: 64 * 1024, blobBytes: 32 * 1024 * 1024 })
 for (let latitude=-89;latitude<90;latitude+=.7) {
   const distance=haversineKm([23.4,latitude],[-156.6,-latitude])
   assert(Number.isFinite(distance)&&Math.abs(distance-Math.PI*6371.0088)<.001)
@@ -47,6 +46,20 @@ function writePrimitiveBlock(_value, pbf) {
   pbf.writeMessage(1, writeStringTable, {})
 }
 
+// One residential way through nodes [id, lat, lon] in 100-nanodegree units.
+function writeStreetBlock(nodes, pbf) {
+  pbf.writeMessage(1, (_, table) => { for (const s of ['', 'highway', 'residential']) table.writeStringField(1, s) })
+  pbf.writeMessage(2, (_, group) => {
+    for (const [id, lat, lon] of nodes) group.writeMessage(1, (__, node) => {
+      node.writeSVarintField(1, id); node.writeSVarintField(8, lat); node.writeSVarintField(9, lon)
+    })
+    group.writeMessage(3, (__, way) => {
+      way.writeVarintField(1, 1); way.writePackedVarint(2, [1]); way.writePackedVarint(3, [2])
+      way.writePackedSVarint(8, nodes.map(([id], index) => id - (nodes[index - 1]?.[0] ?? 0)))
+    })
+  })
+}
+
 function framedBlock(type, blobValue) {
   const blob = pbfMessage(writeBlob, blobValue)
   const header = pbfMessage(writeBlobHeader, { type, dataSize: blob.length })
@@ -74,16 +87,29 @@ async function writeCase(name, contents) {
 async function assertRejected(name, contents, pattern) {
   const filePath = await writeCase(name, contents)
   await assert.rejects(
-    () => forEachPbfBlock(filePath, async () => {}),
+    () => buildNationalOsmStore({ pbfPath: filePath, outputPath: `${filePath}.sqlite`, includeDriving: false }),
     pattern,
   )
 }
 
 try {
-  const validPath = await writeCase('valid', Buffer.concat([validHeader, rawBlock('OSMData', validData)]))
-  let dataBlocks = 0
-  await forEachPbfBlock(validPath, async () => { dataBlocks += 1 })
-  assert.equal(dataBlocks, 1)
+  // A well-formed file without streets is read to the end and fails only for its empty graph.
+  await assertRejected('valid', Buffer.concat([validHeader, rawBlock('OSMData', validData)]), /graph_empty/)
+
+  // Coordinates are checked against the geographic bounds; the bounds themselves are valid.
+  const streetCase = nodes => Buffer.concat([validHeader, rawBlock('OSMData', pbfMessage(writeStreetBlock, nodes))])
+  const boundaryPath = await writeCase('boundary', streetCase([[1, 899_999_000, 1_799_999_000], [2, 900_000_000, 1_800_000_000]]))
+  await buildNationalOsmStore({ pbfPath: boundaryPath, outputPath: `${boundaryPath}.sqlite`, includeDriving: false })
+  const boundary = new DatabaseSync(`${boundaryPath}.sqlite`, { readOnly: true })
+  try {
+    assert.deepEqual({ ...boundary.prepare('SELECT lat, lon FROM walk_nodes WHERE node_id=2').get() }, { lat: 90, lon: 180 })
+  } finally {
+    boundary.close()
+    disposeNationalOsmStore(`${boundaryPath}.sqlite`)
+  }
+  for (const [index, [lat, lon]] of [[900_000_001, 0], [-900_000_001, 0], [0, 1_800_000_001], [0, -1_800_000_001]].entries()) {
+    await assertRejected(`coordinate-${index}`, streetCase([[1, 0, 0], [2, lat, lon]]), /invalid geographic coordinate/)
+  }
 
   await assertRejected('missing-header', rawBlock('OSMData', validData), /OSMHeader before OSMData/)
 
@@ -140,7 +166,7 @@ try {
     status: 'passed',
     blobHeaderLimitBytes: osmPbfLimits.blobHeaderBytes,
     blobLimitBytes: osmPbfLimits.blobBytes,
-    cases: 7,
+    cases: 12,
   }))
 } finally {
   await fs.rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })

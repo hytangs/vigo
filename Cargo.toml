@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/vigo-runtime", "crates/vigo-model", "crates/vigo-route", "crates/vigo-format", "crates/vigo-prepare", "crates/vigo-traffic", "crates/vigo-gtfs"]
+members = ["crates/vigo-runtime", "crates/vigo-model", "crates/vigo-route", "crates/vigo-format", "crates/vigo-prepare", "crates/vigo-traffic", "crates/vigo-gtfs", "crates/vigo-osm"]
 exclude = ["vendor/cch"]
 
 [workspace.package]

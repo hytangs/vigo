@@ -297,13 +297,7 @@ function physicalStopAccessProfile(store, streetStorePath, version) {
   return profile
 }
 
-export function nativeStopTransferProfile(store, streetStorePath) {
-  const profile = physicalStopAccessProfile(store, streetStorePath, 'stop-transfer-v3')
-  const diagnostics = configureNativeRoutingAccessProfile(streetStorePath, profile)
-  return { profile, diagnostics }
-}
-
-export function osmStopTransferStreetIdentity(metadata) {
+function osmStopTransferStreetIdentity(metadata) {
   return [
     metadata.schemaVersion ?? '',
     metadata.sourceModel ?? '',

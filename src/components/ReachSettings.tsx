@@ -1,4 +1,5 @@
 import { BikeRoutingSettings } from './BikeRoutingSettings'
+import { reachExtent } from '../app/reachExtent'
 import type { RoutingBikeOptions } from '../routingModel'
 import { useId, useState, type CSSProperties } from 'react'
 import type { RoutingTimePreference } from '../routingModel'
@@ -54,9 +55,13 @@ export function ReachSettings({ travelMode = 'transit', bike = {profile:'balance
 }) {
   // Arrive-by walks first to transit; depart-at walks last from it.
   const arriveBy = timePreference === 'arrive'
+  const gridText = (mode: 'drive' | 'bike') => {
+    const { radiusKm, cellMeters } = reachExtent(mode, cutoffMinutes, bike)
+    return `about ${cellMeters < 1000 ? `${Math.round(cellMeters / 10) * 10} m` : `${(cellMeters / 1000).toFixed(1)} km`} apart within ${Math.round(radiusKm)} km`
+  }
   return <section className="reach-settings-list" aria-label="Travel limits">
-    {travelMode === 'drive' ? <small>Road-speed estimates, without live traffic. Routes {arriveBy ? 'from' : 'to'} grid points within 40 km of the {arriveBy ? 'destination' : 'origin'}; areas beyond the map are not evaluated.</small> : null}
-    {travelMode === 'bike' ? <><BikeRoutingSettings value={bike} onChange={onBikeChange} arrive={arriveBy} /><small>Routes {arriveBy ? 'from' : 'to'} grid points about 330 m apart within 8 km. Times include cycling, pushing and endpoint walks.</small></> : null}
+    {travelMode === 'drive' ? <small>Road-speed estimates, without live traffic. Routes {arriveBy ? 'from' : 'to'} grid points {gridText('drive')} of the {arriveBy ? 'destination' : 'origin'}, as far as the time budget can drive.</small> : null}
+    {travelMode === 'bike' ? <><BikeRoutingSettings value={bike} onChange={onBikeChange} arrive={arriveBy} /><small>Routes {arriveBy ? 'from' : 'to'} grid points {gridText('bike')}, as far as the time budget can cycle. Times include cycling, pushing and endpoint walks.</small></> : null}
     <div className="reach-time-budget">
       <AnalysisNumberField label="Time budget" value={cutoffMinutes} min={1} max={240} unit="min"
         onChange={value => { if (value !== undefined) onCutoffChange(value) }} />

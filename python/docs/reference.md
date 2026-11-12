@@ -45,7 +45,9 @@ with vigo.open("./boston") as city:
 
 ## Build a City
 
-`vigo.build(output, *, gtfs, osm, private_access="public", street_modes="walk,drive", replace=False, runtime=None, timeout=1800.0, progress=None)` writes one complete City and returns it opened for queries. `gtfs` accepts one ZIP path or a sequence of paths; `osm` accepts one OSM PBF path. Missing input files raise `VigoError` before the build starts.
+`vigo.build(output, *, gtfs, osm, private_access="public", street_modes="walk,drive", replace=False, runtime=None, timeout=1800.0, progress=None, prepare_dates=())` writes one complete City and returns it opened for queries. `gtfs` accepts one ZIP path or a sequence of paths; `osm` accepts one OSM PBF path. Missing input files raise `VigoError` before the build starts.
+
+Build runs the `vigo` engine executable that ships with the selected runtime: the same Rust compiler as the engine's `vigo build`, the command-line compiler and Studio. A runtime whose engine cannot build, such as Engine 0.5, builds through the runtime instead.
 
 ```python
 with vigo.build(
@@ -60,6 +62,8 @@ with vigo.build(
 Use `street_modes="walk"` for a walking/transit-only City; the default `"walk,drive"` also prepares driving data.
 Choose `"walk,bike"` or `"walk,drive,bike"` to prepare bicycle streets. Bike data
 is optional and requires an engine advertising bicycle City preparation.
+
+`prepare_dates` takes service dates (`"YYYY-MM-DD"` or `datetime.date`) whose timetables are compiled into the City, so their first queries need no preparation. Other dates are prepared on first use.
 
 An existing City at `output` raises `VigoError`; pass `replace=True` only when you intend to replace it.
 `progress=None` shows Build stages and elapsed time in notebooks and terminals and

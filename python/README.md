@@ -17,7 +17,7 @@ python -m pip install "/path/to/vigo-1.0.0-py3-none-PLATFORM.whl[speed]"
 python -c "import vigo; print(vigo.__version__, vigo.resolve_runtime().product_version)"
 ```
 
-Platform wheels include the headless engine, so they need no Studio, system Node, or Rust. The optional extras are `speed` (faster JSON decoding with orjson) and `progress` (build progress with tqdm). From a source checkout, `python -m pip install -e .` installs the wrapper alone; point `VIGO_RUNTIME` at a VIGO V1 runtime, or [build a platform wheel](CONTRIBUTING.md#build-a-headless-wheel). [Runtime selection](docs/guide.md#select-a-runtime) covers every option.
+Platform wheels include the headless engine (its `vigo` executable, native kernel and a private Node), so they need no Studio, system Node, or Rust. The optional extras are `speed` (faster JSON decoding with orjson) and `progress` (build progress with tqdm). From a source checkout, `python -m pip install -e .` installs the wrapper alone; point `VIGO_RUNTIME` at a VIGO V1 runtime, or [build a platform wheel](CONTRIBUTING.md#build-a-headless-wheel). [Runtime selection](docs/guide.md#select-a-runtime) covers every option.
 
 ## Your first journey
 
@@ -94,7 +94,7 @@ with vigo.build("./boston", gtfs="./data/MBTA_GTFS.zip", osm="./data/massachuset
     print(city.name, city.revision_id, city.service_period())
 ```
 
-Build prints its stages in notebooks and terminals and checks the inputs before starting. Build once, then reopen the directory with `vigo.open()` in later sessions; replacing an existing City requires `replace=True`. Keep the whole directory, and keep the original GTFS and OSM files for reproducibility.
+Build runs the engine's Rust compiler, the same one behind `vigo build` and VIGO Studio, so a City is identical wherever it was built. It prints its stages in notebooks and terminals and checks the inputs before starting; `prepare_dates=["2026-10-05"]` compiles the dates you will query into the City. Build once, then reopen the directory with `vigo.open()` in later sessions; replacing an existing City requires `replace=True`. Keep the whole directory, and keep the original GTFS and OSM files for reproducibility.
 
 ## Performance
 

@@ -5,7 +5,8 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import JSZip from 'jszip'
 import { buildNationalGtfsStore, buildNationalGtfsCityStore, disposeNationalGtfsStore, ensureNationalGtfsOsmStopTransfers } from '../src/server/national-gtfs-store.mjs'
-import { buildNationalOsmWalkStore, compactNationalOsmRuntimeStore, disposeNationalOsmStore, prepareNationalOsmNativeStore } from '../src/server/national-osm-store.mjs'
+import { compactNationalOsmRuntimeStore, disposeNationalOsmStore, prepareNationalOsmNativeStore } from '../src/server/national-osm-store.mjs'
+import { buildWalkSnapshot } from './helpers/street-snapshots.mjs'
 import { cityCaseFeedIds, assertCaseRouteSources } from '../src/server/gtfs/source-selection.mjs'
 import { finalizeCurrentStreetFixture } from './helpers/street-fixture.mjs'
 import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
@@ -51,7 +52,7 @@ try {
     INSERT INTO walk_nodes VALUES(1,47,8),(2,47,8.02),(3,47,8.04);
     INSERT INTO edges VALUES(1,2,1520,1),(2,1,1520,1),(2,3,1520,2),(3,2,1520,2);`)
   finalizeCurrentStreetFixture(streets); streets.close()
-  assert(buildNationalOsmWalkStore(streetPath, { force: true, persist: true }).ready)
+  assert(buildWalkSnapshot(streetPath).ready)
   compactNationalOsmRuntimeStore(streetPath); disposeNationalOsmStore(streetPath)
   assert(prepareNationalOsmNativeStore(streetPath, { prepareCch: true }).ready)
   await ensureNationalGtfsOsmStopTransfers(storePath, streetPath)

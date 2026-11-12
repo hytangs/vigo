@@ -61,6 +61,7 @@ Source: `crates/vigo-runtime/src/exact_routing.rs`.
 | `traffic` | `Option<DriveTrafficInput>` | No | Optional directed drive-edge metric updates. |
 | `originSnapSeconds` | `Option<Vec<f64>>` | No | — |
 | `targetSnapSeconds` | `Option<Vec<f64>>` | No | — |
+| `durationsOnly` | `Option<bool>` | No | Report only each pair's least time. Distances stay unset, so neither a path is unpacked per pair nor `maximum_distance_meters` applied to it; a Reach grid reads only times. |
 
 ## DriveMatrixResult
 

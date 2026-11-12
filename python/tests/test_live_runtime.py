@@ -401,7 +401,7 @@ class LiveRuntimeTest(unittest.TestCase):
         self.assertEqual(route.status, "ready")
         self.assertEqual(len(route.value["waypoints"]), 1)
         arrival = dt.datetime.fromisoformat(route.value.get("clockDate") or route.value.get("diagnostics", {}).get("clockDate") or route.query["serviceDate"]) + dt.timedelta(minutes=route.value["arriveMinutes"])
-        self.assertEqual(arrival, dt.datetime(2026, 7, 15, 8, 30))
+        self.assertEqual((arrival.date(), arrival.time()), (dt.date(2026, 7, 15), dt.time(8, 30)))
         exported = route.export(Path(self.temporary.name) / "route.geojson")
         self.assertGreater(len(json.loads(exported.read_text())["features"]), 0)
         matrix = self.city.matrix({"a": "A"}, {"b": "B"}, service_date="2026-07-15")
@@ -437,7 +437,7 @@ class LiveRuntimeTest(unittest.TestCase):
             self.assertAlmostEqual(row["departMinutes"], point.value["departMinutes"], delta=0.000501)
             self.assertEqual(row["arriveMinutes"], point.value["arriveMinutes"])
             arrival = dt.datetime.fromisoformat(point.value.get("clockDate") or point.value.get("diagnostics", {}).get("clockDate") or point.query["serviceDate"]) + dt.timedelta(minutes=row["arriveMinutes"])
-            self.assertEqual(arrival, dt.datetime(2026, 7, 15, 8, 30))
+            self.assertEqual((arrival.date(), arrival.time()), (dt.date(2026, 7, 15), dt.time(8, 30)))
 
     def test_transfer_caps_use_the_resident_runtime_in_both_directions(self) -> None:
         for time in ({"depart_at": "07:55"}, {"arrive_by": "08:30"}):

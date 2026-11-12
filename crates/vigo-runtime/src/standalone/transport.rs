@@ -51,8 +51,10 @@ fn prepare_on_open() -> Result<Vec<&'static str>> {
     Ok(modes)
 }
 
-const HELP: &str = "VIGO — standalone Rust routing and isochrones
+const HELP: &str = "VIGO — standalone Rust City compiler, routing and isochrones
 
+  vigo build --gtfs feed.zip --osm region.osm.pbf --output ./city
+  vigo build-scenarios --spec scenarios.source.json --output ./scenario-set
   vigo serve --city ./city --host 0.0.0.0 --port 8080
   vigo serve --city ./city --ndw-poll ndw.json
   vigo health --port 8080
@@ -81,12 +83,35 @@ HTTP: GET /healthz, /readyz, /v1/capabilities, /v1/info
       POST /v1/route, /v1/matrix, /v1/reach, /v1/compare, /v1/native
 Set VIGO_API_TOKEN for bearer authentication. Non-loopback binds require it.
 VIGO_CITY and PORT supply deployment defaults. City files are read-only.
-No Node runtime or internet connection is needed for routing.
+vigo build --help and vigo build-scenarios --help list build options.
+Building and routing need no Node runtime or internet connection.
 ";
 pub(crate) fn error(error: impl std::fmt::Display) -> Value {
     crate::presentation::error(&error.to_string())
 }
 pub fn main() -> i32 {
+    if let Some(command) = env::args().nth(1).filter(|c| {
+        [
+            "build",
+            "build-scenarios",
+            "_build-gtfs-store",
+            "_build-street-store",
+            "_build-static-topology",
+            "_compact-gtfs-store",
+            "_stop-access-roles",
+            "_prepare-transfers",
+            "_remove-stop-transfers",
+            "_refresh-topology",
+            "_build-drive-store",
+            "_build-walk-store",
+            "_backfill-place-names",
+            "_compact-street-store",
+            "_build-terminal-access",
+        ]
+        .contains(&c.as_str())
+    }) {
+        return super::build::main(&command, env::args().skip(2).collect());
+    }
     match run() {
         Ok(()) => 0,
         Err(e) => {

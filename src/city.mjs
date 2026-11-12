@@ -5,8 +5,10 @@ import path from 'node:path'
 import { readNationalGtfsStoreMetadata, inspectNationalStaticTopologySidecar } from './server/national-gtfs-store.mjs'
 import { readNationalOsmStoreMetadata } from './server/national-osm-store.mjs'
 
-// Working directories beside a City name their owner, so a later run can tell
-// abandoned work from a live build, including one on another host sharing the disk.
+// The engine's `vigo build` publishes Cities. A query opening a City finishes
+// what a crashed publication left: working directories beside a City name
+// their owner, so a later run can tell abandoned work from a live build,
+// including one on another host sharing the disk.
 const hostTag = createHash('sha256').update(os.hostname()).digest('hex').slice(0, 8)
 
 function uniqueSibling(directory, role) {
@@ -30,39 +32,9 @@ function flush(target, flags) {
   }
 }
 
-export function syncDirectory(directory) {
+function syncDirectory(directory) {
   // Windows has no flushable directory handle.
   if (process.platform !== 'win32') flush(directory, 'r')
-}
-
-// City stores are written with synchronous=OFF. Flushing the finished tree before
-// the publishing rename stops a power loss from exposing a City with missing data.
-export function syncDirectoryTree(directory, flushed = new Set()) {
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    const entryPath = path.join(directory, entry.name)
-    if (entry.isDirectory()) syncDirectoryTree(entryPath, flushed)
-    else if (entry.isFile()) {
-      const { dev, ino } = fs.statSync(entryPath, { bigint: true })
-      const identity = `${dev}:${ino}` // Hard-linked street files need one flush.
-      if (flushed.has(identity)) continue
-      flushed.add(identity)
-      flush(entryPath, process.platform === 'win32' ? 'r+' : 'r')
-    }
-  }
-  syncDirectory(directory)
-}
-
-export function createCityStagingDirectory(outputDirectory) {
-  const resolved = path.resolve(outputDirectory)
-  const parent = path.dirname(resolved)
-  const firstCreated = fs.mkdirSync(parent, { recursive: true })
-  if (firstCreated) {
-    for (let directory = parent; directory.startsWith(firstCreated); directory = path.dirname(directory)) syncDirectory(directory)
-    syncDirectory(path.dirname(firstCreated))
-  }
-  const stagingDirectory = uniqueSibling(resolved, 'building')
-  fs.mkdirSync(stagingDirectory, { recursive: false })
-  return stagingDirectory
 }
 
 export function validateCityDirectory(directory) {
@@ -186,40 +158,4 @@ export function recoverCityPublication(outputDirectory) {
     }
   }
   return result
-}
-
-export function publishCity(stagingDirectory, outputDirectory, { replace = false, durable = true } = {}) {
-  const staged = path.resolve(stagingDirectory)
-  const output = path.resolve(outputDirectory)
-  if (path.dirname(staged) !== path.dirname(output)) {
-    throw new Error('The staged and published network directories must share one parent.')
-  }
-  if (!fs.statSync(staged).isDirectory()) {
-    throw new Error('The staged network package is not a directory.')
-  }
-  validateCityDirectory(staged)
-  const existing = fs.existsSync(output)
-  if (existing && !replace) {
-    throw new Error(`City already exists; pass --replace to replace it: ${output}`)
-  }
-  if (durable) syncDirectoryTree(staged)
-
-  const backup = uniqueSibling(output, 'previous')
-  let previousMoved = false
-  try {
-    if (existing) {
-      fs.renameSync(output, backup)
-      previousMoved = true
-    }
-    fs.renameSync(staged, output)
-  } catch (error) {
-    if (previousMoved && !fs.existsSync(output) && fs.existsSync(backup)) {
-      fs.renameSync(backup, output)
-    }
-    throw error
-  }
-
-  // The old City goes only after the new path is on disk.
-  if (durable) syncDirectory(path.dirname(output))
-  if (previousMoved) discardPreviousCity(backup, output)
 }

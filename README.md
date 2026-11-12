@@ -70,8 +70,8 @@ The engine, the compiler and Python open the same City directory and run the sam
 
 | Interface | Use it to | Release asset |
 | :--- | :--- | :--- |
-| **[Engine](docs/guides/rust-standalone.md)** (`vigo`) | Answer from the command line, a resident stream or a self-hosted [HTTP API](docs/guides/rust-standalone.md#http-api). One executable; no Node, Python or network access needed. | `VIGO-Rust-…` |
-| **[Compiler](docs/guides/cli-only.md)** (`vigo.mjs`) | Build Cities and scenario collections from GTFS and OpenStreetMap, and query them. Needs Node.js 24.18 or newer. | `VIGO-CLI-…` |
+| **[Engine](docs/guides/rust-standalone.md)** (`vigo`) | Build Cities from GTFS and OpenStreetMap, then answer from the command line, a resident stream or a self-hosted [HTTP API](docs/guides/rust-standalone.md#http-api). One executable; no Node, Python or network access needed. | `VIGO-Rust-…` |
+| **[Compiler](docs/guides/cli-only.md)** (`vigo.mjs`) | Build Cities and scenario collections with the engine's compiler, and query them from Node.js 24.18 or newer. | `VIGO-CLI-…` |
 | **[Studio](docs/guide.md#vigo-studio)** | Explore networks, plan journeys, map Reach and edit scenarios on the desktop. No coding required. | `VIGO-Studio-…` |
 | **[Python](python/README.md)** (`import vigo`) | Run studies, batches and notebooks, and export journey and leg tables. Needs Python 3.10 or newer. | `VIGO-Python-…` |
 
@@ -81,7 +81,7 @@ To plan a journey in your browser, open the [route planner](https://app.vigo.cit
 
 ## Get started
 
-[Download](https://github.com/hytangs/vigo/releases) the engine and the compiler for your platform, or build both from source with Node.js 24.18+, npm 11.6+, a C toolchain and the Rust toolchain pinned in `rust-toolchain.toml`. On a build host with 4 GiB of memory or less, the build selects [low-memory settings](docs/developer.md#build-on-a-small-machine) automatically.
+[Download](https://github.com/hytangs/vigo/releases) the engine for your platform, or build it and the compiler from source with Node.js 24.18+, npm 11.6+, a C toolchain and the Rust toolchain pinned in `rust-toolchain.toml`. On a build host with 4 GiB of memory or less, the build selects [low-memory settings](docs/developer.md#build-on-a-small-machine) automatically.
 
 ```bash
 git clone https://github.com/hytangs/vigo.git && cd vigo
@@ -95,7 +95,7 @@ alias vigo="\"$PWD/target/release/vigo\""
 Build a City from a GTFS ZIP and an OpenStreetMap extract that covers it:
 
 ```bash
-vigo-build build --gtfs ./data/transit.zip --osm ./data/streets.osm.pbf --output ./city
+vigo build --gtfs ./data/transit.zip --osm ./data/streets.osm.pbf --output ./city
 ```
 
 A City prepares walking and driving streets by default. Add `--street-modes walk` for a walk-and-transit City without driving data, or `--street-modes walk,bike` or `walk,drive,bike` to add cycling.

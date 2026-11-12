@@ -149,13 +149,6 @@ pub fn read_service_timetable(input: ServiceTimetableInput) -> Result<ServiceTim
         .map(Into::into)
         .map_err(node_error)
 }
-#[napi]
-pub fn compile_gtfs_connections(input: GtfsConnectionInput) -> Result<GtfsConnectionResult> {
-    vigo_prepare::compile_gtfs_connections(input.into())
-        .map(Into::into)
-        .map_err(node_error)
-}
-
 pub(crate) fn boarding_layers(maximum: Option<u32>) -> Result<usize> {
     vigo_route::timetable::boarding_layers(maximum).map_err(node_error)
 }

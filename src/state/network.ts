@@ -3,6 +3,7 @@ import { apiJson } from '../app/api'
 import { mergeGtfsRouteAnalysis, routeHasCompleteGtfsAnalysis, type GtfsRouteAnalysis } from '../app/gtfsAnalysis'
 import { previewForSelectedRoute } from '../app/mapPresentation'
 import { rememberRoute } from '../app/navigationMemory'
+import { readyScheduleFeeds, scheduleFeedReady } from '../app/networkSchedule'
 import { findNetworkRoute, findNetworkStop, networkRouteId } from '../app/networkSelection'
 import { bundleFeedId } from '../app/projectState'
 import type { RealtimeInspectRequest } from '../app/realtime'
@@ -117,14 +118,19 @@ export const focusedMapPreview = () => focusedMapPreviewOf(preview(), selectedRo
 /** Network shows the full scheduled day; other workspaces honor the status filter. */
 export const workbenchMapPreview = () => shell.get().activeRouteTool === 'agency' && network.get().vehicleMode === 'schedule' ? preview() : visiblePreview()
 
-const scheduleRequestsKeyOf = memoizeLast((routes: RouteMetric[], activeFeedId: string) => JSON.stringify([...new Map(routes.map((entry) => {
+const scheduleRequestsKeyOf = memoizeLast((routes: RouteMetric[], activeFeedId: string, readyFeeds: string) => JSON.stringify([...new Map(routes.map((entry) => {
   const feedId = activeFeedId === bundleFeedId ? entityFeedScope(entry.id) : activeFeedId
   const routeId = entry.routeId || entry.id
   return [`${feedId}/${routeId}`, { feedId, routeId }] as const
-})).values()].sort((a, b) => `${a.feedId}/${a.routeId}`.localeCompare(`${b.feedId}/${b.routeId}`))))
+})).values()].filter(request => scheduleFeedReady(readyFeeds, request.feedId))
+  .sort((a, b) => `${a.feedId}/${a.routeId}`.localeCompare(`${b.feedId}/${b.routeId}`))))
 
-/** Every route's feed and id in the scoped preview, as a stable key for full-day schedule loads. */
-export const scheduleRequestsKey = () => scheduleRequestsKeyOf(preview().routes, city.get().activeFeedId)
+/**
+ * Every route's feed and id in the scoped preview whose timetable store is
+ * ready, as a stable key for full-day schedule loads. The key grows as stores
+ * finish, which starts the load without a retry.
+ */
+export const scheduleRequestsKey = () => scheduleRequestsKeyOf(preview().routes, city.get().activeFeedId, readyScheduleFeeds(selectedProject()))
 
 let routeAnalysisAbort: AbortController | null = null
 let routeAnalysisKey = ''

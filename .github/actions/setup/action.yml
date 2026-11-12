@@ -1,0 +1,41 @@
+name: Set up VIGO
+description: Node with locked npm dependencies, the pinned Rust toolchain and the restored Rust build cache.
+inputs:
+  rust:
+    description: Install Rust where the runner lacks it and restore the build cache.
+    default: 'true'
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version-file: .nvmrc
+        cache: npm
+    - run: npm ci
+      shell: bash
+    # The macOS 15 runner image has no Rust. rust-toolchain.toml pins the version.
+    - name: Install Rust on macOS
+      if: inputs.rust == 'true' && runner.os == 'macOS'
+      shell: bash
+      run: |
+        if [ ! -x "$HOME/.cargo/bin/cargo" ]; then
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+        fi
+        "$HOME/.cargo/bin/rustup" toolchain install
+        echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+    - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      if: inputs.rust == 'true'
+      id: rust-cache
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: rust-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-${{ github.sha }}
+        restore-keys: |
+          rust-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-
+    - if: inputs.rust == 'true'
+      shell: bash
+      run: |
+        echo "VIGO_RUST_CACHE_KEY=${{ steps.rust-cache.outputs.cache-primary-key }}" >> "$GITHUB_ENV"
+        echo "VIGO_RUST_CACHE_HIT=${{ steps.rust-cache.outputs.cache-hit }}" >> "$GITHUB_ENV"

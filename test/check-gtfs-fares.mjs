@@ -6,7 +6,6 @@ import { DatabaseSync } from 'node:sqlite'
 import JSZip from 'jszip'
 import { quoteBoardingFare, farePriceLabel } from '../src/fares.mjs'
 import { parseFareAmount } from '../src/farePresentation.mjs'
-import { writeGtfsFareCatalog } from '../src/server/gtfs-fare-store.mjs'
 import { buildNationalGtfsStore, buildNationalGtfsCityStore, mergeNationalGtfsStores, disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
 
 const catalog = () => ({ version: 1, source: 'fixture.zip', tables: {
@@ -165,44 +164,27 @@ try {
   await fs.writeFile(zipPath, await zip.generateAsync({ type: 'nodebuffer' }))
   const metadata = await buildNationalGtfsStore({ zipPath, outputPath: storePath })
   assert.equal(metadata.fareData.standard, 'GTFS Fares v2')
-  const dbSchedule = new DatabaseSync(':memory:')
-  dbSchedule.exec("CREATE TABLE connections(trip_id TEXT, stop_sequence INTEGER, departure INTEGER, arrival INTEGER, from_stop_id TEXT, to_stop_id TEXT); INSERT INTO connections VALUES('TR',1,28800,29400,'S','T'); CREATE TABLE fare_catalogs(scope TEXT, data TEXT)")
-  const timed = catalog()
-  timed.tables.fare_leg_rules[0].from_timeframe_group_id = 'am'
-  timed.tables.timeframes = [{ timeframe_group_id: 'am', service_id: 'WKD', start_time: '08:00:00', end_time: '08:05:00' }]
-  timed.tables.calendar_dates = c.tables.calendar_dates
-  dbSchedule.prepare('INSERT INTO fare_catalogs VALUES(?,?)').run('', JSON.stringify(timed))
-  dbSchedule.exec("INSERT INTO connections VALUES('TR',2,29400,29700,'T','S'),('TR',3,29700,30000,'S','T')")
-  writeGtfsFareCatalog(dbSchedule, timed)
-  dbSchedule.close()
+  // The compiler stores each feed's catalog; quotes read it from the store.
+  const storedCatalogs = (file) => {
+    const db = new DatabaseSync(file, { readOnly: true })
+    try {
+      return db.prepare('SELECT scope, data FROM fare_catalogs ORDER BY scope').all().map(row => [row.scope, JSON.parse(row.data)])
+    } finally { db.close() }
+  }
+  const [[scope, stored]] = storedCatalogs(storePath)
+  assert.equal(scope, '')
+  assert.equal(stored.source, 'fare.zip')
+  assert.equal(farePriceLabel(quote(stored).options), '$2.40', 'The stored catalog prices the fixture ride.')
   for (const build of ['merge', 'city']) {
     const outputPath = path.join(root, `${build}.sqlite`)
     if (build === 'merge') await mergeNationalGtfsStores({ stores: ['one', 'two'].map(scope => ({ scope, storePath })), outputPath })
     else await buildNationalGtfsCityStore({ feeds: ['one', 'two'].map(scope => ({ scope, path: zipPath })), outputPath })
-    const db = new DatabaseSync(outputPath, { readOnly: true })
-    try {
-      for (const scope of ['one', 'two']) {
-        const leg = { ...ride, routeId: `${scope}\u001fR`, fromStopId: `${scope}\u001fS`, toStopId: `${scope}\u001fT` }
-      }
-    } finally { db.close() }
+    const scoped = storedCatalogs(outputPath)
+    assert.deepEqual(scoped.map(([scope]) => scope), ['one', 'two'], `${build}: one catalog per feed scope`)
+    for (const [, feedCatalog] of scoped) assert.equal(farePriceLabel(quote(feedCatalog).options), '$2.40', build)
   }
-  const legacy = new DatabaseSync(':memory:')
-  legacy.close()
-  const broken = new DatabaseSync(':memory:')
-  broken.exec("CREATE TABLE fare_catalogs(scope TEXT PRIMARY KEY,data TEXT); INSERT INTO fare_catalogs VALUES('', 'broken json')")
-  broken.close()
-  const isolated = new DatabaseSync(':memory:')
-  writeGtfsFareCatalog(isolated, catalog())
-  writeGtfsFareCatalog(isolated, catalog())
-  writeGtfsFareCatalog(isolated, catalog())
-  const replacement = catalog(); replacement.tables.fare_products[0].amount = '4.00'
-  writeGtfsFareCatalog(isolated, replacement)
-  isolated.close()
-  const bounded = new DatabaseSync(':memory:')
-  for (let i = 0; i < 10; i++) writeGtfsFareCatalog(bounded, catalog(), `scope${i}`)
-  bounded.close()
 } finally {
   disposeAllNationalGtfsStores()
   await fs.rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }
-console.log('GTFS fare matching, import, merged-feed scoping and routing annotation passed.')
+console.log('GTFS fare matching, stored catalogs and merged-feed scoping passed.')

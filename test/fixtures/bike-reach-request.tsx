@@ -1,5 +1,6 @@
 // Actual App controls and request state; native HTTP tests cover computation.
 import { flushSync } from 'react-dom'
+import { reachExtent } from '../../src/app/reachExtent'
 import './analysis-request'
 
 const requests: Record<string, any>[] = [], originalFetch = window.fetch
@@ -37,7 +38,9 @@ async function check() {
   fill(field('Endpoint walk limit'), '0.35'); fill(field('Endpoint walking speed'), '4.65')
   const depart = await run()
   assert(depart.mode === 'bike' && depart.bike.profile === 'quiet' && depart.bike.speedKph === 23 && depart.bike.maxLts === 2, 'Bike settings missing')
-  assert(depart.surfaceSampling === 'cell-center' && depart.includeStreetEdges === false && depart.rasterSize === 48 && depart.radiusKm === 8, 'Bike grid settings incorrect')
+  // The square holds everything the budget can cycle, not a fixed 8 km.
+  const area = reachExtent('bike', Math.max(...depart.cutoffsMinutes), { profile: 'quiet', speedKph: 23 })
+  assert(depart.surfaceSampling === 'cell-center' && depart.includeStreetEdges === false && depart.rasterSize === area.rasterSize && depart.radiusKm === area.radiusKm && area.radiusKm > 8, 'Bike grid settings incorrect: ' + JSON.stringify({ radiusKm: depart.radiusKm, rasterSize: depart.rasterSize, area }))
   assert(depart.maxWalkKm === 0.35 && depart.walkSpeedKph === 4.65 && !depart.monteCarlo, 'Endpoint or simulation settings incorrect')
   const arriveButton = [...document.querySelectorAll<HTMLButtonElement>('.reach-time-preference button')].find(b => b.textContent === 'Arrive by')!
   assert(arriveButton, 'Missing arrive-by'); flushSync(() => arriveButton.click())

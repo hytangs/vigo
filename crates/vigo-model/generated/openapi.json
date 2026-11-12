@@ -525,9 +525,60 @@
         ],
         "type": "array"
       },
+      "BuildCapabilities": {
+        "description": "City compilation from GTFS ZIPs and an OpenStreetMap PBF.",
+        "properties": {
+          "multipleFeeds": {
+            "description": "Several scoped GTFS feeds in one City.",
+            "type": "boolean"
+          },
+          "prepareDates": {
+            "description": "`--prepare-date` compiles service dates ahead of queries.",
+            "type": "boolean"
+          },
+          "privateAccess": {
+            "description": "Accepted `--private-access` values.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "sharedStreets": {
+            "description": "`--streets-from` reuses another City's identical streets.",
+            "type": "boolean"
+          },
+          "streetModes": {
+            "description": "Accepted `--street-modes` values.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "wheelchairStreets": {
+            "description": "Accepted `--wheelchair-streets` evidence for a wheelchair City.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "streetModes",
+          "privateAccess",
+          "wheelchairStreets",
+          "multipleFeeds",
+          "prepareDates",
+          "sharedStreets"
+        ],
+        "type": "object"
+      },
       "Capabilities": {
         "description": "Check these before relying on an optional feature.",
         "properties": {
+          "build": {
+            "$ref": "#/components/schemas/BuildCapabilities",
+            "description": "`vigo build` options. Absent on runtimes that only open prepared Cities."
+          },
           "cityFormat": {
             "type": "string"
           },

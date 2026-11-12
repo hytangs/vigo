@@ -34,6 +34,7 @@ from .runtime import (
     VigoError,
     VigoTimeoutError,
     _command_environment,
+    build_command,
     resolve_runtime,
     run_json,
 )
@@ -203,7 +204,7 @@ def _clock(
             raise InvalidQuery("time must use HH:MM")
         clock = f"{int(match.group(1)):02d}:{match.group(2)}"
     else:
-        raise InvalidQuery("a departure or arrival time is required")
+        raise InvalidQuery("pass depart_at= or arrive_by= as HH:MM, a datetime.time or a datetime.datetime")
     if selected_date is None:
         raise InvalidQuery("service_date is required unless time is a datetime")
     return clock, selected_date
@@ -899,7 +900,7 @@ class City:
             return None
 
         def parse(value: Any) -> dt.date:
-            return dt.datetime.strptime(str(value), "%Y%m%d").date()
+            return dt.datetime.strptime(str(value), "%Y%m%d").replace(tzinfo=dt.timezone.utc).date()
 
         return parse(min(days)), parse(max(days))
 
@@ -1542,9 +1543,17 @@ def open(
     manifest_path = path / "network.json"
     routing = path / "routing" / "project.sqlite"
     streets = path / "osm" / "street-index.sqlite"
+    if not path.is_dir():
+        raise VigoError(f"No City at {path}. Build one with vigo.build(), or check the path.")
+    if (path / "scenarios.json").is_file() and not manifest_path.is_file():
+        raise VigoError(
+            f"{path} is a scenario collection. Open one of its Cities, such as "
+            f"{path / 'cities' / '<scenario>'}, or query the collection with the engine's --scenario option."
+        )
     if not manifest_path.is_file() or not routing.is_file() or not streets.is_file():
         raise VigoError(
-            "City must contain network.json, routing/project.sqlite, and osm/street-index.sqlite"
+            f"{path} is not a complete City: it must contain network.json, routing/project.sqlite, "
+            "and osm/street-index.sqlite"
         )
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -1582,13 +1591,15 @@ def build(
     runtime: RuntimeInfo | str | os.PathLike[str] | Sequence[str] | None = None,
     timeout: float = 1_800.0,
     progress: bool | None = None,
+    prepare_dates: Sequence[str | dt.date] = (),
 ) -> City:
     """Build one City directly from GTFS and OSM, then open it.
 
     Building takes minutes for a metropolitan region. Build once, then reopen
     the saved directory with :func:`open`. ``progress`` defaults to showing
     stages and elapsed time in notebooks and terminals; pass ``False`` to
-    silence it.
+    silence it. ``prepare_dates`` compiles those service dates' timetables
+    into the City, so their first queries need no preparation.
     """
 
     output_path = Path(output).expanduser().resolve()
@@ -1607,6 +1618,9 @@ def build(
     if progress is None:
         progress = _interactive()
     runtime_info = resolve_runtime(runtime)
+    if isinstance(prepare_dates, (str, dt.date)):
+        prepare_dates = [prepare_dates]
+    dates = [_date_text(date) for date in prepare_dates]
     if private_access not in {"public", "endpoints"}:
         raise ValueError("private_access must be public or endpoints")
     if street_modes not in {"walk", "walk,drive", "walk,bike", "walk,drive,bike"}:
@@ -1620,11 +1634,13 @@ def build(
         *(f"--gtfs={Path(source).expanduser().resolve()}" for source in sources),
         f"--osm={Path(osm).expanduser().resolve()}",
         f"--street-modes={street_modes}",
+        *(f"--prepare-date={date}" for date in dates),
         *(["--private-access=endpoints"] if private_access == "endpoints" else []),
         f"--output={output_path}",
         *(["--replace"] if replace else []),
     ]
-    run_json(runtime_info, arguments, timeout=timeout, progress=progress)
+    run_json(runtime_info, arguments, timeout=timeout, progress=progress,
+             command=build_command(runtime_info))
     return open(output_path, runtime=runtime_info)
 
 

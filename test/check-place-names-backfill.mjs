@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
-import { copyFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
@@ -43,19 +42,16 @@ try {
   writeOsmFixture(wrongPbf, ({ way }) => way([[1, 1], [1, 2]], { highway: 'primary', name: 'Wrong Street' }))
   await assert.rejects(backfillPlaceNames({ streetPath, pbfPath: wrongPbf }), /fingerprint does not match/)
   assert.equal(await hash(streetPath), before, 'Wrong-source failure must not write any City bytes')
-  const changingPbf = path.join(folder, 'changing.pbf')
-  await fs.copyFile(pbfPath, changingPbf)
-  await assert.rejects(backfillPlaceNames({ streetPath, pbfPath: changingPbf,
-    onProgress({ phase, progress }) {
-      if (phase === 'Selecting named ways' && progress === 1) copyFileSync(wrongPbf, changingPbf)
-    },
-  }), /fingerprint does not match/)
-  assert.equal(await hash(streetPath), before, 'A source change between passes must leave the City unchanged')
-  const controller = new AbortController()
-  await assert.rejects(backfillPlaceNames({ streetPath, pbfPath, signal: controller.signal,
-    onProgress({ phase }) { if (phase === 'Resolving named-way geometry') controller.abort() },
-  }), { name: 'AbortError' })
+  // A source that changes between the two PBF passes, and cancellation
+  // during a pass, are checked in crates/vigo-osm/tests/place_names.rs, where
+  // progress callbacks run inside the passes.
+  await assert.rejects(backfillPlaceNames({ streetPath, pbfPath, signal: AbortSignal.abort() }), { name: 'AbortError' })
   assert.equal(await hash(streetPath), before, 'Cancellation must leave the City unchanged')
+  const phases = new Set()
+  await assert.rejects(backfillPlaceNames({ streetPath: path.join(folder, 'missing.sqlite'), pbfPath,
+    onProgress({ phase }) { phases.add(phase) } }))
+  assert.equal(phases.size, 0, 'A missing store fails before reading the PBF')
+  await assert.rejects(fs.stat(path.join(folder, 'missing.sqlite')), { code: 'ENOENT' })
 
   assert.deepEqual(await describeNativePlaces(streetPath, '', points), [null, null, null])
   const result = await backfillPlaceNames({ streetPath, pbfPath })
@@ -105,7 +101,7 @@ try {
   db.close(); db = null
   assert.equal((await fs.readdir(folder)).some((name) => name.startsWith('.place-names-')), false, 'Success and failures clean staging data')
   console.log(JSON.stringify({ status: 'passed', streets: result.streets, areas: result.areas,
-    checks: ['source mismatch', 'source changed between passes', 'cancellation', 'basemap/metadata preservation', 'warm reload', 'idempotence', 'incomplete index repair', 'publication rollback', 'WAL reload', 'staging cleanup'] }))
+    checks: ['source mismatch', 'cancellation', 'basemap/metadata preservation', 'warm reload', 'idempotence', 'incomplete index repair', 'publication rollback', 'WAL reload', 'staging cleanup'] }))
 } finally {
   db?.close()
   await fs.rm(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })

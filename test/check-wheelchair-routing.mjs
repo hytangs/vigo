@@ -11,99 +11,12 @@ import { DatabaseSync } from 'node:sqlite'
 import JSZip from 'jszip'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 import { standaloneBinary } from './helpers/standalone-runtime.mjs'
-import { wheelchairBoardingValues, wheelchairPathwayCost, wheelchairWayAllowed, wheelchairNodeAllowed, wheelchairStreetPolicy } from '../src/server/wheelchair-policy.mjs'
+import { wheelchairStreetPolicy } from '../src/server/wheelchair-policy.mjs'
 
-const wheelchairPathwaySeconds = (row, options) => wheelchairPathwayCost(row, options)?.seconds ?? null
-
-assert.deepEqual([...wheelchairBoardingValues(new Map([
-  ['child', { boarding: 0, parent: 'parent' }], ['parent', { boarding: 1 }],
-  ['denied', { boarding: 2, parent: 'parent' }], ['unknown', { boarding: 0 }],
-]))], [['child', 1], ['parent', 1], ['denied', 2], ['unknown', 0]])
-assert.throws(() => wheelchairBoardingValues(new Map([['a', { boarding: 0, parent: 'b' }], ['b', { boarding: 0, parent: 'a' }]])), /Cyclic/)
-for (const row of [
-  { pathway_mode: 2, wheelchair_traversal_time: 20 }, { pathway_mode: 4, wheelchair_traversal_time: 20 },
-  { pathway_mode: 1, traversal_time: 20 }, { pathway_mode: 5, wheelchair_traversal_time: -1 },
-  { pathway_mode: 1, wheelchair_traversal_time: 20, stair_count: -1 },
-  { pathway_mode: 1, wheelchair_traversal_time: 20, max_slope: -.2 },
-]) assert.equal(wheelchairPathwaySeconds(row), null)
-assert.equal(wheelchairPathwaySeconds({ pathway_mode: 5, wheelchair_traversal_time: 40 }), 40)
-assert.equal(wheelchairPathwaySeconds({ pathway_mode: 1, wheelchair_length: 40 }), 30)
-for (const row of [
-  { pathway_mode: 2, wheelchair_length: 40 }, { pathway_mode: 5, wheelchair_length: 40 },
-  { pathway_mode: 1, wheelchair_length: 40, stair_count: 1 },
-  { pathway_mode: 1, wheelchair_length: 40, max_slope: .2 },
-  { pathway_mode: 1, wheelchair_length: 40, min_width: .5 },
-  { pathway_mode: 1, wheelchair_length: 0 }, { pathway_mode: 1, wheelchair_length: -1 },
-  { pathway_mode: 1, wheelchair_length: 'invalid' }, { pathway_mode: 6 },
-]) assert.equal(wheelchairPathwaySeconds(row), null)
-assert.equal(wheelchairPathwaySeconds({ pathway_mode: 1, traversal_time: 15, max_slope: .02, min_width: 1.2 }), 15)
-const zeroLengthWalk = { pathway_mode: 1, wheelchair_length: 0, length: 20 }
-assert.deepEqual(wheelchairPathwayCost(zeroLengthWalk, { accessibleEndpoints: true, sameLevel: true }),
-  { seconds: 15, provenance: 'gtfs_pathway_estimated' })
-for (const options of [{}, { accessibleEndpoints: true }, { sameLevel: true }]) {
-  assert.equal(wheelchairPathwaySeconds(zeroLengthWalk, options), null)
-}
-for (const denied of [{ length: 0 }, { length: '' }, { length: 'invalid' }, { wheelchair_length: -1 },
-  { wheelchair_traversal_time: -1 }, { pathway_mode: 2 }, { pathway_mode: 5 }, { min_width: .5 }, { max_slope: .2 }]) {
-  assert.equal(wheelchairPathwaySeconds({ ...zeroLengthWalk, ...denied }, { accessibleEndpoints: true, sameLevel: true }), null)
-}
-for (const pathway_mode of [6, 7]) {
-  assert.deepEqual(wheelchairPathwayCost({ pathway_mode }, { accessibleEndpoints: true }),
-    { seconds: 5, provenance: 'gtfs_pathway_estimated' })
-  assert.deepEqual(wheelchairPathwayCost({ pathway_mode, traversal_time: 12 }, { accessibleEndpoints: true }),
-    { seconds: 12, provenance: 'gtfs_pathway' })
-  assert.equal(wheelchairPathwaySeconds({ pathway_mode }, { accessibleEndpoints: false }), null)
-  for (const denied of [{ min_width: .5 }, { max_slope: .2 }, { stair_count: 1 },
-    { wheelchair_traversal_time: -1 }, { wheelchair_length: -1 }, { traversal_time: 'invalid' }]) {
-    assert.equal(wheelchairPathwaySeconds({ pathway_mode, ...denied }, { accessibleEndpoints: true }), null)
-  }
-}
-for (const pathway_mode of [1, 2, 4, 5]) {
-  assert.equal(wheelchairPathwaySeconds({ pathway_mode }, { accessibleEndpoints: true }), null,
-    'Accessible nodes cannot turn unknown walkways, stairs, escalators or elevators into usable paths')
-}
-assert.equal(wheelchairWayAllowed({ highway: 'footway', wheelchair: 'yes' }), true)
-// Verified street evidence uses only ways tagged wheelchair=yes.
-for (const tags of [{ highway: 'footway' }, { highway: 'steps', wheelchair: 'yes' }, { wheelchair: 'limited' }, { wheelchair: 'yes', incline: '20%' }]) assert.equal(wheelchairWayAllowed(tags, 'verified'), false)
-for (const tags of [{ barrier: 'stile', wheelchair: 'yes' }, { barrier: 'gate' }, { barrier: 'kerb', kerb: 'lowered' }, { kerb: 'raised' }, { wheelchair: 'no' }, { 'wheelchair:conditional': 'yes @ (Mo-Fr)' }]) assert.equal(wheelchairNodeAllowed(tags, 'verified'), false)
-// Inferred streets can lack wheelchair or surface tags. A positive wheelchair
-// tag overrides the surface and trail inference, but not physical dimensions.
-assert.equal(wheelchairWayAllowed({ highway: 'footway', surface: 'gravel' }), false)
-assert.equal(wheelchairWayAllowed({ highway: 'footway', surface: 'gravel', wheelchair: 'yes' }), true)
-assert.equal(wheelchairWayAllowed({ highway: 'footway', surface: 'gravel', wheelchair: 'yes', width: '.6' }), false)
-for (const tags of [{ highway: 'footway' }, { highway: 'residential' }, { highway: 'path', surface: 'asphalt' }, { highway: 'footway', incline: '5%' }]) assert.equal(wheelchairWayAllowed(tags), true, JSON.stringify(tags))
-for (const tags of [{ highway: 'path' }, { highway: 'track', surface: 'gravel' }, { highway: 'footway', surface: 'cobblestone' }, { highway: 'footway', smoothness: 'bad' },
-  { highway: 'path', surface: 'asphalt', sac_scale: 'mountain_hiking' }, { highway: 'steps' }, { highway: 'footway', wheelchair: 'no' }, { highway: 'footway', incline: '12%' }, { highway: 'footway', width: '0.6' }]) {
-  assert.equal(wheelchairWayAllowed(tags), false, JSON.stringify(tags))
-}
-for (const tags of [{ barrier: 'gate' }, { barrier: 'bollard' }, { barrier: 'kerb', kerb: 'lowered' }, {}]) assert.equal(wheelchairNodeAllowed(tags), true, JSON.stringify(tags))
-for (const tags of [{ barrier: 'gate', locked: 'yes' }, { barrier: 'kerb' }, { barrier: 'stile' }, { barrier: 'cycle_barrier' }, { kerb: 'raised' }, { wheelchair: 'no' }]) assert.equal(wheelchairNodeAllowed(tags), false, JSON.stringify(tags))
+// Boarding inheritance, pathway pricing and street rules are compiled by
+// Rust and tested there: crates/vigo-gtfs/tests/wheelchair_policy.rs and the
+// wheelchair_tests module of crates/vigo-osm/src/rules.rs.
 assert.throws(() => wheelchairStreetPolicy('assumed'), /inferred or verified/)
-// Malformed slope tags must not turn unknown access into an accessible edge.
-for (const incline of ['.%', '1.2.3%', '+.%', '--2%', 'NaN%', 'Infinity%']) {
-  assert.equal(wheelchairWayAllowed({ highway: 'footway', wheelchair: 'yes', incline }), false, incline)
-  assert.equal(wheelchairNodeAllowed({ wheelchair: 'yes', incline }), false, incline)
-}
-for (const incline of ['0', '0%', '+8.3%', '-8.3%', '.5%']) {
-  assert.equal(wheelchairWayAllowed({ highway: 'footway', wheelchair: 'yes', incline }), true, incline)
-}
-// up, down and yes give a slope without a grade. wheelchair=yes vouches for
-// it; on a way of unknown accessibility the slope stays unproved.
-for (const incline of ['up', 'down', 'yes', 'UP']) {
-  for (const streets of ['inferred', 'verified']) {
-    assert.equal(wheelchairWayAllowed({ highway: 'footway', wheelchair: 'yes', incline }, streets), true, `${incline}/${streets}`)
-  }
-  assert.equal(wheelchairWayAllowed({ highway: 'footway', incline }), false, incline)
-  assert.equal(wheelchairWayAllowed({ highway: 'footway', wheelchair: 'limited', incline }), false, incline)
-  assert.equal(wheelchairNodeAllowed({ incline }), false, incline)
-}
-for (const incline of ['steep', '5°', '12%', '-9%']) {
-  assert.equal(wheelchairWayAllowed({ highway: 'footway', wheelchair: 'yes', incline }), false, incline)
-}
-assert.equal(wheelchairWayAllowed({ highway: 'steps', wheelchair: 'yes', incline: 'up' }), false)
-assert.equal(wheelchairWayAllowed({ highway: 'footway', wheelchair: 'yes', incline: 'up', width: '0.6' }), false)
-assert.equal(wheelchairNodeAllowed({}), true)
-assert.equal(wheelchairNodeAllowed({ barrier: 'gate', wheelchair: 'yes' }), true)
 
 const root = path.resolve(import.meta.dirname, '..')
 const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-wheelchair-'))
@@ -198,19 +111,38 @@ try {
     VIGO_PROJECTS_DIR: path.join(folder, 'cities'), VIGO_CONFIG_DIR: path.join(folder, 'config'), VIGO_ROUTE_PROJECT_PREWARM: '0' } })
   try {
     fs.renameSync(path.join(studio, 'wheelchair'), path.join(studio, 'wheelchair-test-backup'))
+    // A preparation that VIGO's exit interrupted leaves its staging folder.
+    fs.mkdirSync(path.join(studio, '.wheelchair-staging-interrupted', 'wheelchair'), { recursive: true })
+    const backups = () => fs.readdirSync(studio).filter(name => name.startsWith('wheelchair-backup-')).length
+    const backupsBefore = backups()
+    const completed = async id => {
+      const deadline = Date.now() + 60000
+      let job
+      do {
+        await new Promise(resolve => setTimeout(resolve, 50))
+        job = (await api.requestJson(`/api/projects/fixture/national-gtfs-job?jobId=${id}`)).body.job
+      } while (['queued', 'running'].includes(job?.status) && Date.now() < deadline)
+      assert.equal(job?.status, 'complete', JSON.stringify(job))
+      return job
+    }
+    // Opening a City without a current profile prepares one by default.
     const preparation = await api.requestJson('/api/projects/fixture/wheelchair-availability', { method: 'POST', body: { feedId: 'feed' } })
     assert.equal(preparation.body.available, false)
     assert.equal(preparation.body.canPrepare, true)
+    assert(preparation.body.preparing, JSON.stringify(preparation.body))
     const started = await api.requestJson('/api/projects/fixture/wheelchair-prepare', { method: 'POST', body: { feedId: 'feed' } })
     assert.equal(started.status, 202, JSON.stringify(started.body))
-    const deadline = Date.now() + 60000
-    let job
-    do {
-      await new Promise(resolve => setTimeout(resolve, 50))
-      const response = await api.requestJson(`/api/projects/fixture/national-gtfs-job?jobId=${started.body.job.id}`)
-      job = response.body.job
-    } while (['queued', 'running'].includes(job?.status) && Date.now() < deadline)
-    assert.equal(job?.status, 'complete', JSON.stringify(job))
+    assert.equal(started.body.job.id, preparation.body.preparing, 'An explicit request joins the default preparation')
+    await completed(started.body.job.id)
+    assert(studioWheelchairSelection(studio, project, { wheelchair: true }))
+    assert(!fs.existsSync(path.join(studio, '.wheelchair-staging-interrupted')), 'Interrupted staging was not removed')
+    const again = await api.requestJson('/api/projects/fixture/wheelchair-availability', { method: 'POST', body: { feedId: 'feed' } })
+    assert.deepEqual(again.body, { available: true })
+    // Rebuilding over a current profile replaces it without keeping a copy.
+    const rebuilt = await api.requestJson('/api/projects/fixture/wheelchair-prepare', { method: 'POST', body: { feedId: 'feed' } })
+    assert.equal(rebuilt.status, 202, JSON.stringify(rebuilt.body))
+    assert.equal((await completed(rebuilt.body.job.id)).result.replaced, true)
+    assert.equal(backups(), backupsBefore, 'A rebuilt wheelchair profile left a backup')
     assert(studioWheelchairSelection(studio, project, { wheelchair: true }))
     for (const [feedId, available] of [['feed', true], ['unrelated', false]]) {
       const capability = await api.requestJson('/api/projects/fixture/wheelchair-availability', { method: 'POST', body: { feedId } })

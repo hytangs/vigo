@@ -61,12 +61,12 @@ Search this guide with `/`. Check [Troubleshooting](#troubleshooting) and [Known
 
 ## Install VIGO
 
-VIGO has four entry points. Most projects use two: the **compiler** builds a City once from raw data, and the **engine** answers queries from it for as long as you like.
+VIGO has four entry points. Most projects need only the **engine**: `vigo build` compiles a City once from raw data, and `vigo` answers queries from it for as long as you like. The **compiler** runs the same build and queries from Node.js.
 
 | You want to | Install | Requirements |
 | --- | --- | --- |
-| Query a prepared City or serve HTTP | Engine archive (`VIGO-Rust-…`) | Nothing else at query time |
-| Build Cities from GTFS and OSM | Compiler archive (`VIGO-CLI-…`) | Node.js 24.18 or newer |
+| Build Cities from GTFS and OSM, query them or serve HTTP | Engine archive (`VIGO-Rust-…`) | Nothing else |
+| The same from Node.js tooling | Compiler archive (`VIGO-CLI-…`) | Node.js 24.18 or newer |
 | Explore networks visually | VIGO Studio (`VIGO-Studio-…`) | The desktop application |
 | Script analyses and notebooks | VIGO Python (`VIGO-Python-…`) | Python 3.10 or newer and the wheel for your platform |
 
@@ -140,10 +140,10 @@ From a source checkout, point them at `target/release/vigo` and `public/vigo.mjs
 
 In about ten minutes you will build a City for **Boston and Cambridge** from public data, plan a journey from **Harvard Square to South Station**, compute a small matrix, and map where you can reach in 45 minutes. A **City** is the prepared data directory, here `./boston`.
 
-You need the [engine and the compiler](#install-vigo), named `vigo` and `vigo-build`, plus `curl`, `unzip` and [Osmium Tool](https://osmcode.org/osmium-tool/manual.html). The commands use a POSIX shell; on Windows, use WSL for the download and extract steps.
+You need the [engine](#install-vigo), named `vigo`, plus `curl`, `unzip` and [Osmium Tool](https://osmcode.org/osmium-tool/manual.html). The commands use a POSIX shell; on Windows, use WSL for the download and extract steps.
 
 > [!TIP]
-> Every request below works with either runtime. Replace `vigo` with `vigo-build` to run a query through the compiler; the Result is the same.
+> Every command below also works with the compiler. Replace `vigo` with `vigo-build` (and `info` with `inspect`); the City and the Result are the same.
 
 ### 1. Download the Boston inputs
 
@@ -176,7 +176,7 @@ Cut a smaller street extract around central Boston and Cambridge, then build:
 ```sh
 osmium extract --bbox=-71.20,42.25,-70.95,42.45 --strategy=complete_ways \
   data/massachusetts-latest.osm.pbf --output=data/boston.osm.pbf
-vigo-build build --gtfs ./data/MBTA_GTFS.zip --osm ./data/boston.osm.pbf \
+vigo build --gtfs ./data/MBTA_GTFS.zip --osm ./data/boston.osm.pbf \
   --output ./boston --prepare-date 2026-10-05
 vigo info --city ./boston --pretty
 ```
@@ -366,7 +366,7 @@ VIGO keeps four durations separate: Build, Open, Compute and End-to-end. Reusing
 
 ## Build a City
 
-A City is built once by `vigo-build` and then opened read-only by any number of engine processes, Python sessions or compiler queries. The [quickstart](#quickstart) shows a complete Boston build; the [compiler guide](guides/cli-only.md) lists every option.
+A City is built once by `vigo build` and then opened read-only by any number of engine processes, Python sessions or compiler queries. The compiler's `vigo-build build` and Python's `vigo.build()` run the same Rust compiler and write the same City. The [quickstart](#quickstart) shows a complete Boston build; the [engine reference](guides/rust-standalone.md#build-a-city) lists every option.
 
 ### Choose inputs
 
@@ -380,8 +380,8 @@ Keep the original files, their checksums and their download date: URLs such as `
 ### Build options
 
 ```sh
-vigo-build build --gtfs feed.zip --osm region.osm.pbf --output ./city
-vigo-build inspect --city ./city
+vigo build --gtfs feed.zip --osm region.osm.pbf --output ./city
+vigo info --city ./city
 ```
 
 | Option | Effect |
@@ -398,7 +398,7 @@ vigo-build inspect --city ./city
 | `--streets-from ./other-city` | Reuse identical prepared streets from another City |
 | `--replace` | Replace an existing output |
 
-A build is staged: a failed build leaves the previous City in place. `--replace` writes and flushes the new City first, then swaps it in; if a crash interrupts the swap, the next `vigo-build build` or compiler query of that path finishes or reverts it. A successful replacement removes its backup, so use a separate output directory when you need a rollback copy.
+A build is staged: a failed build leaves the previous City in place. `--replace` writes and flushes the new City first, then swaps it in; if a crash interrupts the swap, the next build or compiler query of that path finishes or reverts it. Ctrl-C or a termination signal removes the unfinished build. A successful replacement removes its backup, so use a separate output directory when you need a rollback copy.
 
 Import and street preparation happen at build time and are separate from query time.
 
@@ -407,7 +407,7 @@ Import and street preparation happen at build time and are separate from query t
 Repeat `--gtfs` and give each feed a stable, unique scope:
 
 ```sh
-vigo-build build \
+vigo build \
   --gtfs ./rail.zip --gtfs-scope rail \
   --gtfs ./bus.zip --gtfs-scope bus \
   --osm ./region.osm.pbf \
@@ -425,7 +425,7 @@ Before combining feeds:
 
 ### Large regions and low memory
 
-Builds use disk-backed SQLite temporary storage and compact node lookups, report progress during long phases, and respect container memory limits when deciding whether GTFS and OSM work can overlap. Import and street preparation run in separate processes, so each releases its memory before the next. Keep the output and temporary directory on a local filesystem (inside WSL, the Linux filesystem rather than `/mnt/c`), with room for the source database, temporary sorts and the finished City.
+Builds use disk-backed SQLite temporary storage and compact node lookups, report progress during long phases, and compile GTFS and OSM at the same time only when installed memory, free memory and load allow it. Each step releases its working memory before the next. Keep the output and temporary directory on a local filesystem (inside WSL, the Linux filesystem rather than `/mnt/c`), with room for the source database, temporary sorts and the finished City.
 
 Regional street preprocessing can still exceed 2 GiB. Add disk-backed swap on the build machine, or build on a larger machine and copy the complete City to the server: build memory and query memory are separate requirements.
 
@@ -439,7 +439,7 @@ A build repairs small backward arrival or departure times by delaying an event t
 
 A City contains `network.json`, `routing/project.sqlite`, prepared access files, and an `osm` directory with street snapshots, access profiles and hierarchy indexes. Member names vary with the preparation version. Copy the **whole directory**, never single files.
 
-The engine checks source identities, formats, station and access profiles, and required index files. It rejects missing or stale preparations and an unexpected SQLite WAL. Complete a City through its compiler; never delete WAL files to get past validation. The engine reports `timing.timetableSource: "prepared_snapshot"` in the trace when it reuses a prepared timetable, and `"source"` when it prepared one from SQLite; both give the same schedule.
+The engine checks source identities, formats, station and access profiles, and required index files. It rejects missing or stale preparations and an unexpected SQLite WAL. Complete a City by building it again; never delete WAL files to get past validation. The engine reports `timing.timetableSource: "prepared_snapshot"` in the trace when it reuses a prepared timetable, and `"source"` when it prepared one from SQLite; both give the same schedule.
 
 ### Update a network
 
@@ -896,7 +896,7 @@ Bike Route, Matrix and Reach use a directed bicycle network with access rules, c
 Build with bicycle streets:
 
 ```sh
-vigo-build build --gtfs feed.zip --osm region.osm.pbf --output ./city \
+vigo build --gtfs feed.zip --osm region.osm.pbf --output ./city \
   --street-modes walk,drive,bike
 ```
 
@@ -944,7 +944,7 @@ A wheelchair City applies the strict `wheelchair-strict-v1` profile to Route, Ma
 Build a separate City from the same inputs:
 
 ```sh
-vigo-build build --gtfs feed.zip --osm region.osm.pbf \
+vigo build --gtfs feed.zip --osm region.osm.pbf \
   --output ./wheelchair-city --wheelchair
 ```
 
@@ -965,7 +965,7 @@ Both exclude steps, escalators, inaccessible or limited nodes, raised kerbs, con
 
 ### In Studio
 
-In Route's journey settings, choose **Prepare wheelchair routing** to build a profile from the selected timetable's original GTFS ZIP and the City's original OSM PBF; progress appears in Tasks. Source fingerprints are checked, and changing either input requires preparing again. Studio supports this for single-feed, scheduled Route without via points or scenarios; use the engine for wheelchair Matrix and Reach. From a source checkout, `node scripts/attach-studio-wheelchair.mjs /path/to/Studio-City /path/to/wheelchair-city` attaches a City built with the compiler.
+Studio prepares wheelchair routing with every single-timetable City: once its GTFS ZIP and OSM PBF are imported, it builds the profile from those original files in the background, with progress in Tasks. If VIGO stops before preparation finishes, it starts again the next time the City is opened. Source fingerprints are checked, and importing a new timetable or OSM file prepares the profile again; **Prepare wheelchair routing** in Route's journey settings rebuilds it on request. While Route is open, the prepared profile stays loaded beside the ordinary City, so switching wheelchair routing on or off answers at once. Studio supports this for single-feed, scheduled Route without via points or scenarios; use the engine for wheelchair Matrix and Reach. From a source checkout, `node scripts/attach-studio-wheelchair.mjs /path/to/Studio-City /path/to/wheelchair-city` attaches a City built with the compiler.
 
 ### Limits
 
@@ -1224,7 +1224,7 @@ Predicted spacing is not measured headway, and forecast changes are not actual v
 
 ## Deploy the routing engine
 
-Run the engine as the HTTP service. It opens a prepared City or scenario collection without Node, Python, Studio or an internet connection. Prepare data separately with the compiler and mount the complete directory read-only.
+Run the engine as the HTTP service. It opens a prepared City or scenario collection without Node, Python, Studio or an internet connection. Build the City with `vigo build`, on the server or on a larger build machine, and mount the complete directory read-only.
 
 ### Build and check the image
 
@@ -1345,7 +1345,7 @@ VIGO keeps a permanent prepared-data baseline: later readers open published Citi
 Cities older than the supported format are not converted. Rebuild them from the original sources into a **different directory**:
 
 ```sh
-vigo-build build --gtfs feed.zip --osm region.osm.pbf --output ./city-next
+vigo build --gtfs feed.zip --osm region.osm.pbf --output ./city-next
 vigo info --city ./city-next
 vigo route --city ./city-next --request route.json
 ```

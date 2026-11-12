@@ -169,9 +169,29 @@ export type BikeProfile = "balanced" | "fast" | "quiet";
 export type Bounds = [number, number, number, number];
 
 /**
+ * City compilation from GTFS ZIPs and an OpenStreetMap PBF.
+ */
+export interface BuildCapabilities {
+  /** Several scoped GTFS feeds in one City. */
+  multipleFeeds: boolean;
+  /** `--prepare-date` compiles service dates ahead of queries. */
+  prepareDates: boolean;
+  /** Accepted `--private-access` values. */
+  privateAccess: string[];
+  /** `--streets-from` reuses another City's identical streets. */
+  sharedStreets: boolean;
+  /** Accepted `--street-modes` values. */
+  streetModes: string[];
+  /** Accepted `--wheelchair-streets` evidence for a wheelchair City. */
+  wheelchairStreets: string[];
+}
+
+/**
  * Check these before relying on an optional feature.
  */
 export interface Capabilities {
+  /** `vigo build` options. Absent on runtimes that only open prepared Cities. */
+  build?: BuildCapabilities;
   cityFormat: string;
   commands: string[];
   compare: CompareCapabilities;

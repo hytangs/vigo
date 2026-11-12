@@ -21,6 +21,12 @@ const cancelGraceMs = boundedInteger(process.env.VIGO_NATIVE_CANCEL_GRACE_MS, 15
 // A City that keeps stopping must not spend its time reloading.
 const rewarmSpacingMs = 30_000
 const maxResponseBytes = 256 * 1024 * 1024
+// Each process loads a mode when it is first asked for it (modePreparation), so
+// an opening process activates only the timetable. The engine default, all
+// modes, adds the bicycle hierarchy and street networks to every process:
+// about 1 GB more per Boston process, with up to two processes per City.
+// An explicit VIGO_PREPARE still applies.
+const streamEnvironment = environment => environment.VIGO_PREPARE ? environment : { ...environment, VIGO_PREPARE: 'transit' }
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url))
 const preparationRequest = request => request?.kind === 'info'
   || request?.kind === 'native' && request.operation?.endsWith('.prepare')
@@ -123,7 +129,7 @@ class StreamProcess {
     this.onExit = onExit
     const args = ['stream', '--stream-output=detailed', `--city=${layout.root}`]
     if (layout.routingStore) args.push(`--routing-store=${path.basename(layout.routingStore)}`)
-    this.child = spawnProcess(executable, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+    this.child = spawnProcess(executable, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: streamEnvironment(process.env) })
     // A closed parent closes stdin, and the stream exits on end of input.
     this.child.unref?.()
     this.child.stdout.on('data', chunk => this.receive(chunk))

@@ -13,7 +13,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-fn routing_source_identity(metadata: &Value) -> Value {
+pub(crate) fn routing_source_identity(metadata: &Value) -> Value {
     let mut identity = json!({"identityVersion":"vigo.routing.static-topology-source.v3"});
     for key in [
         "storeId",
@@ -85,7 +85,7 @@ fn prefetch(paths: impl IntoIterator<Item = impl AsRef<Path>>) {
     }
 }
 
-fn cch_files(path: &Path, kind: &str) -> Result<(String, String, Option<String>)> {
+pub(crate) fn cch_files(path: &Path, kind: &str) -> Result<(String, String, Option<String>)> {
     // Resolve the shared snapshot before admitting its adjacent hierarchy.
     // Legacy readers use the equivalent City-local hard links.
     let resolved = fs::canonicalize(path)?;

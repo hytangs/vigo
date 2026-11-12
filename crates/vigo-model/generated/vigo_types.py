@@ -144,6 +144,25 @@ BikeProfile = Literal["balanced", "fast", "quiet"]
 # `[west, south, east, north]` in WGS84 degrees.
 Bounds = tuple[float, float, float, float]
 
+# City compilation from GTFS ZIPs and an OpenStreetMap PBF.
+BuildCapabilities = TypedDict(
+    "BuildCapabilities",
+    {
+        # Several scoped GTFS feeds in one City.
+        "multipleFeeds": bool,
+        # `--prepare-date` compiles service dates ahead of queries.
+        "prepareDates": bool,
+        # Accepted `--private-access` values.
+        "privateAccess": list[str],
+        # `--streets-from` reuses another City's identical streets.
+        "sharedStreets": bool,
+        # Accepted `--street-modes` values.
+        "streetModes": list[str],
+        # Accepted `--wheelchair-streets` evidence for a wheelchair City.
+        "wheelchairStreets": list[str],
+    },
+)
+
 CityCounts = TypedDict(
     "CityCounts",
     {
@@ -1136,6 +1155,8 @@ TransitRoute = TypedDict(
 Capabilities = TypedDict(
     "Capabilities",
     {
+        # `vigo build` options. Absent on runtimes that only open prepared Cities.
+        "build": NotRequired[BuildCapabilities],
         "cityFormat": str,
         "commands": list[str],
         "compare": CompareCapabilities,

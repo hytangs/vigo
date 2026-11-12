@@ -1,6 +1,7 @@
 import { apiProgressJson, type ApiProgress } from '../app/api'
 import { createStore } from '../app/store'
 import { caseFeedSelection } from '../app/cityDataGroups'
+import { reachExtent } from '../app/reachExtent'
 import { baselineGroupId, scenarioNetworkDiffers } from '../app/scenarioLibrary'
 import type { useReachInspection } from '../app/useReachInspection'
 import {
@@ -21,9 +22,17 @@ import { shell } from './shell'
 
 const desktopReachRasterSize = 128
 const desktopStreetReachRasterSize = 384
-// Bike cells require verified endpoint walks and occasional exact searches.
-// Keep the interactive preview bounded; callers can request finer API grids.
-const desktopBikeReachRasterSize = 48
+
+// Drive and bicycle Reach evaluate the whole area their time budget reaches.
+// Transit's street surface grows past its square to every reached street.
+function reachArea(settings: AnalyzeState) {
+  const mode = settings.reachTravelMode
+  if (mode === 'drive' || mode === 'bike') {
+    const { radiusKm, rasterSize } = reachExtent(mode, settings.scenarioCutoffMinutes, settings.reachBike)
+    return { radiusKm, rasterSize }
+  }
+  return { radiusKm: 8, rasterSize: simulationEnabled(settings) ? 96 : settings.reachSurfaceSampling === 'street' ? desktopStreetReachRasterSize : desktopReachRasterSize }
+}
 
 export type ReachInspection = ReturnType<typeof useReachInspection>
 
@@ -211,8 +220,7 @@ export async function runSurfaceAnalysis(includeStreetEdges = analyze.get().scen
           mode: settings.reachTravelMode,
           ...(settings.reachTravelMode === 'bike' ? {bike:settings.reachBike} : {}),
           surfaceSampling: settings.reachTravelMode !== 'transit' ? 'cell-center' : settings.reachSurfaceSampling,
-          radiusKm: settings.reachTravelMode === 'drive' ? 40 : 8,
-          rasterSize: settings.reachTravelMode === 'bike' ? desktopBikeReachRasterSize : simulationEnabled(settings) ? 96 : settings.reachTravelMode === 'transit' && settings.reachSurfaceSampling === 'street' ? desktopStreetReachRasterSize : desktopReachRasterSize,
+          ...reachArea(settings),
           cutoffsMinutes: reachTimeBands(settings.scenarioCutoffMinutes),
           // The final baseline surface is rendered after transit/routing
           // seeds are known. Avoid spending a second full OSM traversal on

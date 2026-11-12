@@ -1548,6 +1548,7 @@ Check these before relying on an optional feature.
 
 | Field | Type | Required | Default | Notes |
 | --- | --- | --- | --- | --- |
+| `build` | [BuildCapabilities](#buildcapabilities) |  |  | `vigo build` options. Absent on runtimes that only open prepared Cities. |
 | `cityFormat` | string | Yes |  |  |
 | `commands` | array of string | Yes |  |  |
 | `compare` | [CompareCapabilities](#comparecapabilities) | Yes |  |  |
@@ -1571,6 +1572,19 @@ Check these before relying on an optional feature.
 | `timePreferences` | array of string | Yes |  |  |
 | `version` | string | Yes |  | Executable version. |
 | `wheelchair` | [WheelchairCapabilities](#wheelchaircapabilities) | Yes |  |  |
+
+### BuildCapabilities
+
+City compilation from GTFS ZIPs and an OpenStreetMap PBF.
+
+| Field | Type | Required | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `multipleFeeds` | boolean | Yes |  | Several scoped GTFS feeds in one City. |
+| `prepareDates` | boolean | Yes |  | `--prepare-date` compiles service dates ahead of queries. |
+| `privateAccess` | array of string | Yes |  | Accepted `--private-access` values. |
+| `sharedStreets` | boolean | Yes |  | `--streets-from` reuses another City's identical streets. |
+| `streetModes` | array of string | Yes |  | Accepted `--street-modes` values. |
+| `wheelchairStreets` | array of string | Yes |  | Accepted `--wheelchair-streets` evidence for a wheelchair City. |
 
 ### CompareCapabilities
 

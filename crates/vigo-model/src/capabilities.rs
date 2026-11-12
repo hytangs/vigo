@@ -21,6 +21,9 @@ pub struct Capabilities {
     pub routing_store_format: String,
     pub request_schema: String,
     pub data_preparation: String,
+    /// `vigo build` options. Absent on runtimes that only open prepared Cities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<BuildCapabilities>,
     pub output: OutputCapabilities,
     pub route: RouteCapabilities,
     pub matrix: MatrixCapabilities,
@@ -35,6 +38,24 @@ pub struct Capabilities {
     pub http: HttpCapabilities,
     pub native_operations: Vec<String>,
     pub compatibility: CompatibilityCapabilities,
+}
+
+/// City compilation from GTFS ZIPs and an OpenStreetMap PBF.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildCapabilities {
+    /// Accepted `--street-modes` values.
+    pub street_modes: Vec<String>,
+    /// Accepted `--private-access` values.
+    pub private_access: Vec<String>,
+    /// Accepted `--wheelchair-streets` evidence for a wheelchair City.
+    pub wheelchair_streets: Vec<String>,
+    /// Several scoped GTFS feeds in one City.
+    pub multiple_feeds: bool,
+    /// `--prepare-date` compiles service dates ahead of queries.
+    pub prepare_dates: bool,
+    /// `--streets-from` reuses another City's identical streets.
+    pub shared_streets: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]

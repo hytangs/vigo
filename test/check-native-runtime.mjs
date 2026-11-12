@@ -38,10 +38,11 @@ try {
 const spawned = []
 // Each child answers its requests in order. A request may ask for a delay,
 // or for the child serving it to die, once or always.
-function fakeSpawn(_executable, args) {
+function fakeSpawn(_executable, args, options) {
   const child = new EventEmitter()
   child.id = spawned.length
   child.args = args
+  child.env = options?.env
   child.exitCode = null
   child.killed = false
   child.served = []
@@ -118,6 +119,28 @@ for (const fragments of [[Buffer.alloc(65, 32), Buffer.from('\n')], [Buffer.conc
     await pool.query(nativeLayout('/cities/overflow'), {})
     assert.equal(pool.cities.size, 1)
   } finally { pool.closeAll() }
+}
+spawned.length = 0
+
+// An opening process activates only the timetable; each other mode loads on its
+// first request. An explicit VIGO_PREPARE is passed through unchanged.
+{
+  const explicit = process.env.VIGO_PREPARE
+  try {
+    for (const [setting, expected] of [[undefined, 'transit'], ['all', 'all'], ['none', 'none']]) {
+      if (setting === undefined) delete process.env.VIGO_PREPARE
+      else process.env.VIGO_PREPARE = setting
+      const pool = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fakeSpawn })
+      try {
+        await pool.query(nativeLayout(`/cities/prepare-${expected}`), { id: `prepare-${expected}` })
+        assert.equal(spawned.at(-1).env.VIGO_PREPARE, expected)
+        assert.equal(spawned.at(-1).env.PATH, process.env.PATH, 'The stream keeps the rest of the environment')
+      } finally { pool.closeAll() }
+    }
+  } finally {
+    if (explicit === undefined) delete process.env.VIGO_PREPARE
+    else process.env.VIGO_PREPARE = explicit
+  }
 }
 spawned.length = 0
 

@@ -83,12 +83,12 @@ window.checkStores = async () => {
   await pause(700)
   await until(() => wheelchairAvailable(), 'Fixture wheelchair capability did not load')
   const wheelchairLeases = () => residencyRequests.filter(request => request.wheelchair && request.resident).length
-  check(wheelchairLeases() === 0, 'Wheelchair City was prepared before selection')
+  // A prepared wheelchair City opens with Route, before anyone selects it.
+  await until(() => wheelchairLeases() > 0, 'A prepared wheelchair City did not open with Route')
   for (const enabled of [true, false, true, false]) {
     flushSync(() => setRoutingWheelchair(enabled))
     await pause(25)
   }
-  await until(() => wheelchairLeases() > 0, 'Selecting wheelchair did not prepare its City')
   await pause(50)
   check(wheelchairLeases() === 1, 'Toggling wheelchair reopened its resident City')
   const counts = () => ({ ...window.__vigoRenderCounts })

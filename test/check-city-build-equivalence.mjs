@@ -1,26 +1,27 @@
+// The City compiler in the `vigo` executable: equivalent build paths produce
+// the same routing rows and metadata, invalid sources fail without partial
+// stores, and street references survive every node-ID range.
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
-import { writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
 import JSZip from 'jszip'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
-import { buildNationalOsmStore, disposeNationalOsmStore } from '../src/server/national-osm-store.mjs'
-import {
-  buildNationalGtfsCityStore,
-  buildNationalGtfsStore,
-  buildNationalStaticTopologySidecar,
-  compactNationalGtfsRuntimeStore,
-  disposeAllNationalGtfsStores,
-  inspectNationalStaticTopologySidecar,
-  mergeNationalGtfsStores,
-} from '../src/server/national-gtfs-store.mjs'
+import { standaloneBinary } from './helpers/standalone-runtime.mjs'
 
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-city-build-equivalence-'))
 const quote = (name) => `"${name.replaceAll('"', '""')}"`
+const compile = (command, ...args) => JSON.parse(execFileSync(standaloneBinary, [command, ...args],
+  { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 }))
+const rejects = (pattern, command, ...args) => {
+  const result = spawnSync(standaloneBinary, [command, ...args], { encoding: 'utf8' })
+  assert.equal(result.status, 2, result.stderr)
+  assert.match(result.stderr, pattern)
+}
 
-function contents(file) {
+function contents(file, ignoredMetadata = []) {
   const db = new DatabaseSync(file, { readOnly: true })
   try {
     assert.equal(db.prepare('PRAGMA integrity_check').get().integrity_check, 'ok')
@@ -32,30 +33,31 @@ function contents(file) {
       result[name] = db.prepare(`SELECT * FROM ${quote(name)} ORDER BY ${columns.join(',')}`).all()
     }
     const metadata = Object.fromEntries(db.prepare('SELECT key,value FROM metadata ORDER BY key').all().map(({ key, value }) => [key, JSON.parse(value)]))
-    delete metadata.builtAt
-    delete metadata.routeServiceCatalogBuiltAt
+    for (const key of ['builtAt', 'routeServiceCatalogBuiltAt', ...ignoredMetadata]) delete metadata[key]
     return { tables: result, metadata }
   } finally {
     db.close()
   }
 }
 
+async function absent(...files) {
+  for (const file of files) await assert.rejects(fs.stat(file), { code: 'ENOENT' }, `${file} must not remain after a failed build.`)
+}
+
 try {
   const inputs = await writeCliFixtureInputs(root, { unreferencedNodes: 1_000 })
-  const streetPath = path.join(root, 'streets.sqlite')
-  const street = await buildNationalOsmStore({ pbfPath: inputs.osmPath, outputPath: streetPath })
+  const street = compile('_build-street-store', `--osm=${inputs.osmPath}`, `--output-store=${path.join(root, 'streets.sqlite')}`)
   assert.equal(street.nodeCount, 1_003, 'Filtering temporary coordinates must retain the complete source-node count.')
   assert.equal(street.walkNodeCount, 3)
   assert.equal(street.edgeCount, 4)
   assert.equal(street.driveEdgeCount, 4)
-  disposeNationalOsmStore(streetPath)
   for (const nodeIdOffset of [1_048_574, 9_000_000_000]) {
     const directory = path.join(root, `node-ids-${nodeIdOffset}`)
     await fs.mkdir(directory)
     const shifted = await writeCliFixtureInputs(directory, { nodeIdOffset })
-    const shiftedStore = path.join(directory, 'streets.sqlite')
-    await buildNationalOsmStore({ pbfPath: shifted.osmPath, outputPath: shiftedStore })
-    const db = new DatabaseSync(shiftedStore, { readOnly: true })
+    const store = path.join(directory, 'streets.sqlite')
+    compile('_build-street-store', `--osm=${shifted.osmPath}`, `--output-store=${store}`)
+    const db = new DatabaseSync(store, { readOnly: true })
     try {
       for (const table of ['edges', 'drive_edges']) {
         assert.deepEqual(
@@ -66,29 +68,9 @@ try {
       }
     } finally {
       db.close()
-      disposeNationalOsmStore(shiftedStore)
     }
   }
-  const changingPbf = path.join(root, 'changing.osm.pbf')
-  const changedBytes = await fs.readFile(inputs.osmPath)
-  await fs.writeFile(changingPbf, changedBytes)
-  let changed = false
-  const changingStreet = path.join(root, 'changing-street.sqlite')
-  await assert.rejects(buildNationalOsmStore({
-    pbfPath: changingPbf, outputPath: changingStreet,
-    onProgress: (event) => {
-      if (!changed && event.phase === 'Selecting street node references' && event.progress === 0.12) {
-        changed = true
-        const unusedTag = changedBytes.indexOf(Buffer.from('service'))
-        assert(unusedTag >= 0)
-        changedBytes[unusedTag] ^= 1
-        writeFileSync(changingPbf, changedBytes)
-      }
-    },
-  }), /changed during street compilation/)
-  assert.equal(changed, true)
-  await assert.rejects(fs.stat(changingStreet), { code: 'ENOENT' })
-  await assert.rejects(fs.stat(`${changingStreet}.building`), { code: 'ENOENT' })
+
   const zip = await JSZip.loadAsync(await fs.readFile(inputs.gtfsPath))
   // Empty parent_station means no parent; it must not become a scoped ID.
   zip.file('stops.txt', 'stop_id,stop_name,stop_lat,stop_lon,parent_station,location_type\nS,Station,38.905,-77.040,,1\nA,Alpha,38.900,-77.050,,0\nX,Transfer,38.905,-77.040,S,0\nB,Bravo,38.910,-77.030,,0\nE,Entrance,38.9051,-77.0401,S,2\n')
@@ -107,19 +89,20 @@ try {
     await fs.writeFile(invalidZip, await zip.generateAsync({ type: 'nodebuffer' }))
     for (const scoped of [false, true]) {
       const invalidStore = path.join(root, `missing-stop-id-${scoped}.sqlite`)
-      await assert.rejects(scoped
-        ? buildNationalGtfsCityStore({ feeds: [{ scope: 'first', path: invalidZip }, { scope: 'second', path: inputs.gtfsPath }], outputPath: invalidStore })
-        : buildNationalGtfsStore({ zipPath: invalidZip, outputPath: invalidStore }), /non-empty stop_id/)
-      await assert.rejects(fs.stat(invalidStore), { code: 'ENOENT' })
-      await assert.rejects(fs.stat(`${invalidStore}.building`), { code: 'ENOENT' })
+      rejects(/non-empty stop_id/, '_build-gtfs-store', `--output-store=${invalidStore}`, ...(scoped
+        ? ['--city', `--gtfs=${invalidZip}`, '--gtfs-scope=first', `--gtfs=${inputs.gtfsPath}`, '--gtfs-scope=second']
+        : [`--gtfs=${invalidZip}`]))
+      await absent(invalidStore, `${invalidStore}.building`)
     }
   }
   zip.file('stops.txt', validStops)
+
   const raw = path.join(root, 'raw.sqlite')
   await fs.writeFile(`${raw}.building-journal`, 'interrupted unpublished compiler journal')
-  await buildNationalGtfsStore({ zipPath: inputs.gtfsPath, outputPath: raw })
-  await assert.rejects(fs.stat(`${raw}.building-journal`), { code: 'ENOENT' })
-  assert.equal(inspectNationalStaticTopologySidecar(raw).ready, true, 'Standalone raw builds still publish complete topology.')
+  const rawResult = compile('_build-gtfs-store', `--gtfs=${inputs.gtfsPath}`, `--output-store=${raw}`)
+  await absent(`${raw}.building-journal`)
+  assert.equal(rawResult.staticTopology.ready, true, 'Standalone raw builds still publish complete topology.')
+
   const topologySource = path.join(root, 'topology-source.sqlite')
   await fs.copyFile(raw, topologySource)
   const topologyDb = new DatabaseSync(topologySource)
@@ -141,7 +124,7 @@ try {
   topologyDb.exec("UPDATE metadata SET value='0' WHERE key='transferCount';")
   topologyDb.close()
   const topologyPath = `${topologySource}.static-topology.sqlite`
-  await buildNationalStaticTopologySidecar({ storePath: topologySource, outputPath: topologyPath })
+  compile('_build-static-topology', `--store=${topologySource}`, `--output=${topologyPath}`, '--force')
   const topology = new DatabaseSync(topologyPath, { readOnly: true })
   try {
     assert.deepEqual(
@@ -152,21 +135,23 @@ try {
   } finally {
     topology.close()
   }
-  const single = path.join(root, 'single.sqlite')
-  await buildNationalGtfsCityStore({ feeds: [{ scope: 'single', path: inputs.gtfsPath }], outputPath: single })
-  compactNationalGtfsRuntimeStore(raw)
-  assert.deepEqual(contents(single), contents(raw), 'Single-feed City staging must retain every transit row and source rule.')
-  assert.equal(inspectNationalStaticTopologySidecar(single).ready, false, 'A staged City feed is not yet a published routable City.')
 
-  const feeds = [{ scope: '🚌-bus', path: inputs.gtfsPath }, { scope: 'rail', path: inputs.gtfsPath }]
+  // A City store defers its departure index; every routing row is the same.
+  const single = path.join(root, 'single.sqlite')
+  const singleResult = compile('_build-gtfs-store', '--city', `--gtfs=${inputs.gtfsPath}`, '--gtfs-scope=single', `--output-store=${single}`)
+  assert.equal(singleResult.staticTopology.ready, false, 'A staged City feed is not yet a published routable City.')
+  assert.deepEqual(contents(single, ['departureIndexState']), contents(raw, ['departureIndexState']),
+    'Single-feed City staging must retain every transit row and source rule.')
+
+  const feeds = [['🚌-bus', inputs.gtfsPath], ['rail', inputs.gtfsPath]]
   const merged = path.join(root, 'merged.sqlite')
-  await mergeNationalGtfsStores({ stores: feeds.map(({ scope }) => ({ scope, storePath: raw })), outputPath: merged })
-  compactNationalGtfsRuntimeStore(merged)
+  compile('_build-gtfs-store', '--city', ...feeds.map(([scope]) => `--merge-store=${scope}=${raw}`), `--output-store=${merged}`)
   const direct = path.join(root, 'direct.sqlite')
-  await buildNationalGtfsCityStore({ feeds, outputPath: direct })
+  compile('_build-gtfs-store', '--city', ...feeds.flatMap(([scope, file]) => [`--gtfs=${file}`, `--gtfs-scope=${scope}`]), `--output-store=${direct}`)
   assert.deepEqual(contents(direct), contents(merged), 'Direct multi-feed import must preserve namespace collisions, calendars, permissions, frequencies, shapes, transfers, and pathway provenance.')
 
-  await assert.rejects(buildNationalGtfsCityStore({ feeds: [feeds[0], feeds[0]], outputPath: path.join(root, 'duplicate.sqlite') }), /unique/)
+  rejects(/unique/, '_build-gtfs-store', '--city', `--gtfs=${inputs.gtfsPath}`, '--gtfs-scope=dup', `--gtfs=${inputs.gtfsPath}`, '--gtfs-scope=dup',
+    `--output-store=${path.join(root, 'duplicate.sqlite')}`)
   for (const [name, broken] of [
     ['reference', 'T1,08:00:00,08:00:00,MISSING,1,0,0\nT1,08:10:00,08:10:00,X,2,0,0\n'],
     ['sequence', 'T1,08:00:00,08:00:00,A,1,0,0\nT1,08:10:00,08:10:00,X,1,0,0\n'],
@@ -175,13 +160,11 @@ try {
     const invalidZip = path.join(root, `${name}.zip`)
     await fs.writeFile(invalidZip, await zip.generateAsync({ type: 'nodebuffer' }))
     const outputPath = path.join(root, `${name}.sqlite`)
-    await assert.rejects(buildNationalGtfsCityStore({ feeds: [feeds[0], { scope: 'invalid', path: invalidZip }], outputPath }), /Broken GTFS reference|duplicate GTFS stop_sequence/)
-    for (const file of [outputPath, `${outputPath}.building`, `${outputPath}.stop-times-building`]) {
-      await assert.rejects(fs.stat(file), { code: 'ENOENT' }, 'Failed imports must not publish a partial City store.')
-    }
+    rejects(/Broken GTFS reference|duplicate GTFS stop_sequence/, '_build-gtfs-store', '--city',
+      `--gtfs=${inputs.gtfsPath}`, '--gtfs-scope=🚌-bus', `--gtfs=${invalidZip}`, '--gtfs-scope=invalid', `--output-store=${outputPath}`)
+    await absent(outputPath, `${outputPath}.building`, `${outputPath}.stop-times-building`)
   }
   console.log('City build equivalence passed: complete table and metadata parity, scoped inputs, source validation, and failure cleanup.')
 } finally {
-  disposeAllNationalGtfsStores()
   await fs.rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

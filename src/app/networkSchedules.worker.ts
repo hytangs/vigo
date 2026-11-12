@@ -5,10 +5,14 @@ import { createScheduleCollection, type NetworkScheduleResult } from './networkS
 self.onmessage = async (event: MessageEvent<{ endpoint: string; serviceDate: string; requests: Array<{ feedId: string; routeId: string }> }>) => {
   const { endpoint, serviceDate, requests } = event.data
   const collection = createScheduleCollection()
-  let failures = 0, lastProgress = 0
+  let failures = 0, lastProgress = 0, firstError = ''
   try {
     await loadNetworkSchedules(requests, request => apiJson<NetworkScheduleResult>(endpoint, {
       method: 'POST', body: JSON.stringify({ ...request, serviceDate }),
+    }).catch((error: unknown) => {
+      // One reason explains a failed day; the task shows it beside the count.
+      firstError ||= error instanceof Error ? error.message : String(error)
+      throw error
     }), (results, completed, failed) => {
       for (const result of results) collection.add(result)
       failures = failed
@@ -17,7 +21,7 @@ self.onmessage = async (event: MessageEvent<{ endpoint: string; serviceDate: str
         lastProgress = performance.now()
       }
     }, new AbortController().signal, 2)
-    self.postMessage({ type: 'complete', completed: requests.length, failures, results: collection.finish() })
+    self.postMessage({ type: 'complete', completed: requests.length, failures, firstError, results: collection.finish() })
   } catch (error) {
     self.postMessage({ type: 'error', error: error instanceof Error ? error.message : 'Could not load schedules.' })
   }

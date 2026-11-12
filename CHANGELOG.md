@@ -4,10 +4,20 @@
 
 API 1.0, City format 1 and Result schema 1 keep their meanings, and compatible prepared Cities open without rebuilding. Some preparation fixes below apply only to Cities built with this release; the [release notes](docs/releases/1.0.0.md) say when to rebuild.
 
+### Building Cities
+
+- The engine builds Cities: `vigo build --gtfs … --osm … --output …` takes the compiler's options (`--gtfs-scope`, `--street-modes`, `--private-access`, `--wheelchair`, `--wheelchair-streets`, `--streets-from`, `--prepare-date`, `--replace`), prints the same `[gtfs]`, `[osm]`, `[transfers]` and `[city]` progress on standard error and the City manifest on standard output, and needs no Node or npm. The GTFS and OpenStreetMap compilers moved from JavaScript into the `vigo-gtfs` and `vigo-osm` crates.
+- `vigo build-scenarios --spec … --output …` builds scenario collections in the engine. The compiler's `build` and `build-scenarios` run the engine's commands with the same arguments; Python's `vigo.build()` runs the engine executable shipped with its runtime; Studio's GTFS, OSM, wheelchair, stop-transfer and endpoint-access preparation run the same compiler. Staging, publication, recovery after a crash and signal cleanup are the engine's. Cities are unchanged: every table, metadata value, snapshot and hierarchy matches the JavaScript compiler's on the test fixtures, Boston and Washington, DC, and the published 0.5.0 reader opens them. Only the `streetStore.runtimeCompaction.bytesSaved` diagnostic in `network.json` can be a few MB higher, because the compiler no longer writes a temporary node table before compacting the street store. Distances reproduce Node's `Math` results bit for bit.
+- Builds are faster. On one Apple M2 (8 cores, 16 GB) with the same local inputs, Boston (walking, driving and one prepared date) built in 48 s instead of 138 s, Boston with wheelchair routing in 42 s instead of 75 s, and Washington, DC (bus and rail feeds, one prepared date) in 100 s instead of 165 s. The single compiler process peaked at 1.8, 1.4 and 2.3 GiB resident memory, where the largest JavaScript compiler process peaked at 1.4, 1.3 and 1.8 GiB.
+- GTFS and OSM compile at the same time when installed memory, free memory and load allow it.
+- `--prepare-date` no longer fails a build whose feeds have frequency-based trips (`exact_times=0`); every runtime compiles those timetables when queried, and the build says so.
+- Ctrl-C or a termination signal removes an unfinished `vigo build`; internal compilers stop when the process that started them exits.
+
 ### Transit routing
 
 - Route, Matrix and Reach answer transit with one exact connection scan. The stateful transfer search, which any frequency template or trip-scoped transfer rule switched a whole City to, is removed. Frequency templates (`exact_times=0`) depart every headway from each window's start, like `exact_times=1` windows; journeys no longer carry `headwayEstimate`. Stop-level transfer rules apply with GTFS specificity, a platform's own rule overriding its station's; route- and trip-scoped selectors are not applied. Monte Carlo samples phases only for a scenario's non-exact planned services.
 - Express-to-local journeys stay on the express to a later shared platform also where the feed publishes a minimum connection time, when that platform's rule, minimum and the requested buffer still catch the same local train. Previously any published minimum kept the earlier interchange: in New York, MetroTech to Columbia changed from the 2 or 3 to the 1 at 72 St instead of 96 St, whose 3-minute minimum the connection meets. Arrival, boardings and walking are unchanged.
+- A window journey with shared-leg alternatives and an automatically wider walking limit no longer fails with "Selected access witness is missing" when one substitution's final walk leaves from a stop its endpoint evidence does not list; that substitution is omitted and the journey is returned.
 - Take a later connecting service when it catches the same onward departure; remove return-loop detours before onward connections.
 - Board looping vehicles on their last pass and drop alternatives that stay aboard through a turnaround only to return to their own corridor. Forward in-seat continuations are unchanged.
 - Preserve certified boardings at interchanges with transfer rules or minimum connection times, so waiting for a later pass cannot create an invalid transfer.
@@ -46,6 +56,7 @@ API 1.0, City format 1 and Result schema 1 keep their meanings, and compatible p
 - Start constrained drives from the feasible shortest path with exact remaining bounds. Long limits no longer search for seconds and report a false `not_found`; short limits keep their earlier speed.
 - Retain valid OSM segments longer than 10 km in walking, driving and bicycle imports. Bound road-index duplication without adding graph nodes or changing exact endpoint projections; reject invalid geographic coordinates explicitly.
 - Exclude closed elevator footprints from horizontal street snapping; preserve open inclined-elevator ways.
+- Drive Reach reads each grid cell's least time from the one shared road search instead of unpacking every cell's path for a distance it does not show, and a drive Matrix with more origins than destinations, such as arrive-by Reach, searches once from each destination. Results are unchanged and both directions answer several times faster.
 
 ### Scenarios and planned service
 
@@ -103,8 +114,11 @@ API 1.0, City format 1 and Result schema 1 keep their meanings, and compatible p
 - Rank Studio's earliest-arrival choices by arrival time, then journey duration. Display time before leaving separately from travel time.
 - Studio turns walks between nearby stops on by default.
 - Keep keyboard focus in Studio search while moving through results, and announce an empty search outside the listbox.
-- Studio opens the wheelchair City only once wheelchair routing is selected, then keeps it ready while Route stays open. An unselected profile no longer repeats every date's preparation or holds a second City in memory.
+- Studio's drive and bicycle Reach evaluate everything their time budget can reach, at the fastest possible road or cycling speed, instead of a fixed square of 40 km (drive) or 8 km (bicycle) that cut off longer budgets. Long budgets use larger grid cells; the settings state the cell size and extent.
+- Studio prepares wheelchair routing by default: once a single-timetable City's GTFS and OSM imports finish, it builds the profile in the background, and an interrupted preparation starts again when the City is next opened. While Route is open, the prepared profile stays loaded beside the ordinary City, so switching wheelchair routing on or off is immediate. A rebuild no longer keeps a copy of the replaced profile, and interrupted staging folders are removed.
 - Studio leases the wheelchair City that answers wheelchair routes, and releasing it no longer fails when that profile was rebuilt or removed.
+- Studio's routing workers open with only the timetable prepared and load walking, driving and cycling when one is first selected, as before background preparation. Each worker no longer holds the bicycle hierarchy and street networks for modes nobody has asked for. `VIGO_PREPARE` still overrides this.
+- Studio's full-day vehicle schedules start once a feed's timetable store is ready, instead of failing every route while a City is still importing and waiting for a retry. A failed load names its first error.
 
 ### Public route planner
 

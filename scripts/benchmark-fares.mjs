@@ -2,8 +2,6 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { performance } from 'node:perf_hooks'
-import { inspectGtfsZip } from '../src/server/gtfs-zip-reader.mjs'
-import { readGtfsFareCatalog } from '../src/server/gtfs-fare-store.mjs'
 import { quoteBoardingFare } from '../src/fares.mjs'
 
 const [zipPath, storePath, serviceDate, outputPath] = process.argv.slice(2)
@@ -11,13 +9,17 @@ if (!zipPath || !storePath || !/^\d{4}-\d{2}-\d{2}$/.test(serviceDate ?? '') || 
   console.error('Usage: node scripts/benchmark-fares.mjs FEED.zip STORE.sqlite YYYY-MM-DD [OUTPUT.json]')
   process.exit(2)
 }
-const readStart = performance.now()
-const catalog = await readGtfsFareCatalog(await inspectGtfsZip(zipPath))
-if (!catalog || catalog.unavailableReason) throw new Error('This feed has no supported fare catalog.')
-const importMs = performance.now() - readStart
+// The compiler stores the feed's fare catalog in the routing store.
 const db = new DatabaseSync(storePath, { readOnly: true })
-let samples
+let samples, catalog, catalogLoadMs
 try {
+  const readStart = performance.now()
+  const stored = db.prepare("SELECT 1 FROM sqlite_master WHERE name='fare_catalogs'").get()
+    ? db.prepare("SELECT data FROM fare_catalogs WHERE scope=''").get() : null
+  catalog = stored ? JSON.parse(stored.data) : null
+  catalogLoadMs = performance.now() - readStart
+  if (!catalog || catalog.unavailableReason) throw new Error('This store has no supported fare catalog.')
+  if (catalog.source !== path.basename(zipPath)) throw new Error(`The store's fare catalog comes from ${catalog.source}, not ${path.basename(zipPath)}.`)
   const trips = db.prepare('SELECT route_id, MIN(trip_id) AS trip_id FROM trips GROUP BY route_id').all()
   const connectionQuery = db.prepare('SELECT departure, arrival, from_stop_id, to_stop_id FROM connections WHERE trip_id=? ORDER BY stop_sequence')
   samples = trips.flatMap(trip => {
@@ -46,6 +48,6 @@ const report = { description: 'Fare lookup only; excludes route search, result s
   node: process.version, platform: `${process.platform}-${process.arch}`, feed: path.basename(zipPath), serviceDate,
   routes: new Set(samples.map(row => row.routeId)).size, samples: samples.length,
   published: samples.filter(sample => quoteBoardingFare(catalog, sample, serviceDate).status === 'published').length,
-  importMs, coldQuoteMs, firstPass, warm }
+  catalogLoadMs, coldQuoteMs, firstPass, warm }
 if (outputPath) await fs.writeFile(outputPath, JSON.stringify(report, null, 2) + '\n')
 console.log(JSON.stringify(report, null, 2))
