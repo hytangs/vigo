@@ -46,6 +46,11 @@ const restartWindowMs = 30_000
 const restartBudget = boundedInteger(process.env.VIGO_NATIVE_RESTART_BUDGET, 6, 1, 100)
 // Retirement waits this long for stopped processes to exit before failing.
 const retireTimeoutMs = boundedInteger(process.env.VIGO_NATIVE_RETIRE_TIMEOUT_MS, 15_000, 100, 600_000)
+// The longest a held retirement keeps a City's work waiting for its caller to
+// finish replacing files and release it. Past it, the held work fails as
+// "being updated" and the City takes work again, so a lost release cannot
+// wedge it.
+export const retireHoldMs = boundedInteger(process.env.VIGO_RETIRE_HOLD_MS, 300_000, 1000, 3_600_000)
 const maxResponseBytes = 256 * 1024 * 1024
 const MiB = 1024 * 1024
 const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, Math.floor(value)))
@@ -436,6 +441,7 @@ export class NativeRuntime {
       responseBudgetBytes: Math.max(responseLimitBytes, responseBudgetBytes),
       affinityWaitMs,
       restartBudget,
+      retireHoldMs,
       ...limits,
     }
     this.cities = new Map()
@@ -457,7 +463,7 @@ export class NativeRuntime {
     this.counters = {
       admitted: 0, overloaded: 0, abortedBeforeAdmission: 0, expiredWaiting: 0, timedOutRunning: 0,
       cancelledRunning: 0, retried: 0, processStarts: 0, staleGeneration: 0, startsDeferred: 0,
-      heldForRetirement: 0, rerunAfterRetirement: 0,
+      heldForRetirement: 0, rerunAfterRetirement: 0, retireHoldsExpired: 0,
     }
   }
 
@@ -1031,14 +1037,19 @@ export class NativeRuntime {
    * processes have exited, waiting work is refused, and nothing admitted
    * before is retried or answered. The result rejects if a process outlives
    * the retirement deadline, so files are never replaced under it.
+   *
+   * It resolves to a release function. With `hold`, the Cities keep holding
+   * their work (new, waiting and interrupted requests) until the caller has
+   * replaced its files and calls it, or until the hold limit passes; without,
+   * they take work again as soon as the processes have exited.
    */
-  retire(file) {
+  retire(file, { hold = false } = {}) {
     const target = ownerKey(file)
     const cities = [...this.cities.values()]
     const known = cities.map(city => city.root)
     const owner = owningCity(target, known)
     const affected = cities.filter(city => city.root === owner || within(city.root, target))
-    return this.#retireCities(affected, [owner, ...affected.map(city => city.root)].filter(Boolean), { transparent: true })
+    return this.#retireCities(affected, [owner, ...affected.map(city => city.root)].filter(Boolean), { transparent: true, hold })
   }
 
   /**
@@ -1047,10 +1058,10 @@ export class NativeRuntime {
    * inferred from the path: a parent City is never touched, even when the
    * City at `root` has not been published yet.
    */
-  retireCity(root) {
+  retireCity(root, { hold = false } = {}) {
     const target = ownerKey(root)
     const affected = [...this.cities.values()].filter(city => within(city.root, target))
-    return this.#retireCities(affected, [target, ...affected.map(city => city.root)], { transparent: true })
+    return this.#retireCities(affected, [target, ...affected.map(city => city.root)], { transparent: true, hold })
   }
 
   /**
@@ -1082,7 +1093,7 @@ export class NativeRuntime {
     return this.reset()
   }
 
-  async #retireCities(cities, roots, { transparent = false } = {}) {
+  async #retireCities(cities, roots, { transparent = false, hold = false } = {}) {
     const marker = { transparent }
     for (const root of new Set(roots)) {
       this.retiring.set(root, marker)
@@ -1096,6 +1107,22 @@ export class NativeRuntime {
       }
       if (transparent) for (const stream of city.processes) if (stream.current) stream.current.interrupted = true
     }
+    // Admit the held work again (or, when the hold expired, refuse it). A
+    // later retirement of the same root owns its marker and releases what
+    // both held.
+    let released = false
+    let holdTimer = null
+    const release = (expired = false) => {
+      if (released) return
+      released = true
+      clearTimeout(holdTimer)
+      for (const root of new Set(roots)) {
+        if (this.retiring.get(root) !== marker) continue
+        this.retiring.delete(root)
+        if (expired) this.#refuseHeld(root)
+        else this.#release(root)
+      }
+    }
     let timer
     try {
       const exited = Promise.all(cities.map(city => city.stop()))
@@ -1105,14 +1132,29 @@ export class NativeRuntime {
         )), retireTimeoutMs)
       })
       await Promise.race([exited, deadline])
+    } catch (error) {
+      // The caller will not replace anything; the work may run again now.
+      release()
+      throw error
     } finally {
       clearTimeout(timer)
-      // A later retirement of the same root releases what both held.
-      for (const root of new Set(roots)) {
-        if (this.retiring.get(root) !== marker) continue
-        this.retiring.delete(root)
-        this.#release(root)
-      }
     }
+    if (!hold) {
+      release()
+      return () => {}
+    }
+    holdTimer = setTimeout(() => {
+      this.counters.retireHoldsExpired += 1
+      release(true)
+    }, this.limits.retireHoldMs)
+    holdTimer.unref?.()
+    return () => release()
+  }
+
+  #refuseHeld(root) {
+    const held = this.held.get(root)
+    if (!held) return
+    this.held.delete(root)
+    for (const job of held) this.#finish(job, beingUpdated())
   }
 }

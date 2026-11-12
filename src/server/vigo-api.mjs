@@ -6,6 +6,7 @@ import { cityCaseFeedIds, assertCaseRouteSources } from './gtfs/source-selection
 import packageJson from '../../package.json' with { type: 'json' }
 import { NationalRouteWorkerPool, makeAbortError, maxNationalRouteWorkerStores } from './runtime/route-worker-pool.mjs'
 import { NativeCityUnavailableError, NativeQueryError, NativeRuntime, nativeLayout } from './runtime/native-runtime.mjs'
+import { createRetiredRouting } from './runtime/retired-routing.mjs'
 import { nativeRouteRequest, onServiceDate, studioBlockedResponse, studioRouteResponse } from './studio-route-plans.mjs'
 import { nativePreliminaryRequest, nativeReachRangeRequest, nativeSurface, plannedService, studioReachRange } from './studio-reach-ranges.mjs'
 import { nativeStoreContext } from './native-store-context.mjs'
@@ -193,14 +194,8 @@ const nationalRouteWorkerPool = new NationalRouteWorkerPool(
 // Studio's queries run in the native runtime; the worker pool prepares City artifacts.
 const nativeRuntime = new NativeRuntime({ admit: admitLibraryWork })
 
-/**
- * Release every runtime reading `file` before it is replaced or removed.
- * Settles only after the native processes and preparation workers that read
- * it have exited; it rejects rather than let a file be replaced under them.
- */
-async function retireRouting(file) {
-  await Promise.all([nativeRuntime.retire(file), nationalRouteWorkerPool.retire(file)])
-}
+// Every routing file replacement goes through this fence (see retired-routing.mjs).
+const withRetiredRouting = createRetiredRouting(nativeRuntime, nationalRouteWorkerPool)
 
 const streetPreparationManager = createStreetPreparationManager({
   walking: (preparation) => prepareStudioStreets(preparation, false),
@@ -1314,12 +1309,13 @@ async function deleteProject(projectId) {
   try {
     const project = await readProjectMetadata(projectId)
     streetPreparationManager.invalidate(streetStoreFile(projectId))
-    await retireRouting(streetStoreFile(projectId))
-    invalidateProjectRuntimeCaches(projectId)
-    await Promise.all(projectNationalRoutingStorePaths(projectId, project).map((storePath) => (
-      retireRouting(storePath)
-    )))
-    await fs.rm(projectDir(project.id), { recursive: true, force: true })
+    await withRetiredRouting({
+      files: [streetStoreFile(projectId), ...projectNationalRoutingStorePaths(projectId, project)],
+      cities: [projectMetaDir(projectId)],
+    }, async () => {
+      invalidateProjectRuntimeCaches(projectId)
+      await fs.rm(projectDir(project.id), { recursive: true, force: true })
+    })
     await markStorageInitialized('delete-project')
     return listProjects()
   } finally {
@@ -1486,53 +1482,55 @@ async function resetCityData(projectId, body = {}) {
 
     const before = await inspectCityData(projectId)
     streetPreparationManager.invalidate(streetStoreFile(projectId))
-    await retireRouting(streetStoreFile(projectId))
-    const storePaths = projectNationalRoutingStorePaths(projectId, project)
-    await Promise.all(storePaths.map((storePath) => retireRouting(storePath)))
-    invalidateProjectRuntimeCaches(projectId)
-    for (const [jobId, job] of nationalImportJobs) {
-      if (job?.projectId === projectId) nationalImportJobs.delete(jobId)
-    }
-
     const root = projectDir(projectId)
     const metaRoot = projectMetaDir(projectId)
-    const quarantine = path.join(root, `.vigo-cleanup-${Date.now()}-${makeId('reset')}`)
-    await fs.rename(metaRoot, quarantine)
-    try {
-      await Promise.all([
-        fs.mkdir(path.join(metaRoot, 'jobs'), { recursive: true }),
-        fs.mkdir(path.join(metaRoot, 'artifacts'), { recursive: true }),
-        fs.mkdir(path.join(metaRoot, 'osm'), { recursive: true }),
-        fs.mkdir(path.join(metaRoot, 'routing'), { recursive: true }),
-      ])
-      await writeProject({
-        schemaVersion: projectSchemaVersion,
-        id: project.id,
-        name: project.name,
-        region: project.region,
-        createdAt: project.createdAt,
-        updatedAt: now(),
-        storagePath: projectDir(project.id),
-        summary: {
-          feeds: 0,
-          routes: 0,
-          stops: 0,
-          transferCandidates: 0,
-          qualityScore: 0,
-        },
-        feeds: [],
-        jobs: [],
-        artifacts: [],
-        routingStore: null,
-        osmStreetIndex: null,
-      })
-    } catch (error) {
-      await fs.rm(metaRoot, { recursive: true, force: true }).catch(() => {})
-      await fs.rename(quarantine, metaRoot).catch(() => {})
-      throw error
-    }
+    await withRetiredRouting({
+      files: [streetStoreFile(projectId), ...projectNationalRoutingStorePaths(projectId, project)],
+      cities: [metaRoot],
+    }, async () => {
+      invalidateProjectRuntimeCaches(projectId)
+      for (const [jobId, job] of nationalImportJobs) {
+        if (job?.projectId === projectId) nationalImportJobs.delete(jobId)
+      }
 
-    await fs.rm(quarantine, { recursive: true, force: true })
+      const quarantine = path.join(root, `.vigo-cleanup-${Date.now()}-${makeId('reset')}`)
+      await fs.rename(metaRoot, quarantine)
+      try {
+        await Promise.all([
+          fs.mkdir(path.join(metaRoot, 'jobs'), { recursive: true }),
+          fs.mkdir(path.join(metaRoot, 'artifacts'), { recursive: true }),
+          fs.mkdir(path.join(metaRoot, 'osm'), { recursive: true }),
+          fs.mkdir(path.join(metaRoot, 'routing'), { recursive: true }),
+        ])
+        await writeProject({
+          schemaVersion: projectSchemaVersion,
+          id: project.id,
+          name: project.name,
+          region: project.region,
+          createdAt: project.createdAt,
+          updatedAt: now(),
+          storagePath: projectDir(project.id),
+          summary: {
+            feeds: 0,
+            routes: 0,
+            stops: 0,
+            transferCandidates: 0,
+            qualityScore: 0,
+          },
+          feeds: [],
+          jobs: [],
+          artifacts: [],
+          routingStore: null,
+          osmStreetIndex: null,
+        })
+      } catch (error) {
+        await fs.rm(metaRoot, { recursive: true, force: true }).catch(() => {})
+        await fs.rename(quarantine, metaRoot).catch(() => {})
+        throw error
+      }
+
+      await fs.rm(quarantine, { recursive: true, force: true })
+    })
     await markStorageInitialized('reset-city-data')
     invalidateProjectRuntimeCaches(projectId)
     const cleanedProject = await readProject(projectId)
@@ -1595,78 +1593,94 @@ async function removeCitySource(projectId, body = {}) {
     agency.invalidate(projectId)
     streetPreparationManager.invalidate(streetStoreFile(projectId))
     const storePaths = new Set([projectRoutingStoreFile(projectId, project), ...project.feeds.map((entry) => feedRoutingStoreFile(projectId, entry))])
-    await Promise.all([streetStoreFile(projectId), ...storePaths].map((storePath) => retireRouting(storePath)))
-    for (const storePath of storePaths) disposeNationalGtfsStore(storePath)
-    invalidateProjectRuntimeCaches(projectId)
+    // Every replacement and its rollback run inside the fence; the merge that
+    // may follow retires its own store.
+    const readyFeeds = await withRetiredRouting({ files: [streetStoreFile(projectId), ...storePaths] }, async () => {
+      try {
+        for (const storePath of storePaths) disposeNationalGtfsStore(storePath)
+        invalidateProjectRuntimeCaches(projectId)
 
-    if (body.kind === 'osm') {
-      // Corrupt stores are already unavailable; every admitted timetable must
-      // lose its street-derived edges, including the merged City timetable.
-      for (const storePath of new Set(projectNationalRoutingStorePaths(projectId, project))) {
-        await removeNationalGtfsOsmStopTransfers(storePath)
-      }
-    }
-
-    const targets = new Set([path.join(metaRoot, 'rebuild-manifest.json')])
-    if (body.kind === 'osm') {
-      targets.add(path.join(metaRoot, 'osm'))
-      const entries = await fs.readdir(path.join(metaRoot, 'routing'))
-      for (const storePath of storePaths) {
-        const prefix = `${path.basename(storePath)}.native-access-profile.`
-        for (const name of entries) if (name.startsWith(prefix)) targets.add(path.join(metaRoot, 'routing', name))
-      }
-    }
-    else {
-      const obsolete = new Set([sourcePath, routingStoreFile(projectId, feed.id), projectRoutingStorePath(projectId)])
-      const currentStore = projectRoutingStoreFile(projectId, project)
-      if (!retainedPaths.has(currentStore)) obsolete.add(currentStore)
-      const entries = await fs.readdir(path.join(metaRoot, 'routing'))
-      for (const storePath of obsolete) {
-        if (retainedPaths.has(storePath)) continue
-        const base = path.basename(storePath)
-        for (const name of entries) {
-          if (name === base || name.startsWith(`${base}.`) || name === `${base}-wal` || name === `${base}-shm`) targets.add(path.join(metaRoot, 'routing', name))
+        if (body.kind === 'osm') {
+          // Corrupt stores are already unavailable; every admitted timetable must
+          // lose its street-derived edges, including the merged City timetable.
+          for (const storePath of new Set(projectNationalRoutingStorePaths(projectId, project))) {
+            await removeNationalGtfsOsmStopTransfers(storePath)
+          }
         }
+
+        const targets = new Set([path.join(metaRoot, 'rebuild-manifest.json')])
+        if (body.kind === 'osm') {
+          targets.add(path.join(metaRoot, 'osm'))
+          const entries = await fs.readdir(path.join(metaRoot, 'routing'))
+          for (const storePath of storePaths) {
+            const prefix = `${path.basename(storePath)}.native-access-profile.`
+            for (const name of entries) if (name.startsWith(prefix)) targets.add(path.join(metaRoot, 'routing', name))
+          }
+        }
+        else {
+          const obsolete = new Set([sourcePath, routingStoreFile(projectId, feed.id), projectRoutingStorePath(projectId)])
+          const currentStore = projectRoutingStoreFile(projectId, project)
+          if (!retainedPaths.has(currentStore)) obsolete.add(currentStore)
+          const entries = await fs.readdir(path.join(metaRoot, 'routing'))
+          for (const storePath of obsolete) {
+            if (retainedPaths.has(storePath)) continue
+            const base = path.basename(storePath)
+            for (const name of entries) {
+              if (name === base || name.startsWith(`${base}.`) || name === `${base}-wal` || name === `${base}-shm`) targets.add(path.join(metaRoot, 'routing', name))
+            }
+          }
+        }
+        const matchesFeed = (record) => record.feedId === feed?.id || record.result?.feedId === feed?.id || (record.sourceFeedIds ?? []).includes(feed?.id)
+        const removeJob = (record) => body.kind === 'osm'
+          ? record.kind === 'national-osm-import'
+          : matchesFeed(record) || record.kind === 'national-gtfs-merge'
+        const removeArtifact = (record) => body.kind === 'gtfs' && (record.sourceFeedIds ?? []).includes(feed.id)
+        for (const [directory, predicate] of [['jobs', removeJob], ['artifacts', removeArtifact]]) {
+          const entries = await fs.readdir(path.join(metaRoot, directory))
+          for (const name of entries) {
+            if (!name.endsWith('.json')) continue
+            const recordPath = path.join(metaRoot, directory, name)
+            const record = await readJson(recordPath).catch(() => null)
+            if (!record || !predicate(record)) continue
+            targets.add(recordPath)
+            if (directory === 'jobs' && record.stagedUpload && record.retrySourcePath
+              && path.dirname(path.resolve(record.retrySourcePath)) === path.join(metaRoot, 'staging')) targets.add(record.retrySourcePath)
+          }
+        }
+        await fs.mkdir(quarantine)
+        for (const target of targets) {
+          const retained = path.join(quarantine, String(moved.length))
+          try { await fs.rename(target, retained); moved.push([target, retained]) }
+          catch (error) { if (error.code !== 'ENOENT') throw error }
+        }
+        await fs.mkdir(path.join(metaRoot, 'osm'), { recursive: true })
+        const readyFeeds = remaining.filter((entry) => entry.routingStore?.status === 'ready')
+        await writeProject({
+          ...original,
+          feeds: remaining,
+          summary: summaryFromFeeds(remaining, { feeds: 0, routes: 0, stops: 0, transferCandidates: 0, qualityScore: 0 }),
+          routingStore: body.kind === 'osm' ? original.routingStore : readyFeeds.length === 1 ? readyFeeds[0].routingStore : null,
+          osmStreetIndex: body.kind === 'osm' ? null : original.osmStreetIndex,
+          jobs: (original.jobs ?? []).filter((record) => !removeJob(record)),
+          artifacts: (original.artifacts ?? []).filter((record) => !removeArtifact(record)),
+        })
+        committed = true
+        for (const [jobId, job] of nationalImportJobs) if (job.projectId === projectId && removeJob(job)) nationalImportJobs.delete(jobId)
+        await fs.rm(quarantine, { recursive: true, force: true })
+        invalidateProjectRuntimeCaches(projectId)
+        return readyFeeds
+      } catch (error) {
+        if (!committed && moved.length) {
+          for (const [target, retained] of moved.reverse()) {
+            await fs.rm(target, { recursive: true, force: true })
+            await fs.rename(retained, target)
+          }
+          moved.length = 0
+          await writeProject(original)
+        }
+        throw error
       }
-    }
-    const matchesFeed = (record) => record.feedId === feed?.id || record.result?.feedId === feed?.id || (record.sourceFeedIds ?? []).includes(feed?.id)
-    const removeJob = (record) => body.kind === 'osm'
-      ? record.kind === 'national-osm-import'
-      : matchesFeed(record) || record.kind === 'national-gtfs-merge'
-    const removeArtifact = (record) => body.kind === 'gtfs' && (record.sourceFeedIds ?? []).includes(feed.id)
-    for (const [directory, predicate] of [['jobs', removeJob], ['artifacts', removeArtifact]]) {
-      const entries = await fs.readdir(path.join(metaRoot, directory))
-      for (const name of entries) {
-        if (!name.endsWith('.json')) continue
-        const recordPath = path.join(metaRoot, directory, name)
-        const record = await readJson(recordPath).catch(() => null)
-        if (!record || !predicate(record)) continue
-        targets.add(recordPath)
-        if (directory === 'jobs' && record.stagedUpload && record.retrySourcePath
-          && path.dirname(path.resolve(record.retrySourcePath)) === path.join(metaRoot, 'staging')) targets.add(record.retrySourcePath)
-      }
-    }
-    await fs.mkdir(quarantine)
-    for (const target of targets) {
-      const retained = path.join(quarantine, String(moved.length))
-      try { await fs.rename(target, retained); moved.push([target, retained]) }
-      catch (error) { if (error.code !== 'ENOENT') throw error }
-    }
-    await fs.mkdir(path.join(metaRoot, 'osm'), { recursive: true })
-    const readyFeeds = remaining.filter((entry) => entry.routingStore?.status === 'ready')
-    await writeProject({
-      ...original,
-      feeds: remaining,
-      summary: summaryFromFeeds(remaining, { feeds: 0, routes: 0, stops: 0, transferCandidates: 0, qualityScore: 0 }),
-      routingStore: body.kind === 'osm' ? original.routingStore : readyFeeds.length === 1 ? readyFeeds[0].routingStore : null,
-      osmStreetIndex: body.kind === 'osm' ? null : original.osmStreetIndex,
-      jobs: (original.jobs ?? []).filter((record) => !removeJob(record)),
-      artifacts: (original.artifacts ?? []).filter((record) => !removeArtifact(record)),
     })
-    committed = true
-    for (const [jobId, job] of nationalImportJobs) if (job.projectId === projectId && removeJob(job)) nationalImportJobs.delete(jobId)
-    await fs.rm(quarantine, { recursive: true, force: true })
-    invalidateProjectRuntimeCaches(projectId)
     if (body.kind === 'gtfs' && readyFeeds.length > 1) await startNationalGtfsMerge(projectId, {}, { duringMaintenance: true })
     return { ok: true, city: await readProject(projectId) }
   } catch (error) {
@@ -1877,8 +1891,7 @@ async function buildProjectRoutingStore(projectId, { job, requestedServiceDate, 
     }
     const outputPath = projectRoutingStorePath(projectId)
     if (path.resolve(outputPath) !== path.resolve(input.storePath)) {
-      await retireRouting(outputPath)
-      await removeRoutingStoreFamily(outputPath)
+      await withRetiredRouting({ files: [outputPath] }, () => removeRoutingStoreFamily(outputPath))
     }
     await enqueueProjectWrite(projectId, async () => {
       const current = await readJson(projectFile)
@@ -1898,7 +1911,6 @@ async function buildProjectRoutingStore(projectId, { job, requestedServiceDate, 
     const current = await readJson(projectFile)
     return writeProject({ ...current, routingStore: buildingRoutingStore })
   })
-  await retireRouting(outputPath)
 
   try {
     Object.assign(job, {
@@ -1908,7 +1920,10 @@ async function buildProjectRoutingStore(projectId, { job, requestedServiceDate, 
       updatedAt: now(),
     })
     await persistNationalJob(projectId, job)
-    const mergeResult = await runNationalGtfsMergeWorker({
+    // The merge rewrites the City store inside the fence; the transfers and
+    // preload below then prepare the new file through the preparation pool,
+    // while the City still reports it as building.
+    const mergeResult = await withRetiredRouting({ files: [outputPath] }, () => runNationalGtfsMergeWorker({
       stores: inputs,
       outputPath,
       job,
@@ -1920,7 +1935,7 @@ async function buildProjectRoutingStore(projectId, { job, requestedServiceDate, 
           updatedAt: now(),
         })
       },
-    })
+    }))
     let osmStopTransfers = null
     const currentAfterMerge = await readJson(projectFile)
     const streetStorePath = currentAfterMerge.osmStreetIndex?.status === 'ready'
@@ -1967,8 +1982,7 @@ async function buildProjectRoutingStore(projectId, { job, requestedServiceDate, 
     invalidateProjectRuntimeCaches(projectId)
     return { reused: false, routingStore, sourceStores: inputs, mergeResult, osmStopTransfers, preload }
   } catch (error) {
-    await retireRouting(outputPath).catch(() => {})
-    await removeRoutingStoreFamily(outputPath).catch(() => {})
+    await withRetiredRouting({ files: [outputPath] }, () => removeRoutingStoreFamily(outputPath)).catch(() => {})
     await enqueueProjectWrite(projectId, async () => {
       const current = await readJson(projectFile).catch(() => project)
       return writeProject({
@@ -2064,8 +2078,7 @@ async function commitIndexedFeed(projectId, body, options = {}) {
     const obsoleteStorePaths = previousStorePaths.filter(
       (candidate) => path.resolve(candidate) !== path.resolve(currentStorePath),
     )
-    await Promise.all(obsoleteStorePaths.map((candidate) => retireRouting(candidate)))
-    await Promise.all(obsoleteStorePaths.map(removeRoutingStoreFamily))
+    await withRetiredRouting({ files: obsoleteStorePaths }, () => Promise.all(obsoleteStorePaths.map(removeRoutingStoreFamily)))
     await removeFeedArtifactRecords(projectId, replacedFeedIds)
     await fs.rm(path.join(projectMetaDir(projectId), 'rebuild-manifest.json'), { force: true })
   }
@@ -2226,10 +2239,10 @@ async function launchNationalImportWorker(projectId, kind, job, workerUrl, worke
       // Timetable workers also map this City's street files. Release every
       // owner before replacement, including on Windows where mapped files
       // cannot be atomically overwritten by the import process.
+      // The import then rewrites them while its reservation refuses routing
+      // (Street data is being replaced), so the fence releases at once.
       const project = await readProjectMetadata(projectId)
-      await Promise.all([
-        streetStoreFile(projectId), ...projectNationalRoutingStorePaths(projectId, project),
-      ].map(storePath => retireRouting(storePath)))
+      await withRetiredRouting({ files: [streetStoreFile(projectId), ...projectNationalRoutingStorePaths(projectId, project)] })
     }
     await persistNationalJob(projectId, job)
     return new PreparationProcess(workerUrl, { workerData })
@@ -2723,10 +2736,10 @@ async function startNationalOsmImport(projectId, body) {
           } })
         })
         if (job.cancelRequested) return
-        await Promise.all(projectNationalRoutingStorePaths(projectId, project).map(async (storePath) => {
-          await retireRouting(storePath)
-          // Reimport can change the CCH even when the source PBF is unchanged.
-          // Retire its derived access profiles before opening the new streets.
+        // Reimport can change the CCH even when the source PBF is unchanged.
+        // Remove the stores' derived access profiles before opening the new streets.
+        const storePaths = projectNationalRoutingStorePaths(projectId, project)
+        await withRetiredRouting({ files: storePaths }, () => Promise.all(storePaths.map(async (storePath) => {
           const directory = path.dirname(storePath)
           const prefix = `${path.basename(storePath)}.native-access-profile.`
           for (const name of await fs.readdir(directory)) {
@@ -2734,7 +2747,7 @@ async function startNationalOsmImport(projectId, body) {
               await fs.rm(path.join(directory, name), { force: true })
             }
           }
-        }))
+        })))
         await removeUploadedSource()
         Object.assign(job, { status: 'complete', phase: 'Street index ready', progress: 1, detail: `${message.result.edgeCount.toLocaleString()} walk + ${message.result.driveEdgeCount.toLocaleString()} drive edges`, result: { ...message.result, sourceFile: sourceName }, finishedAt: now(), updatedAt: now() })
         // The import worker exits with its memory. Warm pedestrian access;
@@ -2816,12 +2829,9 @@ async function startWheelchairPreparation(projectId, request) {
     phase: 'Preparing accessible streets and transit', progress: 0, createdAt: now(), retryable: true }
   try { await persistNationalJob(projectId, job) } catch (error) { releaseNationalImportProject(projectId, 'wheelchair'); throw error }
   const completed = buildStudioWheelchair({ directory, sources, signal: controller.signal,
-    // The wheelchair City is retired by its root: its first publish, before
-    // it has a network.json, must not stop the parent City's processes.
-    beforePublish: () => Promise.all([
-      nativeRuntime.retireCity(path.join(directory, 'wheelchair')),
-      nationalRouteWorkerPool.retire(path.join(directory, 'wheelchair', 'routing', 'project.sqlite')),
-    ]),
+    // The wheelchair City is fenced by its root: its first publish, before it
+    // has a network.json, must not stop the parent City's processes.
+    publish: replace => withRetiredRouting({ cities: [path.join(directory, 'wheelchair')] }, replace),
     readProject: () => readProjectMetadata(projectId), onProgress: phase => {
       if (controller.signal.aborted) return
       Object.assign(job, { phase, updatedAt: now() })

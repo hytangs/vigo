@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { NationalRouteWorkerPool } from '../src/server/runtime/route-worker-pool.mjs'
+import { createRetiredRouting } from '../src/server/runtime/retired-routing.mjs'
 
 // The worker now serves preparation and street-route-batch jobs in arrival
 // order; a request cancelled while it waits must never reach the worker.
@@ -79,7 +80,45 @@ try {
   await refusedSettled
   assert.equal(Atomics.load(switched, 1), 1, 'Work of the previous library never ran again')
   assert.equal(await pool.dispatch(store, 'gtfs-route-analysis', { name: 'after-reset' }), 'after-reset')
-  console.log('Routing queue: arrival order, cancellation of waiting jobs, refresh re-run and reset refusal passed.')
+
+  // Two-phase fence through Studio's helper: while the mutation replaces the
+  // store, the interrupted job and one arriving meanwhile wait and no worker
+  // opens it; both run once the mutation settles, also when it throws.
+  const nativeReleases = []
+  const fakeNative = {
+    retire: async () => { const release = () => nativeReleases.push('file'); return release },
+    retireCity: async () => { const release = () => nativeReleases.push('city'); return release },
+  }
+  const withRetiredRouting = createRetiredRouting(fakeNative, pool)
+  for (const failing of [false, true]) {
+    const fenced = holder()
+    const interrupted = pool.dispatch(store, 'gtfs-route-analysis', { name: 'interrupted', hold: fenced.buffer, holdOnce: true })
+    await runs(fenced, 1)
+    let arriving
+    const mutation = withRetiredRouting({ files: [store] }, async () => {
+      arriving = pool.dispatch(store, 'gtfs-route-analysis', { name: 'arriving' })
+      await new Promise(resolve => setTimeout(resolve, 40))
+      assert.equal(pool.clients.has(store), false, 'No worker opens the store while it is replaced')
+      assert.equal(Atomics.load(fenced, 1), 1, 'The interrupted job waits for the release')
+      if (failing) throw new Error('replacement failed')
+      return 'replaced'
+    })
+    if (failing) await assert.rejects(mutation, /replacement failed/)
+    else assert.equal(await mutation, 'replaced')
+    assert.deepEqual(await Promise.all([interrupted, arriving]), ['interrupted', 'arriving'])
+    assert.equal(Atomics.load(fenced, 1), 2)
+  }
+  assert.deepEqual(nativeReleases, ['file', 'file'], 'The native fence is released after a failed mutation too')
+
+  // A release that never comes does not wedge the store: past the hold limit
+  // waiting work fails as being updated, and new work runs again.
+  const lossy = new NationalRouteWorkerPool(1, worker, { holdMs: 80 })
+  try {
+    await lossy.retire(store, { hold: true })
+    await assert.rejects(lossy.dispatch(store, 'gtfs-route-analysis', { name: 'held-forever' }), { code: 'VIGO_ROUTE_UPDATING' })
+    assert.equal(await lossy.dispatch(store, 'gtfs-route-analysis', { name: 'after-expiry' }), 'after-expiry')
+  } finally { await lossy.closeAll() }
+  console.log('Routing queue: arrival order, cancellation, refresh re-run, two-phase fence, hold expiry and reset refusal passed.')
 } finally {
   Atomics.store(gate, 0, 1); Atomics.notify(gate, 0)
   await pool.closeAll()

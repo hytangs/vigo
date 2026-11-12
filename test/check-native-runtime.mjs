@@ -407,6 +407,28 @@ try {
     await Promise.all([refreshingAgain, resetting])
     assert(!roots().includes(wheelchair.root), 'Work of the closed library never reopens its City')
 
+    // Two-phase fence: once the processes have exited, the caller replaces
+    // files; nothing opens the City until it releases, then the held work
+    // (the interrupted request and one that arrived meanwhile) runs at once.
+    {
+      await barrier.query(wheelchair, { id: 'before-fence' })
+      const interrupted = barrier.query(wheelchair, { id: 'fenced-running', delayMs: 100 })
+      await pause(20)
+      const release = await barrier.retire(wheelchairStore, { hold: true })
+      const spawnsAtExit = spawned.length
+      const arriving = barrier.query(wheelchair, { id: 'fenced-arriving' })
+      let settled = false
+      void Promise.allSettled([interrupted, arriving]).then(() => { settled = true })
+      await pause(60)
+      assert.equal(spawned.length, spawnsAtExit, 'Nothing starts while the caller replaces files')
+      assert(!roots().includes(wheelchair.root), 'Nothing opens the City while the caller replaces files')
+      assert.equal(settled, false, 'Held work waits for the release')
+      release()
+      assert.deepEqual((await Promise.all([interrupted, arriving])).map(answer => answer.id), ['fenced-running', 'fenced-arriving'])
+      assert.equal(spawned.length, spawnsAtExit + 1, 'The held work opened the new generation once')
+      release()
+    }
+
     // A nested City's first publish, before it has a network.json and while
     // it is not resident, retires it by root and never touches its parent: the
     // parent's busy process keeps running and answers without a re-run.
@@ -536,6 +558,26 @@ try {
       await Promise.all(retiredWork.map(work => assert.rejects(work, /being updated/)))
       assert.equal(pool.snapshot().admission.pending, 0)
     } finally { releaseGate(); await pool.closeAll() }
+  }
+
+  // A release that never comes does not wedge the City: past the hold limit
+  // its held work fails as being updated, and new work is admitted again.
+  {
+    const pool = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fakeSpawn, maxCities: 2, limits: { retireHoldMs: 80 } })
+    const lost = nativeLayout('/cities/lost-release')
+    // The runtime's timers do not keep a process alive; this test's wait does.
+    const keepAlive = setInterval(() => {}, 1000)
+    try {
+      await pool.query(lost, { id: 'warm' })
+      await pool.retire(lost.root, { hold: true })
+      const before = spawned.length
+      const waiting = pool.query(lost, { id: 'held-forever' })
+      await assert.rejects(waiting, error => error instanceof NativeCityUnavailableError && /being updated/.test(error.message))
+      assert.equal(spawned.length, before, 'Held work never ran')
+      assert.equal(pool.snapshot().counters.retireHoldsExpired, 1)
+      assert.equal(pool.snapshot().admission.pending, 0)
+      assert.equal((await pool.query(lost, { id: 'after-expiry' })).id, 'after-expiry')
+    } finally { clearInterval(keepAlive); await pool.closeAll() }
   }
 
   // R4: a request cancelled before admission opens, evicts and starts nothing.

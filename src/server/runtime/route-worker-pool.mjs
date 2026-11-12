@@ -3,6 +3,9 @@ import { Worker } from 'node:worker_threads'
 import { resolveServiceDay } from '../service-day.mjs'
 import { boundedInteger, memoryCapacityBytes, runtimeCapacityError } from './resource-limits.mjs'
 
+// See VIGO_RETIRE_HOLD_MS in the native runtime: the longest a held refresh
+// keeps a store's work waiting for its caller's release.
+const retireHoldMs = boundedInteger(process.env.VIGO_RETIRE_HOLD_MS, 300_000, 1000, 3_600_000)
 const maxPendingRequests = boundedInteger(process.env.VIGO_ROUTE_MAX_PENDING, 128, 1, 1024)
 const maxQueuedJobs = boundedInteger(process.env.VIGO_ROUTE_MAX_QUEUED, 32, 1, 256)
 const workerHeapMb = boundedInteger(process.env.VIGO_ROUTE_WORKER_HEAP_MB,
@@ -599,8 +602,9 @@ class NationalRouteWorkerClient {
 }
 
 export class NationalRouteWorkerPool {
-  constructor(maxWorkers, workerUrl, { admit = () => {} } = {}) {
+  constructor(maxWorkers, workerUrl, { admit = () => {}, holdMs = retireHoldMs } = {}) {
     this.workerUrl = workerUrl
+    this.holdMs = holdMs
     // Throws when the caller's work may no longer start here (see NativeRuntime).
     this.admit = admit
     this.maxWorkers = boundedInteger(maxWorkers, 2, 1, 2)
@@ -608,8 +612,8 @@ export class NationalRouteWorkerPool {
     // reset() makes every earlier dispatch stale: switching library must not
     // let a warmup, queued job or retry of the old library run or answer.
     this.epoch = 0
-    // Stores being refreshed: dispatches wait for these barriers, then run on
-    // a fresh worker.
+    // Stores (or directories of stores) being refreshed, each with its fence:
+    // dispatches wait until it is released, then run on a fresh worker.
     this.refreshing = new Map()
     this.pendingDispatches = 0
     this.pendingLifecycles = 0
@@ -739,15 +743,16 @@ export class NationalRouteWorkerPool {
     while (true) {
       this.#checkEpoch(epoch)
       if (signal?.aborted) throw makeAbortError()
-      const refresh = this.refreshing.get(storePath)
+      const refresh = this.#refreshFor(storePath)
       if (refresh) {
         await this.#waitForRefresh(refresh, signal, deadline)
+        if (refresh.expired) throw runtimeCapacityError('The routing store is being updated. Retry shortly.', 'VIGO_ROUTE_UPDATING')
         continue
       }
       const capacityGeneration = this.capacityGeneration
       const attempt = await this.#withLock(async () => {
         this.#checkEpoch(epoch)
-        if (this.refreshing.has(storePath)) return { retry: true }
+        if (this.#refreshFor(storePath)) return { retry: true }
         let client = this.clients.get(storePath)
         if (!client) {
           if (this.clients.size >= this.maxWorkers || (this.clients.size > 0 && this.#memorySnapshot().pressure)) {
@@ -786,11 +791,19 @@ export class NationalRouteWorkerPool {
       }, Math.max(1, deadline - Date.now()))
       timeout.unref?.()
       signal?.addEventListener('abort', abort, { once: true })
-      refresh.then(() => {
+      refresh.released.then(() => {
         cleanup()
         resolve()
       })
     })
+  }
+
+  #refreshFor(storePath) {
+    const resolved = path.resolve(storePath)
+    for (const [target, refresh] of this.refreshing) {
+      if (resolved === target || resolved.startsWith(`${target}${path.sep}`)) return refresh
+    }
+    return null
   }
 
   snapshot() {
@@ -845,8 +858,11 @@ export class NationalRouteWorkerPool {
    * failed: a job the worker had started runs once more, and queued or newly
    * arriving jobs wait, all on a fresh worker after this settles and within
    * each request's deadline. `idleOnly` releases only an idle worker.
+   * Resolves to a release function; with `hold`, that work keeps waiting until
+   * the caller has replaced its files and calls it (or the hold limit passes,
+   * when it fails as being updated).
    */
-  async retire(storePath, { idleOnly = false } = {}) {
+  async retire(storePath, { idleOnly = false, hold = false } = {}) {
     if (idleOnly) {
       await this.#withLock(async () => {
         const client = this.clients.get(storePath)
@@ -861,25 +877,45 @@ export class NationalRouteWorkerPool {
         await client.close()
         this.#notifyCapacity()
       })
-      return
+      return () => {}
     }
-    let release
-    const barrier = new Promise((resolve) => { release = resolve })
-    this.refreshing.set(storePath, barrier)
+    // Every store at or beneath `storePath` (a store file or a City directory).
+    const target = path.resolve(storePath)
+    let open
+    const refresh = { expired: false, released: new Promise((resolve) => { open = resolve }) }
+    this.refreshing.set(target, refresh)
+    let holdTimer = null
+    const release = (expired = false) => {
+      if (this.refreshing.get(target) === refresh) this.refreshing.delete(target)
+      clearTimeout(holdTimer)
+      refresh.expired ||= expired
+      open()
+    }
     try {
       await this.#withLock(async () => {
+        const affected = [...this.clients].filter(([candidate]) => {
+          const resolved = path.resolve(candidate)
+          return resolved === target || resolved.startsWith(`${target}${path.sep}`)
+        })
+        for (const [candidate, client] of affected) {
+          this.residencyLeases.delete(candidate)
+          this.clients.delete(candidate)
+          await client.close({ refresh: true })
+        }
         this.residencyLeases.delete(storePath)
-        const client = this.clients.get(storePath)
-        if (!client) return
-        this.clients.delete(storePath)
-        await client.close({ refresh: true })
-        this.#notifyCapacity()
+        if (affected.length) this.#notifyCapacity()
       })
-    } finally {
-      // A later refresh of the same store keeps its own barrier.
-      if (this.refreshing.get(storePath) === barrier) this.refreshing.delete(storePath)
+    } catch (error) {
       release()
+      throw error
     }
+    if (!hold) {
+      release()
+      return () => {}
+    }
+    holdTimer = setTimeout(() => release(true), this.holdMs)
+    holdTimer.unref?.()
+    return () => release()
   }
 
   /**
