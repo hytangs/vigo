@@ -5,8 +5,16 @@
   "exitCode": 0,
   "request": null,
   "result": {
+    "build": {
+      "multipleFeeds": true,
+      "prepareDates": true,
+      "privateAccess": ["public","endpoints"],
+      "sharedStreets": true,
+      "streetModes": ["walk","walk,drive","walk,bike","walk,drive,bike"],
+      "wheelchairStreets": ["inferred","verified"]
+    },
     "cityFormat": "vigo.city.v1",
-    "commands": ["traffic-import","info","route","matrix","reach","compare","native","stream","serve","health","capabilities"],
+    "commands": ["build","build-scenarios","traffic-import","info","route","matrix","reach","compare","native","stream","serve","health","capabilities"],
     "compare": {
       "kinds": ["reach"]
     },
@@ -14,7 +22,7 @@
       "automaticEditorBranchRetiming": false,
       "studioResultEnvelope": false
     },
-    "dataPreparation": "Load a prepared City. Raw GTFS/OSM import remains a separate build step.",
+    "dataPreparation": "Build a City from GTFS and OSM with vigo build, then load it.",
     "flex": {
       "commands": ["route","matrix"],
       "conditionalBooking": true,

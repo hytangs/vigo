@@ -2,7 +2,7 @@
 
 VIGO 1.0.0 · the `vigo` executable · request schema `vigo.standalone.query.v1` · City format `vigo.city.v1`
 
-The engine is one native executable. It opens a prepared City read-only and answers Route, Matrix and Reach from the command line, a resident NDJSON stream, or an HTTP service. The routing kernels, the City loader, the HTTP server and SQLite are compiled in; nothing else is needed at query time: no Node, Python, browser or network connection.
+The engine is one native executable. It builds a City from GTFS and OpenStreetMap, opens it read-only and answers Route, Matrix and Reach from the command line, a resident NDJSON stream, or an HTTP service. The City compiler, the routing kernels, the City loader, the HTTP server and SQLite are compiled in; nothing else is needed to build or to query: no Node, Python, browser or network connection.
 
 This page is the complete reference: every command, flag, request field, endpoint and environment variable. It is also the README of the engine archive. For tutorials and explanations, start with the [VIGO guide](../guide.html), which the engine serves at `http://127.0.0.1:8080/` while `vigo serve` runs. The [public results reference](../reference/results.md) explains every answer, the [API schema](../reference/api-schema.md) lists every typed field, and the [OpenAPI document](../standalone-openapi.json) describes the HTTP API.
 
@@ -24,12 +24,14 @@ The guides call the engine `vigo`. Every command accepts `--name value` and `--n
 
 ### Commands
 
-Data commands need a City: `--city DIR` or the `VIGO_CITY` environment variable. This includes `compare`. `help`, `version`, `capabilities` and `health` need no City.
+Data commands need a City: `--city DIR` or the `VIGO_CITY` environment variable. This includes `compare`. `build` and `build-scenarios` write to `--output`; `help`, `version`, `capabilities` and `health` need no City.
 
 | Command | Purpose | Main input |
 | --- | --- | --- |
 | `help`, `--help`, `-h` | Print the command overview | None |
 | `version`, `--version`, `-V` | Print the version and runtime | None |
+| `build` | Compile GTFS and OSM into a City; see [Build a City](#build-a-city) | GTFS ZIPs, an OSM PBF and an output directory |
+| `build-scenarios` | Compile a collection of Cities that share one street network; see [Scenario collections](#scenario-collections) | A source manifest and an output directory |
 | `capabilities` | Supported commands, modes and optional features, as JSON | None |
 | `info` | Identity, sources, counts, limitations and memory of the City | City |
 | `route` | A journey between ordered places | JSON request or endpoint flags |
@@ -42,7 +44,31 @@ Data commands need a City: `--city DIR` or the `VIGO_CITY` environment variable.
 | `health` | Ask a running service whether it is ready, without loading a City | `--host`, `--port` |
 | `traffic-import` | Convert NDW DATEX II v3 travel times into a traffic snapshot | City and XML files |
 
-The engine opens prepared Cities only. Build Cities with the compiler, `vigo-build build`; see [Build a City](../guide.md#build-a-city). The internal `_worker` command is reserved for the HTTP supervisor.
+Commands that start with `_` are internal: the HTTP supervisor and Studio's data preparation run them.
+
+### Build a City
+
+```sh
+vigo build --gtfs feed.zip --osm region.osm.pbf --output ./city
+vigo build --gtfs rail.zip --gtfs-scope rail --gtfs bus.zip --gtfs-scope bus \
+  --osm region.osm.pbf --output ./city --street-modes walk,drive,bike --prepare-date 2026-10-05
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--gtfs PATH` | GTFS ZIP; repeat for several feeds |
+| `--gtfs-scope NAME` | A unique, stable scope for each `--gtfs`; defaults to the file name |
+| `--osm PATH` | OSM `.pbf` covering the City |
+| `--output PATH` | The City directory to write |
+| `--street-modes VALUE` | `walk,drive` (default), `walk`, `walk,bike` or `walk,drive,bike` |
+| `--prepare-date YYYY-MM-DD` | Compile a service date's timetable now; repeat for other dates |
+| `--private-access VALUE` | `public` (default) or `endpoints` |
+| `--wheelchair` | Build a strict wheelchair City (walking only, public access) |
+| `--wheelchair-streets MODE` | `inferred` (default) or `verified` street evidence for a wheelchair City |
+| `--streets-from PATH` | Reuse identical prepared streets from another City |
+| `--replace` | Replace an existing City |
+
+`--gtfs`, `--gtfs-scope` and `--prepare-date` may repeat; other options may appear once. Progress goes to standard error as `[gtfs]`, `[osm]`, `[transfers]` and `[city]` lines, and the City manifest (`network.json`) is printed to standard output. Exit 0 means the City was published; exit 2 reports invalid options or a failed build on standard error. The build is staged beside the output and renamed into place when complete: a failure, Ctrl-C or a termination signal leaves an existing City untouched and removes the unfinished one, and the next build cleans up after a crash. GTFS and OSM compile at the same time when installed memory, free memory and load allow it. [Build a City](../guide.md#build-a-city) explains inputs, combined feeds and large regions. Feeds with frequency-based trips are always compiled from source at query time, so `--prepare-date` notes and skips them.
 
 ### Query flags
 
@@ -728,10 +754,10 @@ Compare checks the grid, not the experiment: keep the origin, date, clock, walki
 
 ## Scenario collections
 
-A collection serves several transit scenarios over one immutable street graph. Build it with the compiler from a source manifest, then serve or stream it:
+A collection serves several transit scenarios over one immutable street graph. Build it from a source manifest, then serve or stream it:
 
 ```sh
-vigo-build build-scenarios --spec scenarios.source.json --output ./scenario-set
+vigo build-scenarios --spec scenarios.source.json --output ./scenario-set
 vigo serve --city ./scenario-set --port 8080
 ```
 
@@ -751,7 +777,7 @@ vigo serve --city ./scenario-set --port 8080
 }
 ```
 
-Source paths are relative to the manifest; optional `sha256` values pin each input. Streets are prepared once and referenced from every member, so move the collection as one directory. `prepareDates` precompiles up to 32 service dates; other dates still work from the source timetable.
+Source paths are relative to the manifest; optional `sha256` values pin each input. Streets are prepared once and referenced from every member, so move the collection as one directory. `build-scenarios` takes `--spec`, `--output`, `--wheelchair` and `--wheelchair-streets`, prints the same progress as `build` for each member, and prints the collection manifest with its `storageBytes` on standard output. The output directory holds `scenarios.json`, `checksums.json` (a SHA-256 for every file), `cities/<id>` and `streets/<OSM SHA-256>`. It must not exist yet; the collection is staged beside it and renamed into place when complete, and an interrupted build is removed as for `build`. `prepareDates` precompiles up to 32 service dates; other dates still work from the source timetable.
 
 Each request selects a member with `scenarioId` (or `--scenario`); omission selects `defaultScenario`. At most `maximumResidentScenarios` members stay loaded; see [Runtime memory and caching](#runtime-memory-and-caching).
 
@@ -1450,7 +1476,27 @@ Every variable the engine reads. Command-line flags override the matching variab
 
 The bicycle index lives in the user cache directory (`~/Library/Caches/VIGO` on macOS, `$XDG_CACHE_HOME/vigo` or `~/.cache/vigo` on Linux, `%LOCALAPPDATA%\VIGO\Cache` on Windows). It is derived from the City, holds graph data only, and can be deleted at any time.
 
-The compiler and Studio read further variables, such as `VIGO_BUILD_MEMORY` and `VIGO_DRIVE_ACCELERATOR_MAX_NODES`; see [Build a City](../guide.md#large-regions-and-low-memory) and [Runtime limits](../developer.md#runtime-limits-and-recovery).
+`vigo build` also reads these variables. The routing variables change the prepared City and its policy identity; leave them unset for comparable Cities.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `VIGO_ROUTING_WALK_SPEED_KPH` | 4.8 | Walking speed, 1.5–8 km/h |
+| `VIGO_ROUTING_WALK_PADDING_FACTOR` | 1 | Walking distance multiplier, 0.75–3 |
+| `VIGO_ROUTING_WALK_OVERHEAD_SECONDS` | 0 | Seconds added to each walk, 0–900 |
+| `VIGO_ROUTING_TRANSFER_RADIUS_M` | 500 | Longest walking transfer between stops, 50–1,200 m |
+| `VIGO_ROUTING_TRANSFER_MAX_NEIGHBORS` | 0 (unlimited) | Nearest stops considered for walking transfers, up to 4,096 |
+| `VIGO_BUILD_SQLITE_CACHE_KIB` | 32,768 | SQLite page cache of each store `build` writes, 4,096–262,144 KiB |
+| `VIGO_READONLY_SQLITE_CACHE_KIB` | 16,384 | Page cache while reading a store for its topology, 4,096–262,144 KiB |
+| `VIGO_READONLY_SQLITE_MMAP_BYTES` | 0 | Memory-mapped bytes while reading a store for its topology, up to 2 GiB |
+| `VIGO_STREET_ACCELERATOR_MAX_EDGES` | 40,000,000 | Largest pedestrian graph given a snapshot |
+| `VIGO_STREET_ACCELERATOR_MAX_STORE_BYTES` | 12,000,000,000 | Largest street store given a pedestrian snapshot |
+| `VIGO_DRIVE_ACCELERATOR_MAX_NODES` | 40,000,000 | Largest driving graph given a snapshot, in nodes |
+| `VIGO_DRIVE_ACCELERATOR_MAX_EDGES` | 20,000,000 | Largest driving graph given a snapshot, in edges |
+| `VIGO_NATIVE_ENDPOINT_WORKSPACE_M` | 1,600 | Walking radius of the endpoint workspaces reserved while preparing access, 100–5,000 m |
+| `VIGO_ACTIVE_KERNEL_MAX_BYTES` | Memory ÷ 8, 64 MiB–2 GiB | Largest timetable `--prepare-date` compiles, 1 MiB–16 GiB; a larger date fails the build |
+| `VIGO_ACTIVE_KERNEL_SNAPSHOT_CACHE_BUDGET_BYTES` | min(512 MiB, the limit above ÷ 4) | Prepared timetables kept beside a routing store, 8 MiB–2 GiB; older ones are removed |
+
+Studio and the compiler's runtime read further variables; see [Runtime limits](../developer.md#runtime-limits-and-recovery).
 
 ## Runtime memory and caching
 
@@ -1527,7 +1573,7 @@ The [native field reference](../reference/rust-standalone-native.md) lists every
 | Compare | Reach surfaces |
 | Monte Carlo | Scheduled depart-at transit Route, Matrix and Reach |
 
-The engine does not build Cities, combine planned branch edits into schedules, or optimize fares. Prepare those inputs with the compiler or Studio.
+The engine does not combine planned branch edits into schedules or optimize fares. Prepare those inputs with the compiler or Studio.
 
 ### Platform and build records
 

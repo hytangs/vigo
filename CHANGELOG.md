@@ -4,6 +4,15 @@
 
 API 1.0, City format 1 and Result schema 1 keep their meanings, and compatible prepared Cities open without rebuilding. Some preparation fixes below apply only to Cities built with this release; the [release notes](docs/releases/1.0.0.md) say when to rebuild.
 
+### Building Cities
+
+- The engine builds Cities: `vigo build --gtfs … --osm … --output …` takes the compiler's options (`--gtfs-scope`, `--street-modes`, `--private-access`, `--wheelchair`, `--wheelchair-streets`, `--streets-from`, `--prepare-date`, `--replace`), prints the same `[gtfs]`, `[osm]`, `[transfers]` and `[city]` progress on standard error and the City manifest on standard output, and needs no Node or npm. The GTFS and OpenStreetMap compilers moved from JavaScript into the `vigo-gtfs` and `vigo-osm` crates.
+- `vigo build-scenarios --spec … --output …` builds scenario collections in the engine. The compiler's `build` and `build-scenarios` run the engine's commands with the same arguments; Python's `vigo.build()` runs the engine executable shipped with its runtime; Studio's GTFS, OSM, wheelchair, stop-transfer and endpoint-access preparation run the same compiler. Staging, publication, recovery after a crash and signal cleanup are the engine's. Cities are unchanged: every table, metadata value, snapshot and hierarchy matches the JavaScript compiler's on the test fixtures, Boston and Washington, DC, and the published 0.5.0 reader opens them. Only the `streetStore.runtimeCompaction.bytesSaved` diagnostic in `network.json` can be a few MB higher, because the compiler no longer writes a temporary node table before compacting the street store. Distances reproduce Node's `Math` results bit for bit.
+- Builds are faster. On one Apple M2 (8 cores, 16 GB) with the same local inputs, Boston (walking, driving and one prepared date) built in 48 s instead of 138 s, Boston with wheelchair routing in 42 s instead of 75 s, and Washington, DC (bus and rail feeds, one prepared date) in 100 s instead of 165 s. The single compiler process peaked at 1.8, 1.4 and 2.3 GiB resident memory, where the largest JavaScript compiler process peaked at 1.4, 1.3 and 1.8 GiB.
+- GTFS and OSM compile at the same time when installed memory, free memory and load allow it.
+- `--prepare-date` no longer fails a build whose feeds have frequency-based trips (`exact_times=0`); every runtime compiles those timetables when queried, and the build says so.
+- Ctrl-C or a termination signal removes an unfinished `vigo build`; internal compilers stop when the process that started them exits.
+
 ### Transit routing
 
 - Route, Matrix and Reach answer transit with one exact connection scan. The stateful transfer search, which any frequency template or trip-scoped transfer rule switched a whole City to, is removed. Frequency templates (`exact_times=0`) depart every headway from each window's start, like `exact_times=1` windows; journeys no longer carry `headwayEstimate`. Stop-level transfer rules apply with GTFS specificity, a platform's own rule overriding its station's; route- and trip-scoped selectors are not applied. Monte Carlo samples phases only for a scenario's non-exact planned services.

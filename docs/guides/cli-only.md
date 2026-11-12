@@ -1,8 +1,8 @@
 # VIGO compiler
 
-The compiler, `vigo.mjs`, builds Cities and scenario collections from GTFS and OpenStreetMap, and runs Route, Matrix, Reach, Stream and Compare against them. It is the only tool that reads raw GTFS and OSM; the [engine](rust-standalone.md) and Python open the Cities it writes.
+The compiler, `vigo.mjs`, builds Cities and scenario collections from GTFS and OpenStreetMap, and runs Route, Matrix, Reach, Stream and Compare against them. Its `build` and `build-scenarios` run the [engine](rust-standalone.md)'s `vigo build` and `vigo build-scenarios` with the same arguments, so they write the same Cities; the engine, the compiler and Python open them.
 
-The compiler archive (`VIGO-CLI-…`) contains `vigo.mjs`, its native routing kernel `vigo-routing-kernel.node`, the `vigo` executable it uses for Reach, license notices and a checksum manifest. It needs Node.js 24.18 or newer on the matching operating system and CPU, and bundles neither Node nor City data.
+The compiler archive (`VIGO-CLI-…`) contains `vigo.mjs`, its native routing kernel `vigo-routing-kernel.node`, the `vigo` executable it uses to build Cities and answer queries, license notices and a checksum manifest. It needs Node.js 24.18 or newer on the matching operating system and CPU, and bundles neither Node nor City data.
 
 ## Install
 
@@ -59,7 +59,7 @@ vigo-build inspect --city ./city
 | `--streets-from PATH` | Reuse identical prepared streets from another City |
 | `--replace` | Replace an existing City |
 
-[Build a City](../guide.md#build-a-city) explains each option, combining feeds, large regions and low-memory builds. The [quickstart](../guide.md#quickstart) has a complete Boston example. Progress goes to standard error.
+[Build a City](../guide.md#build-a-city) explains each option, combining feeds, large regions and low-memory builds. The [quickstart](../guide.md#quickstart) has a complete Boston example. Progress goes to standard error. `vigo.mjs` runs the `vigo` executable beside it, which stages and publishes the City; set `VIGO_STANDALONE_PATH` to use another one. A signal sent to `vigo.mjs` reaches the build, and the build stops if `vigo.mjs` is killed.
 
 ## Run a query
 
