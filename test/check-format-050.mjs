@@ -7,6 +7,7 @@ import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { standaloneBinary } from './helpers/standalone-runtime.mjs'
 import { published050 } from './helpers/published-050.mjs'
+import { tarCommand } from './helpers/tar.mjs'
 import { backfillPlaceNames } from '../src/server/place-names-backfill.mjs'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 const root = path.resolve(import.meta.dirname, '..')
@@ -40,7 +41,7 @@ function verify(binary, city) {
 }
 try {
   const reference = await published050(temporary)
-  execFileSync('tar',['-xzf',path.join(fixture,'city.tar.gz'),'-C',temporary])
+  execFileSync(tarCommand,['-xzf',path.join(fixture,'city.tar.gz'),'-C',temporary])
   verify(standaloneBinary,path.join(temporary,'city'))
   // Upgrade only the extracted copy; the permanent archive and hashes stay frozen.
   await backfillPlaceNames({ streetPath:path.join(temporary,'city/osm/street-index.sqlite'),

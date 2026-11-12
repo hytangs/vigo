@@ -18,6 +18,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { writeCliFixtureInputs } from '../helpers/cli-fixture-inputs.mjs'
 import { cases, cities } from './cases.mjs'
+import { tarCommand } from '../helpers/tar.mjs'
 
 const root = path.resolve(import.meta.dirname, '../..')
 const checkoutVersion = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version
@@ -158,7 +159,7 @@ async function buildCities(workspace, names) {
     const directory = path.join(workspace, name)
     fs.mkdirSync(directory)
     if (recipe.archive) {
-      execFileSync('tar', ['-xzf', path.join(root, recipe.archive), '-C', directory])
+      execFileSync(tarCommand, ['-xzf', path.join(root, recipe.archive), '-C', directory])
       built[name] = path.join(directory, recipe.city)
       continue
     }
