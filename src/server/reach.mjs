@@ -946,7 +946,8 @@ export function validateReachRequest(value) {
     walkSpeedKph: baselineWalkSpeedKph,
     includePreliminary: value.monteCarlo === undefined && value.includePreliminary !== false,
     includeStreetEdges: value.monteCarlo === undefined && !['drive','bike'].includes(mode) && value.includeStreetEdges !== false,
-    radiusKm: boundedNumber(value.radiusKm ?? 8, 'radiusKm', 1, 40),
+    // Drive and bicycle Studio Reach size their square to the time budget.
+    radiusKm: boundedNumber(value.radiusKm ?? 8, 'radiusKm', 1, 150),
     rasterSize,
     cutoffsMinutes,
     scenario,
