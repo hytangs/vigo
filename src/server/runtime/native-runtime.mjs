@@ -1042,6 +1042,18 @@ export class NativeRuntime {
   }
 
   /**
+   * Retire the City at `root` (and any City beneath it) for a caller that
+   * knows which City it replaces, as `retire` does for a file. Nothing is
+   * inferred from the path: a parent City is never touched, even when the
+   * City at `root` has not been published yet.
+   */
+  retireCity(root) {
+    const target = ownerKey(root)
+    const affected = [...this.cities.values()].filter(city => within(city.root, target))
+    return this.#retireCities(affected, [target, ...affected.map(city => city.root)], { transparent: true })
+  }
+
+  /**
    * Stop every City and refuse everything admitted so far; settles once every
    * process has exited. The runtime stays usable, as after switching library.
    */

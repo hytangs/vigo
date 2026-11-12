@@ -586,6 +586,9 @@ Each native request follows one serving contract:
   requests, and requests arriving meanwhile, wait for the old processes to
   exit and then run on the new generation; a request the retirement stopped
   mid-computation runs once more there. Each stays within its own deadline.
+  The preparation pool follows the same rule for its route analysis and
+  preparation jobs. A caller that knows which City it replaces (the wheelchair
+  City's publish) retires it by root, so its parent City is never stopped.
   Switching library instead resets the native runtime and the preparation
   pool: everything admitted before is refused, and work begun under the old
   library (a request still on its way, an import, a warm-up) is refused when

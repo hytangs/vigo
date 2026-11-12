@@ -407,6 +407,27 @@ try {
     await Promise.all([refreshingAgain, resetting])
     assert(!roots().includes(wheelchair.root), 'Work of the closed library never reopens its City')
 
+    // A nested City's first publish, before it has a network.json and while
+    // it is not resident, retires it by root and never touches its parent: the
+    // parent's busy process keeps running and answers without a re-run.
+    {
+      const fresh = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-first-publish-'))
+      try {
+        const host = nativeLayout(fresh)
+        const hostProcess = (await barrier.query(host, { id: 'host' })).process
+        const reruns = barrier.snapshot().counters.rerunAfterRetirement
+        const busy = barrier.query(host, { id: 'host-busy', delayMs: 80 })
+        await barrier.retireCity(path.join(fresh, 'wheelchair'))
+        const answered = await busy
+        assert.equal(answered.process, hostProcess, 'The parent City keeps its process across the first nested publish')
+        assert.equal(barrier.snapshot().counters.rerunAfterRetirement, reruns)
+        assert(roots().includes(host.root))
+        await barrier.retire(fresh)
+      } finally {
+        fs.rmSync(fresh, { recursive: true, force: true })
+      }
+    }
+
     // Ownership. A file or the root of the nested City retires it alone, even
     // while the parent answers; a parent file retires the parent alone; the
     // parent root retires both. A nested City that is not resident still owns

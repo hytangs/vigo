@@ -2816,7 +2816,12 @@ async function startWheelchairPreparation(projectId, request) {
     phase: 'Preparing accessible streets and transit', progress: 0, createdAt: now(), retryable: true }
   try { await persistNationalJob(projectId, job) } catch (error) { releaseNationalImportProject(projectId, 'wheelchair'); throw error }
   const completed = buildStudioWheelchair({ directory, sources, signal: controller.signal,
-    beforePublish: () => retireRouting(path.join(directory, 'wheelchair', 'routing', 'project.sqlite')),
+    // The wheelchair City is retired by its root: its first publish, before
+    // it has a network.json, must not stop the parent City's processes.
+    beforePublish: () => Promise.all([
+      nativeRuntime.retireCity(path.join(directory, 'wheelchair')),
+      nationalRouteWorkerPool.retire(path.join(directory, 'wheelchair', 'routing', 'project.sqlite')),
+    ]),
     readProject: () => readProjectMetadata(projectId), onProgress: phase => {
       if (controller.signal.aborted) return
       Object.assign(job, { phase, updatedAt: now() })
