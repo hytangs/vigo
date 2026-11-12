@@ -197,6 +197,105 @@ try {
     assert.throws(() => process.kill(worker, 0), { code: 'ESRCH' }, 'Timed-out process must be reaped')
     checks += 2
   }
+  // Reserved connections keep health, readiness, status and cancellation
+  // answering while data requests fill --max-connections, and a client that
+  // disconnects cancels its query long before the query deadline.
+  server.kill(); await once(server, 'exit')
+  server = spawn(binary, ['serve', '--city', city, '--port', '0', '--request-timeout-ms', '5000', '--query-timeout-ms', '20000', '--max-connections', '4', '--max-queue', '2'],
+    { env: { PATH: '', VIGO_API_TOKEN: token, RAYON_NUM_THREADS: '2' } })
+  port = await listeningPort()
+  {
+    const local = `http://127.0.0.1:${port}`
+    const holders = []
+    try {
+      // Uploads that never finish keep their data slots.
+      for (let n = 0; n < 4; n++) {
+        const socket = net.connect(port, '127.0.0.1')
+        socket.on('error', () => {})
+        holders.push(socket)
+        await once(socket, 'connect')
+        socket.write(prefix + 'Content-Length: 1000\r\n\r\n{')
+      }
+      const saturatedBy = Date.now() + 3000
+      while (true) {
+        const reply = await raw(prefix + `Content-Length: ${body.length}\r\n\r\n${body}`)
+        if (/^HTTP\/1\.1 503 /.test(reply) && reply.includes('Connection capacity reached')) break
+        assert(Date.now() < saturatedBy, `Data requests must be bounded by --max-connections: ${reply.slice(0, 200)}`)
+      }
+      assert.equal((await fetch(`${local}/healthz`)).status, 200)
+      assert.equal((await fetch(`${local}/readyz`)).status, 200)
+      assert.equal((await fetch(`${local}/v1/capabilities`, { headers })).status, 200)
+      assert.equal((await fetch(`${local}/v1/requests/unknown`, { method: 'DELETE', headers })).status, 404)
+      checks += 2
+    } finally {
+      for (const socket of holders) socket.destroy()
+    }
+    if (process.platform !== 'win32') {
+      const workerPid = () => Number(execFileSync('pgrep', ['-P', String(server.pid)], { encoding: 'utf8' }).trim())
+      const ready = async () => {
+        const by = Date.now() + 5000
+        while ((await fetch(`${local}/readyz`)).status !== 200) {
+          assert(Date.now() < by, 'Worker must recover'); await new Promise(resolve => setTimeout(resolve, 25))
+        }
+      }
+      await ready()
+      // The same id is refused (409) while a request with it is active.
+      // A probe that wins the race would wait behind the stopped worker; its
+      // timeout disconnects it, which cancels it and frees the id again.
+      const active = async id => {
+        try {
+          const probe = await fetch(`${local}/v1/route`, { method: 'POST', headers, body: JSON.stringify({ ...JSON.parse(body), id }), signal: AbortSignal.timeout(1000) })
+          await probe.arrayBuffer()
+          return probe.status === 409
+        } catch { return false }
+      }
+      const send = async id => {
+        const socket = net.connect(port, '127.0.0.1')
+        socket.on('error', () => {})
+        await once(socket, 'connect')
+        const request = JSON.stringify({ ...JSON.parse(body), id })
+        socket.write(prefix + `Content-Length: ${request.length}\r\n\r\n${request}`)
+        await new Promise(resolve => setTimeout(resolve, 100))
+        const registeredBy = Date.now() + 3000
+        while (!(await active(id))) {
+          assert(Date.now() < registeredBy, `${id} was not admitted`); await new Promise(resolve => setTimeout(resolve, 10))
+        }
+        return socket
+      }
+      // Running: the stopped worker holds the query; closing its client stops
+      // and replaces that worker instead of waiting 20 s for the deadline.
+      const stalled = workerPid()
+      process.kill(stalled, 'SIGSTOP')
+      const running = await send('disconnect-running')
+      await new Promise(resolve => setTimeout(resolve, 300)) // let the idle supervisor hand it to the worker
+      const disconnectedAt = Date.now()
+      running.destroy()
+      while (true) {
+        try { process.kill(stalled, 0) } catch (error) { if (error.code === 'ESRCH') break; throw error }
+        assert(Date.now() - disconnectedAt < 5000, 'A disconnected client must stop its running query'); await new Promise(resolve => setTimeout(resolve, 25))
+      }
+      await ready()
+      checks++
+      // Queued: behind a held query, a disconnected client's request leaves
+      // the active set at once, without waiting for the worker or a deadline.
+      const held = workerPid()
+      process.kill(held, 'SIGSTOP')
+      const holder = await send('disconnect-holder')
+      await new Promise(resolve => setTimeout(resolve, 300))
+      const queued = await send('disconnect-queued')
+      const queuedAt = Date.now()
+      queued.destroy()
+      while ((await fetch(`${local}/v1/requests/disconnect-queued`, { method: 'DELETE', headers })).status !== 404) {
+        assert(Date.now() - queuedAt < 2000, 'A disconnected queued request must be canceled'); await new Promise(resolve => setTimeout(resolve, 10))
+      }
+      try { process.kill(held, 0) } catch { assert.fail('Canceling a queued request must not stop the running worker') }
+      holder.destroy()
+      await ready()
+      const afterDisconnects = await fetch(`${local}/v1/route`, { method: 'POST', headers, body })
+      assert.equal(afterDisconnects.status, 200); await afterDisconnects.arrayBuffer()
+      checks += 2
+    }
+  }
   // Aggregate admission must reject large uploads before 100 Continue, and
   // closing them must release capacity. No large test buffers are allocated.
   server.kill(); await once(server, 'exit')

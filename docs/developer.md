@@ -833,6 +833,16 @@ The report retains every measured call, warmup calls, request-file hash, runtime
 
 For a cold-start measurement, start a fresh service and use `--warmup 0 --rounds 1`. Measure readiness separately from the first query. For sustained use, retain the same workload and increase rounds; report how much the workload repeats and whether caches are enabled. Compare equivalent inputs, constraints, output detail, hardware limits, and runtime builds.
 
+This replay is closed-loop: each client sends its next request after the previous one completes, so offered load falls when the service slows. To measure behavior at an independent arrival rate, use the open-loop companion against a privately started service:
+
+```sh
+python3 scripts/stress-http.py --url http://127.0.0.1:8080 \
+  --requests queries.ndjson --output load-20.json \
+  --rate 20 --duration 60 --max-inflight 32 --timeout 10 --slo-ms 250
+```
+
+It schedules arrivals at a fixed rate, caps its own in-flight requests and counts arrivals it could not send instead of queueing them invisibly. The report gives offered and completed arrivals, overloads, timeouts and latency from scheduled arrival. Only loopback targets are allowed unless `--allow-remote` is given, and it never overwrites a report. Raise the rate until successful arrivals within the SLO stop rising, and measure server memory and CPU separately.
+
 City storage counts each file identity once, including shared scenario directories. It is logical file size, not physical APFS clone allocation. Server memory must be measured at the service: retain process-tree RSS/PSS or cgroup memory samples at startup, first query, repeated and concurrent queries, scenario switches, and peak large-output requests. Include the full application stack when claiming a deployment budget. The benchmark client's memory is not server memory.
 
 Use public synthetic fixtures for CI and caller-owned Cities for operational acceptance. A short replay establishes behavior for that retained workload; it does not establish production reliability across unobserved traffic. See [upgrading](guide.md#upgrade-and-rollback) for installation and rollback checks.

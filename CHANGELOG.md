@@ -105,6 +105,9 @@ API 1.0, City format 1 and Result schema 1 keep their meanings, and compatible p
 - Add bounded Node CLI stream workers with ordered output and resource caps.
 - Restore lightweight timed-leg Matrix journeys without per-cell Studio metadata; retain full metadata and geometry on request. Reuse unique native Matrix journeys across the internal transport.
 
+- `vigo serve`: a client that closes its connection cancels its query, removed while queued and its worker replaced while running, as `DELETE /v1/requests/{id}` does. Four connections beyond `--max-connections` stay open to health, readiness, status and cancellation while data requests saturate the service. A worker result counts against the 128 MiB response budget while it is read, so a large result never exceeds it.
+- `scripts/stress-http.py` measures a service at a fixed, open-loop arrival rate, counting arrivals it could not send, overloads and timeouts with their latency from scheduled arrival.
+
 ### Studio
 
 - Studio: when a branch that keeps its departures is extended past its last stop or before its first, riders can board or alight at the former terminus. Previously the extension could not be reached from it.
