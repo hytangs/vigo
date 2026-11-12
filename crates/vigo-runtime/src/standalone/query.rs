@@ -2291,6 +2291,7 @@ impl City {
                         walking_speed_kph,
                         maximum_distance_meters: opt.street_m,
                         traffic,
+                        durations_only: Some(q["durationsOnly"] == true),
                     })?;
                 (
                     r.distances_m.clone(),

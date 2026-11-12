@@ -186,7 +186,9 @@ impl PersistedDriveCch {
 
     fn distances(&mut self, minimize_distance: bool, sources: &[u32], targets: &[u32]) -> Vec<u32> {
         let (query, metric) = self.query_and_metric(minimize_distance);
-        query.distance_matrix(&metric, sources, targets)
+        oriented_distances(&metric, sources, targets, |metric, from, to| {
+            query.distance_matrix(metric, from, to)
+        })
     }
 
     fn query_and_metric(
@@ -217,6 +219,33 @@ impl PersistedDriveCch {
             .expect("drive CCH path query was prepared");
         (query, metric)
     }
+}
+
+/// Row-major `sources × targets` least costs. The CCH sweep runs once per
+/// source, so more sources than targets run from each target over the
+/// reversed metric instead and transpose: an arrive-by Reach grid asks for
+/// thousands of origins to one destination.
+fn oriented_distances(
+    metric: &cch::MetricView<'_>,
+    sources: &[u32],
+    targets: &[u32],
+    mut matrix: impl FnMut(&cch::MetricView<'_>, &[u32], &[u32]) -> Vec<u32>,
+) -> Vec<u32> {
+    if sources.len() <= targets.len() {
+        return matrix(metric, sources, targets);
+    }
+    let reversed = cch::MetricView {
+        forward: metric.backward,
+        backward: metric.forward,
+    };
+    let transposed = matrix(&reversed, targets, sources);
+    let mut out = vec![cch::INF_WEIGHT; sources.len() * targets.len()];
+    for (target, row) in transposed.chunks_exact(sources.len()).enumerate() {
+        for (source, &cost) in row.iter().enumerate() {
+            out[source * targets.len() + target] = cost;
+        }
+    }
+    out
 }
 
 struct InMemoryDriveCch {
@@ -269,7 +298,9 @@ impl DriveCch {
         match self {
             Self::InMemory(index) => {
                 let (query, metric) = index.query_and_metric(minimize_distance);
-                query.distance_matrix(&metric, sources, targets)
+                oriented_distances(&metric, sources, targets, |metric, from, to| {
+                    query.distance_matrix(metric, from, to)
+                })
             }
             Self::Persisted(index) => index.distances(minimize_distance, sources, targets),
         }
@@ -604,6 +635,10 @@ pub struct DriveMatrixInput {
     pub traffic: Option<DriveTrafficInput>,
     pub origin_snap_seconds: Option<Vec<f64>>,
     pub target_snap_seconds: Option<Vec<f64>>,
+    /// Report only each pair's least time. Distances stay unset, so neither
+    /// a path is unpacked per pair nor `maximum_distance_meters` applied to
+    /// it; a Reach grid reads only times.
+    pub durations_only: Option<bool>,
 }
 
 /// A trip between two free coordinates. Each endpoint walks straight to its
@@ -664,6 +699,8 @@ pub struct DriveCoordinateMatrixInput {
     pub walking_speed_kph: f64,
     pub maximum_distance_meters: f64,
     pub traffic: Option<DriveTrafficInput>,
+    /// See [`DriveMatrixInput::durations_only`].
+    pub durations_only: Option<bool>,
 }
 
 #[cfg_attr(feature = "node", napi(object))]
@@ -2086,6 +2123,7 @@ impl DriveKernel {
             &mut target_lookup,
         )?;
 
+        let durations_only = input.durations_only == Some(true);
         let time_matrix = self.cch.distances(false, &source_nodes, &target_nodes);
         let mut distances_m = vec![f64::INFINITY; origin_count * target_count];
         let mut durations_s = vec![f64::INFINITY; origin_count * target_count];
@@ -2120,6 +2158,12 @@ impl DriveKernel {
                     }
                 }
                 if !best_time_units.is_finite() {
+                    continue;
+                }
+                if durations_only {
+                    durations_s[origin * target_count + target] =
+                        best_time_units / DRIVE_TIME_UNITS_PER_SECOND;
+                    ready_pairs = ready_pairs.saturating_add(1);
                     continue;
                 }
 
@@ -2486,6 +2530,7 @@ impl DriveKernel {
             target_snap_seconds: Some(target_snap_seconds),
             maximum_distance_meters: input.maximum_distance_meters,
             traffic: input.traffic,
+            durations_only: input.durations_only,
         })?;
         result.traffic_customization_ns = traffic.customization_ns;
         result.traffic_metric_reused = traffic.metric_reused;
@@ -2515,6 +2560,44 @@ impl DriveKernel {
             }
         }
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod oriented_distance_tests {
+    use super::*;
+
+    #[test]
+    fn many_sources_run_from_each_target_on_the_reversed_metric() {
+        let (forward, backward) = ([1_u32], [2_u32]);
+        let metric = cch::MetricView {
+            forward: &forward,
+            backward: &backward,
+        };
+        // Encode which metric and which pair each call priced.
+        let price = |metric: &cch::MetricView<'_>, from: &[u32], to: &[u32]| {
+            from.iter()
+                .flat_map(|&a| {
+                    to.iter()
+                        .map(move |&b| metric.forward[0] * 10_000 + a * 100 + b)
+                })
+                .collect::<Vec<_>>()
+        };
+        // Few sources: one call on the metric as given.
+        assert_eq!(
+            oriented_distances(&metric, &[7], &[3, 4], price),
+            vec![10_703, 10_704]
+        );
+        // More sources than targets: the target row on the reversed metric,
+        // returned in source-major order.
+        assert_eq!(
+            oriented_distances(&metric, &[5, 6, 7], &[3], price),
+            vec![20_305, 20_306, 20_307]
+        );
+        assert_eq!(
+            oriented_distances(&metric, &[5, 6, 7], &[3, 4], price),
+            vec![20_305, 20_405, 20_306, 20_406, 20_307, 20_407]
+        );
     }
 }
 

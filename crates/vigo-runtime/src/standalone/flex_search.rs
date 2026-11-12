@@ -232,6 +232,7 @@ impl City {
                 walking_speed_kph,
                 maximum_distance_meters: opt.street_m,
                 traffic: None,
+                durations_only: None,
             })?;
         for (a, b) in segments {
             let (Some(&i), Some(&j)) = (source_at.get(&key(*a)), target_at.get(&key(*b))) else {

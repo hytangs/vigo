@@ -196,6 +196,11 @@ impl City {
         if matches!(q["mode"].as_str(), Some("drive" | "bike")) && q.get("maxStreetKm").is_none() {
             query["maxStreetKm"] = json!(750.);
         }
+        // A surface reads only times: skip unpacking every cell's road path
+        // for a distance. This internal key never passes request validation.
+        if q["mode"] == "drive" {
+            query["durationsOnly"] = json!(true);
+        }
         // Arrive-by Reach measures from every cell to its destination.
         let opt = super::query::Options::parse(q)?;
         let arrive = opt.arrive;

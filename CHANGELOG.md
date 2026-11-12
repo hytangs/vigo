@@ -46,6 +46,7 @@ API 1.0, City format 1 and Result schema 1 keep their meanings, and compatible p
 - Start constrained drives from the feasible shortest path with exact remaining bounds. Long limits no longer search for seconds and report a false `not_found`; short limits keep their earlier speed.
 - Retain valid OSM segments longer than 10 km in walking, driving and bicycle imports. Bound road-index duplication without adding graph nodes or changing exact endpoint projections; reject invalid geographic coordinates explicitly.
 - Exclude closed elevator footprints from horizontal street snapping; preserve open inclined-elevator ways.
+- Drive Reach reads each grid cell's least time from the one shared road search instead of unpacking every cell's path for a distance it does not show, and a drive Matrix with more origins than destinations, such as arrive-by Reach, searches once from each destination. Results are unchanged and both directions answer several times faster.
 
 ### Scenarios and planned service
 
