@@ -34,9 +34,11 @@ if (process.platform === 'darwin') await execFileAsync('/usr/bin/ditto', [
 else if (process.platform === 'linux') await execFileAsync('tar', [
   '-czf', archivePath, '-C', path.dirname(appBundle), path.basename(appBundle),
 ])
-else await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-  'Compress-Archive -LiteralPath $env:VIGO_ARCHIVE_SOURCE -DestinationPath $env:VIGO_ARCHIVE_DESTINATION -CompressionLevel Optimal',
-], { env: { ...process.env, VIGO_ARCHIVE_SOURCE: appBundle, VIGO_ARCHIVE_DESTINATION: archivePath } })
+// Windows' own tar.exe writes standard ZIP entries with forward slashes;
+// Windows PowerShell's Compress-Archive can write backslash paths.
+else await execFileAsync(path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe'), [
+  '-a', '-cf', archivePath, '-C', path.dirname(appBundle), path.basename(appBundle),
+])
 const archive = await stat(archivePath)
 if (!archive.isFile() || archive.size === 0) throw new Error('Studio archiving did not produce a nonempty file.')
 const digest = createHash('sha256')
