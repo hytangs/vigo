@@ -2,15 +2,30 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { boundedInteger } from './resource-limits.mjs'
+import { boundedInteger, memoryCapacityBytes } from './resource-limits.mjs'
 
 // Studio's queries run in the `vigo` executable, the same runtime as the CLI,
 // HTTP server and Python. Each opened City (or Studio project store) is served
-// by resident `vigo stream` processes that each answer requests in order; this
-// module only transports them. Opening a City and activating a service date
-// happen once per process, so processes stay resident until idle. A second
-// process starts only while every ready one is busy, and a request whose
-// process dies under it is answered by a fresh one.
+// by resident `vigo stream` processes that each answer one request at a time.
+//
+// The serving contract, in the order a request meets it:
+// - Admission. A cancelled request, a City being replaced or a shut-down
+//   runtime is refused before anything is opened, evicted or started. An
+//   admitted request reserves a count and byte permit, globally and for its
+//   City, and returns both on every outcome. Exhausted permits are an explicit
+//   retryable overload (503), never an unbounded queue.
+// - One deadline. Each request gets an absolute deadline when admitted. It
+//   covers waiting, a process start and one automatic retry. A request that
+//   expires while waiting leaves the queue; only the request a process is
+//   computing can stop that process.
+// - Dispatch. Unsent work waits in its City's queue and is written to a ready
+//   process the moment one is free, including one that has just started. A
+//   written request is never moved. Point routes go before analyses, which may
+//   be passed over at most four times. A request waits briefly for a process
+//   that has its travel mode loaded, then takes any idle one.
+// - Generations. Retiring a City's files or resetting the runtime starts a new
+//   generation synchronously: queued work is refused, running work is stopped,
+//   and no retry or late answer of the old generation is accepted.
 const maxResidentCities = boundedInteger(process.env.VIGO_NATIVE_CITY_MAX, 2, 1, 8)
 const processesPerCity = boundedInteger(process.env.VIGO_NATIVE_CITY_PROCESSES, 2, 1, 8)
 const residentIdleMs = boundedInteger(process.env.VIGO_NATIVE_CITY_IDLE_MS, 300_000, 100, 3_600_000)
@@ -20,9 +35,32 @@ const queryTimeoutMs = boundedInteger(process.env.VIGO_NATIVE_QUERY_TIMEOUT_MS, 
 const cancelGraceMs = boundedInteger(process.env.VIGO_NATIVE_CANCEL_GRACE_MS, 1500, 0, 600_000)
 // A City that keeps stopping must not spend its time reloading.
 const rewarmSpacingMs = 30_000
+// At most this many process starts per City in any 30 seconds; further
+// requests wait (within their deadlines) instead of restarting in a loop.
+const restartWindowMs = 30_000
+const restartBudget = boundedInteger(process.env.VIGO_NATIVE_RESTART_BUDGET, 6, 1, 100)
 // Retirement waits this long for stopped processes to exit before failing.
 const retireTimeoutMs = boundedInteger(process.env.VIGO_NATIVE_RETIRE_TIMEOUT_MS, 15_000, 100, 600_000)
 const maxResponseBytes = 256 * 1024 * 1024
+const MiB = 1024 * 1024
+const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, Math.floor(value)))
+// Admission permits: requests waiting or running, and their encoded bytes.
+const defaultPendingBytes = clamp(memoryCapacityBytes / 64, 16 * MiB, 256 * MiB)
+const maxPendingRequests = boundedInteger(process.env.VIGO_NATIVE_MAX_PENDING, 256, 1, 100_000)
+const maxCityPendingRequests = boundedInteger(process.env.VIGO_NATIVE_CITY_MAX_PENDING, 128, 1, 100_000)
+const maxPendingBytes = boundedInteger(process.env.VIGO_NATIVE_MAX_PENDING_BYTES, defaultPendingBytes, MiB, 4096 * MiB)
+const maxCityPendingBytes = boundedInteger(process.env.VIGO_NATIVE_CITY_MAX_PENDING_BYTES,
+  Math.max(MiB, Math.floor(maxPendingBytes / 2)), MiB, 4096 * MiB)
+// Response lines being received and decoded, across every process. One line
+// may always finish; other processes pause their output while the total is
+// over budget, so a burst of large answers cannot all be held at once.
+const responseBudgetBytes = boundedInteger(process.env.VIGO_NATIVE_RESPONSE_BUDGET_BYTES,
+  clamp(memoryCapacityBytes / 8, maxResponseBytes, 2048 * MiB), MiB, 16384 * MiB)
+// How long a request waits for a process with its travel mode loaded before
+// taking an idle process that must load it first.
+const affinityWaitMs = boundedInteger(process.env.VIGO_NATIVE_AFFINITY_WAIT_MS, 500, 1, 60_000)
+// An analysis may be passed over by this many point routes, then goes next.
+const maximumAnalysisBypasses = 4
 // Each process loads a mode when it is first asked for it (modePreparation), so
 // an opening process activates only the timetable. The engine default, all
 // modes, adds the bicycle hierarchy and street networks to every process:
@@ -35,6 +73,7 @@ const preparationRequest = request => request?.kind === 'info'
 const preparationModes = { 'street.prepare': 'walk', 'drive.prepare': 'drive', 'bike.prepare': 'bike', 'timetable.prepare': 'transit' }
 const routeMode = request => request?.kind === 'native' ? preparationModes[request.operation] ?? null
   : ['route', 'matrix', 'reach'].includes(request?.kind) ? request.mode ?? 'transit' : null
+const analysisRequest = request => request?.kind === 'matrix' || request?.kind === 'reach'
 // Preparation keeps only timetable selectors, never a visitor's journey.
 function modePreparation(request) {
   const mode = routeMode(request)
@@ -76,10 +115,11 @@ export function nativeExecutable(environment = process.env, directory = moduleDi
 
 /** A request the runtime rejected, with its public error code. */
 export class NativeQueryError extends Error {
-  constructor(message, code, statusCode = 400) {
+  constructor(message, code, statusCode = 400, { retryable = false } = {}) {
     super(message)
     this.code = code
     this.statusCode = statusCode
+    this.retryable = retryable
   }
 }
 
@@ -99,6 +139,10 @@ export class NativeCityUnavailableError extends Error {
   }
 }
 
+const overloaded = scope => new NativeQueryError(
+  `The VIGO runtime has too much work waiting${scope}. Retry shortly.`, 'VIGO_NATIVE_OVERLOADED', 503, { retryable: true })
+const beingUpdated = () => new NativeCityUnavailableError('The City is being updated. Retry shortly.', { retryable: true })
+
 // Prepared-artifact failures a Studio project's preparation step repairs,
 // including a prepared file it has not written yet.
 const preparationFailure = /prepared|rebuild|stale|coordinate access|access context|terminal-access|unexpected SQLite WAL|file was not found/i
@@ -114,21 +158,26 @@ export function nativeLayout(root, routingStore = null) {
   }
 }
 
-/** One resident `vigo stream` process of a City. */
+/**
+ * One resident `vigo stream` process of a City. It computes one request at a
+ * time (`current`); the runtime decides what it is given next.
+ */
 class StreamProcess {
-  constructor({ executable, layout, spawnProcess, onExit, responseLimitBytes }) {
+  constructor({ executable, layout, spawnProcess, responseLimitBytes, events }) {
     this.layout = layout
-    this.pending = []
+    this.current = null
     this.lastUsed = Date.now()
     this.closed = false
     this.stopping = false
     this.answered = false
+    this.ready = true
+    this.paused = false
     this.routeModes = new Set()
     this.stderr = ''
     this.chunks = []
     this.bufferedBytes = 0
     this.responseLimitBytes = responseLimitBytes
-    this.onExit = onExit
+    this.events = events
     // Settles once the child has exited and released its files: retirement
     // waits on it before a City's files are replaced.
     this.exited = new Promise(resolve => { this.markExited = resolve })
@@ -158,6 +207,10 @@ class StreamProcess {
     })
   }
 
+  get busy() {
+    return Boolean(this.current)
+  }
+
   lastError() {
     const line = this.stderr.trim().split('\n').at(-1) ?? ''
     try {
@@ -165,6 +218,15 @@ class StreamProcess {
     } catch {
       return line
     }
+  }
+
+  /** Write `job`; the process answers it next. */
+  send(job) {
+    this.current = job
+    this.lastUsed = Date.now()
+    job.state = 'sent'
+    job.stream = this
+    this.child.stdin.write(job.line)
   }
 
   receive(chunk) {
@@ -179,147 +241,99 @@ class StreamProcess {
       this.chunks.push(chunk.subarray(start, newline))
       const line = Buffer.concat(this.chunks)
       this.chunks = []
-      this.bufferedBytes = 0
+      // The line stays counted against the response budget until decoded.
+      this.events.buffered(this, line.length - this.bufferedBytes)
+      this.bufferedBytes = line.length
       if (line.length) this.settle(line)
+      this.events.buffered(this, -this.bufferedBytes)
+      this.bufferedBytes = 0
       if (this.closed) return
       start = newline + 1
       newline = chunk.indexOf(10, start)
     }
     if (start < chunk.length) {
-      this.bufferedBytes += chunk.length - start
-      if (this.bufferedBytes > this.responseLimitBytes) {
+      const bytes = chunk.length - start
+      if (this.bufferedBytes + bytes > this.responseLimitBytes) {
         this.stop(new NativeCityUnavailableError('The VIGO runtime response exceeds its byte limit.'))
         return
       }
+      this.events.buffered(this, bytes)
+      this.bufferedBytes += bytes
       this.chunks.push(chunk.subarray(start))
     }
   }
 
-  settle(line) {
+  settle(text) {
     let response
     try {
-      response = JSON.parse(line.toString('utf8'))
+      response = JSON.parse(text.toString('utf8'))
     } catch {
       this.stop(new NativeCityUnavailableError('The VIGO runtime returned malformed output.'))
       return
     }
     this.answered = true
-    const entry = this.pending.shift()
-    if (!entry) return
-    entry.cleanup()
+    const job = this.current
+    this.current = null
     this.lastUsed = Date.now()
-    this.writeNext()
-    if (entry.discarded) return
+    if (!job) return
+    let outcome
     if (response?.status === 'error') {
       const message = String(response.error?.message ?? 'The VIGO runtime rejected the request.')
-      entry.reject(new NativeQueryError(message, String(response.error?.code ?? 'invalid_request')))
+      outcome = { error: new NativeQueryError(message, String(response.error?.code ?? 'invalid_request')) }
     } else if (!response?.trace || typeof response.trace !== 'object') {
-      entry.reject(new NativeCityUnavailableError('The VIGO runtime returned no detailed Result.'))
+      outcome = { error: new NativeCityUnavailableError('The VIGO runtime returned no detailed Result.') }
     } else {
-      const trace = response.trace
-      if (trace.journeyIndices !== undefined) {
-        const table = trace.journeyTable
-        if (!Array.isArray(table) || !Array.isArray(trace.journeyIndices)
-          || trace.journeyIndices.length !== trace.originCount) {
-          entry.reject(new Error('Invalid native indexed Matrix journeys'))
-          return
-        }
-        try {
-          trace.journeys = trace.journeyIndices.map(row => {
-            if (!Array.isArray(row) || row.length !== trace.destinationCount) throw new Error('Invalid native Matrix journey row')
-            return row.map(index => {
-              if (!Number.isSafeInteger(index) || index < 0 || index >= table.length) throw new Error('Invalid native Matrix journey index')
-              return table[index]
-            })
-          })
-          delete trace.journeyTable
-          delete trace.journeyIndices
-        } catch (error) {
-          entry.reject(error)
-          return
-        }
-      }
-      entry.resolve(trace)
+      outcome = decodeTrace(response.trace)
     }
+    this.events.answered(this, job, outcome)
   }
 
-  query(request, signal) {
-    if (this.closed) return Promise.reject(new NativeCityUnavailableError('The VIGO runtime is not running.'))
-    if (signal?.aborted) return Promise.reject(makeAbortError())
-    this.lastUsed = Date.now()
-    return new Promise((resolve, reject) => {
-      const entry = { resolve, reject, discarded: false, started: performance.now(), preparing: preparationRequest(request),
-        line: `${JSON.stringify(request)}\n`, sent: false }
-      // Answers arrive in request order, so only the oldest query is written.
-      // A cancelled caller returns at once: a query still waiting here never
-      // reaches the engine, and one still running after the grace period
-      // stops the process.
-      let grace = null
-      const abort = () => {
-        entry.discarded = true
-        reject(makeAbortError())
-        if (!entry.sent) {
-          const index = this.pending.indexOf(entry)
-          if (index >= 0) this.pending.splice(index, 1)
-          entry.cleanup()
-        } else if (this.pending[0] === entry) {
-          grace = setTimeout(() => {
-            this.replaceWhenStopped = true
-            if (this.pending.includes(entry)) this.stop(new NativeCityUnavailableError('A cancelled query was stopped.'), entry)
-          }, cancelGraceMs)
-          grace.unref?.()
-        }
-      }
-      const timeout = setTimeout(() => {
-        this.stop(new NativeCityUnavailableError(`The VIGO runtime exceeded ${Math.ceil(queryTimeoutMs / 1000)} seconds.`), entry)
-      }, queryTimeoutMs)
-      timeout.unref?.()
-      entry.cleanup = () => {
-        clearTimeout(timeout)
-        if (grace) clearTimeout(grace)
-        signal?.removeEventListener('abort', abort)
-      }
-      signal?.addEventListener('abort', abort, { once: true })
-      this.pending.push(entry)
-      this.writeNext()
-    })
-  }
-
-  writeNext() {
-    const next = this.pending[0]
-    if (!next || next.sent) return
-    next.sent = true
-    this.child.stdin.write(next.line)
-    next.line = ''
-  }
-
-  /** Reject every waiting request; those queued behind `culprit` can be retried. */
+  /** Close the process; its current request, if any, receives `error`. */
   fail(error, culprit = null) {
-    if (this.closed && !this.pending.length) return
+    if (this.closed) return
     this.closed = true
-    for (const entry of this.pending) {
-      entry.cleanup()
-      if (entry.discarded) continue
-      entry.reject(culprit && entry !== culprit
-        ? new NativeCityUnavailableError(error.message, { retryable: true })
-        : error)
-    }
-    this.pending = []
+    const job = this.current
+    this.current = null
+    this.events.buffered(this, -this.bufferedBytes)
     this.chunks = []
     this.bufferedBytes = 0
-    this.onExit?.(this, error)
+    this.events.failed(this, job, error, culprit)
   }
 
   /** Stop the process; the result settles once it has exited. */
   stop(error = new NativeCityUnavailableError('The VIGO runtime was closed.'), culprit = null) {
     this.stopping = true
-    // Settle waiting requests before the exit event can.
+    // Settle the current request before the exit event can.
     this.fail(error, culprit)
     if (!this.child.killed && this.child.exitCode === null) {
       this.child.stdin.end()
       this.child.kill('SIGKILL')
     }
     return this.exited
+  }
+}
+
+// An indexed Matrix answer shares journeys through a table; expand it.
+function decodeTrace(trace) {
+  if (trace.journeyIndices === undefined) return { value: trace }
+  const table = trace.journeyTable
+  if (!Array.isArray(table) || !Array.isArray(trace.journeyIndices)
+    || trace.journeyIndices.length !== trace.originCount) {
+    return { error: new Error('Invalid native indexed Matrix journeys') }
+  }
+  try {
+    trace.journeys = trace.journeyIndices.map(row => {
+      if (!Array.isArray(row) || row.length !== trace.destinationCount) throw new Error('Invalid native Matrix journey row')
+      return row.map(index => {
+        if (!Number.isSafeInteger(index) || index < 0 || index >= table.length) throw new Error('Invalid native Matrix journey index')
+        return table[index]
+      })
+    })
+    delete trace.journeyTable
+    delete trace.journeyIndices
+    return { value: trace }
+  } catch (error) {
+    return { error }
   }
 }
 
@@ -346,25 +360,41 @@ function owningCity(target, knownRoots) {
   }
 }
 
-/** The processes serving one City layout. */
+/** The processes and waiting work of one City layout. */
 class CityProcesses {
   constructor(layout) {
     this.layout = layout
+    this.root = ownerKey(layout.root)
     this.processes = []
+    this.queue = []
+    this.starts = []
+    this.pendingCount = 0
+    this.pendingBytes = 0
+    this.affinityTimer = null
+    this.restartTimer = null
     // A Reach comparison's scenario grows from its baseline's stream.
     this.baseline = null
   }
 
+  /** Requests waiting or running here. */
   get pending() {
-    return this.processes.reduce((total, stream) => total + stream.pending.length, 0)
+    return this.queue.length + this.processes.filter(stream => stream.busy).length
   }
 
   get lastUsed() {
     return Math.max(0, ...this.processes.map(stream => stream.lastUsed))
   }
 
+  clearTimers() {
+    clearTimeout(this.affinityTimer)
+    clearTimeout(this.restartTimer)
+    this.affinityTimer = null
+    this.restartTimer = null
+  }
+
   /** Stop every process; the result settles once all have exited. */
   stop(error) {
+    this.clearTimers()
     return Promise.all([...this.processes].map(stream => stream.stop(error)))
   }
 }
@@ -377,6 +407,8 @@ export class NativeRuntime {
     idleMs = residentIdleMs,
     spawnProcess = spawn,
     responseLimitBytes = maxResponseBytes,
+    timeoutMs = queryTimeoutMs,
+    limits = {},
   } = {}) {
     this.executable = executable
     this.warmRoutes = new Map()
@@ -386,129 +418,407 @@ export class NativeRuntime {
     this.idleMs = idleMs
     this.spawnProcess = spawnProcess
     this.responseLimitBytes = responseLimitBytes
+    this.timeoutMs = timeoutMs
+    this.limits = {
+      maxPending: maxPendingRequests,
+      maxPendingBytes,
+      cityMaxPending: maxCityPendingRequests,
+      cityMaxPendingBytes: maxCityPendingBytes,
+      responseBudgetBytes: Math.max(responseLimitBytes, responseBudgetBytes),
+      affinityWaitMs,
+      restartBudget,
+      ...limits,
+    }
     this.cities = new Map()
     this.leases = new Map()
     this.idleTimer = null
     // Roots whose processes are exiting before their files are replaced.
     this.retiring = new Map()
+    // A reset makes every earlier request stale; retiring a City makes its own.
+    this.epoch = 0
+    this.generations = new Map()
+    this.shut = false
+    this.sequence = 0
+    this.pendingCount = 0
+    this.pendingBytes = 0
+    this.responseBytes = 0
+    this.buffering = new Set()
+    this.counters = {
+      admitted: 0, overloaded: 0, abortedBeforeAdmission: 0, expiredWaiting: 0, timedOutRunning: 0,
+      cancelledRunning: 0, retried: 0, processStarts: 0, staleGeneration: 0, startsDeferred: 0,
+    }
   }
 
   get available() {
     return Boolean(this.executable)
   }
 
+  #generation(root) {
+    return this.generations.get(root) ?? 0
+  }
+
   /**
    * Answer one public request (`kind` route, matrix, reach, …) on `layout`.
-   * A request left behind by a stream that stopped for another reason is
-   * sent once more, to a fresh stream.
+   * A request whose process stops for another reason is sent once more, to a
+   * fresh process, within its original deadline. `timeoutMs` shortens that
+   * deadline for a caller with less time to spend.
    */
-  async query(layout, request, signal) {
+  async query(layout, request, signal, { timeoutMs } = {}) {
+    return this.#submit(layout, request, signal, { internal: false, timeoutMs })
+  }
+
+  #submit(layout, request, signal, { internal, pinned = null, timeoutMs }) {
+    if (this.shut) return Promise.reject(new NativeCityUnavailableError('The VIGO runtime has shut down.'))
     if (!this.executable) {
-      throw new NativeCityUnavailableError('The VIGO executable is missing. Run npm run build:standalone.')
+      return Promise.reject(new NativeCityUnavailableError('The VIGO executable is missing. Run npm run build:standalone.'))
     }
-    for (let attempt = 0; ; attempt += 1) {
-      try {
-        const stream = this.#stream(layout, request)
-        const result = await stream.query(request, signal)
-        const mode = routeMode(request)
-        if (mode) {
-          stream.routeModes.add(mode)
-          // A replacement process loads the mode without replaying a journey.
-          if (this.leases.has(layout.key) && !request.scenario && !request.realtimeSnapshot) {
-            const known = this.warmRoutes.get(layout.key) ?? new Map()
-            known.set(mode, modePreparation({ ...request, serviceDate: result.serviceDate ?? request.serviceDate }))
-            this.warmRoutes.set(layout.key, known)
-          }
-        }
-        return result
-      } catch (error) {
-        if (attempt || !error?.retryable || signal?.aborted) throw error
+    // Nothing is opened, evicted or started for a request already cancelled.
+    if (signal?.aborted) {
+      this.counters.abortedBeforeAdmission += 1
+      return Promise.reject(makeAbortError())
+    }
+    const root = ownerKey(layout.root)
+    if (this.retiring.has(root)) return Promise.reject(beingUpdated())
+    let line
+    try {
+      line = `${JSON.stringify(request)}\n`
+    } catch (error) {
+      return Promise.reject(error)
+    }
+    const bytes = Buffer.byteLength(line)
+    const existing = this.cities.get(layout.key)
+    if (!internal) {
+      const cityCount = existing?.pendingCount ?? 0
+      const cityBytes = existing?.pendingBytes ?? 0
+      let scope = null
+      if (this.pendingCount + 1 > this.limits.maxPending || this.pendingBytes + bytes > this.limits.maxPendingBytes) scope = ''
+      else if (cityCount + 1 > this.limits.cityMaxPending || cityBytes + bytes > this.limits.cityMaxPendingBytes) scope = ' for this City'
+      if (scope !== null) {
+        this.counters.overloaded += 1
+        return Promise.reject(overloaded(scope))
       }
     }
+    let city
+    try {
+      city = this.#city(layout, true)
+    } catch (error) {
+      return Promise.reject(error)
+    }
+    const budgetMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.min(timeoutMs, this.timeoutMs) : this.timeoutMs
+    return new Promise((resolve, reject) => {
+      const now = performance.now()
+      const job = {
+        seq: (this.sequence += 1), request, line, bytes, internal, pinned, city,
+        mode: routeMode(request), analysis: analysisRequest(request), preparing: preparationRequest(request),
+        epoch: this.epoch, generation: this.#generation(root), admittedAt: now, queuedAt: now,
+        deadline: now + budgetMs, budgetMs, attempts: 0, bypasses: 0, state: 'queued', stream: null,
+        done: false, discarded: false, resolve, reject, signal,
+      }
+      if (!internal) {
+        this.counters.admitted += 1
+        this.pendingCount += 1
+        this.pendingBytes += bytes
+        city.pendingCount += 1
+        city.pendingBytes += bytes
+      }
+      job.timer = setTimeout(() => this.#expire(job), budgetMs)
+      job.timer.unref?.()
+      if (signal) {
+        job.abort = () => this.#cancel(job)
+        signal.addEventListener('abort', job.abort, { once: true })
+      }
+      if (request?.surfaceReuse === 'scenario' && city.baseline && !city.baseline.closed) job.pinned = city.baseline
+      city.queue.push(job)
+      this.#dispatch(city)
+    })
+  }
+
+  /** Settle `job` once: return its permits, leave the queue and answer the caller. */
+  #finish(job, error, value) {
+    if (job.done) return
+    job.done = true
+    clearTimeout(job.timer)
+    clearTimeout(job.grace)
+    if (job.abort) job.signal.removeEventListener('abort', job.abort)
+    if (!job.internal) {
+      this.pendingCount -= 1
+      this.pendingBytes -= job.bytes
+      job.city.pendingCount -= 1
+      job.city.pendingBytes -= job.bytes
+    }
+    const index = job.city.queue.indexOf(job)
+    if (index >= 0) job.city.queue.splice(index, 1)
+    job.line = ''
+    if (job.discarded) return
+    if (error) job.reject(error)
+    else job.resolve(value)
+  }
+
+  #current(job) {
+    return job.epoch === this.epoch && job.generation === this.#generation(job.city.root)
+  }
+
+  #cancel(job) {
+    if (job.done) return
+    if (job.state !== 'sent') {
+      this.#finish(job, makeAbortError())
+      return
+    }
+    // The caller returns at once; a query still running after the grace
+    // period stops its process, which is then replaced.
+    this.counters.cancelledRunning += 1
+    this.#finish(job, makeAbortError())
+    job.discarded = true
+    const stream = job.stream
+    job.grace = setTimeout(() => {
+      if (stream.current !== job) return
+      stream.replaceWhenStopped = true
+      stream.stop(new NativeCityUnavailableError('A cancelled query was stopped.'), job)
+    }, cancelGraceMs)
+    job.grace.unref?.()
+  }
+
+  // The request's deadline passed. Waiting work simply leaves; only the
+  // request a process is computing stops that process.
+  #expire(job) {
+    if (job.done) return
+    const error = new NativeCityUnavailableError(`The VIGO runtime exceeded ${Math.ceil(job.budgetMs / 1000)} seconds.`)
+    if (job.state === 'sent' && job.stream?.current === job) {
+      this.counters.timedOutRunning += 1
+      job.stream.stop(error, job)
+    } else {
+      this.counters.expiredWaiting += 1
+      this.#finish(job, error)
+    }
+  }
+
+  #events(city) {
+    return {
+      buffered: (stream, delta) => this.#buffered(stream, delta),
+      answered: (stream, job, outcome) => {
+        if (job.done) {
+          this.#dispatch(city)
+          return
+        }
+        if (!this.#current(job)) {
+          this.counters.staleGeneration += 1
+          this.#finish(job, beingUpdated())
+        } else if (outcome.error) {
+          this.#finish(job, outcome.error)
+        } else {
+          if (job.mode) {
+            stream.routeModes.add(job.mode)
+            // A replacement process loads the mode without replaying a journey.
+            const request = job.request
+            if (!job.internal && this.leases.has(city.layout.key) && !request.scenario && !request.realtimeSnapshot) {
+              const known = this.warmRoutes.get(city.layout.key) ?? new Map()
+              known.set(job.mode, modePreparation({ ...request, serviceDate: outcome.value.serviceDate ?? request.serviceDate }))
+              this.warmRoutes.set(city.layout.key, known)
+            }
+          }
+          if (job.request?.surfaceReuse === 'baseline') city.baseline = stream
+          this.#finish(job, null, outcome.value)
+        }
+        this.#dispatch(city)
+      },
+      failed: (stream, job, error, culprit) => {
+        city.processes = city.processes.filter(other => other !== stream)
+        if (city.baseline === stream) city.baseline = null
+        this.#buffered(stream, 0)
+        if (job && !job.done) {
+          // Work stopped by another request's failure, or by a crash, is
+          // answered once more within its own deadline; a request that
+          // caused the stop is not.
+          const retry = error.retryable || (culprit && culprit !== job)
+          if (retry && job.attempts === 0 && this.#current(job) && performance.now() < job.deadline
+            && !(job.pinned && job.internal)) {
+            job.attempts += 1
+            job.state = 'queued'
+            job.stream = null
+            if (job.pinned === stream) job.pinned = null
+            job.queuedAt = performance.now()
+            city.queue.unshift(job)
+            this.counters.retried += 1
+          } else {
+            this.#finish(job, error)
+          }
+        }
+        // Work pinned to this process (a Reach scenario on its baseline) runs
+        // on any other process instead.
+        for (const waiting of city.queue) {
+          if (waiting.pinned === stream) {
+            if (waiting.internal) this.#finish(waiting, error)
+            else waiting.pinned = null
+          }
+        }
+        if (!city.processes.length && !city.queue.length && this.cities.get(city.layout.key) === city) {
+          city.clearTimers()
+          this.cities.delete(city.layout.key)
+        }
+        // A kept City that lost a working process prepares its replacement now,
+        // so the next visitor does not pay to load each mode's network again.
+        if ((stream.replaceWhenStopped || (!stream.stopping && stream.answered)) && !city.processes.length) this.#rewarm(city.layout)
+        if (this.cities.get(city.layout.key) === city) this.#dispatch(city)
+      },
+    }
+  }
+
+  // Response bytes across every process, called before `stream.bufferedBytes`
+  // changes by `delta`. The process that started receiving first always
+  // continues, so one line can finish; while the total is over budget the
+  // others pause their output, and resume as soon as it is not.
+  #buffered(stream, delta) {
+    this.responseBytes = Math.max(0, this.responseBytes + delta)
+    if (stream.bufferedBytes + delta > 0 && !stream.closed) this.buffering.add(stream)
+    else this.buffering.delete(stream)
+    const over = this.responseBytes > this.limits.responseBudgetBytes
+    const first = this.buffering.values().next().value
+    for (const city of this.cities.values()) {
+      for (const candidate of city.processes) {
+        const pause = over && candidate !== first && this.buffering.has(candidate) && !candidate.closed
+        if (pause === candidate.paused) continue
+        candidate.paused = pause
+        if (pause) candidate.child.stdout.pause?.()
+        else candidate.child.stdout.resume?.()
+      }
+    }
+    // A stream that stopped while paused must not stay counted as paused.
+    if (stream.closed) stream.paused = false
   }
 
   /** Open `layout` ahead of its first query; a failure reappears on that query. */
   open(layout) {
-    if (!this.executable) return
-    try {
-      this.#city(layout, true)
-    } catch (error) {
-      // A City being updated opens on its next query instead.
-      if (!(error instanceof NativeCityUnavailableError && error.retryable)) throw error
-    }
+    if (!this.executable || this.shut) return
+    if (this.retiring.has(ownerKey(layout.root))) return
+    const city = this.#city(layout, true)
+    if (!city.processes.length && this.#mayStart(city)) this.#start(city, false)
   }
 
   #city(layout, create) {
     // A City being retired takes no new work until its processes have exited:
     // its files are about to be replaced. The caller may retry afterwards.
-    if (create && this.retiring.has(ownerKey(layout.root))) {
-      throw new NativeCityUnavailableError('The City is being updated. Retry shortly.', { retryable: true })
-    }
+    if (create && this.retiring.has(ownerKey(layout.root))) throw beingUpdated()
     let city = this.cities.get(layout.key)
     if (!city && create) {
       this.evict()
       if (this.cities.size >= this.maxCities) {
-        throw new NativeQueryError('All resident City slots are busy. Retry when a query completes.', 'capacity_exceeded', 503)
+        throw new NativeQueryError('All resident City slots are busy. Retry when a query completes.', 'capacity_exceeded', 503, { retryable: true })
       }
       city = new CityProcesses(layout)
       this.cities.set(layout.key, city)
     }
-    if (city && !city.processes.length) this.#start(city, false)
     this.scheduleIdle()
     return city
   }
 
+  #mayStart(city) {
+    const now = Date.now()
+    city.starts = city.starts.filter(started => now - started < restartWindowMs)
+    if (city.starts.length < this.limits.restartBudget) return true
+    this.counters.startsDeferred += 1
+    if (!city.restartTimer) {
+      city.restartTimer = setTimeout(() => {
+        city.restartTimer = null
+        if (this.cities.get(city.layout.key) === city) this.#dispatch(city)
+      }, Math.max(1, restartWindowMs - (now - city.starts[0])))
+      city.restartTimer.unref?.()
+    }
+    return false
+  }
+
   #start(city, warm, request) {
+    city.starts.push(Date.now())
+    this.counters.processStarts += 1
     const stream = new StreamProcess({
       executable: this.executable,
       layout: city.layout,
       spawnProcess: this.spawnProcess,
       responseLimitBytes: this.responseLimitBytes,
-      onExit: exited => {
-        city.processes = city.processes.filter(other => other !== exited)
-        if (city.baseline === exited) city.baseline = null
-        if (!city.processes.length && this.cities.get(city.layout.key) === city) this.cities.delete(city.layout.key)
-        // A kept City that lost a working process prepares its replacement now,
-        // so the next visitor does not pay to load each mode's network again.
-        if ((exited.replaceWhenStopped || (!exited.stopping && exited.answered)) && !city.processes.length) this.#rewarm(city.layout)
-      },
+      events: this.#events(city),
     })
-    // An added stream takes requests once it has opened the City.
-    stream.ready = !warm
+    city.processes.push(stream)
+    // An added process takes requests once it has opened the City and loaded
+    // the travel mode of the work that made it start.
     if (warm) {
+      stream.ready = false
+      const preparation = modePreparation(request)
       void (async () => {
-        await stream.query({ kind: 'info' })
-        // Keep this process out of dispatch until its lazy network is loaded.
-        const mode = routeMode(request)
-        if (mode) {
-          await stream.query(modePreparation(request))
-          stream.routeModes.add(mode)
-        }
+        await this.#submit(city.layout, { kind: 'info' }, null, { internal: true, pinned: stream })
+        if (preparation) await this.#submit(city.layout, preparation, null, { internal: true, pinned: stream })
         stream.ready = true
+        this.#dispatch(city)
       })().catch(error => stream.stop(error))
     }
-    city.processes.push(stream)
     return stream
   }
 
-  // The least busy ready stream; a new one opens while all are busy.
-  #stream(layout, request) {
-    const city = this.#city(layout, true)
-    if (request?.surfaceReuse === 'scenario' && city.baseline && !city.baseline.closed) return city.baseline
-    const ready = city.processes.filter(stream => stream.ready && !stream.closed)
-    // A process ready for one mode may still be cold for another. Queue on
-    // an already loaded network instead of charging a visitor its load time.
-    const mode = routeMode(request)
-    const loaded = mode ? ready.filter(stream => stream.routeModes.has(mode)) : []
-    const candidates = loaded.length ? loaded : ready.length ? ready : city.processes
-    const chosen = candidates.reduce((best, stream) => stream.pending.length < best.pending.length ? stream : best)
-    if (!preparationRequest(request) && chosen.pending.some(entry => !entry.preparing)
-      && city.processes.length < this.maxProcesses
-      && city.processes.every(stream => stream.ready && stream.answered)) {
-      this.#start(city, true, request)
+  // Order: point routes and preparation first, then analyses, oldest first; an
+  // analysis passed over too often goes next.
+  #ordered(city) {
+    const rank = job => job.analysis && job.bypasses < maximumAnalysisBypasses ? 1 : 0
+    return [...city.queue].sort((left, right) => rank(left) - rank(right) || left.seq - right.seq)
+  }
+
+  // The idle process `job` should run on now, or null to keep waiting.
+  #target(city, job, idle) {
+    if (job.pinned) return idle.includes(job.pinned) ? job.pinned : null
+    const ready = idle.filter(stream => stream.ready)
+    if (!ready.length || !job.mode) return ready[0] ?? null
+    const loaded = ready.find(stream => stream.routeModes.has(job.mode))
+    if (loaded) return loaded
+    // A process ready for one mode may still be cold for another. Wait a
+    // little for one that has the mode loaded, then pay the load instead.
+    const warmElsewhere = city.processes.some(stream => !stream.closed && stream.routeModes.has(job.mode))
+    if (!warmElsewhere || performance.now() - job.queuedAt >= this.limits.affinityWaitMs) return ready[0]
+    return null
+  }
+
+  #dispatch(city) {
+    if (this.cities.get(city.layout.key) !== city) return
+    for (const job of [...city.queue]) {
+      if (!job.done && !this.#current(job)) {
+        this.counters.staleGeneration += 1
+        this.#finish(job, beingUpdated())
+      }
     }
-    if (request?.surfaceReuse === 'baseline') city.baseline = chosen
-    return chosen
+    if (!city.processes.length && city.queue.length && this.#mayStart(city)) this.#start(city, false)
+    let affinityWait = Infinity
+    for (let progressed = true; progressed;) {
+      progressed = false
+      const idle = city.processes.filter(stream => !stream.closed && !stream.busy)
+      if (!idle.length) break
+      for (const job of this.#ordered(city)) {
+        if (job.done) continue
+        const stream = this.#target(city, job, idle)
+        if (!stream) {
+          if (!job.pinned && job.mode) affinityWait = Math.min(affinityWait, this.limits.affinityWaitMs - (performance.now() - job.queuedAt))
+          continue
+        }
+        city.queue.splice(city.queue.indexOf(job), 1)
+        for (const passed of city.queue) if (passed.analysis && passed.seq < job.seq && !job.analysis) passed.bypasses += 1
+        stream.send(job)
+        progressed = true
+        break
+      }
+    }
+    // Grow from the backlog: a request waiting behind busy processes starts
+    // another one (up to the limit), loaded for that request's mode.
+    const waiting = city.queue.find(job => !job.done && !job.pinned && !job.internal && !job.preparing)
+    if (waiting && city.processes.length < this.maxProcesses
+      && city.processes.every(stream => stream.ready && stream.answered && !stream.closed)
+      && this.#mayStart(city)) {
+      this.#start(city, true, waiting.request)
+    }
+    clearTimeout(city.affinityTimer)
+    city.affinityTimer = null
+    if (Number.isFinite(affinityWait)) {
+      city.affinityTimer = setTimeout(() => {
+        city.affinityTimer = null
+        this.#dispatch(city)
+      }, Math.max(1, Math.ceil(affinityWait)))
+      city.affinityTimer.unref?.()
+    }
+    this.scheduleIdle()
   }
 
   #rewarm(layout) {
@@ -516,12 +826,11 @@ export class NativeRuntime {
     const now = Date.now()
     if (!routes?.size || !this.leases.has(layout.key) || now - (this.lastRewarm.get(layout.key) ?? 0) < rewarmSpacingMs) return
     this.lastRewarm.set(layout.key, now)
+    const epoch = this.epoch
     void (async () => {
-      for (const [mode, request] of routes) {
-        if (!this.leases.has(layout.key)) return
-        const stream = this.#stream(layout, request)
-        await stream.query(request)
-        stream.routeModes.add(mode)
+      for (const request of routes.values()) {
+        if (!this.leases.has(layout.key) || epoch !== this.epoch) return
+        await this.#submit(layout, request, null, { internal: true })
       }
     })().catch(() => {})
   }
@@ -544,7 +853,10 @@ export class NativeRuntime {
     const idle = [...this.cities.values()].filter(city => !city.pending)
       .sort((left, right) => Number(this.leases.has(left.layout.key)) - Number(this.leases.has(right.layout.key))
         || left.lastUsed - right.lastUsed)
-    idle[0]?.stop()
+    const city = idle[0]
+    if (!city) return
+    this.cities.delete(city.layout.key)
+    void city.stop()
   }
 
   // Keep the most fully prepared process for a leased City. A recently
@@ -561,7 +873,7 @@ export class NativeRuntime {
             || stream.routeModes.size === best.routeModes.size && stream.lastUsed > best.lastUsed ? stream : best), null)
           : null
         for (const stream of [...city.processes]) {
-          if (stream !== keep && !stream.pending.length && now - stream.lastUsed >= this.idleMs) stream.stop()
+          if (stream !== keep && !stream.busy && !city.queue.length && now - stream.lastUsed >= this.idleMs) stream.stop()
         }
       }
       if (this.cities.size) this.scheduleIdle()
@@ -574,11 +886,25 @@ export class NativeRuntime {
       available: this.available,
       executable: this.executable ? path.basename(this.executable) : null,
       processesPerCity: this.maxProcesses,
+      epoch: this.epoch,
+      admission: {
+        pending: this.pendingCount,
+        pendingBytes: this.pendingBytes,
+        maxPending: this.limits.maxPending,
+        maxPendingBytes: this.limits.maxPendingBytes,
+        cityMaxPending: this.limits.cityMaxPending,
+        cityMaxPendingBytes: this.limits.cityMaxPendingBytes,
+      },
+      responses: { bufferedBytes: this.responseBytes, budgetBytes: this.limits.responseBudgetBytes },
+      counters: { ...this.counters },
       residentCities: [...this.cities.values()].map(city => ({
         root: city.layout.root,
         routingStore: city.layout.routingStore ? path.basename(city.layout.routingStore) : null,
         processes: city.processes.length,
+        readyProcesses: city.processes.filter(stream => stream.ready && !stream.closed).length,
         pending: city.pending,
+        queued: city.queue.length,
+        generation: this.#generation(city.root),
         resident: this.leases.has(city.layout.key),
       })),
     }
@@ -588,34 +914,55 @@ export class NativeRuntime {
    * Release the Cities that read `file` before it is replaced or removed, and
    * settle once their processes have exited. A file or directory inside a
    * nested City (Studio's wheelchair City under its parent) belongs to that
-   * City alone; a directory also releases every City beneath it. Dispatch to
-   * a retiring City stops at once; the result rejects if a process outlives
+   * City alone; a directory also releases every City beneath it. The affected
+   * Cities start a new generation at once: no new work is admitted until the
+   * processes have exited, waiting work is refused, and nothing admitted
+   * before is retried or answered. The result rejects if a process outlives
    * the retirement deadline, so files are never replaced under it.
    */
   retire(file) {
     const target = ownerKey(file)
     const cities = [...this.cities.values()]
-    const known = cities.map(city => ownerKey(city.layout.root))
+    const known = cities.map(city => city.root)
     const owner = owningCity(target, known)
-    const affected = cities.filter(city => {
-      const root = ownerKey(city.layout.root)
-      return root === owner || within(root, target)
-    })
-    return this.#retireCities(affected, [owner, ...affected.map(city => ownerKey(city.layout.root))].filter(Boolean))
+    const affected = cities.filter(city => city.root === owner || within(city.root, target))
+    return this.#retireCities(affected, [owner, ...affected.map(city => city.root)].filter(Boolean))
   }
 
-  /** Stop every City; settles once every process has exited. */
-  closeAll() {
+  /**
+   * Stop every City and refuse everything admitted so far; settles once every
+   * process has exited. The runtime stays usable, as after switching library.
+   */
+  reset() {
+    this.epoch += 1
     const cities = [...this.cities.values()]
-    this.cities.clear()
     this.leases.clear()
     this.warmRoutes.clear()
-    return this.#retireCities(cities, cities.map(city => ownerKey(city.layout.root)))
+    this.lastRewarm.clear()
+    return this.#retireCities(cities, cities.map(city => city.root))
+  }
+
+  /** The same barrier as reset, kept for callers that close at exit. */
+  closeAll() {
+    return this.reset()
+  }
+
+  /** Stop for good: every later request is refused. */
+  shutdown() {
+    this.shut = true
+    return this.reset()
   }
 
   async #retireCities(cities, roots) {
     const marker = Symbol('retirement')
-    for (const root of roots) this.retiring.set(root, marker)
+    for (const root of new Set(roots)) {
+      this.retiring.set(root, marker)
+      this.generations.set(root, this.#generation(root) + 1)
+    }
+    for (const city of cities) {
+      if (this.cities.get(city.layout.key) === city) this.cities.delete(city.layout.key)
+      for (const job of [...city.queue]) this.#finish(job, beingUpdated())
+    }
     let timer
     try {
       const exited = Promise.all(cities.map(city => city.stop()))

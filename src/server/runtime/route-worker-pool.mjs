@@ -588,6 +588,9 @@ export class NationalRouteWorkerPool {
     this.workerUrl = workerUrl
     this.maxWorkers = boundedInteger(maxWorkers, 2, 1, 2)
     this.closed = false
+    // reset() makes every earlier dispatch stale: switching library must not
+    // let a warmup, queued job or retry of the old library run or answer.
+    this.epoch = 0
     this.pendingDispatches = 0
     this.pendingLifecycles = 0
     this.clients = new Map()
@@ -672,23 +675,33 @@ export class NationalRouteWorkerPool {
 
   async dispatch(storePath, operation, request, signal, onProgress) {
     if (this.closed) throw runtimeCapacityError('The routing runtime is closed.', 'VIGO_ROUTE_CLOSED')
+    if (signal?.aborted) throw makeAbortError()
     if (this.pendingDispatches >= maxPendingRequests) throw runtimeCapacityError('Too many pending routing requests. Retry shortly.')
+    const epoch = this.epoch
     this.pendingDispatches += 1
     try {
-      return await this.#dispatch(storePath, operation, request, signal, onProgress)
+      const result = await this.#dispatch(storePath, operation, request, signal, onProgress, epoch)
+      // An answer computed for the previous library is not returned.
+      this.#checkEpoch(epoch)
+      return result
     } finally {
       this.pendingDispatches -= 1
     }
   }
 
-  async #dispatch(storePath, operation, request, signal, onProgress) {
+  #checkEpoch(epoch) {
+    if (this.closed) throw runtimeCapacityError('The routing runtime is closed.', 'VIGO_ROUTE_CLOSED')
+    if (epoch !== this.epoch) throw runtimeCapacityError('The routing runtime was reset. Retry.', 'VIGO_ROUTE_RESET')
+  }
+
+  async #dispatch(storePath, operation, request, signal, onProgress, epoch) {
     const deadline = Date.now() + jobTimeoutMs
     while (true) {
-      if (this.closed) throw runtimeCapacityError('The routing runtime is closed.', 'VIGO_ROUTE_CLOSED')
+      this.#checkEpoch(epoch)
       if (signal?.aborted) throw makeAbortError()
       const capacityGeneration = this.capacityGeneration
       const attempt = await this.#withLock(async () => {
-        if (this.closed) throw runtimeCapacityError('The routing runtime is closed.', 'VIGO_ROUTE_CLOSED')
+        this.#checkEpoch(epoch)
         let client = this.clients.get(storePath)
         if (!client) {
           if (this.clients.size >= this.maxWorkers || (this.clients.size > 0 && this.#memorySnapshot().pressure)) {
@@ -776,10 +789,28 @@ export class NationalRouteWorkerPool {
     })
   }
 
+  /**
+   * Retire every worker and make everything dispatched so far stale (queued
+   * jobs, warmups, waits for capacity and route lifecycles); the pool stays
+   * usable, as after switching library. Settles once the workers have exited.
+   */
+  async reset() {
+    this.epoch += 1
+    await this.#teardown()
+  }
+
+  /** Stop for good; every later dispatch is refused. */
   async closeAll() {
     this.closed = true
+    this.epoch += 1
+    await this.#teardown()
+  }
+
+  async #teardown() {
     for (const warmup of this.prewarmInFlight.values()) warmup.controller.abort()
     for (const warmup of this.routingAccessPrewarmInFlight.values()) warmup.controller.abort()
+    this.prewarmInFlight.clear()
+    this.routingAccessPrewarmInFlight.clear()
     await this.#withLock(async () => {
       const clients = [...this.clients.values()]
       this.clients.clear()
@@ -793,11 +824,14 @@ export class NationalRouteWorkerPool {
     if (this.closed) return Promise.reject(runtimeCapacityError('The routing runtime is closed.', 'VIGO_ROUTE_CLOSED'))
     if (this.pendingLifecycles >= maxPendingRequests) return Promise.reject(runtimeCapacityError('Too many pending routing preparations. Retry shortly.'))
     this.pendingLifecycles += 1
+    const epoch = this.epoch
     const previous = this.routeLifecycleTails.get(storePath)
     let execution
     if (previous) {
       execution = previous.then(() => {
         if (signal?.aborted) throw makeAbortError()
+        // A lifecycle queued before a reset does not run in the new library.
+        this.#checkEpoch(epoch)
         return action()
       })
     } else {
