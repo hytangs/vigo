@@ -95,10 +95,6 @@ fn main() {
         root.join("crates/vigo-format/src/timetable.rs"),
     ));
     sources.push((
-        "vigo_prepare",
-        root.join("crates/vigo-prepare/src/connections.rs"),
-    ));
-    sources.push((
         "vigo_format",
         root.join("crates/vigo-format/src/snapshot_writer.rs"),
     ));
