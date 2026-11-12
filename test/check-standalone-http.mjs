@@ -419,8 +419,44 @@ try {
     assert.equal(exhaustedStderr().match(/HTTP accept failed/g)?.length, 1, exhaustedStderr()); checks++
     assert.equal(server.exitCode, null); checks++
   }
-  console.log(`Standalone HTTP checks passed (${checks} checks: framing, slow bodies, bounds, local Host/Origin policy, accept failures, worker termination and recovery).`)
+
+  // A hard-killed server must not leave its worker holding the City: the
+  // worker ends when its input closes even while it is still warming up,
+  // and on Windows a Job Object ends it with the server. Kill the server the
+  // moment it listens, while VIGO_PREPARE warm-up is running.
+  server.kill(); await once(server, 'exit')
+  const killedCity = path.join(directory, 'killed-city')
+  fs.cpSync(city, killedCity, { recursive: true })
+  server = spawn(binary, ['serve', '--city', killedCity, '--port', '0'], { env: { PATH: '', RAYON_NUM_THREADS: '2', VIGO_PREPARE: 'all' } })
+  port = await listeningPort()
+  const worker = process.platform === 'win32' ? null : Number(execFileSync('pgrep', ['-P', String(server.pid)], { encoding: 'utf8' }).trim())
+  server.kill('SIGKILL'); await once(server, 'exit')
+  const alive = pid => { try { process.kill(pid, 0); return true } catch (error) { return error.code === 'EPERM' } }
+  const workerGoneBy = Date.now() + 3000
+  while (worker && alive(worker)) {
+    assert(Date.now() < workerGoneBy, 'A worker must end when its server is killed'); await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  fs.rmSync(killedCity, { recursive: true, maxRetries: 10, retryDelay: 50 })
+  assert(!fs.existsSync(killedCity)); checks++
+
+  // Node's NativeRuntime streams end the same way when their parent goes:
+  // closing input during warm-up ends the stream, and a request already
+  // sent is still answered first.
+  for (const requests of ['', `${JSON.stringify({ kind: 'route', id: 'last', ...JSON.parse(body) })}\n`]) {
+    const stream = spawn(binary, ['stream', '--city', city], { env: { PATH: '', RAYON_NUM_THREADS: '2', VIGO_PREPARE: 'all' }, stdio: ['pipe', 'pipe', 'ignore'] })
+    let output = ''
+    stream.stdout.on('data', data => { output += data })
+    stream.stdin.end(requests)
+    const streamEndedBy = setTimeout(() => stream.kill('SIGKILL'), 3000)
+    const [code, signal] = await once(stream, 'exit')
+    clearTimeout(streamEndedBy)
+    assert.equal(signal, null, 'A stream must end when its input closes'); assert.equal(code, 0)
+    assert.equal(output.trim().split('\n').filter(Boolean).length, requests ? 1 : 0, output)
+    if (requests) assert.equal(JSON.parse(output).id, 'last')
+    checks++
+  }
+  console.log(`Standalone HTTP checks passed (${checks} checks: framing, slow bodies, bounds, local Host/Origin policy, accept failures, worker termination and recovery, worker and stream lifetime).`)
 } finally {
-  if (server && server.exitCode === null) { server.kill(); await once(server, 'exit') }
+  if (server && server.exitCode === null && server.signalCode === null) { server.kill(); await once(server, 'exit') }
   fs.rmSync(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
 }

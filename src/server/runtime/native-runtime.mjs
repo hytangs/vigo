@@ -23,9 +23,14 @@ import { boundedInteger, memoryCapacityBytes } from './resource-limits.mjs'
 //   written request is never moved. Point routes go before analyses, which may
 //   be passed over at most four times. A request waits briefly for a process
 //   that has its travel mode loaded, then takes any idle one.
-// - Generations. Retiring a City's files or resetting the runtime starts a new
-//   generation synchronously: queued work is refused, running work is stopped,
-//   and no retry or late answer of the old generation is accepted.
+// - Generations. Retiring a City's files (a refresh in the same library)
+//   starts a new City generation synchronously and is transparent to admitted
+//   work: waiting work, and work arriving meanwhile, is held until the old
+//   processes have exited and then runs on the new generation; a request the
+//   retirement stopped mid-computation runs once more there. All of it stays
+//   within each request's deadline. A reset (another library) or shutdown bumps
+//   the runtime epoch instead and refuses everything admitted before it. No
+//   answer or retry of an old generation or epoch is ever accepted.
 const maxResidentCities = boundedInteger(process.env.VIGO_NATIVE_CITY_MAX, 2, 1, 8)
 const processesPerCity = boundedInteger(process.env.VIGO_NATIVE_CITY_PROCESSES, 2, 1, 8)
 const residentIdleMs = boundedInteger(process.env.VIGO_NATIVE_CITY_IDLE_MS, 300_000, 100, 3_600_000)
@@ -41,6 +46,11 @@ const restartWindowMs = 30_000
 const restartBudget = boundedInteger(process.env.VIGO_NATIVE_RESTART_BUDGET, 6, 1, 100)
 // Retirement waits this long for stopped processes to exit before failing.
 const retireTimeoutMs = boundedInteger(process.env.VIGO_NATIVE_RETIRE_TIMEOUT_MS, 15_000, 100, 600_000)
+// The longest a held retirement keeps a City's work waiting for its caller to
+// finish replacing files and release it. Past it, the held work fails as
+// "being updated" and the City takes work again, so a lost release cannot
+// wedge it.
+export const retireHoldMs = boundedInteger(process.env.VIGO_RETIRE_HOLD_MS, 300_000, 1000, 3_600_000)
 const maxResponseBytes = 256 * 1024 * 1024
 const MiB = 1024 * 1024
 const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, Math.floor(value)))
@@ -409,8 +419,12 @@ export class NativeRuntime {
     responseLimitBytes = maxResponseBytes,
     timeoutMs = queryTimeoutMs,
     limits = {},
+    // Throws when the caller's work may no longer open a City, for example a
+    // request that began before Studio switched library.
+    admit = () => {},
   } = {}) {
     this.executable = executable
+    this.admit = admit
     this.warmRoutes = new Map()
     this.lastRewarm = new Map()
     this.maxCities = maxCities
@@ -427,6 +441,7 @@ export class NativeRuntime {
       responseBudgetBytes: Math.max(responseLimitBytes, responseBudgetBytes),
       affinityWaitMs,
       restartBudget,
+      retireHoldMs,
       ...limits,
     }
     this.cities = new Map()
@@ -437,6 +452,8 @@ export class NativeRuntime {
     // A reset makes every earlier request stale; retiring a City makes its own.
     this.epoch = 0
     this.generations = new Map()
+    // Admitted requests waiting for a City's retirement to finish, by root.
+    this.held = new Map()
     this.shut = false
     this.sequence = 0
     this.pendingCount = 0
@@ -446,6 +463,7 @@ export class NativeRuntime {
     this.counters = {
       admitted: 0, overloaded: 0, abortedBeforeAdmission: 0, expiredWaiting: 0, timedOutRunning: 0,
       cancelledRunning: 0, retried: 0, processStarts: 0, staleGeneration: 0, startsDeferred: 0,
+      heldForRetirement: 0, rerunAfterRetirement: 0, retireHoldsExpired: 0,
     }
   }
 
@@ -472,13 +490,22 @@ export class NativeRuntime {
     if (!this.executable) {
       return Promise.reject(new NativeCityUnavailableError('The VIGO executable is missing. Run npm run build:standalone.'))
     }
+    try {
+      if (!internal) this.admit()
+    } catch (error) {
+      return Promise.reject(error)
+    }
     // Nothing is opened, evicted or started for a request already cancelled.
     if (signal?.aborted) {
       this.counters.abortedBeforeAdmission += 1
       return Promise.reject(makeAbortError())
     }
     const root = ownerKey(layout.root)
-    if (this.retiring.has(root)) return Promise.reject(beingUpdated())
+    // Only a same-library refresh holds new public work; warm-ups and work
+    // arriving during a reset are refused.
+    const retiring = this.retiring.get(root)
+    const hold = Boolean(retiring) && retiring.transparent && !internal
+    if (retiring && !hold) return Promise.reject(beingUpdated())
     let line
     try {
       line = `${JSON.stringify(request)}\n`
@@ -498,17 +525,19 @@ export class NativeRuntime {
         return Promise.reject(overloaded(scope))
       }
     }
-    let city
-    try {
-      city = this.#city(layout, true)
-    } catch (error) {
-      return Promise.reject(error)
+    let city = null
+    if (!hold) {
+      try {
+        city = this.#city(layout, true)
+      } catch (error) {
+        return Promise.reject(error)
+      }
     }
     const budgetMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.min(timeoutMs, this.timeoutMs) : this.timeoutMs
     return new Promise((resolve, reject) => {
       const now = performance.now()
       const job = {
-        seq: (this.sequence += 1), request, line, bytes, internal, pinned, city,
+        seq: (this.sequence += 1), request, line, bytes, internal, pinned, city: null, layout, root,
         mode: routeMode(request), analysis: analysisRequest(request), preparing: preparationRequest(request),
         epoch: this.epoch, generation: this.#generation(root), admittedAt: now, queuedAt: now,
         deadline: now + budgetMs, budgetMs, attempts: 0, bypasses: 0, state: 'queued', stream: null,
@@ -518,8 +547,6 @@ export class NativeRuntime {
         this.counters.admitted += 1
         this.pendingCount += 1
         this.pendingBytes += bytes
-        city.pendingCount += 1
-        city.pendingBytes += bytes
       }
       job.timer = setTimeout(() => this.#expire(job), budgetMs)
       job.timer.unref?.()
@@ -527,10 +554,81 @@ export class NativeRuntime {
         job.abort = () => this.#cancel(job)
         signal.addEventListener('abort', job.abort, { once: true })
       }
-      if (request?.surfaceReuse === 'scenario' && city.baseline && !city.baseline.closed) job.pinned = city.baseline
-      city.queue.push(job)
-      this.#dispatch(city)
+      if (hold) this.#hold(job)
+      else this.#attach(job, city)
     })
+  }
+
+  // Queue `job` on `city`, which holds its City permits from now on.
+  #attach(job, city) {
+    job.city = city
+    job.state = 'queued'
+    job.stream = null
+    job.queuedAt = performance.now()
+    if (!job.internal) {
+      city.pendingCount += 1
+      city.pendingBytes += job.bytes
+    }
+    if (job.request?.surfaceReuse === 'scenario' && city.baseline && !city.baseline.closed) job.pinned = city.baseline
+    if (job.attempts) city.queue.unshift(job)
+    else city.queue.push(job)
+    this.#dispatch(city)
+  }
+
+  // Leave `job.city` (its queue and City permits), keeping the global permit.
+  #detach(job) {
+    const city = job.city
+    if (!city) return
+    job.city = null
+    if (!job.internal) {
+      city.pendingCount -= 1
+      city.pendingBytes -= job.bytes
+    }
+    const index = city.queue.indexOf(job)
+    if (index >= 0) city.queue.splice(index, 1)
+  }
+
+  // Keep `job` until its City's retirement has finished; it then runs on the
+  // new generation (#release). Its deadline keeps running meanwhile.
+  #hold(job) {
+    this.#detach(job)
+    job.state = 'held'
+    job.stream = null
+    job.pinned = null
+    if (!this.retiring.has(job.root)) {
+      this.#readmit(job)
+      return
+    }
+    this.counters.heldForRetirement += 1
+    const held = this.held.get(job.root) ?? new Set()
+    held.add(job)
+    this.held.set(job.root, held)
+  }
+
+  #readmit(job) {
+    if (job.done) return
+    if (job.epoch !== this.epoch || this.shut) {
+      this.counters.staleGeneration += 1
+      this.#finish(job, beingUpdated())
+      return
+    }
+    job.generation = this.#generation(job.root)
+    let city
+    try {
+      city = this.#city(job.layout, true)
+    } catch (error) {
+      this.#finish(job, error)
+      return
+    }
+    this.#attach(job, city)
+  }
+
+  // A held request of a City still current (same epoch) goes back in.
+  #release(root) {
+    const held = this.held.get(root)
+    if (!held) return
+    this.held.delete(root)
+    for (const job of held) this.#readmit(job)
   }
 
   /** Settle `job` once: return its permits, leave the queue and answer the caller. */
@@ -543,11 +641,9 @@ export class NativeRuntime {
     if (!job.internal) {
       this.pendingCount -= 1
       this.pendingBytes -= job.bytes
-      job.city.pendingCount -= 1
-      job.city.pendingBytes -= job.bytes
     }
-    const index = job.city.queue.indexOf(job)
-    if (index >= 0) job.city.queue.splice(index, 1)
+    this.#detach(job)
+    this.held.get(job.root)?.delete(job)
     job.line = ''
     if (job.discarded) return
     if (error) job.reject(error)
@@ -555,7 +651,19 @@ export class NativeRuntime {
   }
 
   #current(job) {
-    return job.epoch === this.epoch && job.generation === this.#generation(job.city.root)
+    return job.epoch === this.epoch && job.generation === this.#generation(job.root)
+  }
+
+  // A public request a same-library retirement interrupted is run once more
+  // on the City's next generation, if its epoch and deadline still allow.
+  #rerun(job) {
+    if (!job.interrupted || job.internal || job.attempts > 0 || job.epoch !== this.epoch) return false
+    if (performance.now() >= job.deadline) return false
+    job.interrupted = false
+    job.attempts += 1
+    this.counters.rerunAfterRetirement += 1
+    this.#hold(job)
+    return true
   }
 
   #cancel(job) {
@@ -601,8 +709,10 @@ export class NativeRuntime {
           return
         }
         if (!this.#current(job)) {
-          this.counters.staleGeneration += 1
-          this.#finish(job, beingUpdated())
+          if (!this.#rerun(job)) {
+            this.counters.staleGeneration += 1
+            this.#finish(job, beingUpdated())
+          }
         } else if (outcome.error) {
           this.#finish(job, outcome.error)
         } else {
@@ -625,7 +735,13 @@ export class NativeRuntime {
         city.processes = city.processes.filter(other => other !== stream)
         if (city.baseline === stream) city.baseline = null
         this.#buffered(stream, 0)
-        if (job && !job.done) {
+        if (job && !job.done && this.#rerun(job)) {
+          // Stopped by a same-library retirement: runs again on the new generation.
+        } else if (job && !job.done && !this.#current(job)) {
+          // Stopped by a reset: its library is gone.
+          this.counters.staleGeneration += 1
+          this.#finish(job, beingUpdated())
+        } else if (job && !job.done) {
           // Work stopped by another request's failure, or by a crash, is
           // answered once more within its own deadline; a request that
           // caused the stop is not.
@@ -689,6 +805,7 @@ export class NativeRuntime {
   /** Open `layout` ahead of its first query; a failure reappears on that query. */
   open(layout) {
     if (!this.executable || this.shut) return
+    this.admit()
     if (this.retiring.has(ownerKey(layout.root))) return
     const city = this.#city(layout, true)
     if (!city.processes.length && this.#mayStart(city)) this.#start(city, false)
@@ -837,6 +954,7 @@ export class NativeRuntime {
 
   /** Keep `layout` resident while any lease holds it, as the open Route tool does. */
   setResidency(layout, resident, leaseId = 'default') {
+    if (resident) this.admit()
     const leases = this.leases.get(layout.key) ?? new Set()
     if (resident) leases.add(leaseId)
     else leases.delete(leaseId)
@@ -919,14 +1037,31 @@ export class NativeRuntime {
    * processes have exited, waiting work is refused, and nothing admitted
    * before is retried or answered. The result rejects if a process outlives
    * the retirement deadline, so files are never replaced under it.
+   *
+   * It resolves to a release function. With `hold`, the Cities keep holding
+   * their work (new, waiting and interrupted requests) until the caller has
+   * replaced its files and calls it, or until the hold limit passes; without,
+   * they take work again as soon as the processes have exited.
    */
-  retire(file) {
+  retire(file, { hold = false } = {}) {
     const target = ownerKey(file)
     const cities = [...this.cities.values()]
     const known = cities.map(city => city.root)
     const owner = owningCity(target, known)
     const affected = cities.filter(city => city.root === owner || within(city.root, target))
-    return this.#retireCities(affected, [owner, ...affected.map(city => city.root)].filter(Boolean))
+    return this.#retireCities(affected, [owner, ...affected.map(city => city.root)].filter(Boolean), { transparent: true, hold })
+  }
+
+  /**
+   * Retire the City at `root` (and any City beneath it) for a caller that
+   * knows which City it replaces, as `retire` does for a file. Nothing is
+   * inferred from the path: a parent City is never touched, even when the
+   * City at `root` has not been published yet.
+   */
+  retireCity(root, { hold = false } = {}) {
+    const target = ownerKey(root)
+    const affected = [...this.cities.values()].filter(city => within(city.root, target))
+    return this.#retireCities(affected, [target, ...affected.map(city => city.root)], { transparent: true, hold })
   }
 
   /**
@@ -939,6 +1074,11 @@ export class NativeRuntime {
     this.leases.clear()
     this.warmRoutes.clear()
     this.lastRewarm.clear()
+    // Requests held for a refresh belong to the epoch that just ended.
+    for (const [root, held] of [...this.held]) {
+      this.held.delete(root)
+      for (const job of held) this.#finish(job, beingUpdated())
+    }
     return this.#retireCities(cities, cities.map(city => city.root))
   }
 
@@ -953,15 +1093,35 @@ export class NativeRuntime {
     return this.reset()
   }
 
-  async #retireCities(cities, roots) {
-    const marker = Symbol('retirement')
+  async #retireCities(cities, roots, { transparent = false, hold = false } = {}) {
+    const marker = { transparent }
     for (const root of new Set(roots)) {
       this.retiring.set(root, marker)
       this.generations.set(root, this.#generation(root) + 1)
     }
     for (const city of cities) {
       if (this.cities.get(city.layout.key) === city) this.cities.delete(city.layout.key)
-      for (const job of [...city.queue]) this.#finish(job, beingUpdated())
+      for (const job of [...city.queue]) {
+        if (transparent && !job.internal) this.#hold(job)
+        else this.#finish(job, beingUpdated())
+      }
+      if (transparent) for (const stream of city.processes) if (stream.current) stream.current.interrupted = true
+    }
+    // Admit the held work again (or, when the hold expired, refuse it). A
+    // later retirement of the same root owns its marker and releases what
+    // both held.
+    let released = false
+    let holdTimer = null
+    const release = (expired = false) => {
+      if (released) return
+      released = true
+      clearTimeout(holdTimer)
+      for (const root of new Set(roots)) {
+        if (this.retiring.get(root) !== marker) continue
+        this.retiring.delete(root)
+        if (expired) this.#refuseHeld(root)
+        else this.#release(root)
+      }
     }
     let timer
     try {
@@ -972,9 +1132,29 @@ export class NativeRuntime {
         )), retireTimeoutMs)
       })
       await Promise.race([exited, deadline])
+    } catch (error) {
+      // The caller will not replace anything; the work may run again now.
+      release()
+      throw error
     } finally {
       clearTimeout(timer)
-      for (const root of roots) if (this.retiring.get(root) === marker) this.retiring.delete(root)
     }
+    if (!hold) {
+      release()
+      return () => {}
+    }
+    holdTimer = setTimeout(() => {
+      this.counters.retireHoldsExpired += 1
+      release(true)
+    }, this.limits.retireHoldMs)
+    holdTimer.unref?.()
+    return () => release()
+  }
+
+  #refuseHeld(root) {
+    const held = this.held.get(root)
+    if (!held) return
+    this.held.delete(root)
+    for (const job of held) this.#finish(job, beingUpdated())
   }
 }

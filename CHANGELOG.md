@@ -106,6 +106,7 @@ API 1.0, City format 1 and Result schema 1 keep their meanings, and compatible p
 - Restore lightweight timed-leg Matrix journeys without per-cell Studio metadata; retain full metadata and geometry on request. Reuse unique native Matrix journeys across the internal transport.
 
 - `vigo serve`: a client that closes its connection cancels its query, removed while queued and its worker replaced while running, as `DELETE /v1/requests/{id}` does. Four connections beyond `--max-connections` stay open to health, readiness, status and cancellation while data requests saturate the service. A worker result counts against the 128 MiB response budget while it is read, so a large result never exceeds it.
+- A `vigo serve` worker or `vigo stream` process ends as soon as its input closes with no request outstanding, even while it is still preparing the City, so a killed server or Node parent no longer leaves it running with the City's files open; on Windows the server also binds its workers to its own lifetime with a Job Object, so terminating the server ends them and the City can be removed.
 - `scripts/stress-http.py` measures a service at a fixed, open-loop arrival rate, counting arrivals it could not send, overloads and timeouts with their latency from scheduled arrival.
 
 ### Studio

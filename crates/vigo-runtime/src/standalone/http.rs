@@ -246,6 +246,127 @@ impl EncodedOutput {
     }
 }
 
+/// Every worker belongs to one kill-on-close Job Object that the server
+/// creates and holds open for its whole life. When the server process ends,
+/// however it ends, Windows closes the job and terminates its workers, which
+/// releases the City files they map.
+#[cfg(windows)]
+mod server_job {
+    use std::ffi::c_void;
+    use std::os::windows::io::AsRawHandle;
+    use std::sync::OnceLock;
+
+    type Handle = *mut c_void;
+    // JOBOBJECT_BASIC_LIMIT_INFORMATION, IO_COUNTERS and
+    // JOBOBJECT_EXTENDED_LIMIT_INFORMATION from winnt.h.
+    #[repr(C)]
+    #[derive(Default)]
+    struct BasicLimitInformation {
+        per_process_user_time_limit: i64,
+        per_job_user_time_limit: i64,
+        limit_flags: u32,
+        minimum_working_set_size: usize,
+        maximum_working_set_size: usize,
+        active_process_limit: u32,
+        affinity: usize,
+        priority_class: u32,
+        scheduling_class: u32,
+    }
+    #[repr(C)]
+    #[derive(Default)]
+    struct IoCounters {
+        read_operation_count: u64,
+        write_operation_count: u64,
+        other_operation_count: u64,
+        read_transfer_count: u64,
+        write_transfer_count: u64,
+        other_transfer_count: u64,
+    }
+    #[repr(C)]
+    #[derive(Default)]
+    struct ExtendedLimitInformation {
+        basic_limit_information: BasicLimitInformation,
+        io_info: IoCounters,
+        process_memory_limit: usize,
+        job_memory_limit: usize,
+        peak_process_memory_used: usize,
+        peak_job_memory_used: usize,
+    }
+    #[cfg(target_pointer_width = "64")]
+    const _: () = {
+        assert!(std::mem::size_of::<BasicLimitInformation>() == 64);
+        assert!(std::mem::size_of::<IoCounters>() == 48);
+        assert!(std::mem::size_of::<ExtendedLimitInformation>() == 144);
+    };
+    const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x2000;
+    const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION: i32 = 9;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn CreateJobObjectW(attributes: *mut c_void, name: *const u16) -> Handle;
+        fn SetInformationJobObject(
+            job: Handle,
+            class: i32,
+            info: *const c_void,
+            length: u32,
+        ) -> i32;
+        fn AssignProcessToJobObject(job: Handle, process: Handle) -> i32;
+        fn CloseHandle(handle: Handle) -> i32;
+    }
+
+    struct Job(Handle);
+    // SAFETY: a job handle can be used from any thread; it is never closed.
+    unsafe impl Send for Job {}
+    unsafe impl Sync for Job {}
+
+    fn job() -> std::io::Result<&'static Job> {
+        static JOB: OnceLock<Option<Job>> = OnceLock::new();
+        JOB.get_or_init(|| {
+            // SAFETY: plain Win32 calls; the information block outlives the call.
+            unsafe {
+                let handle = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
+                if handle.is_null() {
+                    return None;
+                }
+                let mut information = ExtendedLimitInformation::default();
+                information.basic_limit_information.limit_flags =
+                    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                if SetInformationJobObject(
+                    handle,
+                    JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+                    (&raw const information).cast(),
+                    std::mem::size_of::<ExtendedLimitInformation>() as u32,
+                ) == 0
+                {
+                    CloseHandle(handle);
+                    return None;
+                }
+                Some(Job(handle))
+            }
+        })
+        .as_ref()
+        .ok_or_else(std::io::Error::last_os_error)
+    }
+
+    /// Put a just-started worker in the server's job. A failure is logged
+    /// once; the worker still ends when its input closes.
+    pub(super) fn bind(child: &std::process::Child) {
+        static REPORTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let result = job().and_then(|job| {
+            // SAFETY: both handles are valid for the duration of the call.
+            if unsafe { AssignProcessToJobObject(job.0, child.as_raw_handle()) } == 0 {
+                Err(std::io::Error::last_os_error())
+            } else {
+                Ok(())
+            }
+        });
+        if let Err(error) = result
+            && !REPORTED.swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            eprintln!("VIGO could not bind City workers to the server's lifetime: {error}");
+        }
+    }
+}
+
 /// The retained-response budget a worker's output lines are read against.
 #[derive(Clone)]
 struct ResponseBudget {
@@ -381,6 +502,10 @@ impl Worker {
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()?;
+        // A worker ends when its input closes; on Windows it is also bound to
+        // the server, so a terminated server never leaves it running.
+        #[cfg(windows)]
+        server_job::bind(&child);
         let (input, writes) = mpsc::sync_channel::<Vec<u8>>(1);
         let (sender, output) = mpsc::sync_channel(1);
         // Own the child before any fallible setup. Every error below kills and

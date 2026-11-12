@@ -31,7 +31,10 @@ export async function wheelchairBuildSources(directory, project, request) {
   return { gtfs, osm, feedId: id }
 }
 
-export async function buildStudioWheelchair({ directory, sources, readProject, signal, onProgress, beforePublish = async () => {} }) {
+// `publish(replace)` runs `replace`, which swaps the compiled City into
+// place; Studio passes one that fences routing off the wheelchair City while
+// it does.
+export async function buildStudioWheelchair({ directory, sources, readProject, signal, onProgress, publish = replace => replace() }) {
   // One preparation runs per City, so any staging folder left here belongs to
   // a preparation that VIGO's exit interrupted.
   for (const name of await fs.readdir(directory).catch(() => [])) {
@@ -68,22 +71,23 @@ export async function buildStudioWheelchair({ directory, sources, readProject, s
       })
     })
     signal.throwIfAborted()
-    await beforePublish()
-    signal.throwIfAborted()
-    // Source fingerprints are checked again immediately before publication.
-    const current = await readProject()
-    studioWheelchairSelection(staging, current, { wheelchair: true, feedId: sources.feedId })
-    const target = path.join(directory, 'wheelchair')
-    const backup = path.join(directory, `wheelchair-backup-${Date.now()}`)
-    let moved = false
-    try { await fs.rename(target, backup); moved = true } catch (error) { if (error.code !== 'ENOENT') throw error }
-    try { await fs.rename(output, target) } catch (error) {
-      if (moved) await fs.rename(backup, target)
-      throw error
-    }
-    // The replaced profile is kept only for the swap; its sources rebuild it.
-    // Removal is best effort: Windows refuses a file that is still mapped.
-    if (moved) await fs.rm(backup, { recursive: true, force: true }).catch(() => {})
-    return { feedId: sources.feedId, ...(moved ? { replaced: true } : {}) }
+    return await publish(async () => {
+      signal.throwIfAborted()
+      // Source fingerprints are checked again immediately before publication.
+      const current = await readProject()
+      studioWheelchairSelection(staging, current, { wheelchair: true, feedId: sources.feedId })
+      const target = path.join(directory, 'wheelchair')
+      const backup = path.join(directory, `wheelchair-backup-${Date.now()}`)
+      let moved = false
+      try { await fs.rename(target, backup); moved = true } catch (error) { if (error.code !== 'ENOENT') throw error }
+      try { await fs.rename(output, target) } catch (error) {
+        if (moved) await fs.rename(backup, target)
+        throw error
+      }
+      // The replaced profile is kept only for the swap; its sources rebuild it.
+      // Removal is best effort: Windows refuses a file that is still mapped.
+      if (moved) await fs.rm(backup, { recursive: true, force: true }).catch(() => {})
+      return { feedId: sources.feedId, ...(moved ? { replaced: true } : {}) }
+    })
   } finally { await fs.rm(staging, { recursive: true, force: true }) }
 }
