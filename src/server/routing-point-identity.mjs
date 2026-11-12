@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
+import { readerBusyTimeoutMs } from './sqlite-readers.mjs'
 
 // Desktop previews qualify IDs with ::; merged timetables use the GTFS scope
 // separator. Resolve against the chosen store before granting exact-stop access.
@@ -9,7 +10,7 @@ export function normalizeRoutingPointIdentities(storePath, request, localFeedId 
   let lookup
   let merged = false
   if (points.some(point => point?.source !== 'map' && String(point?.stopId ?? '').trim())) {
-    db = new DatabaseSync(storePath, { readOnly: true })
+    db = new DatabaseSync(storePath, { readOnly: true, timeout: readerBusyTimeoutMs })
     try {
       lookup = db.prepare('SELECT stop_id FROM stops WHERE stop_id = ?')
       const sources = JSON.parse(db.prepare("SELECT value FROM metadata WHERE key = 'sourceStores'").get()?.value ?? '[]')

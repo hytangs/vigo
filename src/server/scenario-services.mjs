@@ -3,6 +3,7 @@ import { readNationalGtfsPreview } from './national-gtfs-store.mjs'
 import { readGtfsRouteAnalysis } from './gtfs-analysis-store.mjs'
 import { scenarioEntityCandidates, scenarioEntityMatches } from './scenario-entity-ids.mjs'
 import { hydrateScheduledScenarioService } from './scenario-schedules.mjs'
+import { readerBusyTimeoutMs } from './sqlite-readers.mjs'
 
 const scenarioRouteStopCache = new Map()
 const scenarioRouteStopCacheMaxEntries = 256
@@ -104,7 +105,7 @@ function scenarioTripIdsForStoredPattern(storePath, routeId, patternId) {
 function scenarioStoredRouteId(storePath, routeId) {
   const candidates = scenarioEntityCandidates(routeId)
   if (!candidates.length) return ''
-  const db = new DatabaseSync(storePath, { readOnly: true })
+  const db = new DatabaseSync(storePath, { readOnly: true, timeout: readerBusyTimeoutMs })
   try {
     const findRoute = db.prepare('SELECT route_id FROM routes WHERE route_id=? LIMIT 1')
     for (const candidate of candidates) {

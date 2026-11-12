@@ -62,6 +62,11 @@ fn flush(path: &Path) -> Result<()> {
     if path.is_dir() {
         return Ok(());
     }
+    // Windows flushes only through a handle with write access; a read-only
+    // handle fails with "Access is denied".
+    #[cfg(windows)]
+    let file = fs::OpenOptions::new().read(true).write(true).open(path)?;
+    #[cfg(not(windows))]
     let file = fs::File::open(path)?;
     match file.sync_all() {
         Ok(()) => Ok(()),

@@ -4,6 +4,7 @@ import { haversineKm, lineDistanceKm } from './geometry-utils.mjs'
 import { numeric } from './number-utils.mjs'
 import { routeDisplayLongName, routePreviewColor } from './route-presentation.mjs'
 import { serviceDayForDate } from './service-day.mjs'
+import { readerBusyTimeoutMs } from './sqlite-readers.mjs'
 
 function validCoordinate(coordinate) {
   return Array.isArray(coordinate)
@@ -389,7 +390,7 @@ function patternStopPairs(patternId, routeId, directionId, representativeRows, s
 }
 
 export function readGtfsRouteAnalysis(storePath, routeId, options = {}) {
-  const db = new DatabaseSync(storePath, { readOnly: true })
+  const db = new DatabaseSync(storePath, { readOnly: true, timeout: readerBusyTimeoutMs })
   try {
     const sourceScope = String(options.sourceScope || '').trim()
     const service = resolveRouteService(db, String(routeId || '').trim(), sourceScope)

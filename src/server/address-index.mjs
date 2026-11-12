@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite'
+import { readerBusyTimeoutMs } from './sqlite-readers.mjs'
 
 const schema = 'vigo.address-search.v1'
 const abbreviations = new Map(Object.entries({ st: 'street', ave: 'avenue', av: 'avenue', rd: 'road', blvd: 'boulevard', dr: 'drive', ln: 'lane', ct: 'court', pl: 'place', pkwy: 'parkway', hwy: 'highway', sq: 'square', ctr: 'center', n: 'north', s: 'south', e: 'east', w: 'west', ne: 'northeast', nw: 'northwest', se: 'southeast', sw: 'southwest' }))
@@ -125,7 +126,7 @@ export function rankAddressResults(candidates, query, { center, limit = 6 } = {}
 }
 
 export function openAddressIndex(filename, { bounds, center, name } = {}) {
-  const db = new DatabaseSync(filename, { readOnly: true })
+  const db = new DatabaseSync(filename, { readOnly: true, timeout: readerBusyTimeoutMs })
   db.exec('PRAGMA query_only=ON; PRAGMA cache_size=-4096')
   const metadata = JSON.parse(db.prepare("SELECT value FROM metadata WHERE key='index'").get()?.value ?? '{}')
   if (metadata.schema !== schema || !metadata.count) { db.close(); throw Error('Invalid local address index.') }

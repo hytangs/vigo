@@ -5,6 +5,7 @@ import path from 'node:path'
 import { performance as nodePerformance } from 'node:perf_hooks'
 import { DatabaseSync } from 'node:sqlite'
 import { stableJson } from '../routing-plan-identity.mjs'
+import { readerBusyTimeoutMs } from '../sqlite-readers.mjs'
 
 // v4 retains source trip headsigns and names. City containers and preparation
 // policies are versioned separately from the application release.
@@ -399,7 +400,7 @@ export function currentStreetStoreStorageIdentity(storePath) {
  * @returns {{routingLimitations?: unknown[], blockingRoutingFeatures?: unknown[], featureInventory?: {excludedTripCount?: number}, routeCount?: number, stopCount?: number, tripCount?: number, connectionCount?: number, departureIndexState?: string}}
  */
 export function readNationalGtfsStoreMetadata(storePath) {
-  const db = new DatabaseSync(storePath, { readOnly: true })
+  const db = new DatabaseSync(storePath, { readOnly: true, timeout: readerBusyTimeoutMs })
   try {
     const metadata = metadataRecord(db)
     admitRoutingStoreVersion(storePath, metadata)

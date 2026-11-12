@@ -16,6 +16,10 @@ function topSpeedKph(mode: 'drive' | 'bike', bike: RoutingBikeOptions) {
 // cells answer in under a second.
 const grid = { drive: { cellMeters: 600, maximumSize: 128 }, bike: { cellMeters: 330, maximumSize: 48 } }
 
+// The raster sizes Reach accepts, up to the largest grid above
+// (capabilities.mjs `supportedReachRasterSizes`).
+const rasterSizes = [48, 64, 96, 128]
+
 /**
  * The square a drive or bicycle Reach evaluates around its place. It holds
  * every point the largest time band can reach, so the surface ends where
@@ -26,6 +30,8 @@ export function reachExtent(mode: 'drive' | 'bike', cutoffMinutes: number, bike:
   const reachKm = cutoffMinutes / 60 * topSpeedKph(mode, bike) + 0.05
   const radiusKm = Math.min(maximumReachRadiusKm, Math.max(1, Math.ceil(reachKm * 10) / 10))
   const { cellMeters, maximumSize } = grid[mode]
-  const rasterSize = Math.min(maximumSize, Math.max(32, Math.ceil(radiusKm * 2000 / cellMeters)))
+  // The smallest accepted grid that keeps cells at their size, up to the limit.
+  const cells = Math.min(maximumSize, Math.ceil(radiusKm * 2000 / cellMeters))
+  const rasterSize = rasterSizes.find(size => size >= cells) ?? maximumSize
   return { radiusKm, rasterSize, cellMeters: Math.round(radiusKm * 2000 / rasterSize) }
 }

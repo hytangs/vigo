@@ -3,6 +3,7 @@ import { activeServiceIds } from './gtfs/service-calendar.mjs'
 import { resolveServiceDay } from './service-day.mjs'
 import { scenarioEntityMatches } from './scenario-entity-ids.mjs'
 import { normalizeRoutingPointIdentities } from './routing-point-identity.mjs'
+import { readerBusyTimeoutMs } from './sqlite-readers.mjs'
 
 function invalid(message) {
   const error = new Error(message)
@@ -134,7 +135,7 @@ export function hydrateScheduledScenarioService(storePath, service, tripIds, req
   const sourceScope = String(service.sourceRouteId ?? '').split(/::|\u001f/)
   const localFeedId = sourceScope.length > 1 ? sourceScope[0] : request.feedId ?? ''
   service = { ...service, stops: normalizeRoutingPointIdentities(storePath, { waypoints: service.stops }, localFeedId).waypoints }
-  const db = new DatabaseSync(storePath, { readOnly: true })
+  const db = new DatabaseSync(storePath, { readOnly: true, timeout: readerBusyTimeoutMs })
   try {
     const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((row) => row.name))
     const services = activeServiceIds(db, request.serviceDate)

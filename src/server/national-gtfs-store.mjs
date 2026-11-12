@@ -65,6 +65,7 @@ import { decodeRoutingSnapshot, encodeRoutingSnapshot } from './routing-snapshot
 import { resolveServiceDay } from './service-day.mjs'
 import { WeightedLruCache } from './weighted-lru-cache.mjs'
 import { runCityCompiler, runCityCompilerSync } from './runtime/city-compiler.mjs'
+import { readerBusyTimeoutMs } from './sqlite-readers.mjs'
 
 const staticTopologySchemaVersion = 'vigo.routing.static-topology.v4'
 const staticTopologyMinimumFreeBytes = 2 * 1024 * 1024 * 1024
@@ -397,7 +398,7 @@ export async function mergeNationalGtfsStores({ stores, outputPath, onProgress, 
 }
 
 function inspectNationalStaticTopology(storePath) {
-  const db = new DatabaseSync(storePath, { readOnly: true })
+  const db = new DatabaseSync(storePath, { readOnly: true, timeout: readerBusyTimeoutMs })
   try {
     return inspectStaticTopologyDatabase(db)
   } finally {
@@ -410,8 +411,8 @@ export function inspectNationalStaticTopologySidecar(storePath, sidecarPath = na
   if (!fs.existsSync(resolvedSidecarPath)) {
     return { ready: false, reason: 'sidecar_absent', version: staticTopologySchemaVersion, sidecarPath: resolvedSidecarPath }
   }
-  const sourceDb = new DatabaseSync(storePath, { readOnly: true })
-  const sidecarDb = new DatabaseSync(resolvedSidecarPath, { readOnly: true })
+  const sourceDb = new DatabaseSync(storePath, { readOnly: true, timeout: readerBusyTimeoutMs })
+  const sidecarDb = new DatabaseSync(resolvedSidecarPath, { readOnly: true, timeout: readerBusyTimeoutMs })
   try {
     const sourceMetadata = metadataRecord(sourceDb)
     const sourceFingerprint = staticTopologySourceFingerprint(sourceMetadata)
@@ -693,7 +694,7 @@ function openNationalStore(storePath, options = {}) {
     // per-request service activation remains writable because active_services
     // belongs to this connection's TEMP database, not to the main file.
     try {
-      db = new DatabaseSync(resolvedStorePath, { readOnly: true })
+      db = new DatabaseSync(resolvedStorePath, { readOnly: true, timeout: readerBusyTimeoutMs })
     } catch (error) {
       throw routingStoreAdmissionError(
         resolvedStorePath,
@@ -1515,7 +1516,7 @@ function prepareActiveServiceKernel(store, services, serviceKey) {
     // Count the active slice before native allocation so the byte guard can
     // reject oversized inputs without constructing the timetable.
     if (activeServiceKernelMaxSegments > 0 || activeServiceKernelMaxEstimatedBytes > 0) {
-      builder = new DatabaseSync(store.storePath, { readOnly: true })
+      builder = new DatabaseSync(store.storePath, { readOnly: true, timeout: readerBusyTimeoutMs })
       builder.exec('PRAGMA mmap_size=0; PRAGMA cache_size=-8192; PRAGMA temp_store=MEMORY; CREATE TEMP TABLE active_kernel_services(service_id TEXT PRIMARY KEY) WITHOUT ROWID;')
       const insertService = builder.prepare('INSERT INTO active_kernel_services VALUES(?)')
       runTemporaryTransaction(builder, () => { for (const serviceId of services) insertService.run(serviceId) })

@@ -31,9 +31,14 @@ assert(Number.isFinite(large[width + 1]), 'A large block still shades the land b
 assert(!Number.isFinite(large[10 * width + 10]), 'Land more than 100 m from a reached street stays empty')
 assert([...large].filter(Number.isFinite).every(value => value <= 5 + 100 / metersPerMinute + 1e-9), 'Walks stop at 100 m')
 
-assert(none(estimate(clear(clear(streets(5), [8, 11], [8, 11]), [8, 8], [0, 8]))), 'Land open to the grid edge stays empty')
-const diagonal = clear(streets(5), [8, 11], [8, 11]); for (let i = 0; i < 9; i++) diagonal[i * width + i] = Infinity
-assert(none(estimate(diagonal)), 'Diagonal gaps must remain open')
+// A dead-end street in open land: shaded beside it and past its end, not as a hairline.
+const spur = new Float64Array(width * height).fill(Infinity); for (let x = 0; x <= 9; x++) spur[10 * width + x] = 5
+const shaded = estimate(spur)
+for (const cell of [9 * width + 5, 11 * width + 5, 10 * width + 10]) {
+  assert(Math.abs(shaded[cell] - (5 + cellMeters / metersPerMinute)) < 1e-6, 'Land beside an open street is shaded from it')
+}
+assert(Number.isFinite(shaded[14 * width + 5]) && !Number.isFinite(shaded[15 * width + 5]), 'Land beyond the 100 m walk stays empty')
+assert(!Number.isFinite(shaded[10 * width + 19]) && !Number.isFinite(shaded[10 * width + 5]), 'Far land and street samples stay unshaded')
 
 for (const water of [undefined, { ...dry, metadata: { status: 'needs-import' } },
   { ...dry, metadata: { ...dry.metadata, sampled: true } }, { ...dry, metadata: { ...dry.metadata, coastlineComplete: false } }]) {
@@ -47,4 +52,4 @@ assert(!Number.isFinite(river[11 * width + 9]), 'Water cells are not shaded')
 assert(river[3 * width + 9] < 30 && river[16 * width + 9] > 30, 'Walks never cross water')
 const lake = estimate(split, { ...dry, features: [{ properties: { kind: 'water' }, geometry: { type: 'Polygon', coordinates: [[[.0012, .0012], [.0028, .0012], [.0028, .0028], [.0012, .0028], [.0012, .0012]]] } }] })
 assert(!Number.isFinite(lake[10 * width + 10]) && Number.isFinite(lake[3 * width + 3]), 'Only the water itself stays empty')
-console.log('Off-street estimates: fastest street, 100 m walks, enclosure, water per cell, missing coverage, open/diagonal gaps and unchanged raw values passed.')
+console.log('Off-street estimates: fastest street, 100 m walks, open streets, water per cell, missing coverage and unchanged raw values passed.')

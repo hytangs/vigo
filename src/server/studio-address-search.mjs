@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
 import { searchAddresses, validBounds } from './address-search.mjs'
+import { readerBusyTimeoutMs } from './sqlite-readers.mjs'
 
 // A street snapshot's coverage fits in its 4 KiB header. Read it directly:
 // a same-size rewrite can retain the old timestamps on some filesystems.
@@ -43,7 +44,7 @@ async function timetableBounds(routingPaths) {
   if (timetableCoverage.has(key)) return timetableCoverage.get(key)
   let bounds
   for (const [filename] of sources) {
-    const db = new DatabaseSync(filename, { readOnly: true })
+    const db = new DatabaseSync(filename, { readOnly: true, timeout: readerBusyTimeoutMs })
     try {
       const { west, south, east, north } = db.prepare(
         'SELECT min(lon) AS west,min(lat) AS south,max(lon) AS east,max(lat) AS north FROM stops WHERE lon BETWEEN -180 AND 180 AND lat BETWEEN -90 AND 90',

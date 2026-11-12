@@ -1130,7 +1130,7 @@ Reopen recent Route Results for the current City revision, with their request, s
 
 Choose an origin on the map, or use **Choose origin** to search imported stops by name or ID or to enter coordinates. Run Reach, then switch between **Reachable area**, **Reached streets** and cutoffs; changing the displayed cutoff reuses the Result. **Arrive by** maps where a destination can be reached from by a deadline; the clock becomes the **Deadline**.
 
-With street sampling, the map also shades land between reached streets: each enclosed cell takes its fastest nearby street plus a straight walk of up to 100 m, never across mapped water. The inspector labels these values as off-street estimates. Shading is display only; area metrics and the saved raster keep the street samples.
+With street sampling, the map also shades the land beside reached streets: each cell within a straight walk of 100 m takes its fastest nearby street plus that walk, never across mapped water, so the area narrows where time runs out and land farther from every reached street stays empty. The inspector labels these values as off-street estimates. Shading is display only; area metrics and the saved raster keep the street samples.
 
 Click a destination to see its estimate and request a journey there; with the map focused, Enter inspects its center. The journey keeps the analysis origin, date, time, timetable and limits. Planned service changes affect the scenario map but are not rebuilt in the destination journey; the panel labels the difference.
 

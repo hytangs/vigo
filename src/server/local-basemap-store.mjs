@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite'
 import { coastGeometryLimits, nearestCoastSide, oceanPolygons } from './local-basemap-geometry.mjs'
+import { readerBusyTimeoutMs } from './sqlite-readers.mjs'
 
 const schemaVersion = 'vigo.local-basemap.v1'
 export const localBasemapBudgets = Object.freeze({ features: 4_500, vertices: 80_000, coastFeatures: coastGeometryLimits.pieces, coastVertices: coastGeometryLimits.vertices, sqliteCacheKiB: 4_096 })
@@ -16,7 +17,7 @@ export function readLocalBasemap(storePath, bounds, options = {}) {
   const limit = Math.max(1, Math.min(localBasemapBudgets.features, Math.floor(Number(options.limit) || localBasemapBudgets.features)))
   if (!bounds || !['west', 'east', 'south', 'north'].every((key) => Number.isFinite(bounds[key]))
     || bounds.west >= bounds.east || bounds.south >= bounds.north) throw new TypeError('Local basemap requires finite ordered bounds.')
-  const db = new DatabaseSync(storePath, { readOnly: true })
+  const db = new DatabaseSync(storePath, { readOnly: true, timeout: readerBusyTimeoutMs })
   try {
     db.exec(`PRAGMA query_only=ON; PRAGMA cache_size=-${localBasemapBudgets.sqliteCacheKiB}; PRAGMA mmap_size=0; PRAGMA temp_store=FILE;`)
     const metadataRow = db.prepare("SELECT value FROM metadata WHERE key='localBasemap'").get()

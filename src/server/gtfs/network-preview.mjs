@@ -4,6 +4,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { haversineKm } from '../geometry-utils.mjs'
 import { routeDisplayLongName, routePreviewColor } from '../route-presentation.mjs'
+import { readerBusyTimeoutMs } from '../sqlite-readers.mjs'
 
 const nationalPreviewRouteLimit = 500
 
@@ -48,7 +49,7 @@ function routeCatalogRows(db, { sourceScope = '', routeLimit, orderByTrips = fal
 }
 
 export function readNationalGtfsRouteCatalog(storePath, options = {}) {
-  const db = new DatabaseSync(storePath, { readOnly: true })
+  const db = new DatabaseSync(storePath, { readOnly: true, timeout: readerBusyTimeoutMs })
   try {
     const routeLimit = Math.max(1, Math.min(nationalRouteCatalogLimit, Number(options.routeLimit) || nationalRouteCatalogLimit))
     const sourceScope = String(options.sourceScope || '').trim()
@@ -82,7 +83,7 @@ export function readNationalGtfsRouteCatalog(storePath, options = {}) {
 }
 
 export function readNationalGtfsPreview(storePath, options = {}) {
-  const db = new DatabaseSync(storePath, { readOnly: true })
+  const db = new DatabaseSync(storePath, { readOnly: true, timeout: readerBusyTimeoutMs })
   try {
     const metadata = Object.fromEntries(db.prepare('SELECT key, value FROM metadata').all().map((row) => [row.key, JSON.parse(row.value)]))
     const routeCount = Number(options.routeCount ?? metadata.routeCount ?? 0)

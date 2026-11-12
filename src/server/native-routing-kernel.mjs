@@ -897,9 +897,9 @@ export function nativeRasterAreas(values, width, height, bounds, cutoffs, surfac
   return JSON.parse(binding.reachBoundaryAreas(raster, width, height, bounds, cutoffs, surface, cells))
 }
 
-// Each enclosed cell between reached streets takes its fastest street plus a
-// straight walk of at most 100 m, never through mapped water. Without complete
-// water coverage nothing is shaded.
+// Each land cell within a straight walk of 100 m from a reached street takes
+// its fastest such street plus that walk, never through mapped water. Without
+// complete water coverage nothing is shaded.
 export function nativeOffStreetEstimates(values, width, height, bounds, water, walkSpeedKph) {
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width * height !== values.length || values.length > 1_048_576) {
     throw new Error('Invalid Reach raster dimensions')
