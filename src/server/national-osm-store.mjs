@@ -13,6 +13,7 @@ import {
 import { validateArrivalBuffer } from './arrival-reserve.mjs'
 import { timingMilliseconds } from './number-utils.mjs'
 import { runCityCompiler, runCityCompilerSync } from './runtime/city-compiler.mjs'
+import { readerBusyTimeoutMs } from './sqlite-readers.mjs'
 
 // Keep the published v6 layout readable. Corrected walking permissions and
 // connected platform boundaries apply to newly prepared graphs; existing
@@ -342,7 +343,7 @@ export function prepareNationalOsmNativeStore(storePath, options = {}) {
   const resolvedPath = path.resolve(storePath)
   let db
   try {
-    db = new DatabaseSync(resolvedPath, { readOnly: true })
+    db = new DatabaseSync(resolvedPath, { readOnly: true, timeout: readerBusyTimeoutMs })
     const metadata = readStreetStoreMetadata(db, resolvedPath)
     admitStreetStoreVersion(resolvedPath, metadata)
     if (metadata.storageLayout !== runtimeStreetStoreStorageLayout) {
@@ -523,7 +524,7 @@ function readStreetStoreMetadata(db, storePath) {
 
 export function readNationalOsmStoreMetadata(storePath) {
   const resolvedPath = path.resolve(storePath)
-  const database = new DatabaseSync(resolvedPath, { readOnly: true })
+  const database = new DatabaseSync(resolvedPath, { readOnly: true, timeout: readerBusyTimeoutMs })
   try {
     const metadata = readStreetStoreMetadata(database, resolvedPath)
     admitStreetStoreVersion(resolvedPath, metadata)
@@ -660,7 +661,7 @@ function openStreetStoreWithAdmission(storePath, admissionFunction, requiredLayo
   let db
   try {
     try {
-      db = new DatabaseSync(resolvedPath, { readOnly: true })
+      db = new DatabaseSync(resolvedPath, { readOnly: true, timeout: readerBusyTimeoutMs })
     } catch (error) {
       throw streetStoreAdmissionError(
         resolvedPath,

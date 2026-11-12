@@ -46,6 +46,7 @@ import { resolveServiceDay, serviceDayForDate } from './service-day.mjs'
 import { createStreetPreparationManager, prepareStreetsInWorker } from './street-preparation.mjs'
 import { allocateProjectTransportAtlasBudgets, compactTransportPreview } from './transport-atlas.mjs'
 import { bundleNetworkScope, createTransitNetworkTiles, transitNetworkCatalog } from './transit-network-tiles.mjs'
+import { readerBusyTimeoutMs } from './sqlite-readers.mjs'
 
 const defaultHost = '127.0.0.1'
 const defaultPort = 5179
@@ -497,7 +498,7 @@ async function routingStoreSourceScopes(storePath) {
   if (cached) return cached
 
   let scopes = []
-  const db = new DatabaseSync(storePath, { readOnly: true })
+  const db = new DatabaseSync(storePath, { readOnly: true, timeout: readerBusyTimeoutMs })
   try {
     const hasMetadata = db.prepare(`
       SELECT 1 AS present
@@ -3281,7 +3282,7 @@ function routingStoreCalendarDate(value) {
 }
 
 function nationalRoutingServiceCoverage(storePath) {
-  const db = new DatabaseSync(storePath, { readOnly: true })
+  const db = new DatabaseSync(storePath, { readOnly: true, timeout: readerBusyTimeoutMs })
   try {
     const tables = new Set(db.prepare(`
       SELECT name FROM sqlite_master
