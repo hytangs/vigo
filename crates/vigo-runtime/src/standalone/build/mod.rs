@@ -665,6 +665,11 @@ pub fn main(command: &str, mut argv: Vec<String>) -> i32 {
 
 /// Compile into a private sibling and publish atomically.
 fn build(options: &Options, replace: bool) -> Result<Js> {
+    // Before anything changes on disk: the new City must not depend on the
+    // tree it replaces.
+    if let Some(donor) = &options.streets_from {
+        check_street_donor(donor, &options.output)?;
+    }
     publish::recover(&options.output)?;
     if options.output.exists() && !replace {
         return fail(format!(
@@ -686,6 +691,87 @@ fn build(options: &Options, replace: bool) -> Result<Js> {
         let _ = fs::remove_dir_all(&staging);
     }
     result
+}
+
+/// `path` with its existing ancestors resolved, for a path that may not exist.
+fn canonical_target(path: &Path) -> Result<PathBuf> {
+    let mut missing = Vec::new();
+    let mut current = path.to_path_buf();
+    loop {
+        match fs::canonicalize(&current) {
+            Ok(mut resolved) => {
+                resolved.extend(missing.iter().rev());
+                return Ok(resolved);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let (Some(name), Some(parent)) = (current.file_name(), current.parent()) else {
+                    return Err(error.into());
+                };
+                missing.push(name.to_owned());
+                current = parent.to_path_buf();
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
+/// Refuse a street donor whose files the published City would lose: the City
+/// being written itself (under any alias), a donor inside or around it, a
+/// leftover sibling the build removes, or a donor whose shared street files
+/// live inside the City being replaced. Shared streets are links into the
+/// donor; once the old City is discarded they would dangle or loop.
+fn check_street_donor(donor: &Path, output: &Path) -> Result<()> {
+    let output_real = canonical_target(output)?;
+    let donor_real = fs::canonicalize(donor)
+        .map_err(|error| format!("--streets-from {}: {error}", donor.display()))?;
+    let refuse = |why: &str| -> Result<()> {
+        fail(format!(
+            "--streets-from {} {why} {}; the new City would depend on data this build replaces. Build from a donor City outside the output.",
+            donor.display(),
+            output.display()
+        ))
+    };
+    if donor_real == output_real {
+        return refuse("is the City being written to");
+    }
+    if donor_real.starts_with(&output_real) {
+        return refuse("lies inside the City being written to");
+    }
+    if output_real.starts_with(&donor_real) {
+        return refuse("contains the City being written to");
+    }
+    if let (Some(parent), Some(name)) = (output_real.parent(), output_real.file_name())
+        && donor_real.parent() == Some(parent)
+        && donor_real.file_name().is_some_and(|d| {
+            d.to_string_lossy()
+                .starts_with(&format!(".{}.vigo-", name.to_string_lossy()))
+        })
+    {
+        return refuse("is a working copy that building");
+    }
+    let streets = fs::canonicalize(donor.join("osm")).map_err(|error| {
+        format!(
+            "--streets-from {}: its streets do not resolve ({error})",
+            donor.display()
+        )
+    })?;
+    if streets.starts_with(&output_real) {
+        return refuse("shares streets stored in");
+    }
+    for entry in fs::read_dir(&streets)? {
+        let file = entry?.path();
+        let real = fs::canonicalize(&file).map_err(|error| {
+            format!(
+                "--streets-from {}: {} does not resolve ({error})",
+                donor.display(),
+                file.display()
+            )
+        })?;
+        if real.starts_with(&output_real) {
+            return refuse("shares streets stored in");
+        }
+    }
+    Ok(())
 }
 
 fn metadata_record(path: &Path) -> Result<Vec<(String, Js)>> {

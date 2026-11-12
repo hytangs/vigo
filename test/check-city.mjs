@@ -114,6 +114,61 @@ try {
   assert.equal(validateCityDirectory(output).marker, undefined)
   assert.deepEqual(leftovers(), [])
 
+  // A street donor must not be the City being replaced under any name, lie
+  // inside it, or keep its streets there: the published City would link into
+  // the copy this build discards. Refused before anything changes.
+  const tree = (directory) => {
+    const files = {}
+    const walk = (current) => {
+      for (const name of fs.readdirSync(current).sort()) {
+        const file = path.join(current, name)
+        const relative = path.relative(directory, file)
+        const stat = fs.lstatSync(file)
+        if (stat.isSymbolicLink()) files[relative] = `link:${fs.readlinkSync(file)}`
+        else if (stat.isDirectory()) walk(file)
+        else files[relative] = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
+      }
+    }
+    walk(directory)
+    return files
+  }
+  const published = tree(output)
+  const alias = path.join(root, 'alias')
+  fs.symlinkSync(output, alias, 'dir')
+  const linkedDonor = path.join(root, 'linked-donor')
+  fs.mkdirSync(linkedDonor)
+  fs.copyFileSync(path.join(output, 'network.json'), path.join(linkedDonor, 'network.json'))
+  fs.cpSync(path.join(output, 'routing'), path.join(linkedDonor, 'routing'), { recursive: true })
+  fs.symlinkSync(path.relative(linkedDonor, path.join(output, 'osm')), path.join(linkedDonor, 'osm'), 'dir')
+  for (const [donor, reason] of [
+    [output, /is the City being written to/],
+    [alias, /is the City being written to/],
+    [path.join(output, 'osm'), /lies inside the City being written to/],
+    [linkedDonor, /shares streets stored in/],
+  ]) {
+    const refused = build(`--output=${output}`, '--replace', `--streets-from=${donor}`)
+    assert.equal(refused.status, 2, refused.stderr)
+    assert.match(refused.stderr, reason)
+    assert.deepEqual(tree(output), published, `${donor} changed the City`)
+    assert.deepEqual(leftovers(), [])
+  }
+
+  // A separate donor shares its streets, and the City still answers once its
+  // previous copy is gone.
+  const shared = build(`--output=${output}`, '--replace', `--streets-from=${template}`)
+  assert.equal(shared.status, 0, shared.stderr)
+  assert.deepEqual(leftovers(), [])
+  assert(fs.realpathSync(path.join(output, 'osm')).startsWith(fs.realpathSync(template)))
+  const walked = spawnSync(standaloneBinary, ['route', '--city', output, '--request', '-'], {
+    input: JSON.stringify({ mode: 'walk', requireTransitRide: false, maxWalkKm: 5, serviceDate: '2026-07-15', time: '08:00',
+      origin: { coordinate: [-77.05, 38.9] }, destination: { coordinate: [-77.04, 38.905] } }),
+    encoding: 'utf8',
+  })
+  assert.equal(walked.status, 0, walked.stderr)
+  const route = JSON.parse(walked.stdout)
+  assert.equal(route.schema, 'vigo.route.v1')
+  assert.equal(route.status, 'ok', walked.stdout.slice(0, 400))
+
   console.log('Atomic City publication passed.')
 } finally {
   fs.rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
