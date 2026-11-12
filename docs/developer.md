@@ -558,6 +558,52 @@ the native memory budgets. Complete and fragmented native response lines share
 a 256 MiB limit. Mode preparation uses `street.prepare`, `bike.prepare`,
 `drive.prepare` or `timetable.prepare`, without retaining or replaying journeys.
 
+Each native request follows one serving contract:
+
+- **Admission.** A request already cancelled, or for a City whose files are
+  being replaced, is refused before any City is opened, evicted or started. An
+  admitted request reserves a count and an encoded-byte permit, globally and
+  for its City, and returns them however it ends. With no permit left the
+  request fails at once with HTTP 503 and `VIGO_NATIVE_OVERLOADED`, marked
+  retryable; nothing queues without bound. The
+  `VIGO_ROUTE_MAX_PENDING`/`VIGO_ROUTE_MAX_QUEUED` limits below belong to the
+  separate preparation pool, not to these requests.
+- **One deadline.** `VIGO_NATIVE_QUERY_TIMEOUT_MS` (default 600,000) is the
+  request's whole budget from admission: waiting, a process start and one
+  automatic retry all spend it. A request that expires while waiting leaves
+  the queue without stopping a process; only the request a process is
+  computing can stop that process.
+- **Dispatch.** Waiting work stays in its City's queue and goes to the first
+  ready process that is free, including one that has just started; a request
+  already written to a process is never moved. Work waiting behind busy
+  processes starts another one, up to the process limit. Point routes go
+  before Matrix and Reach analyses, which may be passed over at most four
+  times. A request waits up to `VIGO_NATIVE_AFFINITY_WAIT_MS` for a process
+  that has its travel mode loaded, then takes any idle process, which loads
+  it first.
+- **Generations.** Retiring a City's files, or switching library, refuses
+  the City's waiting work, stops its running work and starts a new
+  generation: no earlier request is retried into it or answered from it.
+  Switching library resets the native runtime and the preparation pool; both
+  keep serving the new library without a restart.
+
+| Control | Default | Supported range |
+| --- | --- | --- |
+| `VIGO_NATIVE_MAX_PENDING` | 256 requests waiting or running | 1–100,000 |
+| `VIGO_NATIVE_MAX_PENDING_BYTES` | Capacity ÷ 64, between 16 and 256 MiB | 1 MiB–4 GiB |
+| `VIGO_NATIVE_CITY_MAX_PENDING` | 128 per City | 1–100,000 |
+| `VIGO_NATIVE_CITY_MAX_PENDING_BYTES` | Half the global byte limit | 1 MiB–4 GiB |
+| `VIGO_NATIVE_RESPONSE_BUDGET_BYTES` | Capacity ÷ 8, between 256 MiB and 2 GiB | 1 MiB–16 GiB; never below one response line |
+| `VIGO_NATIVE_AFFINITY_WAIT_MS` | 500 | 1–60,000 |
+| `VIGO_NATIVE_RESTART_BUDGET` | 6 process starts per City in 30 seconds | 1–100 |
+
+The response budget counts native answers being received and decoded across
+every process. The first answer being received always finishes; others pause
+their output while the total is over budget. `GET /api/health` reports
+`nativeRuntime.admission`, `responses` and `counters` (overload refusals,
+expiries, retries, process starts and requests refused after a retirement or
+reset).
+
 The Node routing-time validator has explicit interface bounds: Studio accepts
 whole minutes from 0 through 1799, and GTFS orchestration through 2880. The
 native public request schema accepts seconds through 71:59:59. Tests retain
@@ -786,6 +832,16 @@ Set `VIGO_API_TOKEN` if the service requires authentication. The benchmark does 
 The report retains every measured call, warmup calls, request-file hash, runtime capabilities, client platform, and optional unique-file City storage. Latency includes queueing, HTTP, response transfer, and JSON parsing. Quantiles use nearest rank. Successful results, valid no-journey results, HTTP failures, overload, service unavailability, timeouts, invalid responses, and transport failures are reported separately. Errors during warmup also fail the run.
 
 For a cold-start measurement, start a fresh service and use `--warmup 0 --rounds 1`. Measure readiness separately from the first query. For sustained use, retain the same workload and increase rounds; report how much the workload repeats and whether caches are enabled. Compare equivalent inputs, constraints, output detail, hardware limits, and runtime builds.
+
+This replay is closed-loop: each client sends its next request after the previous one completes, so offered load falls when the service slows. To measure behavior at an independent arrival rate, use the open-loop companion against a privately started service:
+
+```sh
+python3 scripts/stress-http.py --url http://127.0.0.1:8080 \
+  --requests queries.ndjson --output load-20.json \
+  --rate 20 --duration 60 --max-inflight 32 --timeout 10 --slo-ms 250
+```
+
+It schedules arrivals at a fixed rate, caps its own in-flight requests and counts arrivals it could not send instead of queueing them invisibly. The report gives offered and completed arrivals, overloads, timeouts and latency from scheduled arrival. Only loopback targets are allowed unless `--allow-remote` is given, and it never overwrites a report. Raise the rate until successful arrivals within the SLO stop rising, and measure server memory and CPU separately.
 
 City storage counts each file identity once, including shared scenario directories. It is logical file size, not physical APFS clone allocation. Server memory must be measured at the service: retain process-tree RSS/PSS or cgroup memory samples at startup, first query, repeated and concurrent queries, scenario switches, and peak large-output requests. Include the full application stack when claiming a deployment budget. The benchmark client's memory is not server memory.
 
