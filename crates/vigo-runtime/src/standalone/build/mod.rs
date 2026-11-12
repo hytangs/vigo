@@ -599,7 +599,15 @@ pub fn main(command: &str, mut argv: Vec<String>) -> i32 {
         std::thread::spawn(|| {
             let mut sink = [0u8; 64];
             let mut input = std::io::stdin().lock();
-            while matches!(input.read(&mut sink), Ok(n) if n > 0) {}
+            loop {
+                match input.read(&mut sink) {
+                    Ok(n) if n > 0 => {}
+                    // A termination signal interrupts this read; the signal
+                    // watcher ends the process with that signal instead.
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                    _ => break,
+                }
+            }
             std::process::exit(1);
         });
     }

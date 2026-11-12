@@ -1,10 +1,8 @@
 name: CI
 
-# CI runs only on main and inside Release; branches and pull requests run no
-# workflows.
+# CI runs inside Release, or when started by hand; pushes and pull requests
+# run no workflows.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -14,7 +12,7 @@ on:
         default: false
 
 concurrency:
-  # A newer main commit replaces an older run; Release's call keeps its own group.
+  # A newer manual run replaces an older one; Release's call keeps its own group.
   group: ${{ github.workflow }}-ci-${{ github.event_name }}-${{ github.ref_name }}
   cancel-in-progress: true
 
