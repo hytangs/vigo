@@ -4,6 +4,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { downloadReleaseAsset } from '../../scripts/lib/github-release-asset.mjs'
+import { tarCommand } from './tar.mjs'
 const packages = {
   'darwin-arm64': [
     'aarch64-apple-darwin',
@@ -51,9 +52,8 @@ export async function published050(directory) {
     )
     const extracted = path.join(directory, 'reference')
     fs.mkdirSync(extracted)
-    // Relative paths: GNU tar on Windows reads "C:" as a remote host.
     execFileSync(
-      'tar',
+      tarCommand,
       ['-xzf', path.basename(archive), '-C', 'reference', '--strip-components=1'],
       { cwd: directory },
     )
