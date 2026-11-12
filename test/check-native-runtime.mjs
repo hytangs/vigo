@@ -312,11 +312,17 @@ try {
   }
   assert.equal((await runtime.query(boston, { id: 'after-bad-index' })).id, 'after-bad-index')
 
-  // Retiring a City's files stops its processes; their requests are not retried.
+  // Retiring a City's files (a refresh in the same library) stops its
+  // processes; the request one was computing runs once more on the next
+  // generation, in a new process.
+  const retiredOn = (await runtime.query(boston, { id: 'before-retirement' })).process
   const retiring = runtime.query(boston, { id: 'retired', delayMs: 100 })
+  await runtime.retire('/cities/boston')
+  const rerun = await retiring
+  assert.equal(rerun.id, 'retired')
+  assert.notEqual(rerun.process, retiredOn, 'The re-run used a process of the new generation')
+  assert.equal(runtime.snapshot().counters.rerunAfterRetirement, 1)
   runtime.retire('/cities/boston')
-  await assert.rejects(retiring, error => error.retryable === false)
-  assert.equal(runtime.snapshot().residentCities.some(city => city.root === boston.root), false)
 
   // Retirement is a process-exit barrier: it settles only after every
   // affected child has closed, and the City takes no new work meanwhile.
@@ -354,11 +360,16 @@ try {
     await new Promise(resolve => setTimeout(resolve, 60))
     assert.equal(renamed, false, 'Files must not be replaced before the process exits')
     assert.equal(held.length, 1, 'The stopped process has not closed yet')
-    await assert.rejects(barrier.query(wheelchair, { id: 'during-retirement' }),
-      error => error instanceof NativeCityUnavailableError && error.retryable === true && /being updated/.test(error.message))
+    // Work arriving meanwhile waits for the barrier instead of failing.
+    let duringSettled = false
+    const during = barrier.query(wheelchair, { id: 'during-retirement' }).finally(() => { duringSettled = true })
+    await new Promise(resolve => setTimeout(resolve, 30))
+    assert.equal(duringSettled, false, 'Work admitted during a retirement waits for its barrier')
+    assert.equal(barrier.snapshot().residentCities.some(city => city.root === wheelchair.root), false)
     releaseClose()
     await publishing
     assert.equal(renamed, true)
+    assert.equal((await during).id, 'during-retirement')
     assert.equal((await barrier.query(wheelchair, { id: 'after-retirement' })).id, 'after-retirement')
 
     // A process that never exits makes retirement fail loudly, not succeed.
@@ -366,6 +377,35 @@ try {
     await assert.rejects(barrier.retire(wheelchairStore), /did not exit within 400 ms/)
     releaseClose()
     assert.equal((await barrier.query(wheelchair, { id: 'after-timeout' })).id, 'after-timeout')
+
+    // A refresh in the same library is transparent to a request mid-computation:
+    // its process is stopped but has not closed, so the request waits for the
+    // barrier, then runs once more on the City's new generation.
+    const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
+    const runningOn = (await barrier.query(wheelchair, { id: 'probe-running' })).process
+    const running = barrier.query(wheelchair, { id: 'mid-request', delayMs: 200 })
+    await pause(20)
+    holding = true
+    const refreshing = barrier.retire(wheelchairStore)
+    await pause(30)
+    assert.equal(held.length, 1, 'The stopped process has not closed yet')
+    releaseClose()
+    await refreshing
+    const rerun = await running
+    assert.equal(rerun.id, 'mid-request')
+    assert.notEqual(rerun.process, runningOn, 'The request ran again on a process of the new generation')
+    // The same request when the library changes before the barrier completes
+    // is refused, and nothing reopens the City.
+    const stranded = barrier.query(wheelchair, { id: 'mid-request-reset', delayMs: 200 })
+    await pause(20)
+    holding = true
+    const refreshingAgain = barrier.retire(wheelchairStore)
+    await pause(30)
+    const resetting = barrier.reset()
+    releaseClose()
+    await assert.rejects(stranded, error => error instanceof NativeCityUnavailableError && /being updated/.test(error.message))
+    await Promise.all([refreshingAgain, resetting])
+    assert(!roots().includes(wheelchair.root), 'Work of the closed library never reopens its City')
 
     // Ownership. A file or the root of the nested City retires it alone, even
     // while the parent answers; a parent file retires the parent alone; the
@@ -465,11 +505,14 @@ try {
       releaseGate()
       await Promise.all(held)
       assert.deepEqual([pool.snapshot().admission.pending, pool.snapshot().admission.pendingBytes], [0, 0], 'Every permit returns')
-      // A held City that is retired returns its permits too.
+      // Work carried across a refresh keeps its permits; a reset refuses it
+      // and returns them.
       gateOpen = false
       const retiredWork = [pool.query(a, { id: 'r1' }), pool.query(a, { id: 'r2' })]
       await pool.retire(a.root)
-      await Promise.all(retiredWork.map(work => assert.rejects(work)))
+      assert.equal(pool.snapshot().admission.pending, 2, 'A refresh carries admitted work to the next generation')
+      await pool.reset()
+      await Promise.all(retiredWork.map(work => assert.rejects(work, /being updated/)))
       assert.equal(pool.snapshot().admission.pending, 0)
     } finally { releaseGate(); await pool.closeAll() }
   }

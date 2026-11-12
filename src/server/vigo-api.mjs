@@ -10,6 +10,7 @@ import { nativeRouteRequest, onServiceDate, studioBlockedResponse, studioRouteRe
 import { nativePreliminaryRequest, nativeReachRangeRequest, nativeSurface, plannedService, studioReachRange } from './studio-reach-ranges.mjs'
 import { nativeStoreContext } from './native-store-context.mjs'
 
+import { AsyncLocalStorage } from 'node:async_hooks'
 import crypto from 'node:crypto'
 import { constants, createReadStream, existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
@@ -55,6 +56,9 @@ const host = (process.env.VIGO_HOST || defaultHost).trim() || defaultHost
 const port = normalizePort(process.env.VIGO_PORT ?? process.env.VIGO_API_PORT, defaultPort)
 const apiTransport = String(process.env.VIGO_API_TRANSPORT ?? 'tcp').trim().toLowerCase()
 const unsafeNonLoopback = process.env.VIGO_UNSAFE_ALLOW_NON_LOOPBACK === '1'
+// Tests only: while this file exists, a Studio route waits just before it
+// reaches the native runtime, after writing `<file>.reached`.
+const testRouteBarrier = process.env.VIGO_TEST_ROUTE_BARRIER ? path.resolve(process.env.VIGO_TEST_ROUTE_BARRIER) : ''
 const staticRoot = process.env.VIGO_DIST_DIR ? path.resolve(process.env.VIGO_DIST_DIR) : ''
 const envStorageRoot = process.env.VIGO_PROJECTS_DIR ? path.resolve(process.env.VIGO_PROJECTS_DIR) : ''
 const maxJsonBodyBytes = Math.max(1e6, Math.min(64e6, Number(process.env.VIGO_MAX_JSON_BODY_BYTES) || 8e6))
@@ -166,12 +170,28 @@ async function cachedNationalRoutingServiceCoverage(storePath) {
   return coverage
 }
 
+// Each API request runs under the library that was open when it arrived, and
+// so does every job, warm-up and continuation it starts (they inherit the
+// async context). After a library switch, work begun under the previous
+// library may finish what it is doing, but it can no longer open, query or
+// prepare anything in either runtime: a City of the old library is never
+// reopened, however late that work reaches a runtime.
+const libraryScope = new AsyncLocalStorage()
+let libraryGeneration = 0
+function admitLibraryWork() {
+  const scope = libraryScope.getStore()
+  if (scope && scope.generation !== libraryGeneration) {
+    throw new NativeCityUnavailableError('The Studio library changed while this work was running.')
+  }
+}
+
 const nationalRouteWorkerPool = new NationalRouteWorkerPool(
   maxNationalRouteWorkerStores,
   new URL('./national-route-worker.mjs', import.meta.url),
+  { admit: admitLibraryWork },
 )
 // Studio's queries run in the native runtime; the worker pool prepares City artifacts.
-const nativeRuntime = new NativeRuntime()
+const nativeRuntime = new NativeRuntime({ admit: admitLibraryWork })
 
 /**
  * Release every runtime reading `file` before it is replaced or removed.
@@ -375,6 +395,11 @@ async function updateRuntimeConfig(body = {}) {
   if (requestedStorageRoot !== storageRoot) {
     // Switching library resets both runtimes: work admitted for the old
     // library is refused and cannot retry into it, and both keep serving.
+    // Work of the old library that has not reached a runtime yet is refused
+    // when it does (admitLibraryWork); this request continues in the new one.
+    libraryGeneration += 1
+    const scope = libraryScope.getStore()
+    if (scope) scope.generation = libraryGeneration
     await Promise.all([nativeRuntime.reset(), nationalRouteWorkerPool.reset()])
     nationalRoutingServiceCoverageCache.clear()
     nationalPreviewRefreshes.clear()
@@ -3144,6 +3169,10 @@ async function runNationalRoute(projectId, body, signal) {
   const context = nativeStoreContext(selection.storePath, selection.streetPath)
   const request = nativeRouteRequest(pointed, { sourceScopes: selection.sourceScopes, wheelchair: selection.wheelchair,
     scenario: planned ? await nativeRouteScenario(selection, pointed) : undefined })
+  if (testRouteBarrier && existsSync(testRouteBarrier)) {
+    await fs.writeFile(`${testRouteBarrier}.reached`, '')
+    while (existsSync(testRouteBarrier)) await new Promise(resolve => setTimeout(resolve, 10))
+  }
   let trace
   try {
     trace = await queryNativeCity(selection, request, signal)
@@ -4533,7 +4562,7 @@ const agency = createAgencyService({
 })
 
 const server = http.createServer((request, response) => {
-  route(request, response).then((handled) => {
+  libraryScope.run({ generation: libraryGeneration }, () => route(request, response)).then((handled) => {
     if (!handled) return serveStaticAsset(request, response)
   }).catch((error) => {
     if (isAbortError(error) || response.destroyed || response.writableEnded) return

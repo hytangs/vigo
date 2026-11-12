@@ -584,8 +584,10 @@ class NationalRouteWorkerClient {
 }
 
 export class NationalRouteWorkerPool {
-  constructor(maxWorkers, workerUrl) {
+  constructor(maxWorkers, workerUrl, { admit = () => {} } = {}) {
     this.workerUrl = workerUrl
+    // Throws when the caller's work may no longer start here (see NativeRuntime).
+    this.admit = admit
     this.maxWorkers = boundedInteger(maxWorkers, 2, 1, 2)
     this.closed = false
     // reset() makes every earlier dispatch stale: switching library must not
@@ -632,6 +634,11 @@ export class NationalRouteWorkerPool {
   prepareRoutingAccess(storePath, { reason = 'background-access', signal, context } = {}) {
     if (this.closed) return Promise.reject(runtimeCapacityError('The routing runtime is closed.', 'VIGO_ROUTE_CLOSED'))
     if (signal?.aborted) return Promise.reject(makeAbortError())
+    try {
+      this.admit()
+    } catch (error) {
+      return Promise.reject(error)
+    }
     this.routingAccessPrewarmStats.requested += 1
     const normalizedContext = nationalRoutingPrewarmContext(context)
     const retained = this.clients.get(storePath)?.routingAccessResultFor(normalizedContext.key)
@@ -676,6 +683,7 @@ export class NationalRouteWorkerPool {
   async dispatch(storePath, operation, request, signal, onProgress) {
     if (this.closed) throw runtimeCapacityError('The routing runtime is closed.', 'VIGO_ROUTE_CLOSED')
     if (signal?.aborted) throw makeAbortError()
+    this.admit()
     if (this.pendingDispatches >= maxPendingRequests) throw runtimeCapacityError('Too many pending routing requests. Retry shortly.')
     const epoch = this.epoch
     this.pendingDispatches += 1

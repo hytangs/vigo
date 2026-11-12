@@ -581,11 +581,16 @@ Each native request follows one serving contract:
   times. A request waits up to `VIGO_NATIVE_AFFINITY_WAIT_MS` for a process
   that has its travel mode loaded, then takes any idle process, which loads
   it first.
-- **Generations.** Retiring a City's files, or switching library, refuses
-  the City's waiting work, stops its running work and starts a new
-  generation: no earlier request is retried into it or answered from it.
-  Switching library resets the native runtime and the preparation pool; both
-  keep serving the new library without a restart.
+- **Generations.** Retiring a City's files for a refresh in the same library
+  starts a new City generation without failing admitted work: waiting
+  requests, and requests arriving meanwhile, wait for the old processes to
+  exit and then run on the new generation; a request the retirement stopped
+  mid-computation runs once more there. Each stays within its own deadline.
+  Switching library instead resets the native runtime and the preparation
+  pool: everything admitted before is refused, and work begun under the old
+  library (a request still on its way, an import, a warm-up) is refused when
+  it reaches either runtime, so it never reopens an old City. Both keep
+  serving the new library without a restart.
 
 | Control | Default | Supported range |
 | --- | --- | --- |
