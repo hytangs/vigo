@@ -818,7 +818,7 @@ function scenarioLimitations(request, hasScenarioChanges) {
   const limitations = [
     {
       code: 'interpolated_display_boundary',
-      detail: 'Map boundaries interpolate street times. Small enclosed blocks may include conservative walking estimates (at most 120 m from bordering samples, 350 m across, 0.04 km²), excluding known water. Missing or truncated water coverage disables block estimates. These are not verified interior paths or parcel boundaries. Area totals still count street-sampled cells; destination clicks run a separate journey query.',
+      detail: 'Map boundaries interpolate street times. Land within 100 m of a reached street is shaded with that street’s time plus a straight walk, excluding known water. Missing or truncated water coverage disables this shading. These are not verified interior paths or parcel boundaries. Area totals still count street-sampled cells; destination clicks run a separate journey query.',
     },
     {
       code: request.surfaceSampling === 'cell-center' ? 'coordinate_cell_centers' : 'street_network_cell_sampling',

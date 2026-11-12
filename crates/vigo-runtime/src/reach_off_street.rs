@@ -1,7 +1,9 @@
-//! Studio Reach shading between reached streets. Each cell of land enclosed by
-//! the reached network takes its fastest reached street plus a straight walk of
-//! at most 100 m, never through mapped water. Street samples stay the routing
-//! evidence; these values only fill the display between them.
+//! Studio Reach shading beside reached streets. Each land cell within a
+//! straight walk of 100 m from a reached street takes its fastest such street
+//! plus that walk, never through mapped water. Street samples stay the routing
+//! evidence; these values only shade the display around them, so a street
+//! reads as reachable land that narrows where its time runs out instead of as
+//! a hairline, and land beyond the walk stays empty.
 use serde_json::Value;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
@@ -49,9 +51,8 @@ pub(crate) fn off_street_estimates(
         return Ok(estimates);
     }
     let street: Vec<bool> = values.iter().map(|v| v.is_finite()).collect();
-    let enclosed = enclosed_cells(&street, w, h);
     let wet = water_cells(water, w, h, bounds);
-    let open = |cell: usize| !street[cell] && enclosed[cell] && !wet[cell];
+    let open = |cell: usize| !street[cell] && !wet[cell];
 
     // A label is a walk from one street: (arrival, meters walked). Arrival
     // order settles each cell's fastest street first; a later label survives
@@ -149,47 +150,6 @@ fn coverage_complete(water: &Value) -> bool {
     metadata["status"] == "ready"
         && !truthy(metadata.get("sampled"))
         && metadata.get("coastlineComplete") != Some(&Value::Bool(false))
-}
-
-/// Unsampled cells whose 8-connected region never touches the raster edge:
-/// land surrounded by reached streets. Diagonal street steps do not close it.
-fn enclosed_cells(street: &[bool], w: usize, h: usize) -> Vec<bool> {
-    let mut enclosed = vec![false; street.len()];
-    let mut seen = vec![false; street.len()];
-    let mut region = Vec::new();
-    for seed in 0..street.len() {
-        if seen[seed] || street[seed] {
-            continue;
-        }
-        seen[seed] = true;
-        region.clear();
-        region.push(seed);
-        let mut closed = true;
-        let mut head = 0;
-        while head < region.len() {
-            let cell = region[head];
-            head += 1;
-            let (x, y) = (cell % w, cell / w);
-            if x == 0 || y == 0 || x + 1 == w || y + 1 == h {
-                closed = false;
-            }
-            for ny in y.saturating_sub(1)..=(y + 1).min(h - 1) {
-                for nx in x.saturating_sub(1)..=(x + 1).min(w - 1) {
-                    let next = ny * w + nx;
-                    if !street[next] && !seen[next] {
-                        seen[next] = true;
-                        region.push(next);
-                    }
-                }
-            }
-        }
-        if closed {
-            for &cell in &region {
-                enclosed[cell] = true;
-            }
-        }
-    }
-    enclosed
 }
 
 /// Cells touched by mapped water: polygon interiors by even-odd scanlines (so
@@ -376,7 +336,7 @@ mod tests {
     }
 
     #[test]
-    fn fills_an_enclosed_block_from_its_streets() {
+    fn fills_a_block_from_its_streets() {
         let mut values = streets(5.);
         clear(&mut values, 8..=11, 8..=11);
         let before = values.clone();
@@ -431,20 +391,34 @@ mod tests {
     }
 
     #[test]
-    fn open_land_and_diagonal_gaps_stay_empty() {
-        let mut open = streets(5.);
-        clear(&mut open, 8..=11, 8..=11);
-        clear(&mut open, 8..=8, 0..=8);
-        assert!(estimate(&open, Some(&dry())).iter().all(|v| !v.is_finite()));
-        let mut diagonal = streets(5.);
-        clear(&mut diagonal, 8..=11, 8..=11);
-        for i in 0..9 {
-            diagonal[i * W + i] = INF;
+    fn shades_land_beside_a_dead_end_street() {
+        // One street along row 10 that ends at column 9, with open land around
+        // it: no block is enclosed, yet the land beside it is reachable.
+        let mut values = vec![INF; W * W];
+        for column in 0..=9 {
+            values[10 * W + column] = 5.;
         }
+        let filled = estimate(&values, Some(&dry()));
+        let meters = 0.004 / W as f64 * METERS_PER_DEGREE;
+        let walk = |cells: f64| cells * meters / 80.;
         assert!(
-            estimate(&diagonal, Some(&dry()))
-                .iter()
-                .all(|v| !v.is_finite())
+            (filled[9 * W + 5] - (5. + walk(1.))).abs() < 1e-9,
+            "beside the street"
+        );
+        assert!(
+            (filled[11 * W + 5] - (5. + walk(1.))).abs() < 1e-9,
+            "on both sides"
+        );
+        assert!(
+            (filled[10 * W + 10] - (5. + walk(1.))).abs() < 1e-9,
+            "past its end"
+        );
+        // 100 m is about 4.5 cells: land farther from every street stays empty.
+        assert!(filled[14 * W + 5].is_finite() && !filled[15 * W + 5].is_finite());
+        assert!(!filled[10 * W + 19].is_finite());
+        assert!(
+            !filled[10 * W + 5].is_finite(),
+            "street samples are never replaced"
         );
     }
 
