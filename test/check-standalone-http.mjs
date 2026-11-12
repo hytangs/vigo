@@ -207,6 +207,11 @@ try {
   {
     const local = `http://127.0.0.1:${port}`
     const holders = []
+    // A probe that wins a slot runs a query; a cold worker would make it slow.
+    const readyBy = Date.now() + 15000
+    while ((await fetch(`${local}/readyz`)).status !== 200) {
+      assert(Date.now() < readyBy, 'Worker did not become ready'); await new Promise(resolve => setTimeout(resolve, 25))
+    }
     try {
       // Uploads that never finish keep their data slots.
       for (let n = 0; n < 4; n++) {
@@ -216,12 +221,18 @@ try {
         await once(socket, 'connect')
         socket.write(prefix + 'Content-Length: 1000\r\n\r\n{')
       }
+      // A holder owns its slot once the server has parsed its headers, not
+      // when its socket connects. Until then a probe may win a slot, so the
+      // probe is a malformed body: admitted, it fails at once with 400.
       const saturatedBy = Date.now() + 3000
       while (true) {
-        const reply = await raw(prefix + `Content-Length: ${body.length}\r\n\r\n${body}`)
+        const reply = await raw(prefix + 'Content-Length: 1\r\n\r\n{')
         if (/^HTTP\/1\.1 503 /.test(reply) && reply.includes('Connection capacity reached')) break
+        assert(/^HTTP\/1\.1 400 /.test(reply), `An admitted malformed probe must fail fast: ${reply.slice(0, 200)}`)
         assert(Date.now() < saturatedBy, `Data requests must be bounded by --max-connections: ${reply.slice(0, 200)}`)
       }
+      const refused = await raw(prefix + `Content-Length: ${body.length}\r\n\r\n${body}`)
+      assert(/^HTTP\/1\.1 503 /.test(refused) && refused.includes('Connection capacity reached'), `Data requests must be bounded by --max-connections: ${refused.slice(0, 200)}`)
       assert.equal((await fetch(`${local}/healthz`)).status, 200)
       assert.equal((await fetch(`${local}/readyz`)).status, 200)
       assert.equal((await fetch(`${local}/v1/capabilities`, { headers })).status, 200)
@@ -289,10 +300,18 @@ try {
         assert(Date.now() - queuedAt < 2000, 'A disconnected queued request must be canceled'); await new Promise(resolve => setTimeout(resolve, 10))
       }
       try { process.kill(held, 0) } catch { assert.fail('Canceling a queued request must not stop the running worker') }
+      // Readiness stays true until the server notices this disconnect, and
+      // it marks itself unready before it discards the held worker. Waiting
+      // for that worker to be reaped makes the readiness check below current.
+      const releasedAt = Date.now()
       holder.destroy()
+      while (true) {
+        try { process.kill(held, 0) } catch (error) { if (error.code === 'ESRCH') break; throw error }
+        assert(Date.now() - releasedAt < 5000, 'A disconnected client must stop its held query'); await new Promise(resolve => setTimeout(resolve, 25))
+      }
       await ready()
       const afterDisconnects = await fetch(`${local}/v1/route`, { method: 'POST', headers, body })
-      assert.equal(afterDisconnects.status, 200); await afterDisconnects.arrayBuffer()
+      assert.equal(afterDisconnects.status, 200, `A ready server must route after disconnects: ${await afterDisconnects.clone().text()}`); await afterDisconnects.arrayBuffer()
       checks += 2
     }
   }
