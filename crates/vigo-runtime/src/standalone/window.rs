@@ -95,6 +95,10 @@ struct Endpoints {
 struct Plan {
     value: Value,
     source: Option<(TimetableMatrixJourney, f64)>,
+    /// The source was materialized with the expanded walking limit's
+    /// endpoint evidence (a walk-the-rest replacement); rebuilding it, for
+    /// interchanges or shared services, needs that evidence too.
+    wide: bool,
 }
 
 #[derive(Default)]
@@ -970,7 +974,7 @@ impl City {
         plans: &mut [Plan],
         tradeoffs: &mut [Plan],
         parking: &mut MatrixMaterializationCache,
-    ) -> Result<()> {
+    ) -> Result<[Candidates; 2]> {
         let wide = Options {
             walk_m: km * 1000.,
             ..*opt
@@ -1037,8 +1041,9 @@ impl City {
             }
             plan.value = value;
             plan.source = Some((shorter.clone(), *t));
+            plan.wide = true;
         }
-        Ok(())
+        Ok([wide_ends.a, wide_ends.b])
     }
 
     /// Composed journey choices for a Route; see the module documentation.
@@ -1410,12 +1415,14 @@ impl City {
                 plans.push(Plan {
                     value: retime(&w, t, None),
                     source: None,
+                    wide: false,
                 });
                 index += 1;
                 while index < samples.len() && samples[index] <= through {
                     plans.push(Plan {
                         value: retime(&w, samples[index], None),
                         source: None,
+                        wide: false,
                     });
                     index += 1;
                     walk_reuses += 1;
@@ -1427,6 +1434,7 @@ impl City {
                 plans.push(Plan {
                     value: json!({"status":"blocked","departureMinutes":t}),
                     source: None,
+                    wide: false,
                 });
                 index += 1;
                 continue;
@@ -1447,12 +1455,14 @@ impl City {
                 tradeoffs.push(Plan {
                     value: retime(&value, start, Some(catch)),
                     source: Some((alternative, t)),
+                    wide: false,
                 });
             }
             let Some(catch) = latest_catch(&value) else {
                 plans.push(Plan {
                     value,
                     source: Some((journey, t)),
+                    wide: false,
                 });
                 index += 1;
                 continue;
@@ -1465,6 +1475,7 @@ impl City {
                 plans.push(Plan {
                     value: retime(&value, samples[index], Some(catch)),
                     source: Some((journey.clone(), t)),
+                    wide: false,
                 });
                 index += 1;
                 filled += 1;
@@ -1473,6 +1484,7 @@ impl City {
                 plans.push(Plan {
                     value,
                     source: Some((journey, t)),
+                    wide: false,
                 });
                 index += 1;
             }
@@ -1509,6 +1521,7 @@ impl City {
                 direct.push(Plan {
                     value,
                     source: None,
+                    wide: false,
                 });
             }
         }
@@ -1519,13 +1532,16 @@ impl City {
         // A final ride that only shortens an over-limit walk, at the cost of
         // its wait, gives way to that walk when the wider-walk setup allows
         // it: the choice is replaced, never added.
+        // The expanded walking limit's endpoint evidence, which a walk-the-rest
+        // source needs when it is rebuilt.
+        let mut wide_access: Option<[Candidates; 2]> = None;
         if let Some(km) = q
             .get("expandedWalkKm")
             .map(|_| number(q, "expandedWalkKm", 2.4, 0.2, 5.))
             .transpose()?
             .filter(|_| self.metadata["accessibility"]["profile"] != "wheelchair-strict-v1")
         {
-            self.walk_the_rest_choices(
+            wide_access = Some(self.walk_the_rest_choices(
                 &ends,
                 &opt,
                 horizon,
@@ -1533,7 +1549,7 @@ impl City {
                 &mut plans,
                 &mut tradeoffs,
                 &mut cache,
-            )?;
+            )?);
         }
         // A sample's own journey that still detours through a turnaround is
         // left out while the window offers any other transit journey.
@@ -1569,25 +1585,33 @@ impl City {
             });
             let mut values: Vec<Value> = choices.iter().map(|p| p.value.clone()).collect();
             let window_count = values.len();
-            let mut sources: Vec<Option<(TimetableMatrixJourney, f64)>> =
-                choices.iter_mut().map(|p| p.source.take()).collect();
+            let mut sources: Vec<(Option<(TimetableMatrixJourney, f64)>, bool)> = choices
+                .iter_mut()
+                .map(|p| (p.source.take(), p.wide))
+                .collect();
             for alternative in search.alternatives {
                 let mut value = self.window_journey(&ends, &alternative, &at, &mut cache, true)?;
                 value["recommended"] = json!(false);
                 value["choiceLabel"] = json!("Another route");
                 values.push(value);
-                sources.push(Some((alternative, center)));
+                sources.push((Some((alternative, center)), false));
             }
             if window_count > 0 {
                 // The window's first choice is the primary witness.
                 values.insert(0, values[0].clone());
-                sources.insert(0, None);
+                sources.insert(0, (None, sources[0].1));
             }
             let selected = merge_services(&values, MAXIMUM_MERGED_CHOICES);
             let mut slots: Vec<Option<Plan>> = values
                 .into_iter()
                 .zip(sources)
-                .map(|(value, source)| Some(Plan { value, source }))
+                .map(|(value, (source, wide))| {
+                    Some(Plan {
+                        value,
+                        source,
+                        wide,
+                    })
+                })
                 .collect();
             if window_count > 0 {
                 // The duplicated primary and its original share one source.
@@ -1625,12 +1649,16 @@ impl City {
                     end: *t * 60. + horizon,
                     ..opt
                 };
+                let access = match (&wide_access, plan.wide) {
+                    (Some([a, b]), true) => [a, b],
+                    _ => [&ends.a, &ends.b],
+                };
                 let mut refined = self.materialize(
                     journey,
                     [&ends.origin, &ends.destination],
                     true,
                     &at,
-                    [&ends.a, &ends.b],
+                    access,
                     Some(&mut cache),
                 )?;
                 cache.unpark(&mut refined);
@@ -1651,16 +1679,21 @@ impl City {
                     end: t * 60. + horizon,
                     ..opt
                 };
+                let wide = plan.wide && wide_access.is_some();
                 if let Some(base) = base {
                     plan.value[DEFERRED_SHARED_LEGS] = json!(base + deferred.len());
-                    deferred.push((journey, at));
+                    deferred.push((journey, at, wide));
                 } else {
+                    let access = match (&wide_access, wide) {
+                        (Some([a, b]), true) => [a, b],
+                        _ => [&ends.a, &ends.b],
+                    };
                     plan.value["sharedLegAlternatives"] = self.shared_leg_alternatives(
                         &plan.value,
                         &journey,
                         [&ends.origin, &ends.destination],
                         &at,
-                        [&ends.a, &ends.b],
+                        access,
                     )?;
                 }
             }
@@ -1717,23 +1750,30 @@ impl City {
                 a,
                 b,
             } = ends;
-            let context = Rc::new(SharedLegsContext {
-                origin,
-                destination,
-                access: [a, b],
-                timetable,
-                refresh_access: false,
-            });
+            // Each deferred journey keeps the endpoint evidence it was
+            // materialized with: the ordinary limit's, or the expanded one's.
+            let context = |access: [Candidates; 2]| {
+                Rc::new(SharedLegsContext {
+                    origin: origin.clone(),
+                    destination: destination.clone(),
+                    access,
+                    timetable: timetable.clone(),
+                    refresh_access: false,
+                })
+            };
+            let ordinary = context([a, b]);
+            let wide = wide_access.map(context);
             let buffer = self.window_shared_legs.as_mut().unwrap();
-            buffer.extend(
-                deferred
-                    .into_iter()
-                    .map(|(journey, opt)| DeferredSharedLegs {
-                        journey,
-                        opt,
-                        context: context.clone(),
-                    }),
-            );
+            buffer.extend(deferred.into_iter().map(|(journey, opt, expanded)| {
+                DeferredSharedLegs {
+                    journey,
+                    opt,
+                    context: match (&wide, expanded) {
+                        (Some(wide), true) => wide.clone(),
+                        _ => ordinary.clone(),
+                    },
+                }
+            }));
         }
         Ok(output)
     }
@@ -1868,6 +1908,7 @@ mod tests {
         let pool = [early, short, worse].map(|value| Plan {
             value,
             source: None,
+            wide: false,
         });
         let chosen = select_supported(pool.into_iter().collect(), center, 5);
         let labels: Vec<_> = chosen
@@ -1898,10 +1939,12 @@ mod tests {
                 Plan {
                     value: later,
                     source: None,
+                    wide: false,
                 },
                 Plan {
                     value: exact,
                     source: None,
+                    wide: false,
                 },
             ],
             center,
@@ -1940,6 +1983,7 @@ mod tests {
                 .map(|value| Plan {
                     value,
                     source: None,
+                    wide: false,
                 })
                 .collect(),
             480.,

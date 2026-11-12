@@ -162,6 +162,8 @@ export type RoutingPlan = {
     coverage: 'single_leg_substitutions'
     windowMinutes: number
     truncated: boolean
+    /** Substitutions found but not rebuildable from the endpoint evidence. */
+    omitted?: { count: number; reason: 'access_evidence_unavailable' }
     frequency: 'active_departures' | 'not_calculated'
     frequencies?: SharedLegFrequency[]
     options: Array<{ legIndex: number; plan: RoutingPlan }>
