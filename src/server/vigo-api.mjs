@@ -2417,6 +2417,7 @@ async function startNationalGtfsImport(projectId, body) {
         // A poll can observe 'complete' now; a follow-up import must not see 409.
         releaseNationalImportProject(projectId, 'gtfs')
         await persistNationalJob(projectId, job)
+        prepareWheelchairAfterImport(projectId)
       } else if (message?.type === 'failed') {
         terminalMessageReceived = true
         Object.assign(job, { status: 'failed', phase: 'Import failed', error: message.error ?? 'Unknown import error', finishedAt: now(), updatedAt: now() })
@@ -2720,6 +2721,7 @@ async function startNationalOsmImport(projectId, body) {
       if (job.status !== 'running') releaseNationalImportProject(projectId, 'osm')
       if (message?.type === 'progress') await persistNationalJobProgress(projectId, job)
       else await persistNationalJob(projectId, job)
+      if (job.status === 'complete') prepareWheelchairAfterImport(projectId)
     } catch (error) {
       if (job.cancelRequested) return
       Object.assign(job, { status: 'failed', phase: 'Street indexing failed', error: error instanceof Error ? error.stack || error.message : String(error), finishedAt: now(), updatedAt: now() })
@@ -2800,6 +2802,30 @@ async function startWheelchairPreparation(projectId, request) {
     })
   Object.defineProperty(job, 'cancel', { value: async () => { controller.abort(); await completed; return job } })
   return job
+}
+
+// A prepared City includes wheelchair routing. Once the timetable and streets it
+// is compiled from are imported, prepare it in the background unless a current
+// profile exists or is being prepared. Opening a City without one, for example
+// after VIGO stopped during preparation, starts it once per run, so a cancelled
+// preparation waits for the next import or restart.
+const defaultWheelchairStarts = new Set()
+async function prepareDefaultWheelchair(projectId, { imported = false } = {}) {
+  const active = activeNationalProjectJob(projectId, 'wheelchair-prepare')
+  if (active || (!imported && defaultWheelchairStarts.has(projectId))) return active ?? null
+  const project = await readProjectMetadata(projectId)
+  const directory = projectMetaDir(projectId)
+  if (studioWheelchairAvailability(directory, project, {}).available) return null
+  const sources = await wheelchairBuildSources(directory, project, {}).catch(() => null)
+  if (!sources) return null
+  defaultWheelchairStarts.add(projectId)
+  return startWheelchairPreparation(projectId, { feedId: sources.feedId })
+}
+
+function prepareWheelchairAfterImport(projectId) {
+  void prepareDefaultWheelchair(projectId, { imported: true }).catch((error) => {
+    console.warn(`Unable to start wheelchair preparation for ${projectId}:`, error.message)
+  })
 }
 
 async function readNationalImportJob(projectId, jobId) {
@@ -4393,6 +4419,8 @@ async function route(request, response) {
       if (!availability.available) {
         try { await wheelchairBuildSources(directory, project, body); availability.canPrepare = true }
         catch (error) { availability.reason = error.message }
+        const job = await prepareDefaultWheelchair(projectId).catch(() => null)
+        if (job) availability.preparing = job.id
       }
       sendJson(response, 200, availability)
       return true

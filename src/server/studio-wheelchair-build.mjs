@@ -32,6 +32,11 @@ export async function wheelchairBuildSources(directory, project, request) {
 }
 
 export async function buildStudioWheelchair({ directory, sources, readProject, signal, onProgress, beforePublish = async () => {} }) {
+  // One preparation runs per City, so any staging folder left here belongs to
+  // a preparation that VIGO's exit interrupted.
+  for (const name of await fs.readdir(directory).catch(() => [])) {
+    if (name.startsWith('.wheelchair-staging-')) await fs.rm(path.join(directory, name), { recursive: true, force: true })
+  }
   const staging = await fs.mkdtemp(path.join(directory, '.wheelchair-staging-'))
   const output = path.join(staging, 'wheelchair')
   const candidates = ['../../public/vigo.mjs', '../public/vigo.mjs'].map(relative => fileURLToPath(new URL(relative, import.meta.url)))
@@ -76,6 +81,9 @@ export async function buildStudioWheelchair({ directory, sources, readProject, s
       if (moved) await fs.rename(backup, target)
       throw error
     }
-    return { feedId: sources.feedId, ...(moved ? { backup: path.basename(backup) } : {}) }
+    // The replaced profile is kept only for the swap; its sources rebuild it.
+    // Removal is best effort: Windows refuses a file that is still mapped.
+    if (moved) await fs.rm(backup, { recursive: true, force: true }).catch(() => {})
+    return { feedId: sources.feedId, ...(moved ? { replaced: true } : {}) }
   } finally { await fs.rm(staging, { recursive: true, force: true }) }
 }

@@ -965,7 +965,7 @@ Both exclude steps, escalators, inaccessible or limited nodes, raised kerbs, con
 
 ### In Studio
 
-In Route's journey settings, choose **Prepare wheelchair routing** to build a profile from the selected timetable's original GTFS ZIP and the City's original OSM PBF; progress appears in Tasks. Source fingerprints are checked, and changing either input requires preparing again. Studio supports this for single-feed, scheduled Route without via points or scenarios; use the engine for wheelchair Matrix and Reach. From a source checkout, `node scripts/attach-studio-wheelchair.mjs /path/to/Studio-City /path/to/wheelchair-city` attaches a City built with the compiler.
+Studio prepares wheelchair routing with every single-timetable City: once its GTFS ZIP and OSM PBF are imported, it builds the profile from those original files in the background, with progress in Tasks. If VIGO stops before preparation finishes, it starts again the next time the City is opened. Source fingerprints are checked, and importing a new timetable or OSM file prepares the profile again; **Prepare wheelchair routing** in Route's journey settings rebuilds it on request. While Route is open, the prepared profile stays loaded beside the ordinary City, so switching wheelchair routing on or off answers at once. Studio supports this for single-feed, scheduled Route without via points or scenarios; use the engine for wheelchair Matrix and Reach. From a source checkout, `node scripts/attach-studio-wheelchair.mjs /path/to/Studio-City /path/to/wheelchair-city` attaches a City built with the compiler.
 
 ### Limits
 

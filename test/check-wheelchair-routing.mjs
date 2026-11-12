@@ -198,19 +198,38 @@ try {
     VIGO_PROJECTS_DIR: path.join(folder, 'cities'), VIGO_CONFIG_DIR: path.join(folder, 'config'), VIGO_ROUTE_PROJECT_PREWARM: '0' } })
   try {
     fs.renameSync(path.join(studio, 'wheelchair'), path.join(studio, 'wheelchair-test-backup'))
+    // A preparation that VIGO's exit interrupted leaves its staging folder.
+    fs.mkdirSync(path.join(studio, '.wheelchair-staging-interrupted', 'wheelchair'), { recursive: true })
+    const backups = () => fs.readdirSync(studio).filter(name => name.startsWith('wheelchair-backup-')).length
+    const backupsBefore = backups()
+    const completed = async id => {
+      const deadline = Date.now() + 60000
+      let job
+      do {
+        await new Promise(resolve => setTimeout(resolve, 50))
+        job = (await api.requestJson(`/api/projects/fixture/national-gtfs-job?jobId=${id}`)).body.job
+      } while (['queued', 'running'].includes(job?.status) && Date.now() < deadline)
+      assert.equal(job?.status, 'complete', JSON.stringify(job))
+      return job
+    }
+    // Opening a City without a current profile prepares one by default.
     const preparation = await api.requestJson('/api/projects/fixture/wheelchair-availability', { method: 'POST', body: { feedId: 'feed' } })
     assert.equal(preparation.body.available, false)
     assert.equal(preparation.body.canPrepare, true)
+    assert(preparation.body.preparing, JSON.stringify(preparation.body))
     const started = await api.requestJson('/api/projects/fixture/wheelchair-prepare', { method: 'POST', body: { feedId: 'feed' } })
     assert.equal(started.status, 202, JSON.stringify(started.body))
-    const deadline = Date.now() + 60000
-    let job
-    do {
-      await new Promise(resolve => setTimeout(resolve, 50))
-      const response = await api.requestJson(`/api/projects/fixture/national-gtfs-job?jobId=${started.body.job.id}`)
-      job = response.body.job
-    } while (['queued', 'running'].includes(job?.status) && Date.now() < deadline)
-    assert.equal(job?.status, 'complete', JSON.stringify(job))
+    assert.equal(started.body.job.id, preparation.body.preparing, 'An explicit request joins the default preparation')
+    await completed(started.body.job.id)
+    assert(studioWheelchairSelection(studio, project, { wheelchair: true }))
+    assert(!fs.existsSync(path.join(studio, '.wheelchair-staging-interrupted')), 'Interrupted staging was not removed')
+    const again = await api.requestJson('/api/projects/fixture/wheelchair-availability', { method: 'POST', body: { feedId: 'feed' } })
+    assert.deepEqual(again.body, { available: true })
+    // Rebuilding over a current profile replaces it without keeping a copy.
+    const rebuilt = await api.requestJson('/api/projects/fixture/wheelchair-prepare', { method: 'POST', body: { feedId: 'feed' } })
+    assert.equal(rebuilt.status, 202, JSON.stringify(rebuilt.body))
+    assert.equal((await completed(rebuilt.body.job.id)).result.replaced, true)
+    assert.equal(backups(), backupsBefore, 'A rebuilt wheelchair profile left a backup')
     assert(studioWheelchairSelection(studio, project, { wheelchair: true }))
     for (const [feedId, available] of [['feed', true], ['unrelated', false]]) {
       const capability = await api.requestJson('/api/projects/fixture/wheelchair-availability', { method: 'POST', body: { feedId } })

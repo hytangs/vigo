@@ -1,6 +1,6 @@
 import { wheelchairSelectionKey } from './route'
 import { publicRouting } from '../app/publicRouting'
-import { startTransition, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { startTransition, useEffect, useLayoutEffect, useRef } from 'react'
 import { apiJson } from '../app/api'
 import { subscribeDesktopCommands, syncDesktopChromeState } from '../app/desktopBridge'
 import { mergeGtfsRouteAnalysis, routeHasCompleteGtfsAnalysis } from '../app/gtfsAnalysis'
@@ -454,11 +454,13 @@ function RouteRuntime() {
       route.set({ wheelchairAvailableKey: '', wheelchairPrepareKey: '', wheelchairReason: '', routingWheelchair: false })
     }
     if (!project.id || !nationalRoutingFeed || (settings.routeScenarioId && !scenario.request)) return
-    void apiJson<{ available: boolean; canPrepare?: boolean; reason?: string }>(`/api/projects/${encodeURIComponent(project.id)}/wheelchair-availability`, {
+    void apiJson<{ available: boolean; canPrepare?: boolean; reason?: string; preparing?: string }>(`/api/projects/${encodeURIComponent(project.id)}/wheelchair-availability`, {
       method: 'POST', signal: controller.signal,
       body: JSON.stringify({ ...(scenario.request ? { feedIds: scenario.request.feedIds, scenario: scenario.request.scenario } : { feedId: nationalRoutingFeed.id }),
         mode: settings.routingMode, waypoints: settings.routingWaypoints }),
     }).then(result => {
+      // The City prepares wheelchair routing by default; list the job in Tasks.
+      if (result.preparing && !preparationJobs().some(job => job.id === result.preparing)) void refreshImportedProject(project.id, false).catch(() => {})
       if (!controller.signal.aborted && wheelchairSelectionKey() === wheelchairKey) {
         route.set({ wheelchairAvailableKey: result.available ? wheelchairKey : '',
           wheelchairPrepareKey: result.canPrepare ? wheelchairKey : '', wheelchairReason: result.reason ?? '' })
@@ -553,17 +555,12 @@ function RouteRuntime() {
     }
   }, [cityRoutingActive, feedId, project.id, serviceDate, routingServiceDay, activeRouteTool, residencyMode, residencyTimePreference, settings.routingMode, settings.routingDataMode])
 
-  // Open the wheelchair City once the person selects it, then keep both
-  // profiles resident so toggling back and forth does not reopen them. An
-  // unselected profile stays closed: preparing it would double every date's
-  // activation and hold a second City in memory.
-  const [wheelchairRetainedKey, setWheelchairRetainedKey] = useState('')
+  // Keep a prepared wheelchair City open and its date's timetable active while
+  // Route is open, beside the ordinary City, so switching profiles is
+  // immediate. Studio's workers open with only the timetable, so the second
+  // City adds about half a gigabyte for a large metro.
   useEffect(() => {
-    if (settings.routingWheelchair && wheelchairReady) setWheelchairRetainedKey(wheelchairKey)
-  }, [settings.routingWheelchair, wheelchairReady, wheelchairKey])
-  const wheelchairRetained = wheelchairReady && wheelchairRetainedKey === wheelchairKey
-  useEffect(() => {
-    if (!cityRoutingActive || activeRouteTool !== 'pathfinder' || !feedId || !wheelchairRetained) return
+    if (!cityRoutingActive || activeRouteTool !== 'pathfinder' || !feedId || !wheelchairReady) return
     const leaseId = `desktop-wheelchair-${crypto.randomUUID()}`
     const endpoint = `/api/projects/${encodeURIComponent(project.id)}/routing-residency`
     const request = (resident: boolean, keepalive = false) => fetch(endpoint, {
@@ -580,7 +577,7 @@ function RouteRuntime() {
     }).catch(() => null)
     const acquisition = request(true)
     return () => { void acquisition.then(() => request(false, true)) }
-  }, [cityRoutingActive, activeRouteTool, feedId, project.id, wheelchairKey, wheelchairRetained,
+  }, [cityRoutingActive, activeRouteTool, feedId, project.id, wheelchairKey, wheelchairReady,
     serviceDate, routingServiceDay, settings.routingAllowStreetTransfers,
     settings.routingMinimumTransferBufferMinutes, settings.routingTimePreference])
 

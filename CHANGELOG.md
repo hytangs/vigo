@@ -103,7 +103,7 @@ API 1.0, City format 1 and Result schema 1 keep their meanings, and compatible p
 - Rank Studio's earliest-arrival choices by arrival time, then journey duration. Display time before leaving separately from travel time.
 - Studio turns walks between nearby stops on by default.
 - Keep keyboard focus in Studio search while moving through results, and announce an empty search outside the listbox.
-- Studio opens the wheelchair City only once wheelchair routing is selected, then keeps it ready while Route stays open. An unselected profile no longer repeats every date's preparation or holds a second City in memory.
+- Studio prepares wheelchair routing by default: once a single-timetable City's GTFS and OSM imports finish, it builds the profile in the background, and an interrupted preparation starts again when the City is next opened. While Route is open, the prepared profile stays loaded beside the ordinary City, so switching wheelchair routing on or off is immediate. A rebuild no longer keeps a copy of the replaced profile, and interrupted staging folders are removed.
 - Studio leases the wheelchair City that answers wheelchair routes, and releasing it no longer fails when that profile was rebuilt or removed.
 - Studio's routing workers open with only the timetable prepared and load walking, driving and cycling when one is first selected, as before background preparation. Each worker no longer holds the bicycle hierarchy and street networks for modes nobody has asked for. `VIGO_PREPARE` still overrides this.
 - Studio's full-day vehicle schedules start once a feed's timetable store is ready, instead of failing every route while a City is still importing and waiting for a retry. A failed load names its first error.
