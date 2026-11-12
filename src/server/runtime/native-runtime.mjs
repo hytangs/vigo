@@ -541,9 +541,19 @@ export class NativeRuntime {
     const key = value => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value)
     const resolved = key(file)
     const within = (inner, outer) => inner === outer || inner.startsWith(`${outer}${path.sep}`)
+    const roots = [...this.cities.values()].map(city => key(city.layout.root))
+    // A file inside a nested City, such as Studio's wheelchair City under its
+    // parent, belongs to that City alone: retiring it must not close the City
+    // around it while that City answers queries.
+    const nested = root => {
+      for (let directory = path.dirname(resolved); directory !== root && within(directory, root); directory = path.dirname(directory)) {
+        if (roots.includes(directory) || fs.existsSync(path.join(directory, 'network.json'))) return true
+      }
+      return false
+    }
     for (const city of [...this.cities.values()]) {
       const root = key(city.layout.root)
-      if (within(resolved, root) || within(root, resolved)) city.stop()
+      if ((within(resolved, root) && !nested(root)) || within(root, resolved)) city.stop()
     }
   }
 

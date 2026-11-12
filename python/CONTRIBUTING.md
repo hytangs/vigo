@@ -89,7 +89,7 @@ Linux wheels use the glibc 2.39 floor of their Ubuntu 24.04 builders. macOS whee
 
 The Engine release workflow builds Python wheels on Linux x64/arm64, macOS arm64 and Windows x64 using each job’s already compiled Engine. Publication requires Python unit, lint/type, documentation and source-wheel checks, plus public synthetic Route/Matrix/Reach tests against the installed bundled wheel without host Node on PATH. Missing fixture configuration fails rather than skipping live tests.
 
-Each `VIGO-Python-<engine-version>-<platform>.zip` contains a normally named wheel, installation instructions and the runtime manifest. The archive joins Engine release checksums and attestations. Python retains its independent version; bundles must match the exact Engine version and clean source commit. The repository CI runs the same Python checks on every pull request; it does not publish. These workflows do not upload to PyPI.
+Each `VIGO-Python-<engine-version>-<platform>.zip` contains a normally named wheel, installation instructions and the runtime manifest. The archive joins Engine release checksums and attestations. Python retains its independent version; bundles must match the exact Engine version and clean source commit. The repository CI runs the same Python checks on every push to `main`; it does not publish. These workflows do not upload to PyPI.
 
 ## Pull requests
 

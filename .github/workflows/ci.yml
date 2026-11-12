@@ -1,9 +1,10 @@
 name: CI
 
+# CI runs only on main and inside Release; branches and pull requests run no
+# workflows.
 on:
   push:
-    branches: [main, 'release/**']
-  pull_request:
+    branches: [main]
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -13,8 +14,8 @@ on:
         default: false
 
 concurrency:
-  # A PR must not cancel the push run for its own head commit.
-  group: ${{ github.workflow }}-ci-${{ github.event_name }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
+  # A newer main commit replaces an older run; Release's call keeps its own group.
+  group: ${{ github.workflow }}-ci-${{ github.event_name }}-${{ github.ref_name }}
   cancel-in-progress: true
 
 permissions:

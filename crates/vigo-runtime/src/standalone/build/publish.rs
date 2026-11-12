@@ -33,7 +33,26 @@ fn hostname() -> String {
         }
         String::new()
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        // The DNS host name, as os.hostname() reports it; COMPUTERNAME is the
+        // upper-case NetBIOS name and would give a different host tag.
+        let mut buffer = [0u16; 256];
+        let mut size = buffer.len() as u32;
+        // SAFETY: `size` holds the buffer's length in UTF-16 units.
+        if unsafe {
+            windows::GetComputerNameExW(
+                windows::COMPUTER_NAME_DNS_HOSTNAME,
+                buffer.as_mut_ptr(),
+                &mut size,
+            )
+        } != 0
+        {
+            return String::from_utf16_lossy(&buffer[..size as usize]);
+        }
+        std::env::var("COMPUTERNAME").unwrap_or_default()
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         std::env::var("COMPUTERNAME").unwrap_or_default()
     }
@@ -234,10 +253,45 @@ fn process_alive(pid: u32) -> bool {
         // EPERM: the process exists but belongs to another user.
         std::io::Error::last_os_error().raw_os_error() != Some(3)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        // As Node's process.kill(pid, 0): a process that cannot be opened
+        // exists only when access is denied; an opened one may have exited.
+        // SAFETY: the handle is checked before use and closed once.
+        unsafe {
+            let handle = windows::OpenProcess(windows::PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if handle.is_null() {
+                return windows::GetLastError() == windows::ERROR_ACCESS_DENIED;
+            }
+            let mut code = 0u32;
+            let read = windows::GetExitCodeProcess(handle, &mut code);
+            windows::CloseHandle(handle);
+            read == 0 || code == windows::STILL_ACTIVE
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = pid;
         true
+    }
+}
+
+#[cfg(windows)]
+#[allow(non_snake_case)]
+mod windows {
+    use std::ffi::c_void;
+    pub const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    pub const ERROR_ACCESS_DENIED: u32 = 5;
+    pub const STILL_ACTIVE: u32 = 259;
+    /// `ComputerNameDnsHostname`: the name `os.hostname()` reports.
+    pub const COMPUTER_NAME_DNS_HOSTNAME: i32 = 1;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        pub fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut c_void;
+        pub fn GetExitCodeProcess(process: *mut c_void, code: *mut u32) -> i32;
+        pub fn CloseHandle(handle: *mut c_void) -> i32;
+        pub fn GetLastError() -> u32;
+        pub fn GetComputerNameExW(kind: i32, buffer: *mut u16, size: *mut u32) -> i32;
     }
 }
 
