@@ -329,33 +329,15 @@ fn run() -> Result<()> {
         } else {
             8 * 1024 * 1024
         };
-        // Read lines on their own thread, so a stream waiting for its next
-        // request can return idle memory. One line is read ahead at most.
-        let (lines, received) = mpsc::sync_channel::<io::Result<Vec<u8>>>(1);
-        std::thread::Builder::new()
-            .name("vigo-stream-input".into())
-            .spawn(move || {
-                let mut reader = io::stdin().lock();
-                loop {
-                    let mut bytes = Vec::new();
-                    match reader
-                        .by_ref()
-                        .take(line_limit as u64 + 1)
-                        .read_until(b'\n', &mut bytes)
-                    {
-                        Ok(0) => return,
-                        Ok(_) => {
-                            if lines.send(Ok(bytes)).is_err() {
-                                return;
-                            }
-                        }
-                        Err(error) => {
-                            let _ = lines.send(Err(error));
-                            return;
-                        }
-                    }
-                }
-            })?;
+        // Requests read but not yet answered; ending input with none
+        // outstanding ends the process (see `read_requests`).
+        let outstanding = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let received = read_requests(
+            || io::stdin().lock(),
+            line_limit,
+            outstanding.clone(),
+            || std::process::exit(0),
+        )?;
         let idle = idle_release_after()?;
         let mut idle_released = false;
         let mut pending_line = None;
@@ -412,6 +394,7 @@ fn run() -> Result<()> {
                         serde_json::to_writer(&mut stdout, &result)?;
                         writeln!(stdout)?;
                         stdout.flush()?;
+                        outstanding.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
                         continue;
                     }
                     if command == "_worker" && q["kind"] == "_traffic_install" {
@@ -422,6 +405,7 @@ fn run() -> Result<()> {
                         serde_json::to_writer(&mut stdout, &result)?;
                         writeln!(stdout)?;
                         stdout.flush()?;
+                        outstanding.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
                         continue;
                     }
                     let kind = q["kind"].as_str().unwrap_or("").to_owned();
@@ -449,6 +433,7 @@ fn run() -> Result<()> {
             serde_json::to_writer(&mut stdout, &result)?;
             writeln!(stdout)?;
             stdout.flush()?;
+            outstanding.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
             crate::defer_drop(result);
         }
         // The process exits next and returns the City's memory at once.
@@ -616,4 +601,111 @@ fn apply_flags(q: &mut Value, o: &HashMap<String, String>) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// Read request lines on their own thread, so a stream waiting for its next
+/// request can return idle memory; one line is read ahead at most. Each
+/// nonblank line counts as outstanding until the caller answers it. When
+/// input ends with nothing outstanding, the parent is gone or finished, so
+/// `on_end` runs at once: a stream or server worker whose main thread is busy
+/// preparing the City never outlives its parent and keeps its files open.
+/// Requests already read are still answered before the stream ends.
+fn read_requests<R: io::BufRead>(
+    open: impl FnOnce() -> R + Send + 'static,
+    line_limit: usize,
+    outstanding: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    on_end: impl FnOnce() + Send + 'static,
+) -> io::Result<mpsc::Receiver<io::Result<Vec<u8>>>> {
+    use std::sync::atomic::Ordering;
+    let (lines, received) = mpsc::sync_channel::<io::Result<Vec<u8>>>(1);
+    std::thread::Builder::new()
+        .name("vigo-stream-input".into())
+        .spawn(move || {
+            let mut reader = open();
+            loop {
+                let mut bytes = Vec::new();
+                match reader
+                    .by_ref()
+                    .take(line_limit as u64 + 1)
+                    .read_until(b'\n', &mut bytes)
+                {
+                    Ok(0) => {
+                        if outstanding.load(Ordering::Acquire) == 0 {
+                            on_end();
+                        }
+                        return;
+                    }
+                    Ok(_) => {
+                        // Blank lines are not requests; they are never
+                        // queued, so they cannot hold this thread on a busy
+                        // stream and hide the end of input.
+                        if bytes.len() <= line_limit && bytes.iter().all(u8::is_ascii_whitespace) {
+                            continue;
+                        }
+                        outstanding.fetch_add(1, Ordering::AcqRel);
+                        if lines.send(Ok(bytes)).is_err() {
+                            return;
+                        }
+                    }
+                    Err(error) => {
+                        let _ = lines.send(Err(error));
+                        return;
+                    }
+                }
+            }
+        })?;
+    Ok(received)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_requests;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    /// Starts the input reader on `input` and reports whether it ended the
+    /// stream. Nothing reads the requests it forwards, as when the main
+    /// thread is busy preparing the City.
+    fn read(
+        input: &'static [u8],
+        outstanding: &Arc<AtomicUsize>,
+    ) -> (bool, mpsc::Receiver<std::io::Result<Vec<u8>>>) {
+        let (end, ending) = mpsc::channel();
+        let received = read_requests(
+            move || input,
+            1024,
+            outstanding.clone(),
+            move || end.send(()).unwrap(),
+        )
+        .unwrap();
+        (
+            ending.recv_timeout(Duration::from_secs(5)).is_ok(),
+            received,
+        )
+    }
+
+    #[test]
+    fn closed_input_ends_a_busy_stream_at_once() {
+        let outstanding = Arc::new(AtomicUsize::new(0));
+        let (closed, _received) = read(b"", &outstanding);
+        assert!(
+            closed,
+            "a parent closing input must end the stream while it prepares"
+        );
+        let (closed, _received) = read(b"\n  \n", &outstanding);
+        assert!(closed, "blank lines are not requests");
+    }
+
+    #[test]
+    fn requests_read_before_input_closes_are_answered_first() {
+        let outstanding = Arc::new(AtomicUsize::new(0));
+        let (closed, received) = read(b"{\"kind\":\"route\"}\n", &outstanding);
+        assert!(!closed, "an unanswered request keeps the stream open");
+        assert_eq!(outstanding.load(Ordering::Acquire), 1);
+        assert_eq!(received.recv().unwrap().unwrap(), b"{\"kind\":\"route\"}\n");
+        // The main loop then answers, and ends when input is closed.
+        assert!(received.recv().is_err());
+    }
 }
