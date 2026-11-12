@@ -8,6 +8,18 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 static TARGET: Mutex<Option<PathBuf>> = Mutex::new(None);
+static INTERRUPTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// After a termination signal, let the watcher finish: it removes the
+/// unpublished City and ends the process with that signal. A compiler step
+/// that fails because its files were removed must not exit first.
+pub(crate) fn await_termination() {
+    if INTERRUPTED.load(std::sync::atomic::Ordering::SeqCst) {
+        loop {
+            std::thread::park();
+        }
+    }
+}
 
 pub(crate) struct Guard;
 impl Drop for Guard {
@@ -49,6 +61,7 @@ mod unix {
     const SIGNALS: [libc::c_int; 3] = [libc::SIGINT, libc::SIGTERM, libc::SIGHUP];
 
     extern "C" fn notify(signal: libc::c_int) {
+        super::INTERRUPTED.store(true, Ordering::SeqCst);
         let byte = signal as u8;
         // SAFETY: write(2) is async-signal-safe; the descriptor stays open.
         unsafe {
