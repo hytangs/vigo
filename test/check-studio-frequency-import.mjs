@@ -86,7 +86,10 @@ try {
         const resident = health.nativeRuntime.residentCities.map(city => city.root)
         assert(!resident.some(root => root === cityRoot || root.startsWith(`${cityRoot}${path.sep}`)),
           `The City reopened while its streets were being replaced: ${JSON.stringify(resident)}`)
-        assert.equal(health.routingRuntime.workerCount, 0, 'A preparation worker ran while the streets were being replaced')
+        // Another City's workers may run; none for this City's stores.
+        const ownStores = (await fs.readdir(routingDirectory)).filter(name => name.endsWith('.sqlite'))
+        const running = health.routingRuntime.workerStores.filter(name => ownStores.includes(name))
+        assert.deepEqual(running, [], 'A preparation worker of this City ran while its streets were being replaced')
         await new Promise(resolve => setTimeout(resolve, 10))
         reimport = (await request(`${base}/national-gtfs-job?jobId=${reimport.id}`)).job
       }

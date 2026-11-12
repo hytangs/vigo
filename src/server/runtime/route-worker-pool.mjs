@@ -818,6 +818,8 @@ export class NationalRouteWorkerPool {
       maxPendingRequests,
       maxQueuedJobs,
       workerCount: workers.length,
+      // Store file names only, never paths: which stores have a live worker.
+      workerStores: workers.map((worker) => worker.storeFile).sort(),
       residentStoreCount: this.clients.size,
       idleTimeoutMs: nationalRouteWorkerIdleMs,
       prewarmIdleTimeoutMs: nationalRoutePrewarmIdleMs,
