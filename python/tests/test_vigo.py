@@ -562,6 +562,48 @@ class VigoPythonTest(unittest.TestCase):
                 vigo.build(self.root / "unsupported-city", gtfs=gtfs, osm=osm, private_access="endpoints", runtime=city.runtime)
             self.assertFalse((self.root / "unsupported-city").exists())
 
+    @unittest.skipIf(sys.platform == "win32", "uses an executable script")
+    def test_build_runs_the_engine_shipped_with_the_runtime(self) -> None:
+        gtfs = self.root / "feed.zip"
+        osm = self.root / "region.osm.pbf"
+        gtfs.touch()
+        osm.touch()
+        engine = textwrap.dedent(f"""\
+            #!{sys.executable}
+            import json, pathlib, runpy, sys
+            here = pathlib.Path(__file__).resolve().parent
+            if sys.argv[1:] == ["capabilities"]:
+                print(json.dumps({{"schemaVersion": "vigo.standalone.capabilities.v1",
+                                  "commands": json.loads((here / "commands.json").read_text())}}))
+                raise SystemExit
+            (here / "engine-calls.json").write_text(json.dumps(sys.argv[1:]))
+            sys.argv = [str(here / "vigo.mjs"), *sys.argv[1:]]
+            runpy.run_path(sys.argv[0], run_name="__main__")
+            """)
+        for name, commands in (("current", ["build", "route"]), ("query-only", ["route"])):
+            payload = self.root / name
+            payload.mkdir()
+            (payload / "vigo.mjs").write_text(textwrap.dedent(FAKE_VIGO), encoding="utf-8")
+            (payload / "vigo").write_text(engine, encoding="utf-8")
+            (payload / "vigo").chmod(0o755)
+            (payload / "commands.json").write_text(json.dumps(commands))
+            output = self.root / f"{name}-city"
+            with vigo.build(output, gtfs=gtfs, osm=osm, street_modes="walk",
+                            prepare_dates=["2026-09-04", dt.date(2026, 9, 5)],
+                            runtime=(sys.executable, str(payload / "vigo.mjs"))):
+                self.assertEqual(json.loads((output / "network.json").read_text())["streetModes"], "walk")
+            calls = payload / "engine-calls.json"
+            if name == "current":
+                arguments = json.loads(calls.read_text())
+                self.assertEqual(arguments[0], "build")
+                self.assertIn("--street-modes=walk", arguments)
+                self.assertIn(f"--output={output.resolve()}", arguments)
+                self.assertIn("--prepare-date=2026-09-04", arguments)
+                self.assertIn("--prepare-date=2026-09-05", arguments)
+            else:
+                # An engine that cannot build (Engine 0.5) leaves building to the runtime.
+                self.assertFalse(calls.exists())
+
     def test_build_checks_inputs_and_existing_city_before_starting(self) -> None:
         gtfs = self.root / "feed.zip"
         gtfs.touch()

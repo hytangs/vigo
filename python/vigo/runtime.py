@@ -178,15 +178,20 @@ def _candidates(
 
 
 def _run(
-    command: Sequence[str], *arguments: str, timeout: float = 30.0, progress: bool = False
+    command: Sequence[str],
+    *arguments: str,
+    timeout: float = 30.0,
+    progress: bool = False,
+    environment: Mapping[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    if environment is None:
+        environment = _command_environment(command)
     try:
         if progress:
             from .progress import run_with_progress
 
             return run_with_progress(
-                [*command, *arguments], timeout=timeout,
-                environment=_command_environment(command),
+                [*command, *arguments], timeout=timeout, environment=environment,
             )
         return subprocess.run(
             [*command, *arguments],
@@ -195,7 +200,7 @@ def _run(
             encoding="utf-8",
             check=False,
             timeout=timeout,
-            env=_command_environment(command),
+            env=dict(environment),
         )
     except subprocess.TimeoutExpired as error:
         raise VigoTimeoutError(
@@ -270,6 +275,11 @@ def resolve_runtime(
 
     if isinstance(runtime, RuntimeInfo):
         return runtime
+    if isinstance(runtime, (str, os.PathLike)) and not Path(runtime).expanduser().exists():
+        raise VigoError(
+            f"No VIGO runtime at {Path(runtime).expanduser()}: pass a vigo.mjs file, a headless "
+            "runtime directory, a VIGO Studio app, or the vigo executable."
+        )
     failures: list[str] = []
     for source, command in _candidates(runtime):
         if not verify:
@@ -297,14 +307,71 @@ def resolve_runtime(
     )
 
 
+def _engine_candidates(runtime: RuntimeInfo, environment: Mapping[str, str]) -> list[Path]:
+    # The places vigo.mjs looks for the engine executable it runs.
+    configured = environment.get("VIGO_STANDALONE_PATH", "").strip()
+    if configured:
+        return [Path(configured)]
+    program = Path(runtime.command[-1])
+    if program.name != "vigo.mjs":
+        return []
+    name = "vigo.exe" if os.name == "nt" else "vigo"
+    directory = program.parent
+    return [
+        directory / name,
+        directory.parent / name,
+        directory.parent / "server" / name,
+        directory.parent / "target" / "release" / name,
+        directory.parent.parent.parent / "target" / "release" / name,
+    ]
+
+
+@lru_cache(maxsize=8)
+def _engine_builds(
+    command: tuple[str, ...],
+    identity: tuple[tuple[object, ...], ...],
+    environment: tuple[tuple[str, str], ...],
+) -> bool:
+    try:
+        response = _run(command, "capabilities", environment=dict(environment))
+        capabilities = json.loads(response.stdout) if response.returncode == 0 else None
+    except (OSError, VigoError, json.JSONDecodeError):
+        return False
+    return isinstance(capabilities, dict) and "build" in (capabilities.get("commands") or [])
+
+
+def build_command(runtime: RuntimeInfo) -> tuple[str, ...]:
+    """The command that builds Cities for ``runtime``.
+
+    A compiler runtime ships the engine executable that compiles its Cities;
+    building runs it directly. Runtimes whose engine cannot build, such as
+    Engine 0.5, build through the runtime itself.
+    """
+
+    environment = _command_environment(runtime.command)
+    for candidate in _engine_candidates(runtime, environment):
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            command = (str(candidate),)
+            frozen = tuple(sorted(environment.items()))
+            if _engine_builds(command, _command_identity(command), frozen):
+                return command
+            break
+    return runtime.command
+
+
 def run_json(
     runtime: RuntimeInfo,
     arguments: Sequence[str],
     *,
     timeout: float,
     progress: bool = False,
+    command: Sequence[str] | None = None,
 ) -> str:
-    completed = _run(runtime.command, *arguments, timeout=timeout, progress=progress)
+    """Run ``arguments`` with the runtime, or with ``command`` in the runtime's environment."""
+    completed = _run(
+        command or runtime.command, *arguments, timeout=timeout, progress=progress,
+        environment=_command_environment(runtime.command),
+    )
     if completed.returncode != 0:
         message = (
             completed.stderr.strip() or completed.stdout.strip() or "unknown error"

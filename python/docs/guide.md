@@ -63,7 +63,7 @@ For a packaged installation, download the `VIGO-Python-…` ZIP matching your OS
 python -m pip install "/path/to/vigo-1.0.0-py3-none-PLATFORM.whl[speed]"
 ```
 
-Platform wheels include Node, the headless CLI bundle, and the Rust kernel. The optional `speed` extra adds accelerated JSON decoding. Omit the extra for the dependency-free Python package; the packaged Engine is still included. Python 3.10 or newer is required.
+Platform wheels include Node, the headless CLI bundle, the Rust kernel, and the `vigo` engine executable. The optional `speed` extra adds accelerated JSON decoding. Omit the extra for the dependency-free Python package; the packaged Engine is still included. Python 3.10 or newer is required.
 
 From a source checkout, install the wrapper and select a separately built Engine:
 
@@ -90,7 +90,7 @@ with vigo.build(
     print("timetable covers", city.service_period())
 ```
 
-In a terminal or notebook, Build prints each stage and the elapsed time; a Boston build takes a few minutes. Missing input files are reported before anything starts. Build refuses to overwrite an existing City unless you pass `replace=True`.
+Build runs the engine's Rust compiler, the same one behind `vigo build` and Studio, so a City built here is identical to one built elsewhere. In a terminal or notebook it prints each stage and the elapsed time; a Boston build takes about a minute. Missing input files are reported before anything starts. Build refuses to overwrite an existing City unless you pass `replace=True`. Add `prepare_dates=["2026-10-05"]` to compile the dates you will query into the City.
 
 Build once; reopen the saved City with `vigo.open()` in later sessions. Do not call Build inside a query loop. Keep the entire directory, including its timetable and street files. If a prepared City predates the supported format, rebuild it from its original inputs into a new directory.
 
@@ -625,7 +625,7 @@ The input is a saved `result.export("result.json")` file. The script writes `jou
 
 | Install | Engine requirement | Use it for |
 | --- | --- | --- |
-| Platform wheel with bundled runtime | Included Node, headless bundle, and native kernel | A self-contained Python environment |
+| Platform wheel with bundled runtime | Included Node, headless bundle, native kernel, and engine executable | A self-contained Python environment |
 | Source checkout or universal development wheel | Select a compatible external Engine | Wrapper development or an independently managed Engine |
 | Python with a complete Studio installation | Select the app or extracted distribution | Reusing the Engine shipped with Studio |
 
@@ -633,7 +633,7 @@ Python requires version 3.10 or newer. Install a local platform wheel with `pyth
 
 For a source install, run `python -m pip install -e .` from the wrapper checkout, then select a compatible runtime explicitly. An adjacent Engine checkout is not automatically selected. Maintainers can [stage and build a headless platform wheel](../CONTRIBUTING.md#build-a-headless-wheel).
 
-The wheel runs the VIGO compiler, `vigo.mjs`, as a resident process with its own private Node; routing runs in the engine's Rust kernels. It is not a direct Python/Rust extension, and Python needs no system Node or Rust.
+The wheel runs the VIGO compiler, `vigo.mjs`, as a resident process with its own private Node; routing runs in the engine's Rust executable and kernels. `vigo.build()` runs the engine executable shipped beside `vigo.mjs` directly, so building starts no Node. It is not a direct Python/Rust extension, and Python needs no system Node or Rust.
 
 ### From GTFS and OSM to the first answer
 
@@ -672,6 +672,18 @@ runtime discovery, printing, export, and closing the City. Record those costs
 separately when they belong to the intended workflow. The compiler's
 `city.details["timing"]["totalMs"]` ends before final publication and is not the
 complete elapsed time of `vigo.build()`. Its component stages can overlap.
+
+### Scenario collections
+
+A scenario collection is several Cities that share one street network, built by the engine with `vigo build-scenarios --spec spec.json --output ./collection` ([collection format](https://github.com/hytangs/vigo/blob/main/docs/guides/rust-standalone.md#scenario-collections)). Python opens one member at a time:
+
+```python
+with vigo.open("./collection/cities/proposal") as city:
+    result = city.route([-71.11902, 42.37334], [-71.05524, 42.35227],
+                        depart_at="08:00", service_date="2026-10-05")
+```
+
+Opening the collection directory itself raises `VigoError` naming its member Cities. For query-time service changes without a rebuild, use [`city.scenario()`](#scenario).
 
 ### Build progress
 
@@ -745,7 +757,7 @@ with vigo.open("./boston", runtime=runtime) as city:
 
 Selecting a source `vigo.mjs` file uses system Node. Build its compatible native kernel and CLI together; the [maintainer build steps](../CONTRIBUTING.md#build-a-headless-wheel) show the required Engine commands.
 
-Platform wheels include a private Node 24.18.0 executable, `vigo.mjs`, the native kernel, license notices, and a checksum manifest. Supported build targets are macOS 14+ ARM64/x64, Linux ARM64/x64 with glibc 2.39+ (Ubuntu 24.04 builders), and Windows x64. A wheel must match the target OS and CPU. Source installs and universal development wheels need an external runtime. No import-time or query-time downloads occur.
+Platform wheels include a private Node 24.18.0 executable, `vigo.mjs`, the native kernel, the `vigo` engine executable, license notices, and a checksum manifest. Supported build targets are macOS 14+ ARM64/x64, Linux ARM64/x64 with glibc 2.39+ (Ubuntu 24.04 builders), and Windows x64. A wheel must match the target OS and CPU. Source installs and universal development wheels need an external runtime. No import-time or query-time downloads occur.
 
 A headless runtime directory can also be passed to `runtime=`. Keep its files together. To use Studio as the runtime, select a complete macOS `.app`, extracted Studio distribution, or packaged executable with its `resources` directory. Bundled/headless child processes inherit only OS paths and locale settings; provider secrets, Node injection options, and foreign kernel overrides are excluded. Explicit external commands retain the caller's environment.
 
