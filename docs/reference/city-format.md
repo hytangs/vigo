@@ -1,4 +1,8 @@
-# V1 prepared-data compatibility
+# Prepared-data contract
+
+A City written by one VIGO release stays readable by later releases, and every standard City stays readable by the published reference runtime. This page is that promise: the compatibility policy, the release gate that enforces it, and the optional extensions a City may carry. Maintainers must follow it for any change to a reader, a writer or prepared data.
+
+## Compatibility policy
 
 The published reference runtime at source `c8da84fff7812d570fd5985cbcbcb83885587bf6`
 is the permanent prepared-data baseline. Future VIGO readers must continue to
@@ -47,7 +51,21 @@ are still needed before claiming comprehensive format coverage.
 The policy is permanent; the tests are evidence for the cases they execute,
 not a proof that all future code or every possible City is compatible.
 
-## Optional bicycle profile
+## Optional extensions
+
+Each extension below is optional: readers that predate it ignore it, and Cities without it keep working without a rebuild. A present but malformed extension fails admission; an absent one keeps the conservative baseline behavior.
+
+| Extension | Identified by | Used for |
+| --- | --- | --- |
+| [Bicycle profile](#bicycle-profile) | `bikeProfileVersion=1` | Bike Route, Matrix and Reach |
+| [Bicycle turn windows](#bicycle-turn-windows) | `bikeTurnWindowVersion=1` | Time-dependent turn restrictions |
+| [Bicycle timed edges](#bicycle-timed-edges) | `bikeEdgeWindowVersion=1` | Time-dependent road access |
+| [Bicycle traffic stress](#bicycle-traffic-stress) | `bikeStressVersion=1` | `bike.maxLts` |
+| [Bicycle walking access](#bicycle-walking-access) | `bikeWalkAccess` | Walking to and from the bicycle network |
+| [Street names](#add-street-names-to-an-existing-city) | `place_streets`, `place_areas` tables | Names for map points |
+| [Scenario street bases](#scenario-street-bases-and-endpoint-overlays) | `streets/<osm-sha256>/` | Shared streets in scenario collections |
+
+### Bicycle profile
 
 VIGO writers can add `bikeProfileVersion=1` metadata and four base tables to
 `street-index.sqlite`. They do not change the walking/driving snapshots,
@@ -75,6 +93,8 @@ conditional prohibitions apply all day. Optional metadata counts unsupported rel
 shapes and conditional restrictions. The reference-reader gate also opens a
 new City containing these bicycle tables.
 
+### Bicycle turn windows
+
 An optional `bike_turn_windows` table is identified by
 `bikeTurnWindowVersion=1`. Its columns are `turn_table` (0 for `bike_turns`, 1 for
 `bike_way_turns`), `turn_row` (the referenced table's SQLite rowid),
@@ -92,6 +112,8 @@ node-turn and via-way windows for dated depart-at requests with a known City
 timezone. Both share one interned schedule pool. No-turn via-way restrictions
 are checked at the final movement; only-turn restrictions constrain each
 movement while the mapped sequence is being followed.
+
+### Bicycle timed edges
 
 Optional `bike_timed_edges` and `bike_edge_windows` tables are identified by
 `bikeEdgeWindowVersion=1`. Timed edges have the same five columns and units as
@@ -111,7 +133,41 @@ The runtime shares one graph across all bicycle preferences and keeps the window
 lookup sparse. Internal timed-edge and incoming-turn flags reuse reserved bits
 in memory only; they are never persisted in `attributes`.
 
-## Add street names to an existing City
+### Bicycle traffic stress
+
+`bikeStressVersion=1` adds an optional `stress INTEGER NOT NULL` column to
+`bike_edges` and, when present, `bike_timed_edges`. Bits 0–2 contain an estimated
+LTS integer 1–4; bit 3 permits walking while pushing the bicycle. All other bits
+must be zero. Walking permission includes both incident nodes and the direction
+of the way. The `attributes` word, table identities and existing units do not
+change. Older readers may ignore this column. New readers require both the
+version and valid values before accepting a traffic-stress limit; old Cities
+without it retain ordinary bicycle routing. The writer removes temporary
+intersection data before sealing the City. Custom LTS and signal-aware
+intersection adjustment are compiled into the column, not inferred at runtime.
+
+### Bicycle walking access
+
+`bikeWalkAccess` is a JSON metadata value with `version: 1`, the adjacent
+`snapshotSuffix` (`.street-accelerator-v7.bin`), and the pedestrian snapshot's
+`identity`, `nodeCount` and `edgeCount`. It identifies the optional table
+`bike_walk_nodes(bike_node INTEGER PRIMARY KEY, walk_node INTEGER NOT NULL)`.
+`bike_node` is the original OSM node ID in `bike_nodes`; `walk_node` is the
+zero-based vertex index in that exact spatially ordered pedestrian snapshot.
+The join is built from source IDs, not coordinate equality, before source-table
+compaction. Walking indexes must be unique, in range, and coordinate-consistent
+with their bicycle node. A present malformed or mismatched index fails admission.
+
+These links enable bounded access/egress walks on the prepared public pedestrian
+graph. The runtime shares its existing immutable snapshot; it retains only the
+node join and query-local walking scratch. Network walks count toward the walking
+and total-distance limits and supply mapped geometry. Ordinary coordinate snaps
+remain unverified and use the existing 80 m pedestrian snap ceiling. A nearer
+pedestrian attachment cannot be skipped to snap to an unrelated bicycle road.
+Older readers ignore this index; absent metadata preserves legacy bicycle
+coordinate attachment. Rebuilding from OSM creates the index for older Cities.
+
+### Add street names to an existing City
 
 Older Cities may lack the optional `place_streets` and `place_areas` tables.
 Coordinate labels then fall back to nearby transit stops or “Dropped pin”.
@@ -136,7 +192,7 @@ build containing coordinate-search naming: quit an older running Studio before
 opening the updated application, because its single-instance lock otherwise
 keeps the older process active.
 
-## Scenario street bases and endpoint overlays
+### Scenario street bases and endpoint overlays
 
 Scenario collections built from the same OSM bytes and preparation profile keep
 one immutable base under `streets/<osm-sha256>/`. Public-only Cities retain the
@@ -161,37 +217,3 @@ endpoint overlay. Overlay heap usage is charged per City, separately from the
 shared base. `check-scenario-endpoint-access.mjs` compares distinct-boundary
 scenarios with separately built Cities, including resident switching, eviction,
 relocation and optional published-reader checks.
-
-### Optional bicycle traffic stress
-
-`bikeStressVersion=1` adds an optional `stress INTEGER NOT NULL` column to
-`bike_edges` and, when present, `bike_timed_edges`. Bits 0–2 contain an estimated
-LTS integer 1–4; bit 3 permits walking while pushing the bicycle. All other bits
-must be zero. Walking permission includes both incident nodes and the direction
-of the way. The `attributes` word, table identities and existing units do not
-change. Older readers may ignore this column. New readers require both the
-version and valid values before accepting a traffic-stress limit; old Cities
-without it retain ordinary bicycle routing. The writer removes temporary
-intersection data before sealing the City. Custom LTS and signal-aware
-intersection adjustment are compiled into the column, not inferred at runtime.
-
-### Optional bicycle walking access
-
-`bikeWalkAccess` is a JSON metadata value with `version: 1`, the adjacent
-`snapshotSuffix` (`.street-accelerator-v7.bin`), and the pedestrian snapshot's
-`identity`, `nodeCount` and `edgeCount`. It identifies the optional table
-`bike_walk_nodes(bike_node INTEGER PRIMARY KEY, walk_node INTEGER NOT NULL)`.
-`bike_node` is the original OSM node ID in `bike_nodes`; `walk_node` is the
-zero-based vertex index in that exact spatially ordered pedestrian snapshot.
-The join is built from source IDs, not coordinate equality, before source-table
-compaction. Walking indexes must be unique, in range, and coordinate-consistent
-with their bicycle node. A present malformed or mismatched index fails admission.
-
-These links enable bounded access/egress walks on the prepared public pedestrian
-graph. The runtime shares its existing immutable snapshot; it retains only the
-node join and query-local walking scratch. Network walks count toward the walking
-and total-distance limits and supply mapped geometry. Ordinary coordinate snaps
-remain unverified and use the existing 80 m pedestrian snap ceiling. A nearer
-pedestrian attachment cannot be skipped to snap to an unrelated bicycle road.
-Older readers ignore this index; absent metadata preserves legacy bicycle
-coordinate attachment. Rebuilding from OSM creates the index for older Cities.

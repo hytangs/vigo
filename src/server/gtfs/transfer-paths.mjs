@@ -49,15 +49,3 @@ export function* serviceTransferRows(store) {
   }
   for (const [from, edges] of store.transferShortcuts ?? []) if (!store.transfers.has(from)) yield [from, edges]
 }
-
-export function expandTransferSteps(store, chain) {
-  return chain.flatMap(step => {
-    if (step.kind !== 'transfer') return [step]
-    const shortcut = store.transferShortcuts?.get(step.fromStopId)?.find(e => e.to_stop_id === step.toStopId
-      && e.min_transfer_time === step.duration)
-    if (!shortcut) return [step]
-    let arrival = step.arrival - step.duration
-    return shortcut.steps.map(edge => ({ ...step, fromStopId: edge.from_stop_id, toStopId: edge.to_stop_id,
-      duration: edge.min_transfer_time, arrival: arrival += edge.min_transfer_time }))
-  })
-}

@@ -1,6 +1,6 @@
-use super::{
-    ReciprocalEdgeSnap, Snap, SnapWorkspace, snaps_for_coordinate, street_attachment_with_workspace,
-};
+#[cfg(feature = "standalone")]
+use super::snaps_for_coordinate;
+use super::{ReciprocalEdgeSnap, Snap, SnapWorkspace, street_attachment_with_workspace};
 #[cfg(not(feature = "node"))]
 use crate::standalone_types as napi;
 use crate::street_snapshot::Snapshot;
@@ -287,6 +287,7 @@ impl<'a, const ENDPOINTS: bool> StreetGraph<'a, ENDPOINTS> {
     }
 }
 
+#[cfg(feature = "standalone")]
 #[derive(Clone, Copy)]
 struct AnalysisLabel {
     node: u32,
@@ -726,12 +727,14 @@ pub(super) fn street_surface(
     )
 }
 
+#[cfg(feature = "standalone")]
 #[derive(Clone, Copy)]
 struct ConnectorTarget {
     target_index: usize,
     snap_distance_m: f64,
 }
 
+#[cfg(feature = "standalone")]
 struct PreparedConnectorTargets {
     entries_by_node: HashMap<u32, Vec<ConnectorTarget>>,
     snaps_by_target: Vec<Vec<Snap>>,
@@ -739,6 +742,7 @@ struct PreparedConnectorTargets {
     snapped_targets: u32,
 }
 
+#[cfg(feature = "standalone")]
 fn prepare_connector_targets(
     snapshot: &Snapshot,
     reciprocal_edge_flags: &[u8],
@@ -776,6 +780,7 @@ fn prepare_connector_targets(
     })
 }
 
+#[cfg(feature = "standalone")]
 struct ConnectorSeed {
     longitude: f64,
     latitude: f64,
@@ -785,6 +790,7 @@ struct ConnectorSeed {
     snaps: Vec<Snap>,
 }
 
+#[cfg(feature = "standalone")]
 struct ConnectorSearchResult {
     durations_minutes: Vec<f64>,
     walk_distances_m: Vec<f64>,
@@ -792,6 +798,7 @@ struct ConnectorSearchResult {
     diagnostics: SearchDiagnostics,
 }
 
+#[cfg(feature = "standalone")]
 fn push_connector_label(
     frontier: &mut HashMap<u32, Vec<usize>>,
     labels: &mut Vec<AnalysisLabel>,
@@ -836,6 +843,7 @@ fn push_connector_label(
     true
 }
 
+#[cfg(feature = "standalone")]
 fn better_connector_arrival(
     duration_minutes: f64,
     walk_distance_m: f64,
@@ -857,6 +865,7 @@ fn better_connector_arrival(
         && (previous_seed_index < 0 || seed_index < previous_seed_index as u32)
 }
 
+#[cfg(feature = "standalone")]
 fn update_connector_target(
     result: &mut ConnectorSearchResult,
     target_index: usize,
@@ -882,6 +891,7 @@ fn update_connector_target(
     result.seed_indices[target_index] = seed_index as i32;
 }
 
+#[cfg(feature = "standalone")]
 fn run_connector_search(
     graph: &StreetGraph<'_>,
     seeds: &[ConnectorSeed],
@@ -986,6 +996,7 @@ fn run_connector_search(
     result
 }
 
+#[cfg(feature = "standalone")]
 pub(super) fn validate_timed_connector_input(
     input: &TimedConnectorInput,
 ) -> napi::Result<(usize, usize)> {
@@ -1020,6 +1031,7 @@ pub(super) fn validate_timed_connector_input(
     Ok((seed_count, target_count))
 }
 
+#[cfg(feature = "standalone")]
 pub(super) fn timed_connectors(
     snapshot: &Snapshot,
     reciprocal_edge_flags: &[u8],

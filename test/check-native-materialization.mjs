@@ -1,7 +1,24 @@
 import assert from 'node:assert/strict'
-import { createNativeShapeGeometry, alignNativeShapeStops, nativeShapeLegPolyline, nativeStopSequencePolyline } from '../src/server/native-routing-kernel.mjs'
-import { stableKeySuffix, stablePlanId } from '../src/server/routing-plan-identity.mjs'
+import { createRequire } from 'node:module'
+import { stableKeySuffix } from '../src/server/routing-plan-identity.mjs'
 import { alignPreparedShapeStopIndices, shapeDistancePrefix } from './helpers/shape-alignment-reference.mjs'
+
+// The Rust route materialization (ShapeGeometry), called
+// through the routing kernel binding with its flat coordinate layout.
+const binding = createRequire(import.meta.url)('../crates/vigo-runtime/vigo-routing-kernel.node')
+const pack = (coordinates) => Float64Array.from(coordinates.flatMap(([x, y]) => [x, y]))
+const unpack = (line) => ({
+  coordinates: Array.from({ length: line.coordinates.length / 2 }, (_, i) => [line.coordinates[2 * i], line.coordinates[2 * i + 1]]),
+  distanceKm: line.distanceM == null ? null : line.distanceM / 1000,
+})
+const endpoint = (point) => (Array.isArray(point) ? Float64Array.from(point) : null)
+const createNativeShapeGeometry = (coordinates) => new binding.ShapeGeometry(pack(coordinates))
+const alignNativeShapeStops = (shape, coordinates) => {
+  const indices = shape.alignStops(pack(coordinates))
+  return indices.length ? indices : null
+}
+const nativeShapeLegPolyline = (shape, start, end, from = null, to = null) =>
+  unpack(shape.legPolyline(start, end, endpoint(from), endpoint(to)))
 
 function referenceHash(value) {
   let state = 0xcbf29ce484222325n
@@ -18,7 +35,6 @@ for (let index = 0; index < 1000; index += 1) {
   identifiers.push(String.fromCharCode(...Array.from({ length: index % 128 }, () => Math.floor(random() * 65536))))
 }
 for (const value of identifiers) assert.equal(stableKeySuffix(value), referenceHash(value), JSON.stringify(value))
-assert.equal(stablePlanId('plan', { value: 1, nativeStreetQueryMs: 12 }), stablePlanId('plan', { value: 1, nativeStreetQueryMs: 99 }))
 
 let alignments = 0
 function parity(shape, stops) {
@@ -103,11 +119,6 @@ for (const shape of clippingShapes) {
     }
   }
 }
-assert.throws(() => nativeShapeLegPolyline(createNativeShapeGeometry([[0, 0], [1, 1]]), 1, 0), /bounds/)
-assert.throws(() => nativeShapeLegPolyline(createNativeShapeGeometry([[0, 0], [1, 1]]), 0, 2), /bounds/)
-// Without an aligned shape, stops form the line; an unknown stop leaves no distance.
-assert.deepEqual(nativeStopSequencePolyline([[0, 0], [0, 0], [0.001, 0]]).coordinates, [[0, 0], [0.001, 0]])
-assert(Math.abs(nativeStopSequencePolyline([[0, 0], [0.001, 0]]).distanceKm - haversineKm([0, 0], [0.001, 0])) < 1e-12)
 assert.throws(() => createNativeShapeGeometry([[NaN, 0], [0, 0]]), /finite/)
 assert.throws(() => alignNativeShapeStops(createNativeShapeGeometry([[0, 0], [1, 1]]), [[Infinity, 0], [1, 1]]), /finite/)
 const cached = createNativeShapeGeometry([[0, 0], [0.001, 0]])

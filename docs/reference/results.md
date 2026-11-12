@@ -1,80 +1,184 @@
 # Public results
 
+The engine, the compiler, the resident stream and the HTTP API return one public Result format. This page explains how to read it. The [API schema](api-schema.md#result-schemas) lists every field with its type, generated from the engine's result types.
+
 ## Version policy
 
-Public `v1` schemas preserve required fields, their types, units, and meanings. Removing or renaming a field, changing its units, or changing a status meaning requires a new schema version. Additional optional fields may be introduced; clients should ignore unknown fields. `trace`, native kernel structures, and Studio's internal worker messages are outside this stability policy. Result schema versions are independent of prepared City formats.
+Each Result names its `schema`: `vigo.route.v1`, `vigo.matrix.v1`, `vigo.reach.v1`, `vigo.compare.v1`, `vigo.distribution.v1` or `vigo.error.v1`. Within a `v1` schema, required fields keep their names, types, units and meanings; new optional fields may appear. Removing or renaming a field, changing a unit, or changing a status meaning requires a new schema version. Clients should ignore fields they do not know.
 
-V1 uses the public result schemas; there is no legacy-envelope adapter. See [upgrading](../guide.md#upgrade-and-rollback) for the City rebuild and rollback procedure.
+`trace`, native operations and Studio's internal messages are outside this policy. Result schema versions are independent of the [City format](city-format.md) and of the executable version, which `meta.engineVersion` reports.
 
-## Reading a result
+## Read a Result
 
-The CLI, resident stream, and HTTP services use one public result contract. Read `status` first: `ok` contains the result, `not_found` means no journey satisfies this request, and `error` means the request failed. A valid no-journey response exits 0 and uses HTTP 200.
+Read `status` first:
 
-Route returns `schema: "vigo.route.v1"`, `query`, `journey`, and `meta`. Matrix and Reach use `vigo.matrix.v1` and `vigo.reach.v1`. The schema version and `meta.engineVersion` are separate identities.
+| `status` | Meaning | Exit code / HTTP |
+| --- | --- | --- |
+| `ok` | The query completed with an answer | 0 / 200 |
+| `not_found` | A valid outcome: nothing satisfies the request (Route) | 0 / 200 |
+| `error` | The request was invalid or failed; see `error` | 2 / 4xx or 5xx |
 
-Interactive Route commands show a short itinerary. Pipes, `--output`, and `--format json` produce structured JSON; `--format text` explicitly selects the terminal view. Diagnostic details are available in JSON.
+Every Route, Matrix and Reach Result also carries:
 
-## Journey
+| Field | Meaning |
+| --- | --- |
+| `schema` | The schema name and version |
+| `mode` | `transit`, `walk`, `drive` or `bike`; for transit, the mode actually returned can be `walk` |
+| `query` | The normalized request: places in public form, `serviceDate`, `requestedTime`, `timePreference`, `dataMode` |
+| `meta` | How the Result was computed; see [Metadata and reproducibility](#metadata-and-reproducibility) |
+| `warnings` | Qualifications of the answer, each with a `code` and a `message`; absent when none |
+| `id`, `sequence` | The caller's `id`, and the line number on a stream |
+| `scenarioId` | The collection member used, when the City is a collection |
+| `accessibility` | The wheelchair profile, its street evidence and limitations, in a wheelchair City |
+| `datasetLimitations` | The City's limitations, with `includeLimitations: true` |
 
-`journey` contains `departureTime`, `arrivalTime`, `durationSeconds`, `walkingSeconds`, `waitingSeconds`, `ridingSeconds`, `boardings`, `transfers`, and `legs`. Drive journeys also have `drivingSeconds`. Clocks are local service-day `HH:MM:SS`, including hours above 23. Durations are integer seconds, rounded at the public boundary; routing retains its original precision. Waiting includes the gaps before and between legs. It is not inferred to be a reliability margin.
+In a terminal, Route prints a short itinerary. Pipes, `--output` and `--format json` produce JSON; `--format text` asks for the terminal view.
 
-Legs have `type: "walk" | "transit" | "drive"`, `from`, `to`, clocks, duration, and available distance. Transit legs identify the route and trip. Stop, route, and trip references use `{ "feed": "mbta", "id": "70067" }`; an unscoped feed is `null`. You can send an endpoint as `{ "stop": { "feed": "mbta", "id": "70067" } }`. Older string `stopId` requests remain accepted.
+## Route
 
-Route includes available GeoJSON `geometry` on each leg by default, preserving the full source coordinate precision and vertex sequence. A transit line runs from the boarding stop through the aligned shape vertices to the alighting stop, and its `distanceMeters` is the length of that line. A walk that starts or ends off the street network reports the short connection as `endpointConnector`. Send `includeGeometry: false` or use `--include-geometry=false` for a smaller response without coordinate arrays. Matrix journey geometry remains opt-in with `includeGeometry: true`. Geometry describes the modeled path, not an observed vehicle trajectory or a guarantee of surveyed station interiors. Ordered journeys have a single ordered leg list.
+`vigo.route.v1` holds one `journey`, or `null` when `status` is `not_found`.
 
-Additional journeys appear in `alternatives`, which excludes the primary journey and duplicates and is omitted when none remain. `alternativeSearch` describes how they were found. Requested [alternative journeys](../guides/rust-standalone.md#alternative-journeys) (`alternatives`, `alternativeRanking`) are available in both runtimes and report `coverage: "requested_time"`. Standalone [journey windows](../guides/rust-standalone.md#journey-windows) sample later departures or earlier arrival deadlines and report their sampling direction.
+### Journey
 
-Continuous street and station walking uses one leg, with costs retained in `components`. If any piece lacks geometry, the combined leg omits its line rather than drawing across the missing path. Waits and requested waypoints remain separate boundaries. Shared-service `legIndex` values refer to the resulting public leg list.
+| Field | Meaning |
+| --- | --- |
+| `departureTime`, `arrivalTime` | Service-day clocks, `HH:MM:SS`; hours can exceed 23 |
+| `clockDate` | The date those clocks count from; `null` for a walk or drive without a service date |
+| `durationSeconds` | Arrival minus departure |
+| `walkingSeconds`, `ridingSeconds`, `waitingSeconds` | Time walking, on vehicles, and in the gaps before and between legs |
+| `drivingSeconds`, `cyclingSeconds` | Time driving or cycling, in those modes |
+| `boardings`, `transfers` | Vehicles boarded; `transfers` is `boardings − 1` |
+| `legs` | The chronological legs |
+| `expandedWalkingLimitKm` | Present on a choice found with a wider walking limit |
 
-With `sharedLegs: true`, `journey.sharedLegAlternatives` bundles [shared-leg services](../guides/rust-standalone.md#shared-leg-services). Each option retains a full timed journey and identifies the replaced leg by `legIndex`. Coverage is bounded to one-leg substitutions; options cannot be combined. `frequencies` reports counts and observed headways from active, path-verified segment departures in an explicit window; these counts are independent of onward-transfer feasibility.
+Durations are whole seconds, rounded at the public boundary; the search keeps full precision. Waiting is the gaps between legs, not a reliability margin. An arrive-by journey can arrive before the deadline.
 
-Transit legs carry a `fare` when the City publishes GTFS Fares v1 or v2 data for the ride. Both runtimes price legs with the same engine.
+`alternatives` holds further distinct journeys, without the primary or duplicates, and is omitted when there are none. `alternativeSearch` records how they were found: requested alternatives (`coverage: "requested_time"`) or a journey window (with its sampling direction). See [alternative journeys](../guides/rust-standalone.md#alternative-journeys) and [journey windows](../guides/rust-standalone.md#journey-windows).
+
+### Legs
+
+Every leg has `type`, `from`, `to`, `departureTime`, `arrivalTime`, `durationSeconds`, an optional `distanceMeters`, optional GeoJSON `geometry`, and a `quality`.
+
+| `type` | Leg |
+| --- | --- |
+| `walk` | A continuous walk; street and station pieces are listed in `components` |
+| `transit` | One ride on one trip |
+| `drive`, `bike` | Driving or cycling |
+
+`from` and `to` are places: a `coordinate`, plus `stop` and `name` at a stop. Stops, routes, trips and services are identifiers of the form `{"feed": "mbta", "id": "70067"}`; `feed` is `null` in a single-feed City. Requests accept the same form, `{"stop": {"feed": "mbta", "id": "70067"}}`, or the plain `{"stopId": "70067"}`.
+
+A transit leg adds `route` (with `id`, `shortName`, `longName`, `type` and `color`), `trip`, `service`, `serviceDate`, `headsign`, `tripShortName`, `directionId` and `intermediateStops` with their times. It can also carry:
+
+- `fare`: the published fare for a new boarding (`status: "published"`, with the fare `standard`, `options` and `source`), or why there is none (`status: "unavailable"`, with a `code` such as `missing_catalog` or `no_rule`, and a `reason`). See [Published fares](../guide.md#published-fares-on-itineraries).
+- `alerts`: Service Alerts active during the ride, from a realtime snapshot.
+- `continuation`: `{"type": "stay_aboard", "durationSeconds": 300}` when an explicit GTFS link keeps the rider aboard from the previous leg. That time is riding, not waiting.
+- `quality.flex`: the assumptions and booking rules of a GTFS Flex ride.
+
+Geometry is included by default for Route (`includeGeometry: false` omits it) and is opt-in for Matrix journeys. A transit line runs from the boarding stop along the aligned GTFS shape to the alighting stop, and its `distanceMeters` is that line's length. Geometry is the modeled path, not a vehicle trace or a surveyed station interior. If any piece of a walk lacks geometry, the leg omits its line rather than drawing across the gap.
+
+`journey.sharedLegAlternatives` appears with `sharedLegs: true`; its options and frequencies are described in [shared-leg services](../guides/rust-standalone.md#shared-leg-services). Their `legIndex` values refer to this leg list.
+
+### No journey
+
+A `not_found` Route has `journey: null`, a `reason` with `code` and `message`, and an `access` report for each end that explains how far walking reached. [When no journey is found](../guide.md#when-no-journey-is-found) lists the codes. A `not_found` Result is a complete answer: keep it, and never replace it with zero.
 
 ## Keep uncertainty with the answer
 
-`quality.streetGeometry` distinguishes verified street evidence from unverified geometry. `quality.stationPath` is `source_path` or `inferred` when station access is present. A verified street segment does not certify a complete entrance-to-platform path. `components` separates street and station access costs and identifies their source types. Transit `quality.schedule: "timetable"` means modeled timetable times, not observed punctuality or a guarantee that every source timestamp was measured.
+Each leg's `quality` says what its evidence is:
 
-Route warnings describe qualifications that affect the returned journey. Dataset/model limitations live in `vigo info` (Rust), `vigo inspect` (Node), or `GET /v1/info`; send `includeLimitations: true` when needed alongside a query. No warnings does not certify complete source coverage. Unsupported GTFS semantics remain documented in [known limits](../guide.md#known-limits).
-
-## Diagnostics
-
-| Level | Added output |
+| Field | Values |
 | --- | --- |
-| `none` (default) | Journey or analysis result only |
-| `summary` | Available integer search counters and candidate counts |
-| `profile` | Summary plus measured timings in integer microseconds |
-| `trace` | Profile plus the full original internal result under `trace` |
+| Transit `quality.geometry` | `gtfs_shape` (aligned to the feed's shape), `stop_sequence` (straight lines between stops) or `unknown` |
+| Transit `quality.schedule` | `timetable` (scheduled times), `source_time_limitations` (the feed repeats times or bridges untimed stops), `realtime` (an applied prediction) or `flex_estimate` |
+| Walk `quality.geometrySource` | `osm`, `osm_and_station_path`, `gtfs_pathway`, `station_selection`, `unverified_transfer` or `unknown` |
+| Walk `quality.streetGeometry` | `verified` when the street part is a path in the prepared graph, otherwise `unverified` |
+| Walk `quality.stationPath` | `source_path` (declared pathways) or `inferred` (an assumed station link) |
+| Walk `quality.stationTime` | `estimated` when untimed stairs or gates use VIGO's estimates |
 
-Use `--diagnostics summary`, a JSON `diagnostics` field, or `?diagnostics=summary`. HTTP also accepts `?vigo_diagnostics=summary`. Conflicting body and URL settings are rejected. `trace` is an unstable research/debug ABI: internal indices, sentinels, duplicate units, and raw candidate arrays intentionally remain there. Production clients should consume the public fields.
+A verified street path does not certify a complete entrance-to-platform path, and `timetable` means scheduled, not observed, times. A walk that starts or ends off the street network reports the straight hop as `endpointConnector`, with `streetPathVerified: false`. `components` separates street and station costs and names their sources. [Walking evidence](walking-evidence.md) explains station costs.
 
-`scannedDepartures` is the engine's departure scan count; `expandedTripRuns` and `relaxedStops` are its reported expansion/relaxation counts. They are not interchangeable with network size or unique visited stops. Candidate counts count the returned endpoint candidate entries. Fields without instrumentation are omitted rather than fabricated. The Rust and Node runtimes return the same public result for the same request and City; `summary` and `profile` fields describe each runtime's own instrumentation and are not comparable across runtimes.
+No warnings does not certify complete source coverage. City-level limitations are in `vigo info` and `GET /v1/info`, or in a Result with `includeLimitations: true`; unsupported GTFS features are in [Known limits](../guide.md#known-limits).
 
-`meta.computeUs` retains the runtime's measured compute boundary, identified by `computeScope: "query_dispatch_including_materialization"`: service-date activation, search, and result materialization. It excludes public formatting, final JSON serialization, HTTP queueing, and network transit. Profile scopes can overlap and must not be summed. `Server-Timing` reports measured serialization and compute; the Rust supervisor also reports queue time. Client wall time remains a separate measurement.
+## Matrix
 
-`meta.requestId` identifies a result; caller-supplied `id` is echoed. `meta.queryFingerprint` hashes the complete request, with stop references canonicalized, the City revision and the engine version. It includes scenario content, ordered waypoints, alternative-selection settings and the identity of an admitted live snapshot. Output switches (`id`, `diagnostics`, `includeGeometry`, `includeLimitations`, `reachFormat`) are excluded. Studio uses this engine fingerprint as its `reproducibilityKey`. Equivalent requests written differently, for example `time` and `timeMinutes`, can hash differently. Supplied scenario and realtime content also get separate fingerprints; retain the original inputs for reproducibility. Realtime admission/application evidence is retained when the runtime supplies it.
+`vigo.matrix.v1` returns `durationsSeconds[origin][destination]` in request order, with the endpoints echoed in `query`. Unreachable cells are `null`, never zero, and a completed matrix can contain both.
 
-## Matrix and Reach
+- Depart-at: seconds from the shared departure to arrival.
+- Arrive-by: seconds from the latest departure to the shared deadline, including any wait after an early arrival. The nested journey shows the actual arrival.
+- `journeys[origin][destination]`: with `includeJourneys: true`, a journey or `null` per cell.
+- `distancesMeters`: for Walk, Drive and Bike, distances in the same order.
+- `access`: access reports keyed by endpoint index, when an endpoint could not reach the network.
 
-Matrix returns `durationsSeconds[origin][destination]`, with ordered endpoints in `query`. Unreachable cells are `null`, never zero. Optional `journeys` follows the same ordering. Arrive-by duration is the requested deadline minus latest departure; a nested journey can arrive earlier and have a shorter elapsed duration.
+## Reach
 
-Reach returns `surface.valuesSeconds`, grid bounds and dimensions, `cutoffsSeconds`, GeoJSON contours/areas, and `fullSurface` when available. Cell order is unchanged: row-major, northwest first. Unreachable cells remain `null`. GeoJSON cutoff properties and explicitly requested street/node evidence retain their documented unit-labelled fields; these analytical evidence formats are separate from journey durations. Raw search chains are only in trace.
+`vigo.reach.v1` returns:
 
-For a map, request `reachFormat: "map"`. The result contains `areas` and `bounds` for the full reached extent, without raster values, stop lists or duplicate contours. Its polygons equal `fullAreas` in the default `reachFormat: "full"` response. Use the full response for grid comparisons and request `includeNodes` or `includeEdges` only with that format.
+| Field | Meaning |
+| --- | --- |
+| `cutoffsSeconds` | The cutoffs, sorted |
+| `surface` | `width`, `height`, `bounds` and `valuesSeconds`, row-major from the northwest cell; `null` where unreached |
+| `fullSurface` | The same grid over the full reached extent, when it differs |
+| `areas`, `contours` | GeoJSON FeatureCollections for the requested grid; each feature names its cutoff |
+| `fullAreas`, `fullContours` | The same for the full extent |
+| `stops` | Reached stops and when; `scenarioStops` lists stops a scenario added |
+| `surface.edges`, `surface.nodes` | Street evidence with `includeStreetEdges` and `includeNodes` |
+| `allDay` | The sample count and window of an [all-day Reach](../guides/rust-standalone.md#all-day-reach) |
+
+Cell order is row-major from the northwest; [Read the surface](../guides/rust-standalone.md#read-the-surface) gives the cell-center formula. Areas are cumulative: the 30-minute area includes the 15-minute area.
+
+With `reachFormat: "map"`, the Result contains only `areas` and `bounds` for the full reached extent; its polygons equal `fullAreas` of the default format. With `reachFormat: "surface"`, polygons and contours are not built. Use the full format for comparisons.
 
 ## Compare saved results
 
-Public saved results can be compared without rerunning routing. Changes are after minus before, in seconds. Route reports duration and transfer changes; Matrix and Reach report common, faster, slower, unchanged, newly reachable and no-longer-reachable counts. Means use only mutually reachable entries and are `null` when none exist. Matrix requires identical ordered endpoints; Reach requires the same grid. Callers must align other experimental assumptions.
+`vigo.compare.v1` reports changes between two saved Results without routing again. Changes are **after minus before**, in seconds.
 
-For a source-data audit, request `diagnostics: "trace"` and retain the original witness under `trace`. Low-level `native` operations have a separate field reference.
+| Family | Fields |
+| --- | --- |
+| Route | `durationChangeSeconds` and `transferChange`; `null` when either Result has no journey |
+| Matrix, Reach | `counts` (`comparable`, `faster`, `slower`, `unchanged`, `newlyReachable`, `noLongerReachable`) and `meanChangeSeconds` |
+
+`beforeStatus`, `afterStatus` and `cityRevisions` identify the inputs. `meanChangeSeconds` averages only entries reachable in both, and is `null` when there are none; new and lost reachability are counted separately. Matrix comparison requires identical ordered endpoints, and Reach comparison the same grid. Compare does not check that dates, times, modes or walking limits match: align them yourself. The engine compares Reach only; the compiler also compares Route and Matrix.
+
+## Distributions
+
+`vigo.distribution.v1` is returned by a Route, Matrix or Reach request with `monteCarlo`. `durationsSeconds[p]` holds the `p`-th requested percentile for every destination or cell, with `null` meaning unreachable in that share of samples. `reachableSamples` counts finite outcomes. `sampling` and `assumptions` record the method. See [Monte Carlo](../guides/monte-carlo.md#reading-the-result).
+
+## Errors
+
+`vigo.error.v1` has `status: "error"` and `error` with a `code` and a `message`. Handle the code and the HTTP status, never the message text. Codes include `invalid_request`, `stop_not_found`, `scenario_not_found`, `unsupported_mode`, `file_not_found`, `permission_denied` and `city_unavailable`, and transport codes such as `unauthorized`, `request_timeout`, `query_timeout`, `query_canceled`, `request_id_conflict` and `service_unavailable`. On a stream, an error is one output line and later lines still run.
+
+## Diagnostics
+
+| Level | Adds |
+| --- | --- |
+| `none` (default) | Nothing |
+| `summary` | `diagnostics`: search counters and candidate counts |
+| `profile` | Also `profile.timingsUs`: measured timings in microseconds |
+| `trace` | Also `trace`: the full internal result |
+
+Set the level with `--diagnostics`, a `diagnostics` field, or the `?diagnostics=` (also `?vigo_diagnostics=`) query parameter; conflicting values are rejected. Counters without instrumentation are omitted, never invented. `scannedDepartures`, `expandedTripRuns` and `relaxedStops` count algorithm work, not network size or distinct stops. Profile scopes can overlap; never add them. `summary` and `profile` describe each runtime's own instrumentation and are not comparable across runtimes.
+
+`trace` is an unstable debugging interface: internal indices, sentinels and duplicate units stay there. The [trace reference](../guides/rust-standalone.md#trace-output) documents it. `stream --stream-output=detailed` returns the same trace in a `vigo.stream.detail.v1` envelope without building the public Result; its `status: "ok"` means execution completed, so read the trace's own routing status. Clients must check that `capabilities.output.streamFormats` lists `detailed`; VIGO Python does this automatically.
+
+## Metadata and reproducibility
+
+`meta` records how a Result was computed:
+
+| Field | Meaning |
+| --- | --- |
+| `engineVersion` | The executable's version |
+| `cityRevision` | The City build used |
+| `requestId` | The caller's `id`, or a generated identifier |
+| `queryFingerprint` | Hash of the complete request (stop references canonicalized, output switches excluded), the City revision and the engine version |
+| `assumptionsFingerprint` | Hash of the routing assumptions, without scenario and observation content |
+| `scenarioFingerprint`, `realtimeSnapshotFingerprint` | Hashes of supplied scenario and realtime content |
+| `computeUs`, `computeScope` | Microseconds for service-date activation, search and Result construction (`query_dispatch_including_materialization`); excludes formatting, serialization, queueing and the network |
+| `realtime`, `traffic` | Admission and coverage of supplied observations |
+
+The query fingerprint includes scenario content, via points, alternative settings and the identity of an admitted live snapshot, and excludes `id`, `diagnostics`, `includeGeometry`, `includeLimitations` and `reachFormat`. Equivalent requests written differently, such as `time` and `timeMinutes`, can hash differently. Compare Results only when their `assumptionsFingerprint` values match, or when you have checked the differing assumptions yourself. `Server-Timing` headers report serialization, compute and, on the engine, queue time; measure client wall time separately.
 
 ## Keep a reproducible run
 
-Errors use `schema: "vigo.error.v1"`, `status: "error"`, and `error.code` / `error.message`. Handle stable codes and HTTP status, not OS error text. Keep the City, original query, executable version, supplied observations/scenario, and result together when retaining a reproducible run.
+Keep together: the City (or its revision and sources), the original request, the executable version and `capabilities`, any supplied scenario, realtime snapshot or traffic, and the complete Result. The `query` echo and the fingerprints identify these inputs but do not archive them. For a source-data audit, also keep a `diagnostics: "trace"` Result.
 
-Untimed GTFS stairs and gates using routing estimates expose `quality.stationTime: "estimated"` on the walk. Their diagnostic provenance is `gtfs_pathway_estimated`; these costs are not published or measured traversal times.
-
-### Detailed wrapper transport
-
-`stream --stream-output=detailed` sends a `vigo.stream.detail.v1` envelope containing `id`, `status: "ok"`, and `trace`, without constructing a second public result. The `trace` is the same complete internal result provided by `--diagnostics=trace`; it remains an unstable internal ABI. Envelope `ok` means execution completed: inspect the detailed result's routing status to distinguish a journey from a valid blocked outcome. Failures retain the standard `vigo.error.v1` envelope and do not stop subsequent requests.
-
-Clients must check `capabilities.output.streamFormats` for `detailed` before selecting this transport. VIGO-py negotiates it automatically and falls back to the full public trace response on earlier compatible runtimes. The default stream output remains the public result schema.
+Python Results use `ready` and `blocked`, minutes, and their own properties; see the [Python Results guide](../../python/docs/guide.md#results).

@@ -8,7 +8,7 @@ import { gtfsTableEntry, readGtfsZipJson } from '../gtfs-zip-reader.mjs'
 // Fixed-route trips (continuous stopping, phone-booked stops) keep their
 // scheduled import; past the budget they leave the catalog first, then
 // on-demand trips. The build succeeds and reports what was omitted.
-export const flexCatalogLimitBytes = 32 * 1024 * 1024
+const flexCatalogLimitBytes = 32 * 1024 * 1024
 export async function importFlexCatalog({ archive, streamTable, db, prefix, budget, windows, onDemandTrips = new Set(), tripModels, continuousPresent = false }) {
   db.exec(`CREATE TABLE IF NOT EXISTS flex_catalog(scope TEXT PRIMARY KEY, data TEXT NOT NULL);`)
   const bytes = { shared: 0, onDemand: 0, fixed: 0 }

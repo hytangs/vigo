@@ -30,8 +30,3 @@ export function serviceEpochSeconds(serviceDate, timezone) {
   }
   throw new Error('Service date has no unambiguous local noon')
 }
-
-export function serviceClock(serviceDate, timezone) {
-  const epoch = serviceEpochSeconds(serviceDate, timezone)
-  return timestamp => Number.isFinite(Number(timestamp)) ? Number(timestamp) - epoch : undefined
-}

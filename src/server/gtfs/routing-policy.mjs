@@ -74,18 +74,9 @@ export const nationalRoutingAccessPolicyIdentity = stableJson(nationalRoutingAcc
 
 export const walkingSpeedKph = nationalRoutingAccessPolicy.walkingSpeedKph
 
-export const accessPaddingFactor = nationalRoutingAccessPolicy.accessPaddingFactor
+const accessPaddingFactor = nationalRoutingAccessPolicy.accessPaddingFactor
 
-export const accessOverheadSeconds = nationalRoutingAccessPolicy.accessOverheadSeconds
-
-// A free coordinate must pay access overhead before boarding and egress
-// overhead after alighting. Scheduled, transfer, and walking transitions are
-// nonnegative, so this is the only process-wide transit-duration lower bound
-// available before the timetable is searched. At the product default of zero
-// overhead there is no valid direct-walk early exit.
-export const directWalkTransitEndpointLowerBoundMinutes = (
-  2 * Math.ceil(accessOverheadSeconds) / 60
-)
+const accessOverheadSeconds = nationalRoutingAccessPolicy.accessOverheadSeconds
 
 export const osmTransferGraphSchemaVersion = 'vigo.routing.osm-stop-transfers.v6'
 
@@ -152,47 +143,7 @@ export function stationTransferDurationSeconds(transfer, from, to, speedKph = wa
   return Math.max(minimum, Math.ceil(distanceKm / speedKph * 3600))
 }
 
-export function accessWalkSeconds(stop) {
-  if (stop?.exactStopAccess) return 0
-  const explicit = numeric(stop?.accessSeconds, NaN)
-  return Number.isFinite(explicit) ? Math.max(0, explicit) : walkSeconds(stop?.distanceKm ?? 0)
-}
-
-export function explicitRoutingStopId(point) {
-  // `source: map` is the authoritative free-coordinate contract. Ignore a
-  // stale stopId from older desktop payloads so a map A/B can never collapse
-  // to one station before access candidates are searched.
-  return point?.source === 'map' ? '' : String(point?.stopId ?? '').trim()
-}
-
-export function requestedAccessStopIds(request, field) {
-  const values = request?.[field]
-  if (!Array.isArray(values) || !values.length) return null
-  const stopIds = new Set()
-  for (const value of values) {
-    const stopId = String(value ?? '').trim()
-    if (stopId) stopIds.add(stopId)
-  }
-  return stopIds.size ? stopIds : null
-}
-
-export function validateMaximumTransfers(value) {
-  if (value !== undefined && (!Number.isInteger(value) || value < 0 || value > 31)) {
-    throw new Error('maxTransfers must be an integer between 0 and 31; omit it for no additional limit.')
-  }
-}
-
 export function routingHorizonMinutes(request) {
   const minutes = Number(request.horizonMinutes)
   return Number.isFinite(minutes) && minutes > 0 ? Math.max(1, Math.min(2_880, minutes)) : 480
-}
-
-export function transitRideRequired(request) {
-  return request?.requireTransitRide === true || request?.__disableDirectWalkDominance === true
-}
-
-export function validateTransitRideRequirement(request) {
-  if (request.requireTransitRide != null && typeof request.requireTransitRide !== 'boolean') {
-    throw new Error('requireTransitRide must be a boolean.')
-  }
 }

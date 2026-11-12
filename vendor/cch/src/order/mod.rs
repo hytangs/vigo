@@ -210,7 +210,7 @@ mod tests {
     // expected order: [3, 0, 2, 1, 4]
     // ---------------------------------------------------------------------------
     #[test]
-    fn degree_order_matches_cpp_oracle() {
+    fn degree_order_breaks_ties_by_node_id() {
         let tail = vec![0u32, 0, 0, 1, 1, 2, 2, 3];
         let head = vec![1u32, 1, 4, 2, 4, 3, 4, 4];
         let node_count: u32 = 5;
@@ -218,11 +218,6 @@ mod tests {
         let g = graph_from_arc_list(node_count as usize, &tail, &head);
         let rust_order = degree_order(&g);
 
-        let oracle_order = routingkit_cch::compute_order_degree(node_count, &tail, &head);
-
-        assert_eq!(
-            rust_order, oracle_order,
-            "degree_order must be bit-identical to the C++ oracle"
-        );
+        assert_eq!(rust_order, [3, 0, 2, 1, 4]);
     }
 }

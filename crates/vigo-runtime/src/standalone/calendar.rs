@@ -6,7 +6,7 @@ use rusqlite::Connection;
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem::size_of;
 
-pub(crate) use crate::realtime::service_epoch;
+pub(crate) use crate::bike_time::service_epoch;
 
 struct Weekly {
     service: usize,

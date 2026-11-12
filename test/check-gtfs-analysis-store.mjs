@@ -5,7 +5,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { NationalRouteWorkerPool } from '../src/server/runtime/route-worker-pool.mjs'
 import { importTestModules } from './helpers/import-test-modules.mjs'
-import { readGtfsNetworkOverview, readGtfsNetworkOverviewAsync, readGtfsRouteAnalysis } from '../src/server/gtfs-analysis-store.mjs'
+import { readGtfsNetworkOverviewAsync, readGtfsRouteAnalysis } from '../src/server/gtfs-analysis-store.mjs'
 
 const [{ scheduledVehiclesAtTime, scheduledVehicleDiagnostics }] = await importTestModules('scheduledVehicles.ts')
 
@@ -105,15 +105,13 @@ try {
       upgrade.close()
     }
     for (const fixture of retained.cases.filter(entry => Boolean(entry.catalog) === catalog)) {
-      const actual = readGtfsNetworkOverview(storePath, { sourceScope: fixture.sourceScope })
-      assert.deepEqual(actual, fixture.result, 'Rust overview matches retained JS source semantics')
-      assert.deepEqual(await readGtfsNetworkOverviewAsync(storePath, { sourceScope: fixture.sourceScope }), fixture.result, 'Async overview preserves the same result')
+      assert.deepEqual(await readGtfsNetworkOverviewAsync(storePath, { sourceScope: fixture.sourceScope }), fixture.result, 'Rust overview matches retained JS source semantics')
     }
   }
   const downgrade = new DatabaseSync(storePath); downgrade.exec('DROP TABLE metadata'); downgrade.close()
   await assert.rejects(readGtfsNetworkOverviewAsync(storePath + '.missing'), /unable to open/)
   await assert.rejects(fs.access(storePath + '.missing'))
-  const overview = readGtfsNetworkOverview(storePath)
+  const overview = await readGtfsNetworkOverviewAsync(storePath)
   assert.equal(overview.routes.length, 4, 'Distinct same-name route IDs must remain separate; inactive definitions are excluded.')
   assert.equal(overview.coverage.routeGeometryIndexed, 4)
   assert.equal(overview.coverage.routeGeometryComplete, true)
@@ -212,7 +210,7 @@ try {
   const roundingDb = new DatabaseSync(storePath)
   roundingDb.exec("UPDATE connections SET arrival=departure+450 WHERE trip_id='T4'")
   roundingDb.close()
-  const roundedRoute = readGtfsNetworkOverview(storePath).routes.find(route => route.id === 'R2')
+  const roundedRoute = (await readGtfsNetworkOverviewAsync(storePath)).routes.find(route => route.id === 'R2')
   assert.equal(roundedRoute.serviceHours, Number((450 / 3600).toFixed(2)), 'Exact-half service hours retain JS decimal rounding')
   assert.equal(roundedRoute.spanHours, 0.13)
   // A lexically first short turn with valid shape geometry must not hide the
@@ -225,7 +223,7 @@ try {
     INSERT INTO connections VALUES(21600, 22080, '000-SHORT', 'R1A', 'WKD', '0', 'B', 'C', 1);
   `)
   shortTurnDb.close()
-  for (const result of [readGtfsNetworkOverview(storePath), await readGtfsNetworkOverviewAsync(storePath)]) {
+  for (const result of [await readGtfsNetworkOverviewAsync(storePath)]) {
     const route = result.routes.find(route => route.id === 'R1A')
     assert.deepEqual(route.stopIds, ['A', 'B', 'C'], 'Short turns must not truncate the overview')
     assert.equal(route.shapeId, 'S1')

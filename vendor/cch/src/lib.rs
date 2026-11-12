@@ -88,5 +88,5 @@ pub use bundle::{CchBundle, CchView, MetricBundle, MetricView};
 pub use customize::{Customizer, Levels, Metric};
 pub use order::{degree_order, inertial_order};
 pub use path::{OwnedPathQuery, PathQuery, ValidatedOrder, node_path};
-pub use query::{ElimTreeQuery, distance, distance_matrix, distances_from};
+pub use query::distance_matrix;
 pub use structure::Cch;

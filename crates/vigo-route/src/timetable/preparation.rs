@@ -104,6 +104,61 @@ pub struct TimetablePreparationView<'a> {
 pub fn prepare_timetable_indexes_view(
     input: TimetablePreparationView<'_>,
 ) -> Result<TimetablePreparationResult> {
+    validate(&input)?;
+    let transfers = transfer_index(&input)?;
+    departure_indexes(&input, &transfers)
+}
+
+/// Walking transfers between retained stops: the part of
+/// [`prepare_timetable_indexes_view`] that does not depend on departures, so
+/// views with the same stops, transfers and walking speed can share it.
+pub struct TransferIndex {
+    pub transfer_offset: U32Buffer,
+    pub transfer_to: U32Buffer,
+    pub transfer_duration: U32Buffer,
+    pub source_expanded_transfer_edges: f64,
+    pub excluded_non_service_transfer_edges: f64,
+    pub excluded_non_service_station_members: f64,
+}
+
+pub fn prepare_transfer_index_view(input: &TimetablePreparationView<'_>) -> Result<TransferIndex> {
+    validate(input)?;
+    transfer_index(input)
+}
+
+/// [`prepare_timetable_indexes_view`] with a [`TransferIndex`] prepared for
+/// the same stops, transfers and walking speed.
+pub fn prepare_departure_indexes_view(
+    input: &TimetablePreparationView<'_>,
+    transfers: &TransferIndex,
+) -> Result<TimetablePreparationResult> {
+    validate(input)?;
+    departure_indexes(input, transfers)
+}
+
+fn departure_indexes(
+    input: &TimetablePreparationView<'_>,
+    transfers: &TransferIndex,
+) -> Result<TimetablePreparationResult> {
+    let (departure_offset, departure_order) = departure_index(
+        input.retained_stops.len(),
+        input.from_stop,
+        input.departure_seconds,
+        input.can_board,
+    )?;
+    Ok(TimetablePreparationResult {
+        departure_offset: departure_offset.into(),
+        departure_order: departure_order.into(),
+        transfer_offset: transfers.transfer_offset.clone(),
+        transfer_to: transfers.transfer_to.clone(),
+        transfer_duration: transfers.transfer_duration.clone(),
+        source_expanded_transfer_edges: transfers.source_expanded_transfer_edges,
+        excluded_non_service_transfer_edges: transfers.excluded_non_service_transfer_edges,
+        excluded_non_service_station_members: transfers.excluded_non_service_station_members,
+    })
+}
+
+fn validate(input: &TimetablePreparationView<'_>) -> Result<()> {
     let stops = input.retained_stops.len();
     let segments = input.departure_seconds.len();
     if stops >= u32::MAX as usize
@@ -162,13 +217,12 @@ pub fn prepare_timetable_indexes_view(
         return Err(invalid("invalid station membership offsets"));
     }
 
-    let (departure_offset, departure_order) = departure_index(
-        stops,
-        input.from_stop,
-        input.departure_seconds,
-        input.can_board,
-    )?;
+    Ok(())
+}
 
+fn transfer_index(input: &TimetablePreparationView<'_>) -> Result<TransferIndex> {
+    let stops = input.retained_stops.len();
+    let edges = input.transfer_from.len();
     let forbidden: HashSet<(u32, u32)> = input
         .forbidden_from
         .iter()
@@ -259,12 +313,10 @@ pub fn prepare_timetable_indexes_view(
             transfer_duration.push(snapshot_seconds(seconds));
         }
     }
-    Ok(TimetablePreparationResult {
-        departure_offset: departure_offset.into(),
-        departure_order: departure_order.into(),
-        transfer_offset: transfer_offset.into(),
-        transfer_to: transfer_to.into(),
-        transfer_duration: transfer_duration.into(),
+    Ok(TransferIndex {
+        transfer_offset: crate::Buffer::from_owner(transfer_offset),
+        transfer_to: crate::Buffer::from_owner(transfer_to),
+        transfer_duration: crate::Buffer::from_owner(transfer_duration),
         source_expanded_transfer_edges: source_edges as f64,
         excluded_non_service_transfer_edges: excluded_edges as f64,
         excluded_non_service_station_members: excluded_members as f64,
@@ -298,6 +350,18 @@ pub fn departure_index(
     }
     let mut departure_order = vec![0; departure_offset[stops] as usize];
     let mut cursor = departure_offset[..stops].to_vec();
+    // Distributing segments in global (time, index) order leaves every stop's
+    // run sorted the same way, without sorting each stop.
+    if times.iter().all(|&time| time <= super::EXIT_TIME_MASK) {
+        for index in super::construction::departure_order(times) {
+            let i = index as usize;
+            if board[i] == 1 {
+                departure_order[cursor[from[i] as usize] as usize] = index;
+                cursor[from[i] as usize] += 1;
+            }
+        }
+        return Ok((departure_offset, departure_order));
+    }
     for (index, (&from, &board)) in from.iter().zip(board.iter()).enumerate() {
         if board == 1 {
             departure_order[cursor[from as usize] as usize] = index as u32;
@@ -309,4 +373,76 @@ pub fn departure_index(
             .sort_unstable_by_key(|&index| (times[index as usize], index));
     }
     Ok((departure_offset, departure_order))
+}
+
+#[cfg(test)]
+mod index_reuse_tests {
+    use super::*;
+
+    #[test]
+    fn linear_departure_index_matches_per_stop_sorting() {
+        let mut seed = 11_u64;
+        let mut next = |bound: u64| {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (seed >> 33) % bound
+        };
+        for segments in [0_usize, 5, 1500, 40_000] {
+            let stops = 1 + segments / 30;
+            let from: Vec<u32> = (0..segments).map(|_| next(stops as u64) as u32).collect();
+            // Few distinct times, so ties between segments are common.
+            let times: Vec<u32> = (0..segments)
+                .map(|_| 18_000 + 60 * next(400) as u32)
+                .collect();
+            let board: Vec<u8> = (0..segments).map(|_| u8::from(next(10) > 0)).collect();
+            let (offsets, order) = departure_index(stops, &from, &times, &board).unwrap();
+            let mut expected = vec![Vec::new(); stops];
+            for i in 0..segments {
+                if board[i] == 1 {
+                    expected[from[i] as usize].push(i as u32);
+                }
+            }
+            for (stop, list) in expected.iter_mut().enumerate() {
+                list.sort_unstable_by_key(|&i| (times[i as usize], i));
+                let range = offsets[stop] as usize..offsets[stop + 1] as usize;
+                assert_eq!(&order[range], list.as_slice());
+            }
+        }
+    }
+
+    #[test]
+    fn shared_transfer_index_matches_full_preparation() {
+        let view = TimetablePreparationView {
+            departure_seconds: &[100, 50, 70, 50],
+            from_stop: &[0, 1, 2, 1],
+            can_board: &[1, 1, 1, 0],
+            retained_stops: &[1, 1, 1, 0],
+            coordinates: &[0., 0., 0.001, 0., 0.002, 0., 0.003, 0.],
+            transfer_from: &[0, 1, 0, 2, u32::MAX],
+            transfer_to: &[1, 2, 1, 3, 0],
+            transfer_seconds: &[90., 60., 30., 10., 5.],
+            forbidden_from: &[1],
+            forbidden_to: &[2],
+            station_offset: &[0, 3],
+            station_members: &[0, 1, 2],
+            walking_speed_kph: 4.8,
+        };
+        let full = prepare_timetable_indexes_view(TimetablePreparationView { ..view }).unwrap();
+        let index = prepare_transfer_index_view(&view).unwrap();
+        let shared = prepare_departure_indexes_view(&view, &index).unwrap();
+        for (a, b) in [
+            (&full.departure_offset, &shared.departure_offset),
+            (&full.departure_order, &shared.departure_order),
+            (&full.transfer_offset, &shared.transfer_offset),
+            (&full.transfer_to, &shared.transfer_to),
+            (&full.transfer_duration, &shared.transfer_duration),
+        ] {
+            assert_eq!(a[..], b[..]);
+        }
+        assert_eq!(
+            full.excluded_non_service_transfer_edges,
+            shared.excluded_non_service_transfer_edges
+        );
+    }
 }

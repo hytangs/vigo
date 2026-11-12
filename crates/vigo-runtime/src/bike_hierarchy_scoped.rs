@@ -111,6 +111,7 @@ fn scalar(arcs: ArcView<'_>, index: u32, all: u32) -> ChoiceView<'_> {
 // Most shortcuts still read the prepared metric. Changed entries use a
 // paged index so a query allocates slots only for affected rank ranges.
 const PAGE: usize = 256;
+#[derive(Clone)]
 struct Overlay {
     slots: Vec<Option<Box<[u32; PAGE]>>>,
     values: Vec<Choices>,
@@ -187,10 +188,18 @@ pub(super) struct Metric<'a> {
     pub base: &'a Hierarchy,
     base_up: ArcView<'a>,
     base_down: ArcView<'a>,
-    up: Overlay,
-    down: Overlay,
+    up: std::borrow::Cow<'a, Overlay>,
+    down: std::borrow::Cow<'a, Overlay>,
     all: u32,
     reversed: bool,
+}
+
+/// Changes a metric admitted, with the masks their scopes refer to, kept so
+/// a later query on the same base views starts from them.
+pub(super) struct Admitted {
+    up: Overlay,
+    down: Overlay,
+    pub masks: SurfaceMasks,
 }
 
 impl<'a> Metric<'a> {
@@ -199,8 +208,8 @@ impl<'a> Metric<'a> {
             base,
             base_up: ArcView::new(&base.up, None),
             base_down: ArcView::new(&base.down, None),
-            up: Overlay::new(base.graph.cch_arc_count()),
-            down: Overlay::new(base.graph.cch_arc_count()),
+            up: std::borrow::Cow::Owned(Overlay::new(base.graph.cch_arc_count())),
+            down: std::borrow::Cow::Owned(Overlay::new(base.graph.cch_arc_count())),
             all: masks.all,
             reversed: false,
         }
@@ -415,12 +424,36 @@ impl<'a> Metric<'a> {
         }
     }
 
+    /// The changes this metric admitted, for reuse on the same base views.
+    pub fn admitted(self, masks: SurfaceMasks) -> Admitted {
+        Admitted {
+            up: self.up.into_owned(),
+            down: self.down.into_owned(),
+            masks,
+        }
+    }
+
+    /// Starts from changes admitted earlier on the same base views, without
+    /// copying them unless this metric admits more.
+    pub fn reuse(self, admitted: &'a Admitted) -> Self {
+        Self {
+            up: std::borrow::Cow::Borrowed(&admitted.up),
+            down: std::borrow::Cow::Borrowed(&admitted.down),
+            ..self
+        }
+    }
+
     fn store(&mut self, arc: u32, up: bool, values: Choices) {
-        (if up { &mut self.up } else { &mut self.down }).insert(arc, values);
+        (if up {
+            self.up.to_mut()
+        } else {
+            self.down.to_mut()
+        })
+        .insert(arc, values);
     }
 
     fn values(&self, arc: u32, up: bool) -> ChoiceView<'_> {
-        let (changes, base) = if up {
+        let (changes, base): (&Overlay, _) = if up {
             (&self.up, self.base_up)
         } else {
             (&self.down, self.base_down)

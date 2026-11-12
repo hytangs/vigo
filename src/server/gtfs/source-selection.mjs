@@ -37,25 +37,3 @@ export function assertCaseRouteSources(scenario, feedIds, merged = false) {
     }
   }
 }
-
-export function selectedSourceScopes(store, request) {
-  if (request?.sourceScopes === undefined) return null
-  const values = request.sourceScopes
-  if (!Array.isArray(values) || !values.length || values.some(scope => typeof scope !== 'string'
-    || !store.sourceScopes.includes(scope))) throw selectionError('Unknown or empty timetable source selection.')
-  const scopes = new Set(values)
-  return scopes.size === store.sourceScopes.length ? null : scopes
-}
-
-export function serviceInSources(id, scopes) {
-  return !scopes || scopes.has(String(id).split('\u001f', 1)[0])
-}
-
-export function scopedServiceResolution(store, resolution, request) {
-  const scopes = selectedSourceScopes(store, request)
-  if (!scopes) return resolution
-  const services = new Set([...resolution.services].filter(id => serviceInSources(id, scopes)))
-  const count = new Set([...services].map(id => id.split('\u001f', 1)[0])).size
-  return { ...resolution, services, requestedServiceScopeCount: count,
-    resolvedServiceScopeCount: count, availableServiceScopeCount: scopes.size }
-}

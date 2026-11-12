@@ -174,11 +174,10 @@ export function createAgencyService(adapters, { clock = () => Date.now(), policy
     },
     async handle(projectId, body) {
       if (!body || typeof body !== 'object' || Array.isArray(body)
-        || !['route-line', 'stop-board', 'vehicle', 'connection', 'connect', 'disconnect'].includes(body.action)) {
+        || !['route-line', 'stop-board', 'vehicle', 'connection', 'disconnect'].includes(body.action)) {
         throw Object.assign(new Error('Unknown Network action.'), { statusCode: 400 })
       }
-      authorize(await access(projectId), ['connect', 'disconnect'].includes(body.action))
-      if (body.action === 'connect') return { snapshot: await this.connect(projectId, body.request) }
+      authorize(await access(projectId), body.action === 'disconnect')
       if (body.action === 'disconnect') return this.disconnect(projectId)
       return withSession(projectId, async session => {
         switch (body.action) {

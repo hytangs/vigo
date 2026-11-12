@@ -161,6 +161,20 @@ fn compact_indexes_preserve_routes_and_traffic_updates() {
             let metric_view = mapped_metric.view();
             let nodes: Vec<_> = (0..n as u32).collect();
             let actual = distance_matrix(&mapped_view, &metric_view, &nodes, &nodes);
+            // The reused query's matrix leaves no stale labels for the next
+            // target set, path query or metric.
+            assert_eq!(paths.distance_matrix(&metric_view, &nodes, &nodes), actual);
+            let sources: Vec<_> = nodes.iter().copied().step_by(2).collect();
+            let targets: Vec<_> = nodes.iter().rev().copied().step_by(3).collect();
+            let subset = paths.distance_matrix(&metric_view, &sources, &targets);
+            for (i, &source) in sources.iter().enumerate() {
+                for (j, &target) in targets.iter().enumerate() {
+                    assert_eq!(
+                        subset[i * targets.len() + j],
+                        actual[source as usize * n + target as usize]
+                    );
+                }
+            }
             for source in 0..n {
                 let mut distance = vec![INF_WEIGHT; n];
                 let mut visited = vec![false; n];

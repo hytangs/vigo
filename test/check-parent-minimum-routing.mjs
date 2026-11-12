@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import { disposeNationalGtfsStore,expandParentStationTransfers,prepareNationalGtfsStore,routeNationalGtfsStore,routeNationalGtfsMatrix } from '../src/server/national-gtfs-store.mjs'
+import { disposeNationalGtfsStore, expandParentStationTransfers, prepareNationalGtfsRoutingContext, prepareNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
 import { decodeRoutingSnapshot,encodeRoutingSnapshot } from '../src/server/routing-snapshot.mjs'
 import { nationalRoutingAccessPolicy,nationalRoutingAccessPolicyIdentity,walkSeconds } from '../src/server/gtfs/routing-policy.mjs'
 import { stableJson } from '../src/server/routing-plan-identity.mjs'
@@ -29,7 +29,7 @@ assert.equal(edge([parent(0),osm()]).min_transfer_time,0)
 
 const folder=await fs.mkdtemp(path.join(os.tmpdir(),'vigo-parent-minimum-'))
 const storePath=path.join(folder,'routing.sqlite'), schedulePath=path.join(folder,'schedule.json'),scope='minimum-fixture'
-const id=s=>`${scope}\u001f${s}`, point=s=>({source:'stop',stopId:id(s),label:s,coordinate:s==='D'?[0.03,0]:[0,0]})
+const id=s=>`${scope}\u001f${s}`
 const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex')
 const trips=[['EARLY','O','A',478,478.5],['FEED','O','A',480,481],['TIGHT','B','D',481.5,485],['LATE','B','D',484,488]]
 try {
@@ -50,21 +50,10 @@ try {
     db.prepare("UPDATE metadata SET value=(SELECT COUNT(*) FROM transfers) WHERE key='transferCount'").run()
   }finally{db.close()}
   const originalHash=hash(await fs.readFile(storePath))
-  const query={origin:point('O'),destination:point('D'),departMinutes:480,serviceDate:'2026-07-15',serviceDay:'weekday',
-    maxWalkKm:0.2,horizonMinutes:30,requireTransitRide:true,maxTransfers:1,disableCache:true}
+  // Activating the service date persists the active-service kernel snapshot
+  // next to the access context, as routing did before it moved to the runtime.
   const check=()=>{
-    const plan=routeNationalGtfsStore(storePath,query)
-    assert.equal(plan.status,'ready')
-    assert.deepEqual(plan.legs.filter(l=>l.type==='ride').map(l=>l.routeShortName),['FEED','LATE'])
-    assert.equal(plan.arriveMinutes,488)
-    assert.equal(plan.legs.find(l=>l.walkSource==='transfer').durationMinutes,3)
-    const matrix=routeNationalGtfsMatrix(storePath,{...query,origins:[query.origin],destinations:[query.destination]})
-    assert.equal(matrix.rows[0].arriveMinutes,488)
-    const reverse=routeNationalGtfsStore(storePath,{...query,timePreference:'arrive',arriveMinutes:485})
-    assert.equal(reverse.departMinutes,478,'Latest departure must respect the covered minimum, including forward reconstruction')
-    assert.equal(reverse.arriveMinutes,485)
-    assert.deepEqual(reverse.legs.filter(l=>l.type==='ride').map(l=>l.routeShortName),['EARLY','TIGHT'])
-    assert.equal(reverse.diagnostics.searchStats.arriveByForwardParityRecovery,undefined)
+    assert.equal(prepareNationalGtfsRoutingContext(storePath,{serviceDate:'2026-07-15',serviceDay:'weekday'}).activeServiceKernel.ready,true)
     prepareNationalGtfsStore(storePath)
   }
   check()
@@ -95,7 +84,7 @@ try {
     assert.equal(saved.metadata.accessPolicyIdentity??saved.metadata.kernel.accessPolicyIdentity,nationalRoutingAccessPolicyIdentity)
   }
   assert.equal(hash(await fs.readFile(storePath)),originalHash,'Routing and semantic snapshot refresh preserve authoritative source data')
-  console.log('Parent minimum floors, forward/reverse/Matrix contracts, overlapping/directed rules and stale snapshot rejection passed.')
+  console.log('Parent minimum floors, overlapping/directed rules and stale snapshot rejection passed.')
 }finally{
   disposeNationalGtfsStore(storePath)
   await fs.rm(folder,{ recursive: true, force: true, maxRetries: 20, retryDelay: 50 })

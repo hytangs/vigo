@@ -207,6 +207,7 @@ impl City {
         };
         let previous_preparations = self.timetable_preparations;
         let previous_evictions = self.timetable_cache.evictions;
+        let previous_networks = (self.bike.is_some(), self.drive.is_some());
         // Realtime updates without a startDate still describe the requested
         // date when the search clock starts on the preceding one.
         self.query_start_date = clock_date
@@ -221,6 +222,7 @@ impl City {
         self.indexed_matrix_journeys = false;
         let release_memory = previous_preparations != self.timetable_preparations
             || previous_evictions != self.timetable_cache.evictions
+            || previous_networks != (self.bike.is_some(), self.drive.is_some())
             || matches!(command, "reach" | "isochrone" | "matrix");
         let mut raw = match execution {
             Ok(raw) => raw,

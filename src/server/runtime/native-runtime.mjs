@@ -41,7 +41,7 @@ function modePreparation(request) {
 }
 const executableName = process.platform === 'win32' ? 'vigo.exe' : 'vigo'
 
-export function makeAbortError(message = 'The request was cancelled.') {
+function makeAbortError(message = 'The request was cancelled.') {
   const error = new Error(message)
   error.name = 'AbortError'
   return error

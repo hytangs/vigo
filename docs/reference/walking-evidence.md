@@ -1,6 +1,6 @@
 # Walking costs and source evidence
 
-VIGO V1 enforces stop-transfer walking floors, OSM node restrictions, and explicit missing station coordinates. Both Node Engine and standalone Rust use the same prepared City data. Rebuild Cities that predate the supported format from the original GTFS and OSM inputs as described below.
+This page explains how VIGO prices walks between streets, stops and platforms, which OSM permissions it follows, and what a returned walk does and does not establish. Every runtime uses the same prepared City data and rules.
 
 ## Time and connectivity are separate
 
@@ -13,6 +13,8 @@ The walking floor enters preparation before boarding selection, so a depart-at q
 ## Pedestrian permissions
 
 The OSM importer reads tags on ways and their nodes, including packed dense nodes. It excludes `foot=no`, `foot=private`, and `foot=use_sidepath`, honors explicit pedestrian permission over generic access, and preserves directed pedestrian rules. A motor-vehicle one-way restriction alone does not prohibit walking in the reverse direction.
+
+An explicit pedestrian permission also overrides general conditional restrictions, and a conditional rule that only permits walking where the base rule already permits it does not disconnect the way. Restrictive or unknown pedestrian conditions, opening hours and conditional directions stay excluded, because VIGO does not evaluate them at journey time.
 
 For nodes, impassable barriers and denied access exclude incident pedestrian segments. Ambiguous gates require explicit permission. Foot/access conditional rules and opening hours other than `24/7` are excluded because this static model does not evaluate their conditions. This conservative policy can reduce coverage, including approaches to a blocked barrier. Driving retains its separate permissions. See the OSM definitions of [foot access](https://wiki.openstreetmap.org/wiki/Key:foot) and [pedestrian direction](https://wiki.openstreetmap.org/wiki/Key:oneway:foot).
 
@@ -29,13 +31,20 @@ An independent physical audit needs a continuous, directed source path, legal no
 
 An interior GTFS node may omit coordinates. VIGO retains its declared pathway connections and stop ID but omits that node from displayed geometry, setting `stationGeometryStatus: "incomplete"`. A line between the remaining known coordinates is schematic. If a source-timed pathway also lacks length and located endpoints, its distance contributes only a zero lower bound and the leg reports `stationDistanceStatus: "lower_bound"`; it is not measured zero-distance walking. When `traversal_time` is absent, stairs with a nonzero `stair_count` use one second per step and fare/exit gates use five seconds. These fixed routing assumptions are recorded as `gtfs_pathway_estimated`, retain `stationAccessStatus: "unverified"`, and are floored by available distance at the configured walking pace. They are not measured or agency-published traversal times. Explicit traversal times take precedence. Other pathways without time, length, or distinct located endpoints remain excluded and reported as `unpriced_pathways`. The declared station topology remains in force, so exclusion cannot create a fallback shortcut. A feed-supplied connection alone does not certify its physical duration.
 
-## Upgrade and check
+## Rebuild to apply these rules
 
-Build a new City with the current runtime and the retained raw GTFS/OSM inputs. Use the [Boston quickstart](../guide.md#quickstart) and a new output directory, then open it with the engine as described in the [engine manual](../guides/rust-standalone.md). Keep the old City with its original runtime for reproducibility.
+These rules are prepared into a City when it is built. To apply them to older data, build a new City from the original GTFS and OSM into a new directory, and keep the old City with its original runtime for reproducibility. The engine rejects prepared data whose street, timetable or transfer policy is older than it supports.
 
-Street schema v4 cannot be upgraded by reopening a cache: its missing node restrictions require reimport from the original PBF. The current street schema is v6; it also excludes platform area outlines from walking links. Routing-store schema v3 distinguishes missing coordinates and pathway costs from genuine zeros and requires a fresh GTFS import. Transfer semantics v4 additionally requires reimport to recover pathway modes and stair counts discarded by earlier imports. Prepared access policy v9 connects street transfers to public entrances and composes their directed station pathways during preparation and prices travel between projections on the same street segment directly. Each boarding transfer can include at most one external transfer edge; the itinerary retains every original pathway segment. Declared pathways suppress invented parent-station shortcuts. Node Engine refreshes outdated timing preparations; standalone Rust requires current prepared data and rejects stale street, routing-store, or transfer-time policies.
+| Prepared layer | Current version | What it adds |
+| --- | --- | --- |
+| Street store | Schema v6 | Node restrictions from the PBF; platform outlines excluded from walking |
+| Routing store | Schema v3 | Missing coordinates and pathway costs distinguished from real zeros |
+| Transfer semantics | v4 | Pathway modes and stair counts kept from the GTFS |
+| Prepared access policy | v9 | Street transfers through public entrances and directed station pathways |
 
-Public regression checks use generated inputs and can be run from the source checkout:
+Each transfer between boardings uses at most one external transfer edge, and the itinerary keeps every original pathway segment. Declared pathways suppress invented parent-station shortcuts.
+
+The public regression checks use generated inputs:
 
 ```sh
 npm run check:osm-pbf

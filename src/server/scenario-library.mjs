@@ -7,7 +7,7 @@ import { normalizeTimetables } from './scenario-timetables.mjs'
 // the City's timetables. A scenario runs on one group, optionally with planned
 // service changes. This is Studio project metadata beside the City; the engine
 // and prepared City formats never read it.
-export const scenarioLibrarySchemaVersion = 'vigo.studio.scenarios.v1'
+const scenarioLibrarySchemaVersion = 'vigo.studio.scenarios.v1'
 export const scenarioLibraryFileName = 'scenarios.json'
 
 const limits = {

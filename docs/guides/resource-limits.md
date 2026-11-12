@@ -1,39 +1,41 @@
 # Resource limits and constrained serving
 
-Python batch concurrency and Engine query concurrency have different costs. `City.iter_run(queries, workers=2)` overlaps complete queries using separate resident processes. Each owns its prepared City. The native HTTP service uses one supervised query worker with bounded admission, deadlines, cancellation and recovery; its routing kernel can parallelize supported work internally. On a 2 CPU / 2 GiB deployment, keep one resident query process and two native threads. Additional processes are not a free speedup.
+This page explains how VIGO uses CPU and memory, and how to size a deployment. The [Compose defaults](../guide.md#resource-controls) suit a 2 CPU, 2 GiB container; [environment variables](rust-standalone.md#environment-variables) lists every control.
 
-The native endpoint-access pool also follows available CPU parallelism (including Linux quota/affinity) and a positive `RAYON_NUM_THREADS` cap, up to four threads. With one available thread it runs sequentially without creating a pool. This shares one City and preserves exact endpoint searches.
+## Processes and threads
+
+The HTTP service runs one supervised query worker with bounded admission, deadlines, cancellation and recovery. A query can use several threads (`RAYON_NUM_THREADS`), and endpoint access searches run on up to four threads, following the available CPUs, Linux quotas and affinity. One query worker and two threads suit a 2 CPU, 2 GiB deployment.
+
+More processes are not a free speedup: each one loads its own City. Python's `City.iter_run(queries, workers=2)` and the compiler's `stream --workers 2` run separate resident processes; measure before adding them. Python caps its one to four workers by CPU affinity, quota and visible memory limits, chooses one worker when memory capacity is unknown, and defaults to `workers=1`.
 
 ## Capacity-aware defaults
 
-At startup, native cache defaults use the smallest reported Linux physical-memory, cgroup v2 `memory.max`/`memory.high`, or cgroup v1 memory limit. Visible ancestor limits are included. Unlimited values are ignored. Non-Linux and unknown-capacity installations retain the existing bounded cache defaults. Explicit cache settings remain operator overrides.
+At startup, the engine reads the smallest of Linux physical memory, cgroup v2 `memory.max` and `memory.high`, and cgroup v1 limits, including visible parent limits, and sizes its caches from it. Unlimited values are ignored. Other platforms, and Linux controllers mounted in unusual places, keep the fixed defaults below. Explicit settings always win.
 
-| Native allocation | Default upper bound | Fraction of detected capacity |
+| Allocation | Default upper bound | Share of detected memory |
 | --- | ---: | ---: |
 | Endpoint cache, per role | 64 MiB | 1/64 |
 | Shape geometry cache | 64 MiB | 1/64 |
-| Inactive timetables | 128 MiB, growing to twice a retired view | 1/32, growth up to 1/16 |
+| Inactive timetables | 128 MiB, growing to twice a retired view | 1/32, growing to 1/16 |
 | HTTP pending request bytes | 64 MiB | 1/32 |
-| HTTP retained response bytes | 128 MiB | 1/16 |
+| HTTP pending response bytes | 128 MiB | 1/16 |
 
-Without `VIGO_TIMETABLE_CACHE_BYTES`, a standalone City's inactive-timetable budget grows to twice the size of a prepared view it retires, so one other service day or clock stays prepared. Growth stops at 1/16 of the detected capacity; with unknown capacity it is limited by the City's own views. Collections keep their fixed budget. HTTP budgets preserve room for one maximum-sized request and one worker response line. Caches are optional retained work: reducing them does not truncate journeys or change routing results. Collections partition the applicable caches across resident scenarios. The active City and query scratch are outside these cache budgets; a small cache does not prove a large network will fit.
+Caches hold reusable work; shrinking them never changes or truncates an answer. Collections divide the caches among resident members. The loaded City and query scratch are outside these budgets, so small caches do not make a large City fit.
 
-`vigo info` and `/v1/info` report `resourcePolicy.memoryCapacityBytes` and `swapCountsAsRam`. Capacity is a startup sizing input, not current free memory or a hard process RSS guarantee. Linux controllers at nonstandard mount locations require explicit operator limits. Restart after changing controller limits.
-
-Python caps its existing one-to-four worker budget using affinity, CPU quota and the same visible Linux memory-controller hierarchy. Unknown memory capacity selects one worker. On all platforms, `workers=1` remains the public batch default.
+`vigo info` and `GET /v1/info` report `resourcePolicy.memoryCapacityBytes` and `swapCountsAsRam`. Capacity is a startup sizing input, not free memory or an RSS limit. Restart after changing container limits.
 
 ## Scenario and date switching
 
-For collections, inspect `/v1/info` residency counters before attributing latency to route search. Increasing `cityOpens` and `evictions` on repeated scenario sweeps indicates that retained Cities exceed `VIGO_RESIDENT_HEAP_BYTES`, even when the scenario-count limit permits them. Tune the heap budget only with measured container peaks and concurrent requests; leave room for query scratch, mapped pages and other services. The default remains conservative. When the retained heap exceeds this budget, the collection discards optional timetable/source cache entries before evicting a resident City; active timetables and street preparation are preserved while reclaimable cache entries remain.
+For a collection, read the residency counters in `/v1/info` before blaming route search for latency. Rising `cityOpens` and `evictions` on a repeated scenario sweep mean the resident members exceed `VIGO_RESIDENT_HEAP_BYTES`, even when `VIGO_MAX_RESIDENT_SCENARIOS` allows them. Raise the budget only with measured container peaks, leaving room for query scratch, mapped pages and other services. When the heap exceeds its budget, the collection first drops optional timetable caches, then evicts members.
 
-Changing service dates can rebuild a timetable when the inactive-timetable cache is too small. Large scheduled slices can reuse losslessly compressed source columns within that same byte budget. Their keys include the active services, service dates/offsets and query horizon; realtime and linked-trip expansion run after restoration. Compression uses reversible numeric deltas and streaming buffers, without a second uncompressed schedule. Full kernels remain reusable when several fit; compact sources allow more dates to fit on constrained hosts. First reads still require SQLite preparation, and cache eviction remains possible. Immutable linked-trip and block adjacency is retained with its City and included in the heap ledger; active service, realtime cancellations and continuity are still checked for each timetable. Native trace timing separates `linkedCandidatesMs` and `linkedTripsMs` within `sourceAndRealtimeMs`, and reports `linkedCandidatesReused`. These are preparation measurements, not end-to-end HTTP latency.
+Changing service dates can rebuild a timetable when the inactive-timetable cache is too small. Large scheduled timetables are kept losslessly compressed within the same budget, so more dates fit on a small host. Their keys include the active services, dates and horizon; realtime and linked trips are applied after restoring. The first use of a date still reads SQLite, and eviction remains possible. Trace timings separate `linkedCandidatesMs` and `linkedTripsMs` within `sourceAndRealtimeMs`.
 
-## Swap is an explicit deployment choice
+## Swap is an explicit choice
 
-The Compose service disables swap by default by setting total RAM-plus-swap equal to RAM. To permit up to 4 GiB of swap alongside 2 GiB RAM, use `VIGO_MEMORY=2g VIGO_MEMORY_SWAP=6g`. The Linux host must already provide sufficient swap; Compose does not create it. A swap-free comparison uses `VIGO_MEMORY_SWAP=2g`.
+The Compose service disables swap by setting memory plus swap equal to memory. To allow 4 GiB of swap beside 2 GiB of RAM, set `VIGO_MEMORY=2g VIGO_MEMORY_SWAP=6g`; the host must already have the swap. Swap is never counted as RAM when sizing workers or caches. It can hold cold pages under pressure but can make queries much slower.
 
-Swap is never added to the resident capacity used to size workers or caches. It can preserve cold anonymous pages under pressure, but may substantially increase latency. File-backed mappings can be reclaimed independently. Record RSS, cgroup current/peak memory, swap usage, memory events, pressure and request latency separately; container memory includes page cache and is not RSS. See the [Linux memory-controller specification](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html) for the accounting rules.
+Record RSS, cgroup current and peak memory, swap, memory events, pressure and latency separately; container memory includes page cache and is not RSS. See the [Linux memory-controller documentation](https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html).
 
-## Validation boundaries
+## What the checks establish
 
-The deployment check exercises the shipped image and Compose file at 2 GiB and a 256 MiB synthetic collection, including full geometry, scenario eviction, restart parity and read-only City integrity. The small fixture validates controls and recovery; it does not establish that a regional City fits in 256 MiB. Regional endurance and swap tests need retained workload-specific evidence, including errors and OOM counters, before making a deployment claim.
+`npm run check:deployment` runs the shipped image and Compose file at 2 GiB with a small synthetic collection, including full geometry, scenario eviction, restart and read-only City integrity. It validates the controls and recovery; it does not show that a regional City fits a given size. Before claiming a deployment budget, measure your own City and workload, including errors and out-of-memory events.

@@ -1,7 +1,6 @@
 import crypto from 'node:crypto'
 import { parentPort } from 'node:worker_threads'
 import { haversineKm } from './geometry-utils.mjs'
-import { compactStudioRoutingPlan } from './studio-route-response.mjs'
 
 const workerInstance = crypto.randomUUID()
 const workerStartedAt = Date.now()
@@ -193,10 +192,6 @@ function compactWorkerResult(operation, result) {
       activeServiceKernel: compactActiveServiceKernelDiagnostics(result.activeServiceKernel),
     }
   }
-  if (
-    operation === 'route'
-    || operation === 'street-route'
-  ) return compactStudioRoutingPlan(result)
   if (operation === 'street-route-batch') return compactStreetRouteBatchResult(result)
   return result
 }
@@ -291,16 +286,6 @@ parentPort.on('message', async (message) => {
         streetStore,
         osmStopTransfers,
       }
-    } else if (operation === 'prepare-derived') {
-      const { ensureNationalGtfsDerivedArtifactsCurrent } = await loadGtfsModule()
-      result = await ensureNationalGtfsDerivedArtifactsCurrent(storePath, {
-        onProgress: (progress) => parentPort.postMessage({
-          type: 'progress',
-          id,
-          progress,
-          workerInstance,
-        }),
-      })
     } else if (operation === 'prepare') {
       const {
         ensureNationalGtfsDerivedArtifactsCurrent,
@@ -380,28 +365,6 @@ parentPort.on('message', async (message) => {
         derivedArtifacts,
         nativeCoordinateAccess: routing.nativeCoordinateAccess ?? null,
       }
-    } else if (operation === 'route') {
-      const { routeNationalGtfsStore, addNationalGtfsFares } = await loadGtfsModule()
-      result = addNationalGtfsFares(storePath, routeNationalGtfsStore(storePath, request))
-    } else if (operation === 'street-route') {
-      const {
-        prepareNationalOsmDriveStore,
-        prepareNationalOsmNativeStore,
-        routeNationalStreetStore,
-      } = await loadOsmModule()
-      const streetStorePath = String(request.streetStorePath ?? '').trim()
-      if (!streetStorePath) throw new Error('Walking and driving require a persisted OSM street store.')
-      if (request.mode === 'drive') {
-        prepareNationalOsmDriveStore(streetStorePath)
-      } else {
-        const prepared = prepareNationalOsmNativeStore(streetStorePath)
-        if (!prepared.ready || !prepared.accelerated) {
-          throw new Error(
-            `Pedestrian accelerator unavailable (${prepared.reason ?? 'unknown reason'}). Rebuild the OpenStreetMap street index.`,
-          )
-        }
-      }
-      result = routeNationalStreetStore(streetStorePath, request)
     } else if (operation === 'street-route-batch') {
       const {
         prepareNationalOsmDriveStore,

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { annotateStationAccess, prepareStationAccessPaths, stationAccessTiming } from '../src/server/station-access.mjs'
+import { prepareStationAccessPaths } from '../src/server/station-access.mjs'
 import { compileNativeStationPaths, validateNativeStationPaths } from '../src/server/native-routing-kernel.mjs'
 import { haversineKm } from '../src/server/geometry-utils.mjs'
 import { stationPathLookup } from '../src/server/prepared-access-context.mjs'
@@ -9,7 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import JSZip from 'jszip'
-import { buildNationalGtfsStore, routeNationalGtfsStore, disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
+import { buildNationalGtfsStore, disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
 
 // Decode native witnesses only; the oracle below independently enumerates paths.
 function unpack(packed) {
@@ -19,13 +19,6 @@ function unpack(packed) {
   }))
 }
 const stationAccessPaths = (...args) => unpack(prepareStationAccessPaths(...args))
-
-assert.deepEqual(stationAccessTiming({ distanceKm: 1, accessSeconds: 650,
-  accessTransferPathDistanceKm: 0.2, accessTransferSeconds: 50,
-  accessTransferStopIds: ['entrance', 'platform'], accessTransferSources: ['gtfs_pathway'],
-}), { accessCost: { street: { distanceKm: 0.8, seconds: 600 },
-  station: { stopIds: ['entrance', 'platform'], sources: ['gtfs_pathway'], distanceKm: 0.2, seconds: 50 } } })
-assert.deepEqual(stationAccessTiming({ distanceKm: 1, accessSeconds: 750 }), {})
 
 // Compare compilation with exhaustive simple-path enumeration. Positive
 // cycles cannot improve either time or distance; zero-cost ties collapse.
@@ -128,34 +121,6 @@ for (const change of [
   { pathSources: Uint32Array.of(99) }, { pathStops: Uint32Array.of(1, 0) },
 ]) assert.throws(() => validateNativeStationPaths({ ...validPaths, ...change }), /Prepared station paths/)
 
-const evidenceLegs = [
-  { type: 'walk', toStopId: 'A', durationMinutes: 0, distanceKm: 0, streetPathVerified: true },
-  { type: 'ride', routeType: 1, fromStopId: 'A', toStopId: 'B' },
-  { type: 'walk', fromStopId: 'B', toStopId: 'C', transferSource: 'osm_certified_radial', streetPathVerified: true },
-  { type: 'ride', routeType: 3, fromStopId: 'C', toStopId: 'D' },
-  { type: 'walk', fromStopId: 'D', streetPathVerified: true },
-]
-const evidence = annotateStationAccess(evidenceLegs)
-assert.equal(evidence.unverifiedStationAccessLegs, 2,
-  'Coincident coordinates and an OSM street witness do not establish a subway entrance path.')
-assert.equal(evidenceLegs[0].streetPathVerified, false)
-assert.equal(evidenceLegs[2].streetSegmentVerified, true)
-assert.equal(evidenceLegs[4].stationAccessStatus, undefined, 'Ordinary bus access is unaffected.')
-assert.deepEqual(annotateStationAccess(evidenceLegs), evidence, 'Annotation preserves the narrower evidence on repeated composition.')
-const declaredAccess = [
-  { type: 'walk', toStopId: 'A', stationPathSources: ['gtfs_pathway'] },
-  { type: 'ride', routeType: 1, fromStopId: 'A', toStopId: 'B' },
-  { type: 'walk', fromStopId: 'B' },
-]
-assert.equal(annotateStationAccess(declaredAccess, { exactStationEgress: true }).stationAccessStatus, 'source_path')
-assert.equal(declaredAccess[2].stationAccessStatus, undefined)
-const transferMinimum = [
-  { type: 'walk', toStopId: 'A', transferSource: 'gtfs_transfer' },
-  { type: 'ride', routeType: 1, fromStopId: 'A', toStopId: 'B' },
-]
-assert.equal(annotateStationAccess(transferMinimum).stationAccessStatus, 'unverified',
-  'A published transfer minimum is timing evidence, not an interior-path witness.')
-
 const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-pathway-time-'))
 try {
   for (const usePathway of [true, false]) {
@@ -180,34 +145,8 @@ try {
       assert.equal(db.prepare("SELECT path_distance_m FROM transfer_provenance WHERE from_stop_id='B' AND to_stop_id='A'").get().path_distance_m, 240)
       db.close()
     }
-    const plan = routeNationalGtfsStore(storePath, {
-      origin: { coordinate: [-0.01, 0], stopId: 'O', source: 'stop', label: 'Origin' },
-      destination: { coordinate: [0.02, 0], stopId: 'D', source: 'stop', label: 'Destination' },
-      departMinutes: 478, serviceDate: '2026-07-06', serviceDay: 'weekday',
-      requireTransitRide: true, maxTransfers: 1, maxWalkKm: 1.2, horizonMinutes: 60,
-    })
-    assert.equal(plan.status, 'ready')
-    assert.equal(plan.arriveMinutes, 490, 'Station walking time must not catch the infeasible 08:02 bus.')
-    assert.equal(plan.diagnostics.stationAccessStatus, usePathway ? 'source_path' : 'unverified')
-    assert.equal(plan.diagnostics.unverifiedStationAccessLegs, usePathway ? 0 : 1)
-    if (!usePathway) assert.match(plan.detail, /station access unverified/)
-    const walk = plan.legs.find(leg => leg.transferSource === (usePathway ? 'gtfs_pathway' : 'parent_station_fallback'))
-    if (usePathway) {
-      assert.equal(walk.durationMinutes, 3)
-      assert.equal(walk.distanceKm, 0.24)
-    } else {
-      assert(walk.durationMinutes > 2)
-      // An unverified link claims no measured distance; its time still covers
-      // the drawn straight line at walking speed.
-      assert.equal(walk.distanceKm, undefined)
-      const [[lon1, lat1], [lon2, lat2]] = walk.coordinates
-      const rad = Math.PI / 180
-      const lineKm = 2 * 6371.0088 * Math.asin(Math.sqrt(Math.sin((lat2 - lat1) * rad / 2) ** 2
-        + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin((lon2 - lon1) * rad / 2) ** 2))
-      assert(walk.durationMinutes * 60 >= lineKm / 4.8 * 3600 - 0.5)
-    }
   }
-  console.log('GTFS pathway and parent-station walking times preserve boarding feasibility.')
+  console.log('GTFS pathway transfers are imported with their declared lengths.')
 } finally {
   disposeAllNationalGtfsStores()
   await fs.rm(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })

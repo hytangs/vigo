@@ -24,7 +24,7 @@ const areaTags = {
 }
 
 /** The name and rank a way gives a street, or null. A tunnel names nothing above it. */
-export function placeStreetName(tags) {
+function placeStreetName(tags) {
   const rank = roadRanks.get(String(tags.highway ?? ''))
   if (!rank || (tags.tunnel && tags.tunnel !== 'no')) return null
   const name = String(tags.name ?? '').trim() || (rank <= 2 ? String(tags.ref ?? '').trim() : '')
@@ -32,7 +32,7 @@ export function placeStreetName(tags) {
 }
 
 /** The kind of named area a closed way is, or null. */
-export function placeAreaKind(way, tags) {
+function placeAreaKind(way, tags) {
   if (!String(tags.name ?? '').trim() || way.refs.length < 4 || way.refs[0] !== way.refs.at(-1)) return null
   for (const [key, values] of Object.entries(areaTags)) if (values.has(String(tags[key] ?? ''))) return `${key}:${tags[key]}`
   return null
@@ -43,7 +43,7 @@ export function placeWayNeedsNodes(way, tags) {
   return Boolean(placeStreetName(tags) || placeAreaKind(way, tags))
 }
 
-export function encodePlacePolyline(points) {
+function encodePlacePolyline(points) {
   const bytes = []
   let previousLon = 0, previousLat = 0
   for (const [lon, lat] of points) {

@@ -254,7 +254,7 @@ function immutableJsonSnapshot(value) {
   return value
 }
 
-export function supportedScheduledCoreCoverage(store) {
+function supportedScheduledCoreCoverage(store) {
   const excludedFeatures = (store.routingLimitations ?? [])
     .filter((feature) => supportedScheduledCoreLimitationCodes.has(feature.code))
     .map((feature) => ({

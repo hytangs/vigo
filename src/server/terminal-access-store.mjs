@@ -17,7 +17,7 @@ function authorizedTags(tags) {
   )))
 }
 
-export function authorizedPrivateWay(tags) {
+function authorizedPrivateWay(tags) {
   const access = tag(tags.access), foot = tag(tags.foot)
   if (access !== 'private' && foot !== 'private') return false
   if (foot === 'no' || (access === 'no' && foot !== 'private')) return false

@@ -1,6 +1,4 @@
 import { gtfsTableEntry, streamGtfsZipCsv } from './gtfs-zip-reader.mjs'
-import { engineFareNeedsScheduledTime, fareEngineFromJson, quoteEngineFare } from '../fares.mjs'
-import { WeightedLruCache } from './weighted-lru-cache.mjs'
 
 // Kept separate from the routing graph: fare data never changes path selection.
 const fareTables = ['fare_attributes', 'fare_rules', 'fare_products', 'fare_media',
@@ -13,74 +11,6 @@ const contextFields = {
   calendar: ['service_id', 'start_date', 'end_date', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'],
   calendar_dates: ['service_id', 'date', 'exception_type'],
 }
-const catalogsByDatabase = new WeakMap()
-const missingFare = Object.freeze({ status: 'unavailable', code: 'missing_catalog', reason: 'Fare data was not imported with this timetable.' })
-const invalidFare = Object.freeze({ status: 'unavailable', code: 'invalid_data', reason: 'The saved fare data could not be read. Your route is still available.' })
-
-function databaseState(db) {
-  let state = catalogsByDatabase.get(db)
-  if (!state) {
-    const present = db.prepare("SELECT 1 FROM sqlite_master WHERE name='fare_catalogs' AND type='table'").get()
-    state = { scopes: new Set(present ? db.prepare('SELECT scope FROM fare_catalogs').all().map(row => row.scope) : []),
-      catalogQuery: present ? db.prepare('SELECT data FROM fare_catalogs WHERE scope=?') : null,
-      catalogs: new WeightedLruCache({ maxEntries: 8, maxBytes: 32 * 1024 * 1024 }),
-      trips: new WeightedLruCache({ maxEntries: 128, maxBytes: 2 * 1024 * 1024 }), tripQuery: null, plans: new WeakMap() }
-    catalogsByDatabase.set(db, state)
-  }
-  return state
-}
-
-// The saved catalog's fare engine. Unreadable or oversized data becomes an
-// engine whose quotes explain that fares are unavailable.
-function catalogForScope(state, scope) {
-  if (!state.scopes.has(scope)) return null
-  let engine = state.catalogs.get(scope)
-  if (!engine) {
-    const raw = state.catalogQuery.get(scope)?.data
-    const valid = typeof raw === 'string' && raw.length <= 16 * 1024 * 1024
-    engine = fareEngineFromJson(valid ? raw : '')
-    state.catalogs.set(scope, engine, { bytes: valid ? raw.length * 4 : 128 })
-  }
-  return engine
-}
-
-// Find a unique contiguous stop sequence in linear time, including loop routes.
-function uniqueSequenceOffset(values, pattern) {
-  const prefix = new Array(pattern.length).fill(0)
-  for (let i = 1, j = 0; i < pattern.length; i++) {
-    while (j && pattern[i] !== pattern[j]) j = prefix[j - 1]
-    if (pattern[i] === pattern[j]) j++
-    prefix[i] = j
-  }
-  let found = -1
-  for (let i = 0, j = 0; i < values.length; i++) {
-    while (j && values[i] !== pattern[j]) j = prefix[j - 1]
-    if (values[i] === pattern[j]) j++
-    if (j === pattern.length) {
-      if (found !== -1) return -1
-      found = i - j + 1
-      j = prefix[j - 1]
-    }
-  }
-  return found
-}
-
-function scheduledFareLeg(db, state, leg) {
-  if (leg.scheduleMode !== 'realtime-adjusted' || !leg.tripId || !(leg.stopIds?.length >= 2)) return leg
-  let connections = state.trips.get(leg.tripId)
-  if (!connections) {
-    state.tripQuery ??= db.prepare('SELECT departure, arrival, from_stop_id, to_stop_id FROM connections WHERE trip_id=? ORDER BY stop_sequence LIMIT 4097')
-    const rows = state.tripQuery.all(leg.tripId)
-    connections = rows.length > 4096 ? [] : rows
-    state.trips.set(leg.tripId, connections, { bytes: JSON.stringify(connections).length * 2 })
-  }
-  if (!connections.length || connections.some((row, i) => i && row.from_stop_id !== connections[i - 1].to_stop_id)) return leg
-  const sequence = [connections[0].from_stop_id, ...connections.map(row => row.to_stop_id)]
-  const offset = uniqueSequenceOffset(sequence, leg.stopIds)
-  return offset < 0 ? leg : { ...leg, scheduleMode: 'exact', startMinutes: connections[offset].departure / 60,
-    endMinutes: connections[offset + leg.stopIds.length - 2].arrival / 60 }
-}
-
 export async function readGtfsFareCatalog(archive, { budget } = {}) {
   if (!['fare_products', 'fare_attributes'].some(name => gtfsTableEntry(archive, `${name}.txt`))) return null
   const tables = {}
@@ -110,7 +40,6 @@ export function writeGtfsFareCatalog(db, catalog, scope = '') {
   if (!catalog) return
   db.exec('CREATE TABLE IF NOT EXISTS fare_catalogs(scope TEXT PRIMARY KEY, data TEXT NOT NULL) WITHOUT ROWID')
   db.prepare('INSERT OR REPLACE INTO fare_catalogs VALUES(?,?)').run(scope, JSON.stringify(catalog))
-  catalogsByDatabase.delete(db)
 }
 
 export function copyGtfsFareCatalogs(db, alias, scope) {
@@ -120,49 +49,4 @@ export function copyGtfsFareCatalogs(db, alias, scope) {
   for (const row of db.prepare(`SELECT scope, data FROM ${alias}.fare_catalogs`).all()) {
     writeGtfsFareCatalog(db, JSON.parse(row.data), row.scope ? `${scope}\u001f${row.scope}` : scope)
   }
-}
-
-// Bound speculative preparation below the retained catalog budget. Large
-// merged Cities still load other fare scopes when a returned ride needs them.
-export function prepareGtfsFares(db) {
-  let prepared = 0, skipped = 0, bytes = 0
-  try {
-    const state = databaseState(db)
-    if (!state.catalogQuery) return { prepared, skipped, bytes }
-    const sizes = db.prepare('SELECT scope, length(CAST(data AS BLOB)) AS bytes FROM fare_catalogs ORDER BY scope').all()
-    for (const row of sizes) {
-      if (prepared >= 8 || bytes + row.bytes > 8 * 1024 * 1024) { skipped++; continue }
-      bytes += row.bytes
-      if (catalogForScope(state, row.scope).usable()) prepared++
-      else skipped++
-    }
-  } catch { /* Fare data is optional; routing preparation remains usable. */ }
-  return { prepared, skipped, bytes }
-}
-
-export function addGtfsFares(db, plan) {
-  if (plan?.status !== 'ready' || !plan.legs?.some(leg => leg.type === 'ride')) return plan
-  // Optional fare failures must never discard an already-computed journey.
-  let state
-  try { state = databaseState(db) } catch {
-    return { ...plan, legs: plan.legs.map(leg => leg.type === 'ride' ? { ...leg, fare: invalidFare } : leg) }
-  }
-  if (state.plans.has(plan)) return state.plans.get(plan)
-  const legs = plan.legs.map(leg => {
-    if (leg.type !== 'ride') return leg
-    try {
-      const separator = leg.routeId?.lastIndexOf('\u001f') ?? -1
-      const scope = separator < 0 ? '' : leg.routeId.slice(0, separator)
-      const prefix = scope ? `${scope}\u001f` : ''
-      const engine = catalogForScope(state, scope)
-      if (!engine || (prefix && ![leg.fromStopId, leg.toStopId].every(id => id?.startsWith(prefix)))) return { ...leg, fare: missingFare }
-      const unscoped = value => value?.startsWith(prefix) ? value.slice(prefix.length) : value
-      const ids = { routeId: unscoped(leg.routeId), fromStopId: unscoped(leg.fromStopId), toStopId: unscoped(leg.toStopId) }
-      const scheduled = leg.scheduleMode === 'realtime-adjusted' && engineFareNeedsScheduledTime(engine, ids) ? scheduledFareLeg(db, state, leg) : leg
-      return { ...leg, fare: quoteEngineFare(engine, { ...scheduled, ...ids }, plan.diagnostics?.serviceDate) }
-    } catch { return { ...leg, fare: invalidFare } }
-  })
-  const annotated = { ...plan, legs }
-  state.plans.set(plan, annotated)
-  return annotated
 }

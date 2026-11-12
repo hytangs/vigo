@@ -1,6 +1,6 @@
 # VIGO Python 1.0.0 guide
 
-Canonical source for the [documentation reader](index.html). Edit the relevant chapter, then rebuild the reader.
+The source of the [offline reader](index.html). Edit a chapter, then run `python scripts/build-docs.py` from `python/`.
 
 ## Routing from Python, without rebuilding the network.
 
@@ -247,7 +247,6 @@ The VIGO command line uses the same nouns: `vigo build`, `vigo inspect`, `vigo r
 `arrive_by` and all Matrix shapes. A finite cap with ordered transit
 waypoints is currently unsupported.
 
-[Documentation](#routing-from-python-without-rebuilding-the-network) · [Workflows](#workflows) · [Reference](reference.md)
 
 ## Workflows
 
@@ -368,7 +367,7 @@ For arrive-by Matrix, `durationMinutes` runs from the latest departure to the re
 
 ### Compare a service proposal
 
-Use the same Reach Query for the baseline and proposed service. Here the proposal adds a modeled service between two coordinates: both directions, a 05:00–25:00 service span, ten-minute headways, estimated travel at 22 km/h, and 0.35 minutes of dwell. These are authored assumptions, not observed operations. Use the Engine's [Scenario reference](https://github.com/hytangs/vigo/blob/main/docs/guide.md#scenario-semantics) for adding, augmenting, replacing, or excluding service.
+Use the same Reach Query for the baseline and proposed service. Here the proposal adds a modeled service between two coordinates: both directions, a 05:00–25:00 service span, ten-minute headways, estimated travel at 22 km/h, and 0.35 minutes of dwell. These are authored assumptions, not observed operations. Use the Engine's [Scenario reference](https://github.com/hytangs/vigo/blob/main/docs/guide.md#scenarios) for adding, augmenting, replacing, or excluding service.
 
 ```python
 import vigo
@@ -477,7 +476,6 @@ Keep the authored requests with this output, including failed requests that have
 
 For background work, use [`city.submit(query)`](reference.md#job). A background job can finish successfully with a blocked Result; `Job.status` describes execution, while `Result.status` describes the modeled answer.
 
-[Documentation](#routing-from-python-without-rebuilding-the-network) · [Results](#results) · [Python reference](reference.md)
 
 ## Results
 
@@ -588,7 +586,36 @@ with vigo.open("./boston") as city:
 
 Timing describes execution, not accuracy. Synthetic integration tests check contracts and controlled routing behavior; they do not establish field prediction accuracy. Interpret results within the Engine's [data and routing limits](https://github.com/hytangs/vigo/blob/main/docs/guide.md#known-limits).
 
-[Documentation](#routing-from-python-without-rebuilding-the-network) · [Workflows](#workflows) · [Runtime measurement](#measure-the-complete-operation)
+
+## Decompose journeys for analysis
+
+Route and Matrix Results can be separated into journey summaries and individual legs. For Matrix, request `include_journeys=True` when computing the Result. The helpers use only the Python standard library; pandas is optional for analysis:
+
+```python
+import pandas as pd
+
+journeys = pd.json_normalize(result.iter_journeys())
+legs = pd.json_normalize(result.iter_legs())
+if not legs.empty and "durationMinutes" in legs:
+    minutes_by_type = (
+        legs.groupby(["journeyIndex", "type"], dropna=False)["durationMinutes"]
+        .sum(min_count=1)
+        .unstack("type")
+    )
+    analysis = journeys.join(minutes_by_type.add_prefix("leg_minutes_"), on="journeyIndex")
+else:
+    analysis = journeys
+```
+
+This retains blocked journeys and missing itinerary detail in the summary table. Missing component durations stay missing; journey duration remains the Engine value because elapsed waiting and leg durations need not sum to the same total. Leg types and time units retain their Engine meanings. Request `include_geometry=True` on `iter_legs()` to copy available geometry.
+
+For dependency-free CSV export, use [decompose_result.py](../examples/decompose_result.py):
+
+```bash
+python examples/decompose_result.py result.json --kind matrix --output tables
+```
+
+The input is a saved `result.export("result.json")` file. The script writes `journeys.csv`, `legs.csv`, and `record.json` with query, warnings and timing. Nested fields are JSON encoded in CSV. Supply `--scenario` and `--city-revision` if that provenance is absent from the exported payload. An empty leg table contains no itinerary records. `result.export_tables("tables")` discovers columns in one pass and writes records in a second, keeping only one record at a time. The Engine response itself is already resident. Serialization completes before existing files are replaced; use a separate output directory per Result when readers need a consistent set of tables.
 
 ## Runtime and loading
 
@@ -606,7 +633,7 @@ Python requires version 3.10 or newer. Install a local platform wheel with `pyth
 
 For a source install, run `python -m pip install -e .` from the wrapper checkout, then select a compatible runtime explicitly. An adjacent Engine checkout is not automatically selected. Maintainers can [stage and build a headless platform wheel](../CONTRIBUTING.md#build-a-headless-wheel).
 
-The self-contained wheel still communicates with a Node process. Rust performs routing kernels; JavaScript handles GTFS row loading, orchestration, and itinerary assembly. It is not a direct Python/Rust extension.
+The wheel runs the VIGO compiler, `vigo.mjs`, as a resident process with its own private Node; routing runs in the engine's Rust kernels. It is not a direct Python/Rust extension, and Python needs no system Node or Rust.
 
 ### From GTFS and OSM to the first answer
 
@@ -736,6 +763,10 @@ For repeated work, reuse one City in a context manager. Route answers are recomp
 
 Requests for the same service date share and serialize access to its process. Different dates can use separate processes within the pool limit. `submit()` moves work to a background thread; it does not create an independent process per request. Await submitted jobs before leaving the City's context.
 
+### Reuse processes across dates
+
+With an Engine advertising per-request service dates, one idle process can serve weekday and weekend queries. The pool grows only when requests overlap, within its existing process limit. Older compatible engines retain date-specific processes. Reuse one open City and close it after the study; no process management is required in analysis code.
+
 ### Timeouts and failures
 
 `vigo.open(..., timeout=120)` sets the Query timeout in seconds. Waiting for an available resident process and waiting for its response each use that limit. A timed-out resident process is stopped; a later Query can start a fresh one. `City.close()` waits for active resident queries before closing their processes.
@@ -776,7 +807,6 @@ default is `False`, which allows a direct walk to compete with transit. Set `Tru
 attributing a latency difference to a version change. A sub-millisecond native
 timetable measurement is distinct from a complete Python Route call.
 
-[Documentation](#routing-from-python-without-rebuilding-the-network) · [Troubleshooting](#troubleshooting) · [Results](#results)
 
 ## Troubleshooting
 
@@ -861,42 +891,3 @@ Keep runtime preparation, computation, Python call duration, and export time sep
 Include the wrapper and Engine versions, OS/CPU, runtime selection method, smallest failing Python request, exact exception or Result status, and whether the failure occurs on the first or a repeated query. Include a shareable synthetic fixture when possible. Describe City inputs and build options without uploading licensed feeds, credentials, private paths, or private study results.
 
 Report Python packaging, argument conversion, process lifetime, and Python exports in [VIGO Python issues](https://github.com/hytangs/vigo/issues). Shared transport computation belongs in [VIGO Engine issues](https://github.com/hytangs/vigo/issues).
-
-[Documentation](#routing-from-python-without-rebuilding-the-network) · [Reference](reference.md) · [Runtime](#runtime-and-loading)
-
-
-
-## Decompose journeys for analysis
-
-Route and Matrix Results can be separated into journey summaries and individual legs. For Matrix, request `include_journeys=True` when computing the Result. The helpers use only the Python standard library; pandas is optional for analysis:
-
-```python
-import pandas as pd
-
-journeys = pd.json_normalize(result.iter_journeys())
-legs = pd.json_normalize(result.iter_legs())
-if not legs.empty and "durationMinutes" in legs:
-    minutes_by_type = (
-        legs.groupby(["journeyIndex", "type"], dropna=False)["durationMinutes"]
-        .sum(min_count=1)
-        .unstack("type")
-    )
-    analysis = journeys.join(minutes_by_type.add_prefix("leg_minutes_"), on="journeyIndex")
-else:
-    analysis = journeys
-```
-
-This retains blocked journeys and missing itinerary detail in the summary table. Missing component durations stay missing; journey duration remains the Engine value because elapsed waiting and leg durations need not sum to the same total. Leg types and time units retain their Engine meanings. Request `include_geometry=True` on `iter_legs()` to copy available geometry.
-
-For dependency-free CSV export, use [decompose_result.py](../examples/decompose_result.py):
-
-```bash
-python examples/decompose_result.py result.json --kind matrix --output tables
-```
-
-The input is a saved `result.export("result.json")` file. The script writes `journeys.csv`, `legs.csv`, and `record.json` with query, warnings and timing. Nested fields are JSON encoded in CSV. Supply `--scenario` and `--city-revision` if that provenance is absent from the exported payload. An empty leg table contains no itinerary records. `result.export_tables("tables")` discovers columns in one pass and writes records in a second, keeping only one record at a time. The Engine response itself is already resident. Serialization completes before existing files are replaced; use a separate output directory per Result when readers need a consistent set of tables.
-
-
-### Reuse processes across dates
-
-With an Engine advertising per-request service dates, one idle process can serve weekday and weekend queries. The pool grows only when requests overlap, within its existing process limit. Older compatible engines retain date-specific processes. Reuse one open City and close it after the study; no process management is required in analysis code.

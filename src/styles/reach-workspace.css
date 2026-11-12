@@ -82,8 +82,6 @@
 .reach-check strong { color: var(--text-1); font-weight: 500; }
 .reach-check small { color: var(--text-3); font-size: var(--type-xs); }
 
-/* Compare: one reference, then the scenarios and timetables measured against it. */
-
 /* The run action stays in reach while the query scrolls. */
 .reach-run-block {
   position: sticky;
@@ -140,8 +138,6 @@
 .reach-result-flow > .is-gain b { color: var(--good); }
 .reach-result-flow > svg { color: var(--text-4); }
 .reach-scenario-difference { margin: 0; color: var(--text-2); font-size: var(--type-sm); }
-
-/* Compare results */
 
 /* A clicked destination on the map: its time, then the journey on demand. */
 .reach-point-inspector {

@@ -306,8 +306,19 @@ fn realtime_diagnostics(overlay: &realtime::Overlay, snapshot: &Value) -> Value 
 pub(crate) struct Drive {
     pub automatic_traffic: Option<std::sync::Arc<vigo_traffic::Snapshot>>,
     pub kernel: DriveKernel,
-    pub image: Image,
+    pub image: Arc<Image>,
 }
+
+/// The last walking-transfer index and what it was prepared from: the
+/// transfer inputs, retained stops and walking speed. Timetable views that
+/// differ only in departures, such as realtime snapshots, reuse it.
+struct SharedTransferIndex {
+    inputs: Arc<TransferInputs>,
+    retained: Vec<u8>,
+    speed: u64,
+    index: Arc<vigo_route::timetable::TransferIndex>,
+}
+
 pub struct City {
     pub(crate) path: PathBuf,
     /// The routing store; a City's is `routing/project.sqlite`.
@@ -367,6 +378,7 @@ pub struct City {
     pub(super) window_shared_legs: Option<Vec<super::shared_legs::DeferredSharedLegs>>,
     pub(crate) calendar: std::sync::OnceLock<super::calendar::CalendarIndex>,
     pub(crate) transfer_inputs: OnceLock<Arc<TransferInputs>>,
+    transfer_index: Option<SharedTransferIndex>,
     pub(crate) route_types: OnceLock<Arc<HashMap<String, i64>>>,
     // The server's installed live snapshot, the one this query uses, and the
     // last live query, whose view a new snapshot derives ahead of demand.
@@ -784,6 +796,7 @@ impl City {
             window_shared_legs: None,
             calendar: Default::default(),
             transfer_inputs: OnceLock::new(),
+            transfer_index: None,
             route_types: OnceLock::new(),
             live: None,
             query_live: None,
@@ -1482,7 +1495,7 @@ impl City {
         for &s in source.from_stop.iter().chain(&source.to_stop) {
             retained[s as usize] = 1;
         }
-        let mut p = crate::prepare_timetable_indexes_view(crate::TimetablePreparationView {
+        let view = crate::TimetablePreparationView {
             departure_seconds: &source.departure_seconds,
             from_stop: &source.from_stop,
             can_board: &source.can_board,
@@ -1496,7 +1509,28 @@ impl City {
             station_offset: &transfers.station_offset,
             station_members: &transfers.station_members,
             walking_speed_kph: self.speed,
-        })?;
+        };
+        let speed = self.speed.to_bits();
+        let walking = match &self.transfer_index {
+            Some(shared)
+                if Arc::ptr_eq(&shared.inputs, &transfers)
+                    && shared.retained == retained
+                    && shared.speed == speed =>
+            {
+                shared.index.clone()
+            }
+            _ => {
+                let index = Arc::new(vigo_route::timetable::prepare_transfer_index_view(&view)?);
+                self.transfer_index = Some(SharedTransferIndex {
+                    inputs: transfers.clone(),
+                    retained: retained.clone(),
+                    speed,
+                    index: index.clone(),
+                });
+                index
+            }
+        };
+        let mut p = vigo_route::timetable::prepare_departure_indexes_view(&view, &walking)?;
         if !allow {
             let group = |id: &String| {
                 let mut id = id.clone();
@@ -1860,36 +1894,35 @@ impl City {
 }
 
 fn open_drive(city: &Path) -> Result<Drive> {
-    {
-        let path = city.join("osm/street-index.sqlite.drive-accelerator-v2.bin");
-        let image = Image::open(&path, false)?;
-        if image.header["magic"] != "vigo.drive.accelerator" || image.header["version"] != 2 {
-            return fail("Unsupported drive snapshot");
-        }
-        let (structure, time, distance) = cch_files(&path, "drive")?;
-        let lons = image.f64("nodeLons")?;
-        let lats = image.f64("nodeLats")?;
-        // The kernel owns the coordinates; it attaches free points to roads.
-        let kernel = DriveKernel::new(DriveKernelInput {
-            node_count: lons.len() as u32,
-            node_lons: lons,
-            node_lats: lats,
-            edge_offsets: image.u32("edgeOffsets")?,
-            edge_targets: image.u32("edgeTargets")?,
-            edge_distances: None,
-            edge_travel_times: None,
-            edge_distance_units: Some(image.u32("edgeDistanceUnits")?),
-            edge_time_units: Some(image.u32("edgeTimeUnits")?),
-            cch_structure_path: Some(structure),
-            cch_time_metric_path: Some(time),
-            cch_distance_metric_path: distance,
-        })?;
-        Ok(Drive {
-            automatic_traffic: None,
-            kernel,
-            image,
-        })
+    let path = city.join("osm/street-index.sqlite.drive-accelerator-v2.bin");
+    let image = Arc::new(Image::open(&path, false)?);
+    if image.header["magic"] != "vigo.drive.accelerator" || image.header["version"] != 2 {
+        return fail("Unsupported drive snapshot");
     }
+    let (structure, time, distance) = cch_files(&path, "drive")?;
+    // The kernel reads the graph in place from the immutable accelerator
+    // and owns its coordinates for attaching free points to roads.
+    use crate::exact_routing::{F64Column, U32Column};
+    let lons = F64Column::mapped(&image, "nodeLons")?;
+    let kernel = DriveKernel::new(DriveKernelInput {
+        node_count: lons.len() as u32,
+        node_lons: lons,
+        node_lats: F64Column::mapped(&image, "nodeLats")?,
+        edge_offsets: U32Column::mapped(&image, "edgeOffsets")?,
+        edge_targets: U32Column::mapped(&image, "edgeTargets")?,
+        edge_distances: None,
+        edge_travel_times: None,
+        edge_distance_units: Some(U32Column::mapped(&image, "edgeDistanceUnits")?),
+        edge_time_units: Some(U32Column::mapped(&image, "edgeTimeUnits")?),
+        cch_structure_path: Some(structure),
+        cch_time_metric_path: Some(time),
+        cch_distance_metric_path: distance,
+    })?;
+    Ok(Drive {
+        automatic_traffic: None,
+        kernel,
+        image,
+    })
 }
 
 // Realtime views keep every original trip, so the source's tables still apply.

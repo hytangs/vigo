@@ -11,7 +11,7 @@ import { nativePreliminaryRequest, nativeReachRangeRequest, nativeSurface, plann
 import { nativeStoreContext } from './native-store-context.mjs'
 
 import crypto from 'node:crypto'
-import { constants, createReadStream, existsSync, statSync } from 'node:fs'
+import { constants, createReadStream, existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import http from 'node:http'
 import os from 'node:os'
@@ -20,7 +20,6 @@ import { jobProgressUpdate } from './runtime/job-progress.mjs'
 import { DatabaseSync } from 'node:sqlite'
 import { Duplex, PassThrough } from 'node:stream'
 import { PreparationProcess } from './runtime/preparation-process.mjs'
-import { vigoCapabilities } from '../capabilities.mjs'
 import { createAgencyService } from './agency-api.mjs'
 import { readProjectPreview } from './project-preview-cache.mjs'
 import { applyLocalCors, assertLocalBindHost, localRequestAccess } from './local-http-security.mjs'
@@ -35,7 +34,7 @@ import { readNationalOsmStoreMetadata } from './national-osm-store.mjs'
 import { readLocalBasemap, localBasemapBudgets } from './local-basemap-store.mjs'
 import { networkSignatureVersion } from './network-signature.mjs'
 import { renderNativeLocalBasemapTile } from './native-routing-kernel.mjs'
-import { routingMinute, studioRoutingMinuteLimit } from './number-utils.mjs'
+import { routingMinute } from './number-utils.mjs'
 import { compactReachResult, compileReachScenario, computeReachResult, reachPlace } from './reach.mjs'
 import { readScenarioLibrary, scenarioLibraryFileName, writeScenarioLibrary } from './scenario-library.mjs'
 import { inspectRealtimeFeed } from './realtime-inspector.mjs'
@@ -45,7 +44,7 @@ import { normalizeRoutingPointIdentities } from './routing-point-identity.mjs'
 import { hydrateScenarioRouteServices } from './scenario-services.mjs'
 import { resolveServiceDay, serviceDayForDate } from './service-day.mjs'
 import { createStreetPreparationManager, prepareStreetsInWorker } from './street-preparation.mjs'
-import { allocateProjectTransportAtlasBudgets, compactTransportPreview, projectTransportAtlasBudgets } from './transport-atlas.mjs'
+import { allocateProjectTransportAtlasBudgets, compactTransportPreview } from './transport-atlas.mjs'
 import { bundleNetworkScope, createTransitNetworkTiles, transitNetworkCatalog } from './transit-network-tiles.mjs'
 
 const defaultHost = '127.0.0.1'
@@ -204,7 +203,7 @@ function slugify(value) {
 }
 
 function integralRoutingMinute(value, label, fallback = 8 * 60) {
-  try { return routingMinute(value, label, fallback, studioRoutingMinuteLimit, true) }
+  try { return routingMinute(value, label, fallback) }
   catch (error) { throw Object.assign(error, { statusCode: 400, code: 'invalid_routing_time' }) }
 }
 
@@ -735,119 +734,6 @@ function projectVisibleManifest(project) {
       osmStreetIndex: '.vigo/osm/street-index.sqlite',
       artifacts: '.vigo/artifacts',
     },
-  }
-}
-
-function reproducibilityStoreManifest(store, metadata) {
-  const source = metadata ?? store
-  if (!source) return null
-  return {
-    schemaVersion: source.schemaVersion,
-    status: store?.status ?? 'ready',
-    routingEligibility: store?.routingEligibility ?? source.routingEligibility,
-    sourceFingerprint: source.sourceFingerprint ?? store?.sourceFingerprint,
-    sourceFile: source.sourceFile,
-    sourceBytes: Number(source.sourceBytes ?? 0) || undefined,
-    builtAt: source.builtAt ?? store?.builtAt,
-    routeCount: Number(source.routeCount ?? 0),
-    stopCount: Number(source.stopCount ?? 0),
-    tripCount: Number(source.tripCount ?? 0),
-    stopTimeCount: Number(source.stopTimeCount ?? 0),
-    connectionCount: Number(source.connectionCount ?? store?.connectionCount ?? 0),
-    transferCount: Number(source.transferCount ?? 0),
-    frequencyCount: Number(source.frequencyCount ?? 0),
-    frequencyRoutingModel: source.frequencyRoutingModel,
-    featureInventory: source.featureInventory,
-    blockingRoutingFeatures: source.blockingRoutingFeatures ?? store?.blockingRoutingFeatures ?? [],
-    routingLimitations: source.routingLimitations ?? store?.routingLimitations ?? [],
-    sourceStores: source.sourceStores,
-  }
-}
-
-async function projectReproducibilityManifest(projectId) {
-  const project = await readProjectMetadata(projectId)
-  const [jobRecords, artifactRecords] = await Promise.all([
-    readJsonRecords(path.join(projectMetaDir(projectId), 'jobs')),
-    readJsonRecords(path.join(projectMetaDir(projectId), 'artifacts')),
-  ])
-  const jobs = mergeRecords(jobRecords, project.jobs).map((job) => ({
-    schemaVersion: job.schemaVersion ?? jobSchemaVersion,
-    id: job.id,
-    kind: job.kind,
-    label: job.label,
-    status: job.status,
-    progress: Number(job.progress ?? 0),
-    createdAt: job.createdAt,
-    phase: job.phase,
-    detail: job.detail,
-    failureCode: job.failureCode,
-    retryable: job.retryable,
-    retryOf: job.retryOf,
-    sourceFile: job.sourceFile,
-    phaseTimingsMs: job.phaseTimingsMs,
-    preparation: job.preparation,
-    finishedAt: job.finishedAt,
-    result: job.result?.feedId ? { feedId: job.result.feedId } : undefined,
-  }))
-  const feeds = await Promise.all((project.feeds ?? []).map(async (feed) => {
-    const storePath = feed.routingStore?.status === 'ready' ? feedRoutingStoreFile(projectId, feed) : ''
-    const metadata = storePath && await exists(storePath)
-      ? await Promise.resolve().then(() => readNationalGtfsStoreMetadata(storePath)).catch(() => null)
-      : null
-    return {
-      id: feed.id,
-      name: feed.name,
-      source: feed.source,
-      fileName: feed.fileName,
-      fileSize: Number(feed.fileSize ?? 0),
-      hash: feed.hash,
-      routeCount: Number(feed.routeCount ?? 0),
-      stopCount: Number(feed.stopCount ?? 0),
-      tripCount: Number(feed.tripCount ?? 0),
-      routingStore: reproducibilityStoreManifest(feed.routingStore, metadata),
-    }
-  }))
-  const projectStorePath = project.routingStore?.status === 'ready' ? projectRoutingStoreFile(projectId, project) : ''
-  const projectStoreMetadata = projectStorePath && await exists(projectStorePath)
-    ? await Promise.resolve().then(() => readNationalGtfsStoreMetadata(projectStorePath)).catch(() => null)
-    : null
-  const street = project.osmStreetIndex
-  return {
-    schemaVersion: 'vigo.reproducibility.v1',
-    generatedAt: now(),
-    appVersion,
-    contracts: {
-      preparation: 'vigo.preparation.v1',
-      job: jobSchemaVersion,
-      routingStatus: routingStatusSchemaVersion,
-    },
-    project: {
-      id: project.id,
-      name: project.name,
-      region: project.region,
-      createdAt: project.createdAt,
-      updatedAt: project.updatedAt,
-    },
-    summary: project.summary,
-    feeds,
-    routingStore: reproducibilityStoreManifest(project.routingStore, projectStoreMetadata),
-    osmStreetIndex: street
-      ? {
-        schemaVersion: street.schemaVersion,
-        status: street.status,
-        fileName: street.fileName,
-        sourceFingerprint: street.sourceFingerprint,
-        sourceBytes: Number(street.sourceBytes ?? 0),
-        bytes: Number(street.bytes ?? 0),
-        builtAt: street.builtAt,
-        nodeCount: Number(street.nodeCount ?? 0),
-        edgeCount: Number(street.edgeCount ?? 0),
-        wayCount: Number(street.wayCount ?? 0),
-        cch: street.cch,
-      }
-      : null,
-    jobs,
-    artifacts: mergeRecords(artifactRecords, project.artifacts),
   }
 }
 
@@ -3000,7 +2886,6 @@ async function retryNationalImportJob(projectId, jobId) {
   return retried
 }
 
-
 async function requireCaseRoutingStore(projectId, project, body) {
   const feedIds = cityCaseFeedIds(project, body)
   // Reach comparisons need both timetable groups in the combined store.
@@ -3683,9 +3568,9 @@ function transferSettings(body) {
   }
 }
 
-async function streetWorkerStore(projectId, project, feedId = '') {
+async function streetWorkerStore(projectId, project) {
   const hasTimetable = project.routingStore?.status === 'ready' || project.feeds?.some(feed => feed.routingStore?.status === 'ready')
-  return hasTimetable ? (await requireRoutingStore(projectId, project, feedId)).storePath : streetStoreFile(projectId)
+  return hasTimetable ? (await requireRoutingStore(projectId, project)).storePath : streetStoreFile(projectId)
 }
 
 // Water around a Reach origin, read once per street build and grid.
@@ -4193,11 +4078,6 @@ async function route(request, response) {
     return true
   }
 
-  if (request.method === 'GET' && pathname === '/api/capabilities') {
-    sendJson(response, 200, { capabilities: vigoCapabilities(appVersion) })
-    return true
-  }
-
   if (request.method === 'GET' && pathname === '/api/config') {
     sendJson(response, 200, { config: await configStatus() })
     return true
@@ -4213,7 +4093,7 @@ async function route(request, response) {
     return true
   }
 
-  if ((request.method === 'POST' || request.method === 'PATCH') && pathname === '/api/config') {
+  if (request.method === 'PATCH' && pathname === '/api/config') {
     sendJson(response, 200, { config: await updateRuntimeConfig(await readBody(request)) })
     return true
   }
@@ -4408,11 +4288,6 @@ async function route(request, response) {
 
     if (request.method === 'GET' && action === 'local-basemap') {
       sendJson(response, 200, await readProjectBasemap(projectId, url))
-      return true
-    }
-
-    if (request.method === 'GET' && action === 'reproducibility') {
-      sendJson(response, 200, { manifest: await projectReproducibilityManifest(projectId) })
       return true
     }
 

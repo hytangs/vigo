@@ -314,12 +314,8 @@ function presentNetworkOverview(serialized) {
   return overview
 }
 
-export function readGtfsNetworkOverview(storePath, options = {}) {
-  return presentNetworkOverview(nativeNetworkOverview(storePath, String(options.sourceScope || '').trim()))
-}
-
 export async function readGtfsNetworkOverviewAsync(storePath, options = {}) {
-  return presentNetworkOverview(await nativeNetworkOverview(storePath, String(options.sourceScope || '').trim(), true))
+  return presentNetworkOverview(await nativeNetworkOverview(storePath, String(options.sourceScope || '').trim()))
 }
 
 function resolveRouteService(db, routeId, sourceScope) {

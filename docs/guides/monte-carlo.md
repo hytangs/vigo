@@ -1,12 +1,6 @@
 # Monte Carlo routing and accessibility
 
-VIGO supports opt-in departure-window distributions to the native Route, Matrix and
-Reach endpoints. Studio exposes the controls under Analyze → Departure window.
-The ordinary single-time result contract stays unchanged. No City rebuild or new
-package dependency is required for simulation. The engine corrects an extra
-end-boundary departure in newly built exact-frequency GTFS service. Existing
-Cities retain their stored expanded trips; rebuild from source to apply that
-separate compiler correction.
+A single Route, Matrix or Reach answers for one departure time. Travel time by transit can change a lot from minute to minute, and a planned frequency service has no fixed timetable yet. Add `monteCarlo` to a request to repeat it over a departure window and sampled schedules, and get travel-time percentiles instead of one value. The engine, the compiler, Studio (**Analyze → Departure window**) and Python's `monte_carlo` option use the same sampler. No City rebuild is needed.
 
 ```json
 {
@@ -26,20 +20,17 @@ separate compiler correction.
 }
 ```
 
-Send this with `vigo matrix --city city --request request.json`, the resident
-stream, or `POST /v1/matrix`. The native executable, Node CLI and Python
-`monte_carlo` option use the same resident Rust sampler. A Route request uses `origin` and `destination` and
-returns a distribution for that pair, rather than a representative itinerary.
-Reach uses its existing origin, bounds, raster size, cutoffs and sampling mode.
+Send it with `vigo matrix --city city --request request.json`, a `stream` line, or `POST /v1/matrix`. A Route request uses `origin` and `destination` and returns a distribution for that pair, not an itinerary. Reach uses its origin, bounds, raster size, cutoffs and sampling mode.
 
-Every minute in `[startMinutes, endMinutes)` receives equal weight. If a
-sampled planned frequency service (see
-[Planned timetables](#planned-timetables-and-coordinated-transfers)) can affect
-the departure window and travel horizon, requested draws are rounded upward to
-an equal integer number per minute: 200 requested over 120 minutes yields 240
-samples. Otherwise, including every GTFS timetable, the window uses one sample
-per minute regardless of the requested draws. Seeds are unsigned 32-bit
-integers. Percentiles must be increasing integers in 0–100.
+| `monteCarlo` field | Default | Meaning |
+| --- | --- | --- |
+| `startMinutes`, `endMinutes` | Required | The departure window `[start, end)` in minutes after midnight, within one civil day |
+| `draws` | 200 | 1–10,000 samples, rounded up to an equal number per minute |
+| `seed` | 0 | Unsigned 32-bit seed |
+| `percentiles` | `[5, 25, 50, 75, 95]` | 1–21 increasing integers, 0–100 |
+| `accessibility` | — | Opportunity counts and decay; see [Opportunity counts and decay](#opportunity-counts-and-decay) |
+
+Every minute in the window has equal weight. If a sampled planned frequency service (see [Planned timetables](#planned-timetables-and-coordinated-transfers)) can affect the window and horizon, draws are rounded up to an equal number per minute: 200 requested over 120 minutes gives 240 samples. Otherwise, including every GTFS timetable, there is one sample per minute whatever `draws` says, because each minute has only one answer.
 
 GTFS `exact_times=0` entries are read as fixed departures: a vehicle at the
 start of each end-exclusive window and then every headway, the same in every
@@ -49,11 +40,7 @@ headway within the end-exclusive service window. All stops, transfers, origins
 and destinations in that sample see the same realization. Published trips and
 fixed services stay the same in every sample.
 
-This models unknown schedules and variation in passenger departure times. It
-assumes on-time operations, passenger knowledge of the realized timetable and
-no capacity denial. It does not estimate observed delays or operational
-reliability. The distinction follows the public
-[frequency-routing methodology](https://docs.conveyal.com/analysis/methodology).
+This models unknown schedules and variation in when passengers leave. It assumes on-time operation, riders who know the realized timetable, and no crowding. It does not estimate delays or reliability. The approach follows the published [frequency-routing methodology](https://docs.conveyal.com/analysis/methodology) of Conveyal Analysis.
 
 ## Reading the result
 

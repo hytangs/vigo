@@ -646,13 +646,18 @@ impl Hierarchy {
             work.down_cost[node] = cost;
         };
         if let Some(targets) = targets {
-            for &rank in self.search_space(targets.iter().copied()).iter().rev() {
+            let space = self.search_space(targets.iter().copied());
+            for &rank in space.iter().rev() {
                 descend(rank);
+            }
+            if let Some(written) = &mut work.down_written {
+                written.extend_from_slice(&space);
             }
         } else {
             for rank in (0..self.graph.node_count() as u32).rev() {
                 descend(rank);
             }
+            work.down_written = None;
         }
     }
 
@@ -668,7 +673,19 @@ impl Hierarchy {
         maximum: f64,
     ) {
         self.ascend(starts, work, costs.0);
-        work.down_cost.fill(f64::INFINITY);
+        let mut written = match work.down_written.take() {
+            Some(mut ranks) => {
+                for &rank in &ranks {
+                    work.down_cost[rank as usize] = f64::INFINITY;
+                }
+                ranks.clear();
+                ranks
+            }
+            None => {
+                work.down_cost.fill(f64::INFINITY);
+                Vec::new()
+            }
+        };
         let maximum = maximum * (1. + 1e-8) + 1e-6;
         let first = &*self.graph.down_first_out;
         let heads = &*self.graph.down_head;
@@ -679,6 +696,7 @@ impl Hierarchy {
             let value = work.up_cost[rank];
             if value <= maximum && value.is_finite() {
                 work.down_cost[rank] = value;
+                written.push(rank as u32);
                 pending[rank / 64] |= 1 << (rank % 64);
             }
         }
@@ -695,6 +713,7 @@ impl Hierarchy {
                     let prior = &mut work.down_cost[to];
                     if candidate <= maximum && candidate.is_finite() && candidate < *prior {
                         if !prior.is_finite() {
+                            written.push(to as u32);
                             let flag = 1 << (to % 64);
                             if to / 64 == word {
                                 active |= flag;
@@ -707,6 +726,7 @@ impl Hierarchy {
                 }
             }
         }
+        work.down_written = Some(written);
     }
 }
 
@@ -781,6 +801,10 @@ struct Workspace {
     up_cost: Vec<f64>,
     down_cost: Vec<f64>,
     source_space: Vec<u32>,
+    /// Every rank whose `down_cost` may be finite, or `None` once a sweep
+    /// over the whole hierarchy wrote them all. A budgeted sweep clears only
+    /// these instead of the whole column.
+    down_written: Option<Vec<u32>>,
 }
 
 impl Workspace {
@@ -789,6 +813,7 @@ impl Workspace {
             up_cost: vec![f64::INFINITY; nodes],
             down_cost: vec![f64::INFINITY; nodes],
             source_space: Vec::new(),
+            down_written: Some(Vec::new()),
         }
     }
     fn reset(&mut self) {
@@ -1277,6 +1302,8 @@ struct Prepared {
     maximum_price_rate: f64,
     #[cfg(feature = "standalone")]
     published: std::sync::atomic::AtomicBool,
+    /// Point-query admissions without private endpoints, undated and dated.
+    guards: [std::sync::OnceLock<Result<point_guard::Guarded, String>>; 2],
 }
 fn metric_key(options: BikeOptions) -> (&'static str, [u8; 10]) {
     let mut key = [0; 10];
@@ -1350,6 +1377,7 @@ impl Prepared {
             #[cfg(any(feature = "standalone", test))]
             dual: std::sync::OnceLock::new(),
             maximum_price_rate,
+            guards: Default::default(),
             #[cfg(feature = "standalone")]
             published: std::sync::atomic::AtomicBool::new(false),
         })
@@ -1388,6 +1416,7 @@ impl Prepared {
             #[cfg(any(feature = "standalone", test))]
             dual: std::sync::OnceLock::new(),
             maximum_price_rate,
+            guards: Default::default(),
             #[cfg(feature = "standalone")]
             published: std::sync::atomic::AtomicBool::new(true),
         })
@@ -2594,16 +2623,22 @@ fn start_states<'a>(
 /// node and the base value equals a zero-length terminal's certified cost.
 #[cfg(any(feature = "standalone", test))]
 pub(super) struct NodeBounds {
-    pub minimum: Vec<f64>,
-    pub base: Vec<f64>,
+    /// The nodes inside the walking area, the only ones a surface reads.
+    pub nodes: Vec<u32>,
+    pub minimum: cch::paged::PagedVec<f64>,
+    pub base: cch::paged::PagedVec<f64>,
 }
 
+/// Bounds for the nodes `inside` accepts. The downward sweep covers only
+/// their states' elimination-tree ancestors, so each value equals the
+/// whole-hierarchy sweep's and the work follows the area, not the City.
 #[cfg(any(feature = "standalone", test))]
 pub(super) fn node_bounds(
     kernel: &BikeKernel,
     endpoint: &Attachment,
     options: BikeOptions,
     arrive: bool,
+    inside: impl Fn([f64; 2]) -> bool,
 ) -> Result<NodeBounds, String> {
     let (prepared, _) = kernel.hierarchy(options)?;
     let movements = &prepared.movements;
@@ -2620,28 +2655,44 @@ pub(super) fn node_bounds(
             sources.extend(start_states(kernel, movements, a).map(|s| (s, cost)));
         }
     }
+    let node_count = kernel.lons.len();
+    let nodes: Vec<u32> = (0..node_count as u32)
+        .filter(|&node| inside([kernel.lons[node as usize], kernel.lats[node as usize]]))
+        .collect();
+    let states: Vec<u32> = nodes
+        .iter()
+        .flat_map(|&node| movements.states.variants(node))
+        .collect();
     let optimistic = prepared.optimistic(kernel, options);
     let mut work = Workspace::new(hierarchy.graph.node_count());
     hierarchy.solve(
         &sources,
-        None,
+        Some(&states),
         &mut work,
         optimistic.directions(hierarchy, arrive),
     );
     let rank = &hierarchy.graph.rank;
     let value = |state: u32| work.down_cost[rank[state as usize] as usize];
-    let nodes = kernel.lons.len() as u32;
+    let mut minimum = cch::paged::PagedVec::new(node_count, f64::INFINITY);
+    let mut base = cch::paged::PagedVec::new(node_count, f64::INFINITY);
+    for &node in &nodes {
+        let least = movements
+            .states
+            .variants(node)
+            .map(value)
+            .fold(f64::INFINITY, f64::min);
+        if least != f64::INFINITY {
+            minimum[node as usize] = least;
+        }
+        let at_base = value(node);
+        if at_base != f64::INFINITY {
+            base[node as usize] = at_base;
+        }
+    }
     Ok(NodeBounds {
-        minimum: (0..nodes)
-            .map(|node| {
-                movements
-                    .states
-                    .variants(node)
-                    .map(value)
-                    .fold(f64::INFINITY, f64::min)
-            })
-            .collect(),
-        base: (0..nodes).map(value).collect(),
+        nodes,
+        minimum,
+        base,
     })
 }
 

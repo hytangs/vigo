@@ -391,7 +391,6 @@
   background: var(--material-strong);
   box-shadow: var(--elev-2);
   backdrop-filter: var(--material-blur);
-  -webkit-backdrop-filter: var(--material-blur);
   pointer-events: auto;
   animation: stage-panel-in var(--duration-slow) var(--ease-emphasis) both;
 }

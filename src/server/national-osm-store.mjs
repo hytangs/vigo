@@ -1,4 +1,3 @@
-import { bikePlan, bikeMatrix } from './bike-routing.mjs'
 import { bikeDirections, bikeWayWindows, createBikeWriter } from './bike-profile.mjs'
 import { wheelchairDescriptionFor, wheelchairStreetPolicy, wheelchairWayAllowed, wheelchairNodeAllowed } from './wheelchair-policy.mjs'
 import fs from 'node:fs/promises'
@@ -8,22 +7,14 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import {
   disposeNativeRoutingKernel,
-  createNativeBikeKernel,
   buildNativeStreetCchIndex,
-  nativeStreetCchPrepared,
   prepareNativeDriveKernel,
   normalizeDriveTrafficSnapshot,
   prepareNativeRoutingKernel,
-  rasterNativeStreetSurface,
   routeNativeDriveCoordinates,
-  routeNativeDriveCoordinateMatrix,
-  routeNativeWalkMatrix,
-  routeNativeStreetPath,
   normalizeNativeMilliseconds,
-  publicWalkMaximumPoints,
 } from './native-routing-kernel.mjs'
 import { haversineKm } from './geometry-utils.mjs'
-import { assertMatrixSize } from './matrix-size.mjs'
 import { validateArrivalBuffer } from './arrival-reserve.mjs'
 import {
   coordinate,
@@ -1253,68 +1244,6 @@ function snapshotTypedArray(buffer, descriptor, Type) {
   return new Type(buffer.buffer, byteOffset, descriptor.length)
 }
 
-function loadStreetAcceleratorSnapshot(state) {
-  const startedAt = performance.now()
-  const snapshotPath = streetAcceleratorSnapshotPath(state.storePath)
-  try {
-    const snapshotBuffer = fsSync.readFileSync(snapshotPath)
-    if (snapshotBuffer.byteLength < streetAcceleratorSnapshotHeaderBytes) throw new Error('Street accelerator snapshot is truncated.')
-    const header = JSON.parse(snapshotBuffer.subarray(0, streetAcceleratorSnapshotHeaderBytes).toString('utf8').trim())
-    if (header.magic !== streetAcceleratorSnapshotMagic || header.version !== streetAcceleratorSnapshotVersion) {
-      throw new Error('Street accelerator snapshot version is unsupported.')
-    }
-    if (!streetAcceleratorIdentityMatches(header.identity, state)) {
-      state.acceleratorSnapshotStatus = 'stale'
-      return null
-    }
-    if (header.byteLength !== snapshotBuffer.byteLength) throw new Error('Street accelerator snapshot length does not match its header.')
-    const data = {
-      nodeCount: Number(header.nodeCount),
-      edgeCount: Number(header.edgeCount),
-      spatialMinLat: Number(header.spatialMinLat),
-      spatialMinLon: Number(header.spatialMinLon),
-      spatialCellDegrees: Number(header.spatialCellDegrees),
-      spatialRows: Number(header.spatialRows),
-      spatialColumns: Number(header.spatialColumns),
-      spatialNodeOrder: String(header.spatialNodeOrder ?? ''),
-      componentCount: Number(header.componentCount),
-    }
-    for (const [name, Type] of streetAcceleratorSnapshotArrays) data[name] = snapshotTypedArray(snapshotBuffer, header.arrays?.[name], Type)
-    if (
-      data.nodeLats.length !== data.nodeCount
-      || data.nodeLons.length !== data.nodeCount
-      || data.edgeOffsets.length !== data.nodeCount + 1
-      || data.edgeTargets.length !== data.edgeCount
-      || data.edgeDistances.length !== data.edgeCount
-      || data.spatialOffsets.length !== data.spatialRows * data.spatialColumns + 1
-      || data.componentByNode.length !== data.nodeCount
-      || data.componentLengthKm.length !== data.componentCount
-      || data.reverseOffsets.length !== data.nodeCount + 1
-      || data.reverseSources.length !== data.edgeCount
-      || data.reverseEdgeIndices.length !== data.edgeCount
-      || data.reciprocalEdgeFlags.length !== data.edgeCount
-      || data.edgeOffsets[data.nodeCount] !== data.edgeCount
-      || data.spatialOffsets[data.spatialOffsets.length - 1] !== data.nodeCount
-      || data.reverseOffsets[data.nodeCount] !== data.edgeCount
-      || data.spatialNodeOrder !== 'cell_then_source_node_id'
-    ) throw new Error('Street accelerator snapshot topology is inconsistent.')
-    const loadMs = Number((performance.now() - startedAt).toFixed(3))
-    state.acceleratorSnapshotStatus = 'loaded'
-    state.acceleratorSnapshotError = ''
-    state.accelerator = createRuntimeAccelerator(data, { source: 'snapshot', loadMs, snapshotBuffer })
-    return state.accelerator
-  } catch (error) {
-    if (error?.code === 'ENOENT') {
-      state.acceleratorSnapshotStatus = 'missing'
-      state.acceleratorSnapshotError = ''
-    } else {
-      state.acceleratorSnapshotStatus = 'load_error'
-      state.acceleratorSnapshotError = error instanceof Error ? error.message : String(error)
-    }
-    return null
-  }
-}
-
 function compactNodeLookup(nodeIds) {
   let order = Uint32Array.from({ length: nodeIds.length }, (_, index) => index)
   order.sort((a, b) => nodeIds[a] - nodeIds[b])
@@ -1894,205 +1823,6 @@ export function buildNationalOsmWalkStore(storePath, options = {}) {
   }
 }
 
-function coordinateInsideBounds(longitude, latitude, bounds) {
-  return longitude >= bounds.west
-    && longitude <= bounds.east
-    && latitude >= bounds.south
-    && latitude <= bounds.north
-}
-
-function coordinateSampleKey(lon, lat) {
-  return `${Number(lon).toFixed(7)},${Number(lat).toFixed(7)}`
-}
-
-function sampleRandom(seed) {
-  let state = Number(seed) >>> 0
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0
-    let value = state
-    value = Math.imul(value ^ (value >>> 15), value | 1)
-    value ^= value + Math.imul(value ^ (value >>> 7), value | 61)
-    return ((value ^ (value >>> 14)) >>> 0) / 4_294_967_296
-  }
-}
-
-/**
- * Iterate the authoritative pedestrian-node representation for a source or
- * runtime store. Import diagnostics use `walk_nodes`; published consumers use
- * the immutable v7 accelerator arrays.
- *
- * Runtime snapshots do not retain isolated nodes because they cannot
- * contribute to a walk path. Set `includeDisconnected` only for diagnostics
- * that explicitly need the complete coordinate population.
- */
-function forEachNationalOsmWalkNode(storePath, callback, options = {}) {
-  if (typeof callback !== 'function') throw new TypeError('OSM walk-node iteration requires a callback.')
-  const state = openDiagnosticStreetStore(storePath)
-  const bounds = options.bounds
-    && Number.isFinite(Number(options.bounds.west))
-    && Number.isFinite(Number(options.bounds.south))
-    && Number.isFinite(Number(options.bounds.east))
-    && Number.isFinite(Number(options.bounds.north))
-    ? {
-        west: Number(options.bounds.west),
-        south: Number(options.bounds.south),
-        east: Number(options.bounds.east),
-        north: Number(options.bounds.north),
-      }
-    : null
-  const includeDisconnected = options.includeDisconnected === true
-  let visitedNodes = 0
-  const visit = (node) => {
-    const lat = Number(node.lat)
-    const lon = Number(node.lon)
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return
-    if (bounds && !coordinateInsideBounds(lon, lat, bounds)) return
-    visitedNodes += 1
-    callback({
-      ...node,
-      lat,
-      lon,
-    })
-  }
-
-  if (state.runtimeSnapshotOnly) {
-    const accelerator = state.accelerator ?? loadStreetAcceleratorSnapshot(state)
-    if (!accelerator) {
-      throw new Error(`OSM runtime snapshot is unavailable for ${path.resolve(storePath)}.`)
-    }
-    const nodeCount = Number(accelerator.nodeCount ?? accelerator.nodeLats.length)
-    for (let nodeIndex = 0; nodeIndex < nodeCount; nodeIndex += 1) {
-      if (!includeDisconnected) {
-        const hasOutgoing = accelerator.edgeOffsets[nodeIndex] < accelerator.edgeOffsets[nodeIndex + 1]
-        const hasIncoming = accelerator.reverseOffsets[nodeIndex] < accelerator.reverseOffsets[nodeIndex + 1]
-        if (!hasOutgoing && !hasIncoming) continue
-      }
-      visit({
-        nodeKey: `snapshot:${nodeIndex}`,
-        nodeIndex,
-        lat: accelerator.nodeLats[nodeIndex],
-        lon: accelerator.nodeLons[nodeIndex],
-      })
-    }
-    return {
-      sourceTable: 'street-accelerator-v7',
-      walkNodeCount: nodeCount,
-      visitedNodes,
-    }
-  }
-
-  const walkNodeCount = Number(state.db.prepare(
-    'SELECT COUNT(*) AS count FROM walk_nodes',
-  ).get()?.count ?? 0)
-  const query = bounds
-    ? state.db.prepare(`
-        SELECT node_id,lat,lon FROM walk_nodes
-        WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?
-        ORDER BY node_id
-      `)
-    : state.db.prepare('SELECT node_id,lat,lon FROM walk_nodes ORDER BY node_id')
-  const rows = bounds
-    ? query.iterate(bounds.south, bounds.north, bounds.west, bounds.east)
-    : query.iterate()
-  for (const node of rows) {
-    visit({
-      nodeKey: `osm:${node.node_id}`,
-      osmNodeId: node.node_id,
-      lat: node.lat,
-      lon: node.lon,
-    })
-  }
-  return {
-    sourceTable: 'walk_nodes',
-    walkNodeCount,
-    visitedNodes,
-  }
-}
-
-/**
- * Resolve an endpoint identity through the source/runtime diagnostics adapter.
- * Runtime snapshots carry dense `nodeIndex` identities; source stores carry
- * durable `osmNodeId` values.
- */
-export function readNationalOsmWalkNodeCoordinate(storePath, endpoint = {}) {
-  const state = openDiagnosticStreetStore(storePath)
-  if (state.runtimeSnapshotOnly) {
-    const nodeIndex = Number(endpoint.nodeIndex)
-    const accelerator = state.accelerator ?? loadStreetAcceleratorSnapshot(state)
-    if (!accelerator || !Number.isSafeInteger(nodeIndex) || nodeIndex < 0 || nodeIndex >= accelerator.nodeCount) {
-      return null
-    }
-    return {
-      lon: Number(accelerator.nodeLons[nodeIndex]),
-      lat: Number(accelerator.nodeLats[nodeIndex]),
-    }
-  }
-  if (endpoint.osmNodeId === undefined || endpoint.osmNodeId === null) return null
-  const row = state.db.prepare('SELECT lon,lat FROM walk_nodes WHERE node_id=?').get(String(endpoint.osmNodeId))
-  return row
-    ? { lon: Number(row.lon), lat: Number(row.lat) }
-    : null
-}
-
-/**
- * Sample usable pedestrian graph coordinates without hydrating a runtime
- * snapshot into a second JavaScript graph. Source stores use `walk_nodes`;
- * runtime stores use the memory-mappable v7 accelerator arrays.
- */
-export function sampleNationalOsmWalkNodes(storePath, options = {}) {
-  const endpointCount = Math.max(1, Math.floor(Number(options.endpointCount) || 2))
-  const seed = Number(options.seed) >>> 0
-  const excludedCoordinates = options.excludedCoordinates instanceof Set
-    ? options.excludedCoordinates
-    : new Set(options.excludedCoordinates ?? [])
-  const random = sampleRandom(seed)
-  const selected = []
-  let eligibleNodes = 0
-  let skippedExcludedCoordinates = 0
-  const consider = ({ nodeKey, osmNodeId = null, nodeIndex = null, lat, lon }) => {
-    const numericLat = Number(lat)
-    const numericLon = Number(lon)
-    if (!Number.isFinite(numericLat) || !Number.isFinite(numericLon)) return
-    if (excludedCoordinates.has(coordinateSampleKey(numericLon, numericLat))) {
-      skippedExcludedCoordinates += 1
-      return
-    }
-    const endpoint = {
-      nodeKey: String(nodeKey),
-      ...(osmNodeId == null ? {} : { osmNodeId: String(osmNodeId) }),
-      ...(nodeIndex == null ? {} : { nodeIndex: Number(nodeIndex) }),
-      lon: numericLon,
-      lat: numericLat,
-    }
-    eligibleNodes += 1
-    if (selected.length < endpointCount) {
-      selected.push(endpoint)
-      return
-    }
-    const replacement = Math.floor(random() * eligibleNodes)
-    if (replacement < endpointCount) selected[replacement] = endpoint
-  }
-
-  const iteration = forEachNationalOsmWalkNode(storePath, consider, {
-    bounds: options.bounds,
-  })
-  if (selected.length < endpointCount) {
-    throw new Error(`Only ${selected.length}/${endpointCount} usable OSM endpoints were available in ${iteration.sourceTable}.`)
-  }
-  selected.sort((left, right) => left.nodeKey.localeCompare(right.nodeKey))
-  return {
-    sourceTable: iteration.sourceTable,
-    seed,
-    requestedEndpoints: endpointCount,
-    endpoints: selected,
-    population: {
-      walkNodeCount: iteration.walkNodeCount,
-      eligibleNodes,
-      skippedExcludedCoordinates,
-    },
-  }
-}
-
 /**
  * Admit the authoritative SQLite store without hydrating the JavaScript graph,
  * then memory-map its immutable accelerator in the Rust Node-API kernel.
@@ -2641,24 +2371,6 @@ function runtimeStreetStoreError(storePath, operation) {
   return error
 }
 
-export function streetPathBetween(storePath, fromCoordinate, toCoordinate, maxDistanceKm, maximumPoints = publicWalkMaximumPoints) {
-  openRuntimeStreetStore(storePath)
-  if (!nativeStreetCchPrepared(storePath)) {
-    const error = new Error(
-      'Rust pedestrian routing requires the current sealed street CCH index. Rebuild the OSM street index before routing.',
-    )
-    error.code = 'VIGO_NATIVE_STREET_CCH_REQUIRED'
-    throw error
-  }
-  return routeNativeStreetPath(
-    storePath,
-    fromCoordinate,
-    toCoordinate,
-    maxDistanceKm,
-    maximumPoints,
-  )
-}
-
 // Drive between two free coordinates. The native kernel attaches each endpoint
 // to its nearest drivable road by segment projection; the gap is a straight
 // walk, and a gap longer than the walking limit blocks the trip.
@@ -2813,13 +2525,11 @@ function blockedStreetRoute(request, failureCode, detail, diagnostics = {}) {
  */
 export function routeNationalStreetStore(storePath, request) {
   validateArrivalBuffer(request, false)
-  if (request.mode === 'bike') {
-    const state = openRuntimeStreetStore(storePath)
-    state.bikeKernel ??= createNativeBikeKernel(storePath)
-    return bikePlan(state.bikeKernel, request)
-  }
+  // Studio's road-following scenario geometry is the only JavaScript street
+  // route; walk, bike and drive journeys run in the vigo runtime.
+  if (request?.mode !== 'drive') throw new Error('JavaScript street routing supports road geometry for drive mode only.')
   const startedAt = performance.now()
-  const mode = request?.mode === 'drive' ? 'drive' : 'walk'
+  const mode = 'drive'
   const timePreference = request?.timePreference === 'arrive' ? 'arrive' : 'depart'
   const requestedMinutes = Number(timePreference === 'arrive'
     ? request.arriveMinutes ?? request.departMinutes ?? 8 * 60
@@ -2831,7 +2541,6 @@ export function routeNationalStreetStore(storePath, request) {
     throw new Error('Street routing time must be a finite minute in [-2880, 2880].')
   }
   let state = openRuntimeStreetStore(storePath)
-  const nativeWalk = mode === 'walk' && nativeStreetCchPrepared(storePath)
   const originCoordinate = request?.origin?.coordinate?.map(Number)
   const destinationCoordinate = request?.destination?.coordinate?.map(Number)
   const normalizedRequest = {
@@ -2848,22 +2557,11 @@ export function routeNationalStreetStore(storePath, request) {
   ) {
     return blockedStreetRoute(normalizedRequest, 'invalid_coordinates', 'Choose valid origin and destination points.')
   }
-  if (mode === 'walk' && !nativeWalk) {
-    return blockedStreetRoute(
-      normalizedRequest,
-      'native_street_cch_required',
-      'The Rust pedestrian CCH index is not prepared. Rebuild the OSM street index before routing.',
-      {
-        searchStats: streetRouteSearchDiagnostics(performance.now() - startedAt, null, mode),
-      },
-    )
-  }
-  if (mode === 'drive' && !state.driveAccelerator) {
+  if (!state.driveAccelerator) {
     const preparedDrive = prepareNationalOsmDriveStore(storePath)
     if (preparedDrive.ready) state = openRuntimeStreetStore(storePath)
   }
-  const profileAccelerator = mode === 'drive' ? state.driveAccelerator : nativeWalk
-  if (!profileAccelerator) {
+  if (!state.driveAccelerator) {
     return blockedStreetRoute(
       normalizedRequest,
       'street_accelerator_unavailable',
@@ -2873,62 +2571,30 @@ export function routeNationalStreetStore(storePath, request) {
       },
     )
   }
-  const traffic = mode === 'drive'
-    ? normalizeDriveTrafficSnapshot(
-        state.driveAccelerator,
-        request.trafficSnapshot,
-        state.metadata.sourceFingerprint,
-      )
-    : null
+  const traffic = normalizeDriveTrafficSnapshot(
+    state.driveAccelerator,
+    request.trafficSnapshot,
+    state.metadata.sourceFingerprint,
+  )
   const trafficDiagnostics = traffic
     ? Object.fromEntries(Object.entries(traffic).filter(([key]) => !['nativeInput', 'cacheKey'].includes(key)))
     : null
   normalizedRequest.trafficCacheKey = traffic?.cacheKey ?? 'free-flow'
 
-  const maxStreetKm = mode === 'drive'
-    ? Math.max(0.25, Math.min(1_500, Number(request.maxStreetKm) || 750))
-    : Math.max(0.05, Math.min(100, Number(request.maxStreetKm) || 50))
+  const maxStreetKm = Math.max(0.25, Math.min(1_500, Number(request.maxStreetKm) || 750))
   normalizedRequest.maxStreetKm = maxStreetKm
-  let pathResult
-  let search
   const walkingSpeedKph = Math.max(1, Math.min(12, Number(request.walkingSpeedKph) || 4.8))
   const driveAccessWalkKm = Math.max(0, Math.min(100, Number(request.maxWalkKm ?? defaultDriveAccessWalkKm)))
-  if (mode === 'drive') {
-    search = drivePathBetween(state, originCoordinate, destinationCoordinate, maxStreetKm, traffic, {
-      roadGeometryOnly: request.roadGeometryOnly === true,
-      originAtRoadNode: request.originAtRoadNode === true,
-      maximumWalkKm: driveAccessWalkKm,
-      walkingSpeedKph,
-    })
-    pathResult = search.path
-  } else if (nativeWalk) {
-    pathResult = routeNativeStreetPath(
-      storePath,
-      originCoordinate,
-      destinationCoordinate,
-      maxStreetKm,
-      publicWalkMaximumPoints,
-    )
-    const fallbackSearchMs = performance.now() - startedAt
-    search = {
-      searchMs: timingMilliseconds(pathResult?.nativeQueryMs, fallbackSearchMs),
-      settledNodes: pathResult?.nativeSettledNodes ?? 0,
-      relaxedEdges: pathResult?.nativeRelaxedEdges ?? 0,
-      chainSkippedNodes: pathResult?.nativeChainSkippedNodes ?? 0,
-      contractedArcRelaxations:
-        pathResult?.nativeContractedArcRelaxations ?? 0,
-      cchAccelerated: pathResult?.nativeCchAccelerated === true,
-      failureCode: pathResult ? null : 'no_path',
-      accelerated: true,
-      acceleratorSource: 'rust_mmap_node_api',
-      cacheHit: false,
-      geometryReversed: pathResult?.geometryReversed === true,
-    }
-  }
+  const search = drivePathBetween(state, originCoordinate, destinationCoordinate, maxStreetKm, traffic, {
+    roadGeometryOnly: request.roadGeometryOnly === true,
+    originAtRoadNode: request.originAtRoadNode === true,
+    maximumWalkKm: driveAccessWalkKm,
+    walkingSpeedKph,
+  })
+  const pathResult = search.path
   if (!pathResult) {
     const failureCode = search?.failureCode ?? 'no_path'
-    const blockedTrafficApplied = mode === 'drive'
-      && traffic?.status === 'applied'
+    const blockedTrafficApplied = traffic?.status === 'applied'
       && search?.trafficApplied === true
     return blockedStreetRoute(
       normalizedRequest,
@@ -2940,48 +2606,34 @@ export function routeNationalStreetStore(storePath, request) {
           : `No ${mode} path was found within ${maxStreetKm.toFixed(1)} km.`,
       {
         searchStats: streetRouteSearchDiagnostics(performance.now() - startedAt, search, mode),
-        ...(mode === 'drive' ? {
-          scheduleMode: 'none',
-          roadMetricMode: blockedTrafficApplied ? 'traffic-adjusted' : 'free-flow',
-          weightModel: blockedTrafficApplied ? 'snapshot_customized_traffic_seconds' : 'free_flow_seconds',
-          limitations: [
-            ...(blockedTrafficApplied ? [] : ['no_live_traffic']),
-            'no_turn_restriction_relations',
-            'no_signal_delay',
-          ],
-          ...(trafficDiagnostics ? {
-            traffic: {
-              ...trafficDiagnostics,
-              ...(traffic?.status === 'applied' ? {
-                status: blockedTrafficApplied ? 'applied' : 'native_fallback',
-                customizationMs: search?.trafficCustomizationMs,
-                metricReused: search?.trafficMetricReused === true,
-              } : {}),
-            },
-          } : {}),
+        scheduleMode: 'none',
+        roadMetricMode: blockedTrafficApplied ? 'traffic-adjusted' : 'free-flow',
+        weightModel: blockedTrafficApplied ? 'snapshot_customized_traffic_seconds' : 'free_flow_seconds',
+        limitations: [
+          ...(blockedTrafficApplied ? [] : ['no_live_traffic']),
+          'no_turn_restriction_relations',
+          'no_signal_delay',
+        ],
+        ...(trafficDiagnostics ? {
+          traffic: {
+            ...trafficDiagnostics,
+            ...(traffic?.status === 'applied' ? {
+              status: blockedTrafficApplied ? 'applied' : 'native_fallback',
+              customizationMs: search?.trafficCustomizationMs,
+              metricReused: search?.trafficMetricReused === true,
+            } : {}),
+          },
         } : {}),
       },
     )
   }
-  if (mode === 'walk') {
-    // The Rust path already contains ordered graph coordinates. Replacing
-    // them through the obsolete node-id materializer is invalid because a
-    // native result intentionally carries no JavaScript node-id array; doing
-    // so collapsed a correct walk into the two endpoint coordinates.
-    if (!Array.isArray(pathResult.coordinates) || pathResult.coordinates.length < 2) {
-      throw new Error('Rust pedestrian routing returned no materializable geometry.')
-    }
-  }
-
-  const durationMinutes = mode === 'drive'
-    ? pathResult.durationSeconds / 60
-    : pathResult.distanceKm / walkingSpeedKph * 60
+  const durationMinutes = pathResult.durationSeconds / 60
   const distanceKm = pathResult.distanceKm
   const arriveMinutes = timePreference === 'arrive' ? requestedMinutes : requestedMinutes + durationMinutes
   const departMinutes = timePreference === 'arrive' ? requestedMinutes - durationMinutes : requestedMinutes
   const fromName = String(request.origin?.label ?? 'Origin')
   const toName = String(request.destination?.label ?? 'Destination')
-  const trafficApplied = mode === 'drive' && traffic?.status === 'applied' && search?.trafficApplied === true
+  const trafficApplied = traffic?.status === 'applied' && search?.trafficApplied === true
   // A drive walks straight between each free endpoint and its road. Gaps
   // below a meter are rounding, not walks; their seconds stay in the drive.
   const legs = []
@@ -3002,7 +2654,7 @@ export function routeNationalStreetStore(storePath, request) {
     })
     clock += minutes
   }
-  const walks = mode === 'drive' && pathResult.originWalk
+  const walks = pathResult.originWalk
     ? [pathResult.originWalk, pathResult.destinationWalk].map((walk) => walk.distanceKm >= 0.0005 ? walk : null)
     : [null, null]
   const connector = (walk) => pushLeg('walk', walk.durationSeconds / 60, walk.distanceKm, walk.coordinates,
@@ -3019,19 +2671,19 @@ export function routeNationalStreetStore(storePath, request) {
     status: 'ready',
     travelMode: mode,
     timePreference,
-    maxWalkKm: mode === 'walk' ? maxStreetKm : 0,
-    choiceLabel: mode === 'drive' ? (trafficApplied ? 'Fastest drive · live traffic' : 'Fastest drive') : 'Direct walk',
+    maxWalkKm: 0,
+    choiceLabel: trafficApplied ? 'Fastest drive · live traffic' : 'Fastest drive',
     recommended: true,
     origin: request.origin,
     destination: request.destination,
-    title: mode === 'drive' ? `Drive to ${toName}` : `Walk to ${toName}`,
+    title: `Drive to ${toName}`,
     detail: `${distanceKm.toFixed(distanceKm < 10 ? 2 : 1)} km · ${Math.max(1, Math.round(durationMinutes))} min`,
     departMinutes,
     arriveMinutes,
     durationMinutes,
     waitMinutes: 0,
-    walkMinutes: mode === 'walk' ? durationMinutes : walkMinutes,
-    rideMinutes: mode === 'drive' ? durationMinutes - walkMinutes : 0,
+    walkMinutes,
+    rideMinutes: durationMinutes - walkMinutes,
     transfers: 0,
     legs,
     diagnostics: {
@@ -3040,24 +2692,20 @@ export function routeNationalStreetStore(storePath, request) {
       serviceDay: request.serviceDay ?? 'weekday',
       scheduleMode: 'none',
       roadMetricMode: trafficApplied ? 'traffic-adjusted' : 'free-flow',
-      walkingNetwork: mode === 'walk' ? 'osm' : 'direct',
+      walkingNetwork: 'direct',
       walkingSpeedKph,
-      ...(mode === 'drive' ? { driveAccessWalkKm } : {}),
-      algorithm: mode === 'drive' ? 'rust_cch_drive_certified' : 'rust_cch_walk_exact',
-      weightModel: mode === 'drive'
-        ? trafficApplied ? 'snapshot_customized_traffic_seconds' : 'free_flow_seconds'
-        : 'distance_meters',
+      driveAccessWalkKm,
+      algorithm: 'rust_cch_drive_certified',
+      weightModel: trafficApplied ? 'snapshot_customized_traffic_seconds' : 'free_flow_seconds',
       optimality: trafficApplied
         ? 'exact_on_stored_directed_graph_for_normalized_traffic_snapshot'
         : 'exact_on_stored_directed_graph',
-      limitations: mode === 'drive'
-        ? [
-            ...(trafficApplied ? [] : ['no_live_traffic']),
-            'no_turn_restriction_relations',
-            'no_signal_delay',
-          ]
-        : [],
-      ...(mode === 'drive' && trafficDiagnostics ? {
+      limitations: [
+        ...(trafficApplied ? [] : ['no_live_traffic']),
+        'no_turn_restriction_relations',
+        'no_signal_delay',
+      ],
+      ...(trafficDiagnostics ? {
         traffic: {
           ...trafficDiagnostics,
           ...(traffic?.status === 'applied' ? {
@@ -3074,223 +2722,4 @@ export function routeNationalStreetStore(storePath, request) {
     },
   }
   return plan
-}
-
-function normalizeStreetMatrixPoints(value, label) {
-  if (!Array.isArray(value) || !value.length) {
-    throw new Error(`Street matrix requires a non-empty ${label} array.`)
-  }
-  return value.map((point, index) => {
-    const coordinate = Array.isArray(point)
-      ? point.map(Number)
-      : Array.isArray(point?.coordinate)
-        ? point.coordinate.map(Number)
-        : []
-    if (
-      coordinate.length !== 2
-      || coordinate.some((value) => !Number.isFinite(value))
-      || coordinate[0] < -180
-      || coordinate[0] > 180
-      || coordinate[1] < -85
-      || coordinate[1] > 85
-    ) {
-      throw new Error(`Street matrix ${label} ${index + 1} has invalid coordinates.`)
-    }
-    return {
-      coordinate,
-      label: String(point?.label ?? `${label} ${index + 1}`),
-    }
-  })
-}
-
-function uniqueStreetMatrixPoints(points) {
-  const unique = []
-  const lookup = new Map()
-  const indexes = points.map((point) => {
-    const key = coordinateSampleKey(point.coordinate[0], point.coordinate[1])
-    if (!lookup.has(key)) {
-      lookup.set(key, unique.length)
-      unique.push(point)
-    }
-    return lookup.get(key)
-  })
-  return { unique, indexes }
-}
-
-/**
- * Compute a directed Walk or Drive scalar matrix through one resident Rust
- * batch boundary. The mode-specific CCH weight remains explicit, but the
- * request shape, row order, caps, and diagnostics are shared.
- */
-export function routeNationalStreetMatrix(storePath, request = {}, options = {}) {
-  validateArrivalBuffer(request, false)
-  const startedAt = performance.now()
-  if (options.isCancelled?.()) throw streetAnalysisAbort('matrix')
-  const mode = request.mode === 'drive' ? 'drive' : 'walk'
-  assertMatrixSize(request.origins?.length, request.destinations?.length)
-  const origins = normalizeStreetMatrixPoints(request.origins, 'origin')
-  const destinations = normalizeStreetMatrixPoints(request.destinations, 'destination')
-  if (request.mode === 'bike') {
-    const state = openRuntimeStreetStore(storePath)
-    state.bikeKernel ??= createNativeBikeKernel(storePath)
-    return bikeMatrix(state.bikeKernel, request, origins, destinations, options.isCancelled)
-  }
-  const originSet = uniqueStreetMatrixPoints(origins)
-  const destinationSet = uniqueStreetMatrixPoints(destinations)
-  const defaultMaximumDistanceKm = mode === 'drive' ? 750 : 50
-  const maximumDistanceKm = mode === 'drive'
-    ? Math.max(0.25, Math.min(1_500, Number(request.maxDistanceKm ?? request.maxStreetKm) || defaultMaximumDistanceKm))
-    : Math.max(0.05, Math.min(100, Number(request.maxDistanceKm ?? request.maxStreetKm) || defaultMaximumDistanceKm))
-  const walkingSpeedKph = Math.max(1, Math.min(12, Number(request.walkingSpeedKph) || 4.8))
-  let native
-  let traffic = null
-  if (mode === 'walk') {
-    const prepared = prepareNationalOsmNativeStore(storePath)
-    if (!prepared.ready || !prepared.accelerated) {
-      const error = new Error(
-        `The Rust pedestrian matrix kernel is unavailable: ${prepared.error ?? prepared.reason ?? 'unknown reason'}`,
-      )
-      error.code = 'VIGO_NATIVE_ROUTING_KERNEL_REQUIRED'
-      throw error
-    }
-    if (!prepared.streetCch?.ready) {
-      const error = new Error(
-        'The Rust pedestrian matrix kernel requires the current sealed street CCH index. Rebuild the OSM street index before running a matrix.',
-      )
-      error.code = 'VIGO_NATIVE_STREET_CCH_REQUIRED'
-      throw error
-    }
-    native = routeNativeWalkMatrix(storePath, {
-      originCoordinates: originSet.unique.flatMap((point) => point.coordinate),
-      destinationCoordinates: destinationSet.unique.flatMap((point) => point.coordinate),
-      maximumDistanceKm,
-      disableCache: request.disableCache === true,
-    })
-  } else {
-    let state = openRuntimeStreetStore(storePath)
-    if (!state.driveAccelerator) {
-      const prepared = prepareNationalOsmDriveStore(storePath)
-      if (prepared.ready) state = openRuntimeStreetStore(storePath)
-    }
-    if (!state.driveAccelerator) {
-      const error = new Error(
-        `The Rust driving matrix kernel is unavailable: ${state.driveAcceleratorError ?? 'rebuild the drive snapshot.'}`,
-      )
-      error.code = 'VIGO_DRIVE_SNAPSHOT_REQUIRED'
-      throw error
-    }
-    traffic = normalizeDriveTrafficSnapshot(
-      state.driveAccelerator,
-      request.trafficSnapshot,
-      state.metadata.sourceFingerprint,
-    )
-    native = routeNativeDriveCoordinateMatrix(state.driveAccelerator, {
-      originCoordinates: originSet.unique.flatMap((point) => point.coordinate),
-      destinationCoordinates: destinationSet.unique.flatMap((point) => point.coordinate),
-      maximumWalkKm: Math.max(0, Math.min(100, Number(request.maxWalkKm ?? defaultDriveAccessWalkKm))),
-      walkingSpeedKph,
-      maximumDistanceKm,
-      traffic: traffic?.nativeInput,
-    })
-  }
-  if (options.isCancelled?.()) throw streetAnalysisAbort('matrix')
-
-  const uniqueDestinationCount = destinationSet.unique.length
-  const rows = new Array(origins.length * destinations.length)
-  let rowIndex = 0
-  for (let originIndex = 0; originIndex < origins.length; originIndex += 1) {
-    for (let destinationIndex = 0; destinationIndex < destinations.length; destinationIndex += 1) {
-      const matrixIndex = originSet.indexes[originIndex] * uniqueDestinationCount
-        + destinationSet.indexes[destinationIndex]
-      const distanceM = Number(native.distancesM[matrixIndex])
-      const durationMinutes = mode === 'drive'
-        ? Number(native.durationsS[matrixIndex]) / 60
-        : distanceM / 1_000 / walkingSpeedKph * 60
-      const finiteDistance = Number.isFinite(distanceM)
-      const finiteDuration = Number.isFinite(durationMinutes)
-      const ready = finiteDistance && finiteDuration
-      rows[rowIndex] = {
-        originIndex,
-        destinationIndex,
-        status: ready ? 'ready' : 'blocked',
-        distanceKm: finiteDistance ? distanceM / 1_000 : null,
-        durationMinutes: finiteDuration ? durationMinutes : null,
-      }
-      rowIndex += 1
-    }
-  }
-  const trafficApplied = mode === 'drive' && traffic?.status === 'applied' && native.diagnostics.trafficApplied === true
-  const trafficDiagnostics = traffic
-    ? Object.fromEntries(Object.entries(traffic).filter(([key]) => !['nativeInput', 'cacheKey'].includes(key)))
-    : null
-  return {
-    schemaVersion: 'vigo.routing.street-matrix.v1',
-    mode,
-    rows,
-    diagnostics: {
-      owner: 'rust_resident_street_matrix_kernel',
-      matrixEngine: native.diagnostics.algorithm,
-      mode,
-      weightModel: mode === 'drive'
-        ? (trafficApplied ? 'snapshot_customized_traffic_seconds' : 'free_flow_seconds')
-        : 'distance_meters',
-      origins: origins.length,
-      destinations: destinations.length,
-      pairs: rows.length,
-      uniqueOrigins: originSet.unique.length,
-      uniqueDestinations: destinationSet.unique.length,
-      readyPairs: native.readyPairs,
-      cchAccelerated: native.diagnostics.cchAccelerated === true,
-      cchCandidateQueries: native.diagnostics.cchCandidateQueries ?? null,
-      pathQueries: native.diagnostics.pathQueries ?? null,
-      sourceCandidates: native.diagnostics.sourceCandidates ?? null,
-      destinationCandidates: native.diagnostics.destinationCandidates ?? null,
-      maximumDistanceKm,
-      walkingSpeedKph: mode === 'walk' ? walkingSpeedKph : null,
-      ...(mode === 'drive' && trafficDiagnostics ? {
-        traffic: {
-          ...trafficDiagnostics,
-          ...(traffic?.status === 'applied' ? {
-            status: trafficApplied ? 'applied' : 'native_fallback',
-            customizationMs: native.diagnostics.trafficCustomizationMs,
-            metricReused: native.diagnostics.trafficMetricReused === true,
-          } : {}),
-        },
-      } : {}),
-      nativeQueryMs: timingMilliseconds(native.queryMs),
-      nodeApiWallMs: timingMilliseconds(native.nodeApiWallMs),
-      queryMs: Number((performance.now() - startedAt).toFixed(3)),
-      ...(options.isCancelled?.() ? { cancelled: true } : {}),
-    },
-  }
-}
-
-function streetAnalysisAbort(surface) {
-  const error = new Error(`Street ${surface} analysis was cancelled.`)
-  error.name = 'AbortError'
-  error.code = 'ABORT_ERR'
-  return error
-}
-
-/**
- * Rasterize exact directed pedestrian-network travel times in the Rust mmap
- * kernel. JavaScript validates worker cancellation and shapes the public
- * response; it does not retain or execute a street graph.
- */
-export function streetNetworkTravelTimeRaster(storePath, value, options = {}) {
-  openRuntimeStreetStore(storePath)
-  if (options.isCancelled?.()) throw streetAnalysisAbort('surface')
-  options.onProgress?.({
-    phase: 'street-surface',
-    progress: 0.01,
-    detail: 'Rust pedestrian surface search',
-  })
-  const result = rasterNativeStreetSurface(storePath, value)
-  if (options.isCancelled?.()) throw streetAnalysisAbort('surface')
-  options.onProgress?.({
-    phase: 'street-surface',
-    progress: 0.98,
-    detail: `${result.diagnostics.settledLabels.toLocaleString()} pedestrian labels settled`,
-  })
-  return result
 }

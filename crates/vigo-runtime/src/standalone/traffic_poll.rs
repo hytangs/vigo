@@ -1,6 +1,7 @@
 //! One optional NDW producer per server. Downloads, XML and road matching never
 //! run in the query worker. Only complete graph-bound snapshots are published.
 use super::{Result, fail};
+use crate::standalone_types::Column;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
@@ -248,31 +249,32 @@ impl Poller {
     }
 }
 // A producer needs the immutable street CSR, not a second CCH routing kernel.
+// Its columns are read in place from the mapped accelerator.
 struct RoadGraph {
-    lons: Vec<f64>,
-    lats: Vec<f64>,
-    offsets: Vec<u32>,
-    targets: Vec<u32>,
-    distances: Vec<u32>,
-    times: Vec<u32>,
+    lons: Column<f64>,
+    lats: Column<f64>,
+    offsets: Column<u32>,
+    targets: Column<u32>,
+    distances: Column<u32>,
+    times: Column<u32>,
     fingerprint: String,
 }
 impl RoadGraph {
     fn open(city: &str) -> Result<Self> {
-        let image = vigo_format::Snapshot::open(
+        let image = std::sync::Arc::new(vigo_format::Snapshot::open(
             &Path::new(city).join("osm/street-index.sqlite.drive-accelerator-v2.bin"),
             false,
-        )?;
+        )?);
         if image.header["magic"] != "vigo.drive.accelerator" || image.header["version"] != 2 {
             return fail("Unsupported drive snapshot");
         }
         let g = Self {
-            lons: image.f64("nodeLons")?,
-            lats: image.f64("nodeLats")?,
-            offsets: image.u32("edgeOffsets")?,
-            targets: image.u32("edgeTargets")?,
-            distances: image.u32("edgeDistanceUnits")?,
-            times: image.u32("edgeTimeUnits")?,
+            lons: Column::<f64>::mapped(&image, "nodeLons")?,
+            lats: Column::<f64>::mapped(&image, "nodeLats")?,
+            offsets: Column::<u32>::mapped(&image, "edgeOffsets")?,
+            targets: Column::<u32>::mapped(&image, "edgeTargets")?,
+            distances: Column::<u32>::mapped(&image, "edgeDistanceUnits")?,
+            times: Column::<u32>::mapped(&image, "edgeTimeUnits")?,
             fingerprint: image.header["identity"]["sourceFingerprint"]
                 .as_str()
                 .ok_or("Missing street fingerprint")?
@@ -286,7 +288,7 @@ impl RoadGraph {
             || g.targets.len() != g.times.len()
             || g.offsets.windows(2).any(|p| p[0] > p[1])
             || g.targets.iter().any(|&n| n as usize >= g.lons.len())
-            || g.lons.iter().chain(&g.lats).any(|v| !v.is_finite())
+            || g.lons.iter().chain(g.lats.iter()).any(|v| !v.is_finite())
         {
             return fail("Invalid traffic street graph");
         }

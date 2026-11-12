@@ -1,12 +1,11 @@
-//! GTFS-Realtime overlays (RFC 0002), shared by the standalone runtime and the
-//! Node addon. A snapshot never edits the schedule it describes: each overlay
+//! GTFS-Realtime overlays (RFC 0002) for the standalone runtime. A snapshot never edits the schedule it describes: each overlay
 //! compiles a new view from the retained schedule arrays, so every later
 //! snapshot reuses the same resident source. Predictions replace the calls of
 //! their trips and cancellations remove trips; [`alerts`] closes service.
 //! Views keep the original trip indices and so share the schedule's names.
 pub(crate) mod alerts;
 
-use chrono::{NaiveDate, TimeZone};
+use chrono::NaiveDate;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
@@ -21,14 +20,7 @@ fn fail<T>(message: impl Into<String>) -> Result<T> {
 }
 
 /// GTFS service time starts twelve elapsed hours before local noon, even on DST days.
-pub(crate) fn service_epoch(zone: chrono_tz::Tz, day: NaiveDate) -> Result<i64> {
-    Ok(zone
-        .from_local_datetime(&day.and_hms_opt(12, 0, 0).unwrap())
-        .single()
-        .ok_or("Service date has no unambiguous local noon")?
-        .timestamp()
-        - 43_200)
-}
+pub(crate) use crate::bike_time::service_epoch;
 
 /// The service date a query reads a snapshot against and, when one is known,
 /// the City clock's zone. Absolute event times need the zone.

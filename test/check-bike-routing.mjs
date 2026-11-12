@@ -7,7 +7,7 @@ import { execFileSync, spawnSync, spawn } from 'node:child_process'
 import { DatabaseSync } from 'node:sqlite'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 import { standaloneBinary as binary } from './helpers/standalone-runtime.mjs'
-import { routeNationalStreetStore, routeNationalStreetMatrix, disposeNationalOsmStore } from '../src/server/national-osm-store.mjs'
+import { disposeNationalOsmStore } from '../src/server/national-osm-store.mjs'
 import { computeReachResult } from '../src/server/reach.mjs'
 import { nativeReachRangeRequest, studioReachRange } from '../src/server/studio-reach-ranges.mjs'
 import { serviceEpochSeconds } from '../src/server/gtfs/service-clock.mjs'
@@ -99,12 +99,6 @@ try {
   fs.writeFileSync(requestPath,JSON.stringify({ mode:'bike',origins:[query.origin],destinations:[query.destination],time:'08:00' }))
   const cliMatrix = JSON.parse(execFileSync(process.execPath,['public/vigo.mjs','matrix',`--city=${city}`,`--request=${requestPath}`],{cwd:root,encoding:'utf8'}))
   assert.equal(cliMatrix.status,'ok')
-  const body = { mode:'bike', origin:{coordinate:query.origin,label:'A'},destination:{coordinate:query.destination,label:'B'},maxWalkKm:0.001,departMinutes:480 }
-  const plan = routeNationalStreetStore(store,body)
-  assert.equal(plan.travelMode,'bike'); assert(plan.legs.some(l=>l.type==='bike'))
-  assert(Math.abs(plan.durationMinutes*60-route.journey.durationSeconds)<1)
-  const nodeMatrix = routeNationalStreetMatrix(store,{ ...body,origins:[body.origin],destinations:[body.destination] })
-  assert.equal(nodeMatrix.rows[0].status,'ready')
   for (const patch of [{bike:{speedKph:0}},{bike:{profile:'invented'}},{bike:{unknown:true}},{traffic:{}}]) {
     const r=spawnSync(binary,['route','--city',city,'--request','-'],{input:JSON.stringify({...query,...patch}),encoding:'utf8'})
     assert.notEqual(r.status,0,JSON.stringify(patch))
@@ -126,9 +120,6 @@ try {
         ...(direction==='backward'?{origin:query.destination,destination:query.origin}:{})}
       assert.equal(run('route',request,target).status,direction===lowDirection?'ok':'not_found',name+direction)
       assert.equal(run('route',{...request,bike:{}},target).status,'ok',name+direction+' access')
-      const node=routeNationalStreetStore(streetStore(target),{...body,
-        origin:{coordinate:request.origin},destination:{coordinate:request.destination},maxWalkKm:0,bike:request.bike})
-      assert.equal(node.status==='ready',direction===lowDirection,name+direction+' Node LTS')
     }
   }
   {
@@ -185,18 +176,6 @@ try {
   const via = run('route',{...dated,via:[[-77.035,38.9075]]},timedCity)
   assert.equal(via.status,'ok')
   assert(Math.abs(via.journey.durationSeconds-waiting.journey.durationSeconds)<=1)
-  const nodeDated = { ...body,serviceDate:'2026-07-15',timeZone:'America/New_York',maxWalkKm:0,bike:{profile:'fast'} }
-  const timedPlan = routeNationalStreetStore(timedStore,nodeDated)
-  assert(Math.abs(timedPlan.durationMinutes*60-waiting.journey.durationSeconds)<1)
-  assert(Math.abs(timedPlan.waitMinutes*60-waiting.journey.waitingSeconds)<1)
-  const timedNodeMatrix = routeNationalStreetMatrix(timedStore,{...nodeDated,origins:[nodeDated.origin],destinations:[nodeDated.destination]})
-  assert(Math.abs(timedNodeMatrix.rows[0].durationMinutes*60-waiting.journey.durationSeconds)<1)
-  const arrivalNode={...nodeDated,timePreference:'arrive',arriveMinutes:600}
-  const arrivalNodePlan=routeNationalStreetStore(timedStore,arrivalNode)
-  assert(Math.abs(arrivalNodePlan.durationMinutes*60-timedArrival.journey.durationSeconds)<1)
-  assert.equal(arrivalNodePlan.arriveMinutes,600)
-  const arrivalNodeMatrix=routeNationalStreetMatrix(timedStore,{...arrivalNode,origins:[arrivalNode.origin],destinations:[arrivalNode.destination]})
-  assert(Math.abs(arrivalNodeMatrix.rows[0].durationMinutes*60-timedArrival.journey.durationSeconds)<1)
   // A closed turn can require arriving early. Route shows actual travel;
   // Matrix measures departure-to-deadline, including the terminal slack.
   const early=run('route',{...dated,timePreference:'arrive_by',time:'08:30',diagnostics:'trace'},timedCity)
@@ -209,12 +188,6 @@ try {
   const earlyMatrix=run('matrix',{...dated,timePreference:'arrive_by',time:'08:30',
     origin:undefined,destination:undefined,origins:[dated.origin],destinations:[dated.destination]},timedCity)
   assert(Math.abs(earlyMatrix.durationsSeconds[0][0]-early.journey.durationSeconds-early.trace.diagnostics.earlyArrivalSeconds)<2)
-  const earlyNode={...nodeDated,timePreference:'arrive',arriveMinutes:510}
-  const earlyPlan=routeNationalStreetStore(timedStore,earlyNode)
-  assert(earlyPlan.arriveMinutes < 510)
-  assert(Math.abs(earlyPlan.durationMinutes*60-early.journey.durationSeconds)<1)
-  const earlyNodeMatrix=routeNationalStreetMatrix(timedStore,{...earlyNode,origins:[earlyNode.origin],destinations:[earlyNode.destination]})
-  assert(Math.abs(earlyNodeMatrix.rows[0].durationMinutes*60-earlyMatrix.durationsSeconds[0][0])<1)
   disposeNationalOsmStore(timedStore)
   const roadInputs=path.join(directory,'road-inputs');fs.mkdirSync(roadInputs)
   const roadCity=path.join(directory,'road-city')
@@ -242,9 +215,6 @@ try {
   assert.equal(run('route',{...dated,serviceDate:'2026-07-18'},roadCity).journey.waitingSeconds,0)
   const roadMatrix=run('matrix',{...dated,origin:undefined,destination:undefined,origins:[dated.origin],destinations:[dated.destination]},roadCity)
   assert(Math.abs(roadMatrix.durationsSeconds[0][0]-roadWait.journey.durationSeconds)<1)
-  const roadPlan=routeNationalStreetStore(roadStore,nodeDated)
-  assert.equal(roadPlan.waitMinutes,60)
-  assert(Math.abs(roadPlan.durationMinutes*60-roadWait.journey.durationSeconds)<1)
   const roadVia=run('route',{...dated,via:[[-77.04,38.905]]},roadCity)
   assert.equal(roadVia.journey.durationSeconds,roadWait.journey.durationSeconds)
   disposeNationalOsmStore(roadStore)
@@ -271,9 +241,6 @@ try {
   assert.equal(run('route',{...dated,serviceDate:'2026-07-18'},viaCity).journey.waitingSeconds,0)
   const viaMatrix=run('matrix',{...dated,origin:undefined,destination:undefined,origins:[dated.origin],destinations:[dated.destination]},viaCity)
   assert(Math.abs(viaMatrix.durationsSeconds[0][0]-viaWait.journey.durationSeconds)<1)
-  const viaPlan=routeNationalStreetStore(viaStore,nodeDated)
-  assert(Math.abs(viaPlan.durationMinutes*60-viaWait.journey.durationSeconds)<1)
-  assert(Math.abs(viaPlan.waitMinutes*60-viaWait.journey.waitingSeconds)<1)
   for (const via of [[[-77.04,38.905]], [[-77.035,38.9075]], [[-77.0375,38.90625]],
     [[-77.04,38.905],[-77.04,38.905],[-77.035,38.9075]]]) {
     const ordered = run('route',{...dated,via},viaCity)
@@ -282,14 +249,6 @@ try {
     assert(Math.abs(ordered.journey.waitingSeconds-viaWait.journey.waitingSeconds)<2)
     assert.equal(run('route',{...query,via},viaCity).status,'not_found')
     assert.equal(run('route',{...dated,via,timePreference:'arrive_by',time:'10:00'},viaCity).status,'not_found')
-    const plan=routeNationalStreetStore(viaStore,{...nodeDated,waypoints:via.map(coordinate=>({coordinate}))})
-    assert.equal(plan.status,'ready')
-    assert(plan.title.startsWith('Bike via'))
-    assert.equal(plan.diagnostics.optimality,'sequential_segment_choices')
-    assert.equal(plan.legs[0].orderedSegmentIndex,0)
-    assert.equal(plan.legs.at(-1).orderedSegmentIndex,via.length)
-    assert(Math.abs(plan.durationMinutes*60-viaWait.journey.durationSeconds)<2)
-    assert(Math.abs(plan.waitMinutes*60-viaWait.journey.waitingSeconds)<2)
   }
   const nodeVia=run('route',{...dated,via:[[-77.04,38.905]]},timedCity)
   assert.equal(nodeVia.journey.durationSeconds,waiting.journey.durationSeconds)
@@ -314,11 +273,6 @@ try {
   const stressMatrix=run('matrix',{...stressRequest,origin:undefined,destination:undefined,
     origins:[query.origin],destinations:[query.destination]},stressCity)
   assert(Math.abs(stressMatrix.durationsSeconds[0][0]-stressRoute.journey.durationSeconds)<1)
-  const stressNodeRequest={...body,maxWalkKm:0,bike:{profile:'fast',maxLts:1}}
-  const stressPlan=routeNationalStreetStore(stressStore,stressNodeRequest)
-  assert.equal(stressPlan.status,'ready')
-  assert(stressPlan.legs.every(leg=>leg.type==='walk'&&leg.geometrySource==='osm-low-stress'))
-  assert(Math.abs(stressPlan.durationMinutes*60-stressRoute.journey.durationSeconds)<1)
   const stressVia=run('route',{...stressRequest,via:[[-77.04,38.905]]},stressCity)
   assert.equal(stressVia.journey.durationSeconds,stressRoute.journey.durationSeconds)
   const stressAll=run('route',{...query,bike:{profile:'fast',maxLts:4}},stressCity)
@@ -385,16 +339,6 @@ try {
       const requested=serviceEpochSeconds(parameters.serviceDate,'America/New_York')+Number(clockTime.slice(3))*60
       const actual=serviceEpochSeconds(clockDate,'America/New_York')+route.trace.arrivalMinutes*60
       assert(Math.abs(requested-actual)<.001,'Rebasing must preserve the absolute deadline across DST')
-      const nodeRequest={mode:'bike',serviceDate:parameters.serviceDate,timeZone:'America/New_York',
-        timePreference:'arrive',arriveMinutes:Number(clockTime.slice(3)),maxWalkKm:.3,maxStreetKm:750,
-        bike:parameters.bike,origin:{coordinate:cells[i]},destination:{coordinate:query.destination}}
-      const plan=routeNationalStreetStore(roadStore,nodeRequest)
-      assert.equal(plan.status,'ready')
-      assert.equal(plan.arriveMinutes,nodeRequest.arriveMinutes)
-      assert(Math.abs(plan.durationMinutes*60-expected[i])<1)
-      const nodeMatrix=routeNationalStreetMatrix(roadStore,{...nodeRequest,
-        origins:[nodeRequest.origin],destinations:[nodeRequest.destination]})
-      assert(Math.abs(nodeMatrix.rows[0].durationMinutes*60-expected[i])<1)
       disposeNationalOsmStore(roadStore)
     }
     for(const [i,seconds] of expected.entries()) {
@@ -423,11 +367,6 @@ try {
     assert.equal(detourRoute.status,'ok')
     if (profile==='fast') assert(detourRoute.journey.durationSeconds<2700)
     else assert(detourRoute.journey.durationSeconds>3600,'Comfort preferences choose the longer cycleway')
-    const nodeRequest={...preferences,timePreference:'arrive',arriveMinutes:time==='01:00'?60:480,
-      timeZone:'America/New_York',origin:{coordinate:detourCells[240]},destination:{coordinate:preferences.destination}}
-    const nodePlan=routeNationalStreetStore(detourStore,nodeRequest)
-    assert.equal(nodePlan.status,'ready')
-    assert(Math.abs(nodePlan.durationMinutes*60-detourRoute.journey.durationSeconds)<1)
     const detourMatrix=run('matrix',{...preferences,destination:undefined,origins:detourCells,
       destinations:[preferences.destination],maxStreetKm:750},detourCity)
     for (const cutoff of [45,120]) {
@@ -474,9 +413,6 @@ try {
       if (mode==='bike'&&timed) {
         const waiting=run('route',{...base,mode,time:'08:30'},target)
         assert.equal(waiting.status,'ok');assert.equal(waiting.journey.waitingSeconds,1800)
-        const node=routeNationalStreetStore(targetStore,{mode,serviceDate:base.serviceDate,timeZone:'America/New_York',
-          departMinutes:510,origin:{coordinate:base.origin},destination:{coordinate:base.destination},maxStreetKm:50,maxWalkKm:0})
-        assert.equal(node.status,'ready');assert(Math.abs(node.durationMinutes*60-waiting.journey.durationSeconds)<1)
       }
     }
     disposeNationalOsmStore(targetStore)

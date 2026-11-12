@@ -6,7 +6,7 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import JSZip from 'jszip'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
-import { routeNationalGtfsStore, disposeNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
+import { disposeNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
 
 const root = path.resolve(import.meta.dirname, '..')
 import { standaloneBinary as binary } from './helpers/standalone-runtime.mjs'
@@ -53,10 +53,6 @@ try {
         const matrix = unpack(JSON.parse(execFileSync(binary, ['matrix', '--city', city, '--request', '-'], {
           input: JSON.stringify({ diagnostics: "trace", ...options, origins: [origin], destinations: [destination], includeJourneys: true }), encoding: 'utf8', timeout: 30000 })))
         assert.deepEqual(matrix.durationsMinutes, [[null]])
-        const node = routeNationalGtfsStore(routing, { ...body, timePreference: arrive ? 'arrive' : 'depart', departMinutes: 475, arriveMinutes: 520,
-          destination: { ...request.destination, coordinate: [-77.030, 38.910], source: 'stop' },
-          streetStorePath: path.join(city, 'osm/street-index.sqlite'), serviceDay: 'weekday' })
-        assert.equal(node.status, 'blocked', node.detail)
       }
       disposeNationalGtfsStore(routing)
       continue
@@ -87,18 +83,8 @@ try {
         assert.equal(walk.stationGeometryStatus, 'incomplete')
         assert(walk.coordinates.every(([lon, lat]) => lon < -70 && lat > 35), 'Missing interior coordinates cannot become (0, 0).')
         const routing = path.join(city, 'routing/project.sqlite')
-        const node = routeNationalGtfsStore(routing, { ...request, departMinutes: 475,
-          destination: { ...request.destination, coordinate: [-77.030, 38.910], source: 'stop' },
-          streetStorePath: path.join(city, 'osm/street-index.sqlite'), serviceDay: 'weekday' })
-        assert.equal(node.status, 'ready', node.detail)
-        const nodeWalk = node.legs.find(leg => leg.accessCost)
-        assert.equal(nodeWalk.stationGeometryStatus, 'incomplete')
-        assert(nodeWalk.coordinates.every(([lon, lat]) => lon < -70 && lat > 35))
-        assert.deepEqual(nodeWalk.accessCost.station.stopIds, kind === 'boarding_area' ? ['X', 'D', 'Y'] : ['X', 'N', 'Y'])
-        assert.equal(nodeWalk.accessCost.station.seconds, seconds)
         if (kind === 'timed_unlocated') {
           assert.equal(walk.stationDistanceStatus, 'lower_bound')
-          assert.equal(nodeWalk.stationDistanceStatus, 'lower_bound')
         }
         disposeNationalGtfsStore(routing)
       }

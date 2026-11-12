@@ -89,7 +89,7 @@ The runtime must advertise endpoint access before Build.
 
 Point mappings use the Engine fields `stop`, `stopId`, or `coordinate`. Use `[longitude, latitude]` or a `coordinate` mapping for coordinates. Python does not interpret `stop_id`, `lat`, `lon`, or `lng` as point aliases.
 
-A numeric pair is one coordinate point, not two Matrix endpoints. A mapping with a point key such as `stop`, `stopId`, or `coordinate` is one point, not an ID-to-point set. Use descriptive, unique caller IDs for Matrix sets. The complete [Engine point contract](https://github.com/hytangs/vigo/blob/main/docs/guide.md#route-1) describes stop access semantics.
+A numeric pair is one coordinate point, not two Matrix endpoints. A mapping with a point key such as `stop`, `stopId`, or `coordinate` is one point, not an ID-to-point set. Use descriptive, unique caller IDs for Matrix sets. The complete [Engine point contract](https://github.com/hytangs/vigo/blob/main/docs/guides/rust-standalone.md#points) describes stop access semantics.
 
 Time arguments accept `HH:MM`, `datetime.time`, or `datetime.datetime`. A datetime supplies its date unless an explicit `service_date` overrides it. Datetime timezone information is not converted; seconds are omitted. Pass a clock already expressed in the feed's local service time.
 
@@ -107,7 +107,7 @@ Booking requirements remain in each detailed transit leg's `flexEstimate` record
 does not book a vehicle, confirm capacity or evaluate booking deadlines.
 Flex can connect to scheduled transit in either order. Continuous boarding uses
 explicitly labeled shape-time estimates. Wheelchair Flex requires a strict
-wheelchair City and an explicitly accessible vehicle. See the [Engine Flex contract](https://github.com/hytangs/vigo/blob/main/docs/developer.md#conditional-gtfs-flex-journeys).
+wheelchair City and an explicitly accessible vehicle. See the [Engine Flex guide](https://github.com/hytangs/vigo/blob/main/docs/guide.md#gtfs-flex).
 
 Transit Route and Matrix compare a feasible direct walk by default. Use `require_transit_ride=True` to require a vehicle boarding, or `mode="walk"` for a walking journey. `horizon_minutes` sets the transit search horizon (1–2880 minutes; default 480).
 
@@ -351,7 +351,7 @@ distribution and a single-time result raises `ValueError`.
 | `live` | Unavailable through Python |
 | Combined planned, live, or traffic states | Unsupported |
 
-`services` accepts mappings following the Engine's [service change contract](https://github.com/hytangs/vigo/blob/main/docs/guide.md#scenario-semantics). `without_routes` accepts exact route IDs. `traffic` is a supplied snapshot; constructing a Scenario does not fetch observations or establish their validity. The runtime validates the snapshot when executing a supported query. Python sends traffic in explicit realtime mode for Drive Route and Matrix; scheduled transit remains separate.
+`services` accepts mappings following the Engine's [service change contract](https://github.com/hytangs/vigo/blob/main/docs/guide.md#scenarios). `without_routes` accepts exact route IDs. `traffic` is a supplied snapshot; constructing a Scenario does not fetch observations or establish their validity. The runtime validates the snapshot when executing a supported query. Python sends traffic in explicit realtime mode for Drive Route and Matrix; scheduled transit remains separate.
 
 Nested Scenario inputs are copied and frozen. `expires_at` is an optional datetime checked before execution; expired Scenarios raise `VigoError`. A Scenario does not alter the City's baseline. Follow the [service proposal workflow](guide.md#compare-a-service-proposal) for a complete example.
 

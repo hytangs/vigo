@@ -86,21 +86,6 @@
 }
 
 @media (max-width: 620px) {
-  .page-projects .shell-body,
-  .project-empty .shell-body {
-    grid-template-columns: minmax(0, 1fr) !important;
-  }
-
-  .page-projects .app-sidebar,
-  .project-empty .app-sidebar {
-    display: none;
-  }
-
-  .page-projects .app-frame,
-  .project-empty .app-frame {
-    grid-column: 1 !important;
-  }
-
   .project-empty .empty-workbench {
     padding: 10px;
   }
@@ -479,13 +464,6 @@
 }
 
 @media (max-width: 900px) {
-  .topbar,
-  .page-projects .topbar,
-  .project-empty .topbar {
-    grid-template-columns: minmax(132px, 0.5fr) minmax(230px, 1fr) auto;
-    gap: 8px;
-  }
-
   .topbar-project-action.surface-exit-action {
     width: 32px;
     min-width: 32px;
@@ -570,7 +548,6 @@
     width: 100%;
     max-height: none;
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 42svh) 48px;
     border: 0;
     border-bottom: 1px solid var(--line-2);
@@ -585,7 +562,6 @@
   .workbench.project-workbench.route-investigation-shell {
     min-height: 0;
     display: grid;
-    padding: 0;
     overflow: hidden;
   }
 

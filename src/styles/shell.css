@@ -300,11 +300,6 @@
   grid-template-columns: 64px;
 }
 
-.project-empty .topbar-brand span,
-.project-empty .topbar-brand b {
-  display: none;
-}
-
 .empty-intake {
   min-height: 0;
   display: block;

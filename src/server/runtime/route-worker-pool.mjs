@@ -1,6 +1,5 @@
 import path from 'node:path'
 import { Worker } from 'node:worker_threads'
-import { takeRoutingJob, maximumPointBypasses } from './routing-job-queue.mjs'
 import { resolveServiceDay } from '../service-day.mjs'
 import { boundedInteger, memoryCapacityBytes, runtimeCapacityError } from './resource-limits.mjs'
 
@@ -33,22 +32,6 @@ function makeWorkerRestartedError() {
   return error
 }
 
-function makePrewarmWaitTimeoutError(timeoutMs) {
-  const error = new Error(
-    `Routing preparation is still running in the background after ${Math.ceil(timeoutMs / 1_000)} seconds. Retry shortly; the shared cold build was not cancelled.`,
-  )
-  error.code = 'VIGO_PREWARM_WAIT_TIMEOUT'
-  error.statusCode = 504
-  return error
-}
-
-function makePrewarmHardTimeoutError(timeoutMs) {
-  const error = new Error(`Routing preparation exceeded the ${Math.ceil(timeoutMs / 1_000)} second cold-build safety limit.`)
-  error.code = 'VIGO_PREWARM_HARD_TIMEOUT'
-  error.statusCode = 504
-  return error
-}
-
 function waitForPromiseWithSignal(promise, signal) {
   if (!signal) return promise
   if (signal.aborted) return Promise.reject(makeAbortError())
@@ -68,29 +51,6 @@ function waitForPromiseWithSignal(promise, signal) {
         cleanup()
         reject(error)
       },
-    )
-  })
-}
-
-function waitForPromiseWithTimeoutAndSignal(promise, timeoutMs, signal) {
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return waitForPromiseWithSignal(promise, signal)
-  if (signal?.aborted) return Promise.reject(makeAbortError())
-  return new Promise((resolve, reject) => {
-    let settled = false
-    const settle = (callback, value) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timeout)
-      signal?.removeEventListener('abort', abort)
-      callback(value)
-    }
-    const abort = () => settle(reject, makeAbortError())
-    const timeout = setTimeout(() => settle(reject, makePrewarmWaitTimeoutError(timeoutMs)), timeoutMs)
-    timeout.unref?.()
-    signal?.addEventListener('abort', abort, { once: true })
-    promise.then(
-      (value) => settle(resolve, value),
-      (error) => settle(reject, error),
     )
   })
 }
@@ -131,7 +91,6 @@ function nationalRoutingPrewarmContext(context = {}) {
   }
 }
 
-
 class NationalRouteWorkerClient {
   constructor(storePath, { onIdle, onExpire, isMemoryPressure, workerUrl }) {
     this.workerUrl = workerUrl
@@ -145,7 +104,6 @@ class NationalRouteWorkerClient {
     this.generation = 0
     this.sequence = 0
     this.queue = []
-    this.queueFairness = { bypasses: 0 }
     this.active = null
     this.restarting = false
     this.closed = false
@@ -162,7 +120,6 @@ class NationalRouteWorkerClient {
     this.transferPrepareStorePath = ''
     this.routingAccessPrepareResult = null
     this.routingAccessPreparedContextKey = ''
-    this.lastRouteContext = null
     this.coldStartMs = 0
     this.completedJobs = 0
     this.failedJobs = 0
@@ -185,11 +142,6 @@ class NationalRouteWorkerClient {
 
   get prepared() {
     return Boolean(this.worker && this.preparedAt && this.prepareResult?.ready)
-  }
-
-  preparedResultFor(contextKey) {
-    if (!this.prepared || this.preparedContextKey !== contextKey) return null
-    return { ...this.prepareResult, alreadyWarm: true }
   }
 
   routingAccessResultFor(contextKey) {
@@ -263,11 +215,9 @@ class NationalRouteWorkerClient {
         : undefined,
       routingAccessPrepared: this.routingAccessPrepareResult?.ready === true,
       routingAccessContext: this.routingAccessPreparedContextKey || undefined,
-      lastRouteContext: this.lastRouteContext ?? undefined,
       active: Boolean(this.active),
       activeOperation: this.active?.operation,
       queued: this.queue.length,
-      maximumPointBypasses,
       restarting: this.restarting,
       generation: this.generation,
       workerInstance: this.workerInstance || undefined,
@@ -352,7 +302,6 @@ class NationalRouteWorkerClient {
     this.transferPrepareStorePath = ''
     this.routingAccessPrepareResult = null
     this.routingAccessPreparedContextKey = ''
-    this.lastRouteContext = null
     this.coldStartMs = 0
     this.workerInstance = ''
     this.metrics = {}
@@ -397,7 +346,7 @@ class NationalRouteWorkerClient {
       queueMicrotask(() => this.#pump())
       return
     }
-    const job = takeRoutingJob(this.queue, this.queueFairness)
+    const job = this.queue.shift()
     this.active = job
     job.startedAt = Date.now()
     job.deadlineTimer = setTimeout(() => {
@@ -408,7 +357,7 @@ class NationalRouteWorkerClient {
       ), this.generation)
     }, jobTimeoutMs)
     job.deadlineTimer.unref?.()
-    if (!['prepare', 'prepare-street', 'prepare-transfers', 'prepare-derived', 'prepare-routing-access'].includes(job.operation)) {
+    if (!['prepare', 'prepare-street', 'prepare-transfers', 'prepare-routing-access'].includes(job.operation)) {
       this.hasInteractiveUse = true
     }
     try {
@@ -495,34 +444,6 @@ class NationalRouteWorkerClient {
           ? path.resolve(String(job.request.streetStorePath))
           : ''
       }
-      if (job.operation === 'route') {
-        const plan = message.result
-        const planDiagnostics = plan?.diagnostics ?? {}
-        const activeServiceKernel = planDiagnostics.searchStats?.activeServiceKernel
-        this.lastRouteContext = {
-          operation: job.operation,
-          requestedServiceDate: String(
-            planDiagnostics.requestedServiceDate
-              ?? job.request?.serviceDate
-              ?? '',
-          ) || undefined,
-          resolvedServiceDate: String(
-            planDiagnostics.resolvedServiceDate
-              ?? job.request?.serviceDate
-              ?? '',
-          ) || undefined,
-          serviceDay: String(planDiagnostics.serviceDay ?? job.request?.serviceDay ?? '')
-            || undefined,
-          allowServiceDateFallback: job.request?.allowServiceDateFallback === true,
-          requireCompleteServiceCoverage:
-            job.request?.requireCompleteServiceCoverage === true,
-          status: plan?.status,
-          algorithm: planDiagnostics.algorithm,
-          optimality: planDiagnostics.optimality,
-          activeServiceKernelReady: activeServiceKernel?.ready === true,
-          activeServiceKey: activeServiceKernel?.serviceKey,
-        }
-      }
       if (!job.cancelled) job.resolve(message.result)
     } else {
       this.failedJobs += 1
@@ -579,7 +500,7 @@ class NationalRouteWorkerClient {
     job.cancelled = true
     this.abandonedJobs += 1
     job.reject(makeAbortError())
-    if (!['prepare', 'prepare-derived', 'prepare-routing-access'].includes(job.operation)) {
+    if (!['prepare', 'prepare-routing-access'].includes(job.operation)) {
       job.cancelTimer = setTimeout(() => {
         job.cancelTimer = null
         if (this.active === job && job.cancelled) this.#forceCancellationRestart(job)
@@ -637,7 +558,6 @@ class NationalRouteWorkerClient {
 
   #becameIdle() {
     if (!this.isIdle) return
-    this.queueFairness.bypasses = 0
     this.onIdle(this)
     this.#scheduleIdleTimer()
   }
@@ -706,18 +626,6 @@ export class NationalRouteWorkerPool {
     this.lock = Promise.resolve()
   }
 
-  prepare(storePath, { reason = 'explicit', signal, context } = {}) {
-    if (this.closed) return Promise.reject(runtimeCapacityError('The routing runtime is closed.', 'VIGO_ROUTE_CLOSED'))
-    if (signal?.aborted) return Promise.reject(makeAbortError())
-    this.prewarmStats.requested += 1
-    const normalizedContext = nationalRoutingPrewarmContext(context)
-    const reused = this.#reusePreparation(storePath, normalizedContext, signal, reason)
-    if (reused) return reused
-    return this.#withRouteLifecycle(storePath, signal, () => (
-      this.#prepareNormalized(storePath, normalizedContext, signal, reason)
-    ))
-  }
-
   prepareRoutingAccess(storePath, { reason = 'background-access', signal, context } = {}) {
     if (this.closed) return Promise.reject(runtimeCapacityError('The routing runtime is closed.', 'VIGO_ROUTE_CLOSED'))
     if (signal?.aborted) return Promise.reject(makeAbortError())
@@ -760,73 +668,6 @@ export class NationalRouteWorkerPool {
       })
     this.routingAccessPrewarmInFlight.set(warmupKey, entry)
     return waitForPromiseWithSignal(entry.promise, signal)
-  }
-
-  isStreetPrepared(storePath, requireDrive = false) {
-    const client = this.clients.get(storePath)
-    const street = client?.streetPrepareResult?.streetStore
-    return Boolean(client?.hasWorker && street?.ready && street.accelerated
-      && (!requireDrive || (street.drive?.ready && street.drive.accelerated && !street.drive.deferred)))
-  }
-
-  #prepareNormalized(storePath, normalizedContext, signal, reason) {
-    const reused = this.#reusePreparation(storePath, normalizedContext, signal, reason)
-    if (reused) return reused
-
-    const warmupKey = `${storePath}\u0000${normalizedContext.key}`
-    this.prewarmStats.started += 1
-    const controller = new AbortController()
-    let hardTimedOut = false
-    const timeout = setTimeout(() => {
-      hardTimedOut = true
-      controller.abort()
-    }, nationalRoutePrewarmHardTimeoutMs)
-    timeout.unref?.()
-    const entry = { controller, reason, storePath, promise: null }
-    entry.promise = this.dispatch(storePath, 'prepare', {
-      ...normalizedContext.request,
-      prewarmContextKey: normalizedContext.key,
-      prewarmReason: reason,
-    }, controller.signal)
-      .then((result) => {
-        this.prewarmStats.completed += 1
-        this.lastPrewarmError = ''
-        return result
-      })
-      .catch((error) => {
-        this.prewarmStats.failed += 1
-        if (hardTimedOut) {
-          this.prewarmStats.timedOut += 1
-          this.prewarmStats.hardTimedOut += 1
-          const timeoutError = makePrewarmHardTimeoutError(nationalRoutePrewarmHardTimeoutMs)
-          this.lastPrewarmError = timeoutError.message
-          throw timeoutError
-        }
-        this.lastPrewarmError = error instanceof Error ? error.message : String(error)
-        throw error
-      })
-      .finally(() => {
-        clearTimeout(timeout)
-        if (this.prewarmInFlight.get(warmupKey) === entry) this.prewarmInFlight.delete(warmupKey)
-      })
-    this.prewarmInFlight.set(warmupKey, entry)
-    return this.#waitForPrepare(entry.promise, signal, reason)
-  }
-
-  #reusePreparation(storePath, normalizedContext, signal, reason) {
-    const prepared = this.clients.get(storePath)?.preparedResultFor(normalizedContext.key)
-    if (prepared) {
-      this.prewarmStats.readyHits += 1
-      return this.#waitForPrepare(Promise.resolve(prepared), signal, reason)
-    }
-
-    const warmupKey = `${storePath}\u0000${normalizedContext.key}`
-    const existing = this.prewarmInFlight.get(warmupKey)
-    if (existing) {
-      this.prewarmStats.coalesced += 1
-      return this.#waitForPrepare(existing.promise, signal, reason)
-    }
-    return null
   }
 
   async dispatch(storePath, operation, request, signal, onProgress) {
@@ -982,17 +823,6 @@ export class NationalRouteWorkerPool {
     return waitForPromiseWithSignal(execution, signal)
   }
 
-  #waitForPrepare(promise, signal, reason) {
-    const sharedLifecycleCaller = reason === 'project-selection' || reason === 'route-dispatch'
-    const waiter = sharedLifecycleCaller
-      ? waitForPromiseWithSignal(promise, signal)
-      : waitForPromiseWithTimeoutAndSignal(promise, nationalRoutePrewarmWaitTimeoutMs, signal)
-    return waiter.catch((error) => {
-      if (error?.code === 'VIGO_PREWARM_WAIT_TIMEOUT') this.prewarmStats.waitTimedOut += 1
-      throw error
-    })
-  }
-
   #createClient(storePath) {
     let client
     client = new NationalRouteWorkerClient(storePath, {
@@ -1021,22 +851,6 @@ export class NationalRouteWorkerPool {
     })
     client.setResidencyLeases(this.residencyLeases.get(storePath)?.size ?? 0)
     return client
-  }
-
-  setResidency(storePath, resident, leaseId = 'default') {
-    const normalizedLeaseId = String(leaseId ?? 'default').trim().slice(0, 128) || 'default'
-    const leases = this.residencyLeases.get(storePath) ?? new Set()
-    if (resident) leases.add(normalizedLeaseId)
-    else leases.delete(normalizedLeaseId)
-    if (leases.size) this.residencyLeases.set(storePath, leases)
-    else this.residencyLeases.delete(storePath)
-    this.clients.get(storePath)?.setResidencyLeases(leases.size)
-    return {
-      resident: leases.size > 0,
-      leaseId: normalizedLeaseId,
-      leaseCount: leases.size,
-      residentStores: this.residencyLeases.size,
-    }
   }
 
   #touch(storePath, client) {

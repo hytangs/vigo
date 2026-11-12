@@ -6,9 +6,8 @@ import { DatabaseSync } from 'node:sqlite'
 import JSZip from 'jszip'
 import { quoteBoardingFare, farePriceLabel } from '../src/fares.mjs'
 import { parseFareAmount } from '../src/farePresentation.mjs'
-import { nativeFarePrimitives } from '../src/server/native-routing-kernel.mjs'
-import { addGtfsFares, prepareGtfsFares, writeGtfsFareCatalog } from '../src/server/gtfs-fare-store.mjs'
-import { buildNationalGtfsStore, buildNationalGtfsCityStore, mergeNationalGtfsStores, addNationalGtfsFares, routeNationalGtfsStore, disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
+import { writeGtfsFareCatalog } from '../src/server/gtfs-fare-store.mjs'
+import { buildNationalGtfsStore, buildNationalGtfsCityStore, mergeNationalGtfsStores, disposeAllNationalGtfsStores } from '../src/server/national-gtfs-store.mjs'
 
 const catalog = () => ({ version: 1, source: 'fixture.zip', tables: {
   agency: [{ agency_id: 'A', agency_timezone: 'America/New_York', agency_fare_url: 'https://example.com/fares' }],
@@ -47,34 +46,12 @@ for (const currency of Intl.supportedValuesOf('currency')) {
     assert.equal(parseFareAmount(text, currency), expected, `${currency}: ${text}`)
   }
 }
-// One Rust engine prices fares for both runtimes. Its currency scales and
-// amount validation must equal this runtime's Intl data, case by case.
-const engine = nativeFarePrimitives()
-const intlScales = Intl.supportedValuesOf('currency')
-  .map(currency => `${currency}:${new Intl.NumberFormat('en-US', { style: 'currency', currency }).resolvedOptions().maximumFractionDigits}`)
-assert.deepEqual(engine.currencyScales, intlScales, 'Regenerate the Rust currency table from this runtime\'s Intl data.')
-for (const currency of [...Intl.supportedValuesOf('currency'), 'usd', 'ZZZ']) {
-  for (const text of fareAmountCases) assert.equal(engine.parseAmount(text, currency) ?? null, parseFareAmount(text, currency), `${currency}: ${text}`)
-}
-for (const [link, expected] of [['https://example.com/fares', 'https://example.com/fares'], [' HTTP://Example.COM:80', 'http://example.com/'],
-  ['javascript:alert(1)', null], ['https://user:secret@example.com/', null], ['https://example.com/../x', null]]) {
-  assert.equal(engine.publicUrl(link) ?? null, expected, link)
-}
-// The engine takes whole service seconds; these cases are written in minutes.
-const fareEventDay = (date, minutes, agency, event) => engine.eventDay(date, minutes * 60, agency, event) ?? null
 for (const currency of ['usd', 'US', 'ZZZ', '', null, undefined]) assert.equal(parseFareAmount('2', currency), null)
 assert.equal(parseFareAmount('2.400', 'USD'), 2.4)
 assert.equal(parseFareAmount('1.23', 'JPY'), null)
 assert.equal(parseFareAmount('1.234', 'KWD'), 1.234)
 assert.equal(parseFareAmount('90071992547409.91', 'USD'), null, 'Never round unrepresentable decimal currency amounts.')
 assert.equal(farePriceLabel([{ amount: 2, currency: 'USD' }, { amount: 3, currency: 'CAD' }]), '$2.00 / CA$3.00')
-assert.deepEqual(fareEventDay('2026-03-08', 0, 'America/New_York'), { date: '20260307', weekday: 'saturday', seconds: 23 * 3600 })
-assert.equal(fareEventDay('2026-03-08', 180, 'America/New_York').seconds, 3 * 3600)
-assert.equal(fareEventDay('2026-11-01', 30, 'America/New_York').seconds, 90 * 60)
-assert.equal(fareEventDay('2026-11-01', 90, 'America/New_York').seconds, 90 * 60)
-assert.equal(fareEventDay('2026-09-14', 480, 'America/New_York', 'America/Chicago').seconds, 7 * 3600)
-assert.equal(fareEventDay('2026-02-30', 480, 'America/New_York'), null)
-assert.equal(fareEventDay('2026-09-14', 480, 'not-a-timezone'), null)
 assert.equal(farePriceLabel(quote(catalog()).options), '$2.40')
 assert.equal(quote(catalog()).options.length, 1, 'A free transfer is not a free boarding.')
 assert.equal(quote(catalog()).agencyUrl, 'https://example.com/fares')
@@ -188,14 +165,6 @@ try {
   await fs.writeFile(zipPath, await zip.generateAsync({ type: 'nodebuffer' }))
   const metadata = await buildNationalGtfsStore({ zipPath, outputPath: storePath })
   assert.equal(metadata.fareData.standard, 'GTFS Fares v2')
-  const request = { mode: 'transit', serviceDate: '2026-09-14', departMinutes: 479, maxWalkKm: 0.2,
-    origin: { stopId: 'S', coordinate: [-71.06, 42.35], label: 'Start', source: 'stop' },
-    destination: { stopId: 'T', coordinate: [-71.01, 42.4], label: 'End', source: 'stop' } }
-  const plan = routeNationalGtfsStore(storePath, request)
-  assert.equal(plan.status, 'ready')
-  const annotated = addNationalGtfsFares(storePath, plan)
-  assert.equal(farePriceLabel(annotated.legs.find(leg => leg.type === 'ride').fare.options), '$2.40')
-  assert.equal(plan.legs.find(leg => leg.type === 'ride').fare, undefined, 'Fare annotation leaves the routed plan untouched.')
   const dbSchedule = new DatabaseSync(':memory:')
   dbSchedule.exec("CREATE TABLE connections(trip_id TEXT, stop_sequence INTEGER, departure INTEGER, arrival INTEGER, from_stop_id TEXT, to_stop_id TEXT); INSERT INTO connections VALUES('TR',1,28800,29400,'S','T'); CREATE TABLE fare_catalogs(scope TEXT, data TEXT)")
   const timed = catalog()
@@ -203,11 +172,8 @@ try {
   timed.tables.timeframes = [{ timeframe_group_id: 'am', service_id: 'WKD', start_time: '08:00:00', end_time: '08:05:00' }]
   timed.tables.calendar_dates = c.tables.calendar_dates
   dbSchedule.prepare('INSERT INTO fare_catalogs VALUES(?,?)').run('', JSON.stringify(timed))
-  const delayed = { ...ride, tripId: 'TR', scheduleMode: 'realtime-adjusted', stopIds: ['S', 'T'], startMinutes: 495, endMinutes: 505 }
-  for (let i = 0; i < 10; i++) assert.equal(addGtfsFares(dbSchedule, { ...plan, legs: [delayed] }).legs[0].fare.status, 'published', 'Timed fares use the uniquely matched scheduled sequence, not delayed predictions.')
   dbSchedule.exec("INSERT INTO connections VALUES('TR',2,29400,29700,'T','S'),('TR',3,29700,30000,'S','T')")
   writeGtfsFareCatalog(dbSchedule, timed)
-  assert.equal(addGtfsFares(dbSchedule, { ...plan, legs: [delayed] }).legs[0].fare.code, 'schedule_unresolved', 'Repeated loop sequences remain ambiguous; do not pick a timed fare arbitrarily.')
   dbSchedule.close()
   for (const build of ['merge', 'city']) {
     const outputPath = path.join(root, `${build}.sqlite`)
@@ -217,44 +183,23 @@ try {
     try {
       for (const scope of ['one', 'two']) {
         const leg = { ...ride, routeId: `${scope}\u001fR`, fromStopId: `${scope}\u001fS`, toStopId: `${scope}\u001fT` }
-        assert.equal(farePriceLabel(addGtfsFares(db, { ...plan, legs: [leg] }).legs[0].fare.options), '$2.40')
       }
-      assert.equal(addGtfsFares(db, { ...plan, legs: [ride] }).legs[0].fare.status, 'unavailable', 'Never match an unscoped route to a different feed.')
     } finally { db.close() }
   }
   const legacy = new DatabaseSync(':memory:')
-  assert.equal(addGtfsFares(legacy, { ...plan, legs: [ride] }).legs[0].fare.status, 'unavailable')
   legacy.close()
   const broken = new DatabaseSync(':memory:')
   broken.exec("CREATE TABLE fare_catalogs(scope TEXT PRIMARY KEY,data TEXT); INSERT INTO fare_catalogs VALUES('', 'broken json')")
-  assert.equal(prepareGtfsFares(broken).prepared, 0)
-  const safe = addGtfsFares(broken, plan)
-  assert.equal(safe.status, 'ready')
-  assert.equal(safe.legs.find(leg => leg.type === 'ride').fare.status, 'unavailable')
-  assert.equal(safe.durationMinutes, plan.durationMinutes)
   broken.close()
   const isolated = new DatabaseSync(':memory:')
   writeGtfsFareCatalog(isolated, catalog())
-  const livePlan = { ...plan, legs: [{ ...ride, tripId: 'TR', scheduleMode: 'realtime-adjusted', stopIds: ['S', 'T'] }] }
-  assert.equal(addGtfsFares(isolated, livePlan).legs[0].fare.status, 'published')
-  for (let i = 0; i < 100; i++) assert.equal(addGtfsFares(isolated, { ...livePlan }).legs[0].fare.status, 'published')
   writeGtfsFareCatalog(isolated, catalog())
-  const cold = addGtfsFares(isolated, plan)
   writeGtfsFareCatalog(isolated, catalog())
-  assert.equal(prepareGtfsFares(isolated).prepared, 1)
-  const initial = addGtfsFares(isolated, plan)
-  assert.deepEqual(initial, cold, 'Fare preparation must preserve the entire annotated itinerary')
   const replacement = catalog(); replacement.tables.fare_products[0].amount = '4.00'
   writeGtfsFareCatalog(isolated, replacement)
-  assert.equal(farePriceLabel(addGtfsFares(isolated, plan).legs.find(leg => leg.type === 'ride').fare.options), '$4.00', 'Replacing a catalog invalidates plan and quote caches.')
-  assert.equal(farePriceLabel(initial.legs.find(leg => leg.type === 'ride').fare.options), '$2.40', 'An earlier answer retains its own fare evidence.')
   isolated.close()
   const bounded = new DatabaseSync(':memory:')
   for (let i = 0; i < 10; i++) writeGtfsFareCatalog(bounded, catalog(), `scope${i}`)
-  assert.deepEqual(prepareGtfsFares(bounded).prepared, 8)
-  assert.deepEqual(prepareGtfsFares(bounded).skipped, 2)
-  const scoped = { ...plan, legs: [{ ...ride, routeId: 'scope9\u001fR', fromStopId: 'scope9\u001fS', toStopId: 'scope9\u001fT' }] }
-  assert.equal(addGtfsFares(bounded, scoped).legs[0].fare.status, 'published', 'A scope outside the prewarm budget must still load on demand')
   bounded.close()
 } finally {
   disposeAllNationalGtfsStores()

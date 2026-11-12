@@ -113,7 +113,7 @@ function clipSegment(a, b, bounds) {
   return [[a[0] + enter * dx, a[1] + enter * dy], [a[0] + leave * dx, a[1] + leave * dy]]
 }
 
-export function clipLines(lines, bounds) {
+function clipLines(lines, bounds) {
   const result = []
   let vertices = 0
   for (const line of lines) {

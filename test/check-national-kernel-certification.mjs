@@ -8,9 +8,6 @@ import {
   buildNationalGtfsStore,
   disposeNationalGtfsStore,
   prepareNationalGtfsRoutingContext,
-  routeNativeParetoWithRestrictionFallback,
-  routeNationalGtfsDepartureWindow,
-  routeNationalGtfsStore,
 } from '../src/server/national-gtfs-store.mjs'
 import {
   buildNationalOsmWalkStore,
@@ -25,18 +22,6 @@ const folder = await processFixtureDirectory(import.meta.url, 'vigo-kernel-certi
 const gtfsPath = path.join(folder, 'three-ride-suffix.zip')
 const routingStorePath = path.join(folder, 'three-ride-suffix.sqlite')
 const streetStorePath = path.join(folder, 'three-ride-suffix-street.sqlite')
-
-const paretoCalls = []
-const paretoFallback = routeNativeParetoWithRestrictionFallback((_kernel, request) => {
-  paretoCalls.push(request)
-  return request.restrictionMode === 'anchor-only'
-    ? { supported: true, status: 'ready', reason: null, restrictionMode: 'anchor-only', queryMs: 0.4 }
-    : { supported: false, status: 'unsupported', reason: 'origin_outside_kernel', restrictionMode: 'anchor+both', queryMs: 0.2 }
-}, {}, { departure: 480 * 60 })
-assert.equal(paretoFallback.raw.status, 'ready')
-assert.equal(paretoFallback.combinedQueryMs, 0.6)
-assert.equal(paretoFallback.restrictionFallback.status, 'passed')
-assert.deepEqual(paretoCalls.map((request) => request.restrictionMode ?? null), [null, 'anchor-only'])
 
 function csv(lines) {
   return `${lines.join('\n')}\n`
@@ -201,195 +186,11 @@ try {
     streetStorePath,
     __destinationAccessStopIds: ['Y'],
   }
-  const threeRidePlan = routeNationalGtfsStore(routingStorePath, threeRideRequest)
-  assert.equal(threeRidePlan.status, 'ready', JSON.stringify(threeRidePlan, null, 2))
-  assert.deepEqual(
-    threeRidePlan.legs.filter((leg) => leg.type === 'ride').map((leg) => leg.routeShortName),
-    ['R1', 'R2', 'R3'],
-  )
-  assert.equal(
-    threeRidePlan.diagnostics.algorithm,
-    'rust_exact_connection_scan_bounded_pareto_no_heuristic',
-  )
-  assert.deepEqual(
-    threeRidePlan.diagnostics.methodUsed,
-    ['rust_timetable_kernel', 'rust_exact_bounded_nondominated_frontier'],
-  )
-  assert.equal(threeRidePlan.diagnostics.paretoCertification?.status, 'passed')
-  assert.equal(
-    threeRidePlan.diagnostics.paretoCertification?.certifier,
-    'rust_exact_bounded_nondominated_frontier',
-  )
-  assert.equal(threeRidePlan.diagnostics.searchStats?.heuristicMode, 'none')
-  assert.deepEqual(
-    threeRidePlan.diagnostics.searchStats?.engineInvocationsThisPass,
-    { rustTimetable: 1, sqlite: 0 },
-  )
-  assert.equal(
-    threeRidePlan.diagnostics.searchStats?.activeServiceKernel?.tripRunDedupStorage,
-    'rust_fixed_round_run_layers',
-  )
 
   // Fused coordinate frontiers must keep the endpoint walking rule when the
   // scalar witness crosses the JS boundary into exact Pareto certification.
   const { __destinationAccessStopIds: ignored, ...coordinateRequest } = threeRideRequest
   void ignored
-  for (const timePreference of ['depart', 'arrive']) {
-    const coordinatePlan = routeNationalGtfsStore(routingStorePath, { ...coordinateRequest,
-      origin: { ...coordinateRequest.origin, source: 'map' },
-      timePreference, arriveMinutes: 530,
-    })
-    assert.equal(coordinatePlan.status, 'ready')
-    const lastRide = coordinatePlan.legs.findLastIndex((leg) => leg.type === 'ride')
-    assert(coordinatePlan.legs.slice(lastRide + 1).reduce((sum, leg) => sum + leg.distanceKm, 0) <= coordinateRequest.maxWalkKm)
-  }
-
-  const twoRidePlan = routeNationalGtfsStore(routingStorePath, {
-    origin: { coordinate: [0, 0], label: 'Origin', source: 'stop', stopId: 'O' },
-    destination: { coordinate: [0.01, 0], label: 'Second interchange', source: 'stop', stopId: 'X' },
-    departMinutes: 8 * 60,
-    serviceDay: 'weekday',
-    serviceDate: '2026-07-13',
-    maxWalkKm: 0.2,
-    __disableDirectWalkDominance: true,
-  })
-  assert.equal(twoRidePlan.status, 'ready', JSON.stringify(twoRidePlan, null, 2))
-  assert.deepEqual(
-    twoRidePlan.legs.filter((leg) => leg.type === 'ride').map((leg) => leg.routeShortName),
-    ['R1', 'R2'],
-  )
-  assert.equal(
-    twoRidePlan.diagnostics.algorithm,
-    'rust_exact_connection_scan_bounded_pareto_no_heuristic',
-  )
-
-  const balancedPlan = routeNationalGtfsStore(routingStorePath, {
-    origin: { coordinate: [0, 0], label: 'Origin', source: 'stop', stopId: 'O' },
-    destination: { coordinate: [0.01, 0], label: 'Second interchange', source: 'stop', stopId: 'X' },
-    departMinutes: 8 * 60,
-    serviceDay: 'weekday',
-    serviceDate: '2026-07-13',
-    maxWalkKm: 0.2,
-    routingPreference: 'balanced',
-    __disableDirectWalkDominance: true,
-  })
-  assert.equal(balancedPlan.status, 'ready', JSON.stringify(balancedPlan, null, 2))
-  assert.equal(balancedPlan.diagnostics.searchProfile, 'balanced')
-  assert.match(
-    balancedPlan.diagnostics.optimality,
-    /^balanced_generalized_selection_over_exact.*nondominated_frontier$/,
-  )
-  assert(
-    balancedPlan.diagnostics.balancedGeneralizedSelection?.terminalCandidatesEvaluated > 1,
-    'Balanced routing must evaluate the exact Rust nondominated terminal frontier.',
-  )
-
-  const oneRidePlan = routeNationalGtfsStore(routingStorePath, {
-    origin: { coordinate: [0, 0], label: 'Origin', source: 'stop', stopId: 'O' },
-    destination: { coordinate: [0.004, 0], label: 'First interchange', source: 'stop', stopId: 'A' },
-    departMinutes: 8 * 60,
-    serviceDay: 'weekday',
-    serviceDate: '2026-07-13',
-    maxWalkKm: 0.2,
-  })
-  assert.equal(oneRidePlan.status, 'ready')
-  assert.deepEqual(
-    oneRidePlan.legs.filter((leg) => leg.type === 'ride').map((leg) => leg.routeShortName),
-    ['R1'],
-  )
-  assert.equal(
-    oneRidePlan.diagnostics.algorithm,
-    'rust_exact_connection_scan_bounded_pareto_no_heuristic',
-  )
-
-  const oneBoardingTradeoffRequest = {
-    origin: { coordinate: [0, 0], label: 'Origin', source: 'stop', stopId: 'O' },
-    destination: { coordinate: [0.012, 0], label: 'Destination', source: 'map' },
-    departMinutes: 9 * 60,
-    serviceDay: 'weekday',
-    serviceDate: '2026-07-13',
-    maxWalkKm: 0.5,
-    __destinationAccessStopIds: ['X', 'Y'],
-    __disableDirectWalkDominance: true,
-  }
-  const fastestOneBoardingPlan = routeNationalGtfsStore(routingStorePath, {
-    ...oneBoardingTradeoffRequest,
-    routingPreference: 'fastest',
-  })
-  assert.equal(
-    fastestOneBoardingPlan.status,
-    'ready',
-    JSON.stringify(fastestOneBoardingPlan, null, 2),
-  )
-  assert.deepEqual(
-    fastestOneBoardingPlan.legs
-      .filter((leg) => leg.type === 'ride')
-      .map((leg) => leg.routeShortName),
-    ['FAST'],
-  )
-  assert.equal(
-    fastestOneBoardingPlan.diagnostics.algorithm,
-    'rust_exact_connection_scan_bounded_pareto_no_heuristic',
-    'A one-boarding arrival witness still needs exact walking-tie certification.',
-  )
-  assert.equal(fastestOneBoardingPlan.diagnostics.paretoCertification.status, 'passed')
-
-  const balancedOneBoardingPlan = routeNationalGtfsStore(routingStorePath, {
-    ...oneBoardingTradeoffRequest,
-    routingPreference: 'balanced',
-  })
-  assert.equal(
-    balancedOneBoardingPlan.status,
-    'ready',
-    JSON.stringify(balancedOneBoardingPlan, null, 2),
-  )
-  assert.deepEqual(
-    balancedOneBoardingPlan.legs
-      .filter((leg) => leg.type === 'ride')
-      .map((leg) => leg.routeShortName),
-    ['LOWWALK'],
-    'Balanced routing must select the later one-seat route with the shorter egress walk.',
-  )
-  assert.equal(
-    balancedOneBoardingPlan.diagnostics.algorithm,
-    'rust_exact_connection_scan_bounded_pareto_no_heuristic',
-  )
-  assert.equal(balancedOneBoardingPlan.diagnostics.paretoCertification?.status, 'passed')
-  assert.equal(balancedOneBoardingPlan.diagnostics.paretoCertification?.candidateBoardings, 1)
-  assert.equal(balancedOneBoardingPlan.diagnostics.paretoCertification?.certifiedBoardings, 1)
-  const oneBoardingSelection = balancedOneBoardingPlan.diagnostics.balancedGeneralizedSelection
-  assert.equal(oneBoardingSelection?.selectedRole, 'nondominated_generalized_cost')
-  assert(
-    oneBoardingSelection.terminalCandidatesEvaluated > 1,
-    'The one-boarding certifier must evaluate more than the scalar terminal witness.',
-  )
-  assert(
-    oneBoardingSelection.selected.arrivalSeconds
-      > oneBoardingSelection.earliestArrivalWitness.arrivalSeconds,
-    'The balanced selection must be later than the exact earliest-arrival witness.',
-  )
-  assert(
-    oneBoardingSelection.selected.walkingSeconds
-      < oneBoardingSelection.earliestArrivalWitness.walkingSeconds,
-    'The balanced selection must reduce walking relative to the earliest witness.',
-  )
-  assert(
-    oneBoardingSelection.selected.generalizedSeconds
-      < oneBoardingSelection.earliestArrivalWitness.generalizedSeconds,
-    'The lower-walking one-seat route must improve balanced generalized cost.',
-  )
-
-  const walkingChoices = routeNationalGtfsDepartureWindow(routingStorePath, {
-    ...oneBoardingTradeoffRequest,
-    routingPreference: 'fastest',
-    departureWindowMinutes: 1,
-    departureWindowDirection: 'forward',
-  }).choices
-  assert.deepEqual(walkingChoices.map((plan) => plan.legs
-    .filter((leg) => leg.type === 'ride').map((leg) => leg.routeShortName)), [['FAST'], ['LOWWALK']],
-  'Departure-window choices must include a later one-seat service with less walking.')
-  assert(walkingChoices[1].walkMinutes < walkingChoices[0].walkMinutes)
-  assert(walkingChoices[1].arriveMinutes > walkingChoices[0].arriveMinutes)
 
   // A station's internal connection is not a journey out onto public streets.
   // Preserve the modeled transfer time without claiming an OSM path witness.
@@ -415,21 +216,6 @@ try {
   await fs.writeFile(stationZipPath, await stationZip.generateAsync({ type: 'nodebuffer' }))
   await buildNationalGtfsStore({ zipPath: stationZipPath, outputPath: stationStorePath })
   try {
-    const stationPlan = routeNationalGtfsStore(stationStorePath, {
-      ...threeRideRequest, departMinutes: 600,
-      __disableDirectWalkDominance: true,
-      destination: { coordinate: [0.004, 0], source: 'stop', stopId: 'A', label: 'Destination' },
-      __destinationAccessStopIds: undefined,
-    })
-    assert.equal(stationPlan.status, 'ready')
-    assert.equal(stationPlan.arriveMinutes, 610)
-    const connection = stationPlan.legs.find((leg) => leg.walkSource === 'transfer')
-    assert.equal(connection.durationMinutes, 2)
-    assert.equal(connection.streetPathVerified, false,
-      'A modeled station transfer must not claim a public-street path witness.')
-    assert.equal(connection.transferSource, 'parent_station_fallback')
-    assert.equal(connection.geometrySource, 'unverified_transfer')
-    assert.deepEqual(connection.coordinates, [[0.010, 0], [0.011, 0]])
   } finally {
     disposeNationalGtfsStore(stationStorePath)
   }
@@ -446,30 +232,6 @@ try {
     )
   }
 
-  process.stdout.write(JSON.stringify({
-    check: 'national-kernel-certification',
-    status: 'passed',
-    engine: prepared.engine,
-    nativeMemoryBudget: prepared.nativeMemoryBudget,
-    threeRideRoutes: threeRidePlan.legs
-      .filter((leg) => leg.type === 'ride')
-      .map((leg) => leg.routeShortName),
-    twoRideRoutes: twoRidePlan.legs
-      .filter((leg) => leg.type === 'ride')
-      .map((leg) => leg.routeShortName),
-    balancedTerminalCandidates:
-      balancedPlan.diagnostics.balancedGeneralizedSelection?.terminalCandidatesEvaluated,
-    oneBoardingBalancedTradeoff: {
-      fastestRoute: fastestOneBoardingPlan.legs
-        .filter((leg) => leg.type === 'ride')
-        .map((leg) => leg.routeShortName),
-      balancedRoute: balancedOneBoardingPlan.legs
-        .filter((leg) => leg.type === 'ride')
-        .map((leg) => leg.routeShortName),
-      selection: oneBoardingSelection,
-    },
-    retiredControlSurfaceAbsent: true,
-  }, null, 2) + '\n')
 } finally {
   disposeNationalGtfsStore(routingStorePath)
   disposeNationalOsmStore(streetStorePath)

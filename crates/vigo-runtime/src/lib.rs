@@ -18,7 +18,7 @@ mod network_overview;
 #[cfg(any(feature = "node", test))]
 mod network_tiles;
 #[cfg(feature = "node")]
-pub use network_overview::node::{NetworkOverviewTask, network_overview, network_overview_sync};
+pub use network_overview::node::{NetworkOverviewTask, network_overview};
 #[cfg(any(feature = "node", test))]
 mod reach_boundaries;
 #[cfg(feature = "node")]
@@ -27,11 +27,11 @@ pub use reach_boundaries::reach_boundary_areas;
 mod reach_off_street;
 #[cfg(feature = "node")]
 pub use reach_off_street::reach_off_street_estimates;
-// GTFS-Realtime overlays, shared by the standalone runtime and the addon.
+// GTFS-Realtime overlays for the standalone runtime.
+#[cfg(feature = "standalone")]
 mod realtime;
-#[cfg(feature = "node")]
-mod realtime_node;
 pub(crate) mod route_alternatives;
+#[cfg(feature = "standalone")]
 pub(crate) mod shared_legs;
 #[cfg(all(feature = "standalone", not(feature = "node")))]
 pub mod standalone;
@@ -101,10 +101,7 @@ pub use basemap_tiles::node::{
     LocalBasemapTileTask, dispose_local_basemap_store, local_basemap_tile,
 };
 #[cfg(feature = "node")]
-pub use fares::node::{
-    FareEventDayResult, NativeFareCatalog, fare_currency_scales, native_fare_event_day,
-    native_parse_fare_amount, native_public_fare_url,
-};
+pub use fares::node::NativeFareCatalog;
 #[cfg(feature = "node")]
 pub use network_tiles::node::{
     RegisterTransitNetworkTask, TransitNetworkTileTask, register_transit_network,
@@ -112,10 +109,6 @@ pub use network_tiles::node::{
 };
 #[cfg(feature = "node")]
 pub use route_alternatives::route_alternative_request;
-#[cfg(feature = "node")]
-pub use route_materialization::stop_sequence_line;
-#[cfg(feature = "node")]
-pub use shared_legs::{shared_leg_frequency, shared_leg_paths_match};
 mod resources;
 mod shared_streets;
 mod snapshot_validation;
@@ -3343,11 +3336,8 @@ impl CoordinateKernel {
         Ok(())
     }
 
-    /// Why a free coordinate has no transit access within its walking budget,
-    /// before any wider probe. Bounds are [west, south, east, north]; NaN means
-    /// unbounded. Every runtime publishes this same street-level diagnosis.
-    #[cfg_attr(feature = "node", napi)]
-    pub fn diagnose_endpoint_street_access(
+    #[cfg(feature = "standalone")]
+    pub(crate) fn diagnose_endpoint_street_access(
         &self,
         longitude: f64,
         latitude: f64,
@@ -4687,92 +4677,7 @@ impl CoordinateKernel {
         })
     }
 
-    /// One native boundary for Accessibility: exact coordinate-origin street
-    /// access followed by one exact timetable scan to every requested stop.
-    /// The timetable object is the same resident `TimetableKernel` instance
-    /// used by scalar point and matrix queries.
-    #[cfg_attr(feature = "node", napi)]
-    pub fn route_endpoint_timetable_many(
-        &mut self,
-        mut timetable: ClassInstance<'_, TimetableKernel>,
-        input: CoordinateTimetableManyInput,
-    ) -> napi::Result<CoordinateTimetableManyResult> {
-        let started = Instant::now();
-        let member_count = self
-            .profile
-            .as_ref()
-            .ok_or_else(|| Error::from_reason("Rust routing access profile is not configured."))?
-            .member_lons
-            .len();
-        if input.member_timetable_stops.len() != member_count
-            || input.target_timetable_stops.is_empty()
-        {
-            return Err(Error::from_reason(
-                "Coordinate one-to-many timetable projection or target arrays are inconsistent.",
-            ));
-        }
-
-        let access_started = Instant::now();
-        let access = self.route_endpoint(EndpointRoleInput {
-            longitude: input.origin_lon,
-            latitude: input.origin_lat,
-            maximum_walk_m: input.maximum_walk_m,
-            walking_speed_kph: input.walking_speed_kph,
-            access_padding_factor: input.access_padding_factor,
-            access_overhead_seconds: input.access_overhead_seconds,
-            role: "origin".to_owned(),
-            disable_cache: input.disable_cache,
-        })?;
-        let access_ns = access_started.elapsed().as_nanos() as f64;
-        let origin_candidate_count = access.member_indices.len() as u32;
-        let mut origin_stops = Vec::<u32>::with_capacity(access.member_indices.len());
-        let mut origin_walk_seconds = Vec::<f64>::with_capacity(access.member_indices.len());
-        for (&member, &walk_seconds) in access.member_indices.iter().zip(&access.access_seconds) {
-            let stop = input.member_timetable_stops[member as usize];
-            if stop == u32::MAX {
-                continue;
-            }
-            origin_stops.push(stop);
-            origin_walk_seconds.push(walk_seconds as f64);
-        }
-        let projected_origin_count = origin_stops.len() as u32;
-
-        let target_count = input.target_timetable_stops.len();
-        let destination_offsets = (0..=target_count as u32).collect::<Vec<_>>();
-        let destination_stops = input.target_timetable_stops.to_vec();
-        let destination_walk_seconds = vec![0.0; target_count];
-        let timetable_started = Instant::now();
-        let timetable_result = timetable.route_many_csa(TimetableManyQueryInput {
-            origin_stops,
-            origin_walk_seconds,
-            destination_offsets,
-            destination_stops,
-            destination_walk_seconds,
-            excluded_trips: input.excluded_trips.to_vec(),
-            departure: input.departure,
-            horizon: input.horizon,
-            allow_pre_ride_transfers: input.allow_pre_ride_transfers,
-            allow_post_ride_transfers: input
-                .allow_post_ride_transfers
-                .map(|allow| vec![allow; target_count]),
-            maximum_boardings: input.maximum_boardings,
-        })?;
-        let timetable_ns = timetable_started.elapsed().as_nanos() as f64;
-
-        Ok(CoordinateTimetableManyResult {
-            access,
-            timetable: timetable_result,
-            origin_candidate_count,
-            projected_origin_count,
-            target_count: target_count as u32,
-            query_ns: started.elapsed().as_nanos() as f64,
-            access_ns,
-            timetable_ns,
-        })
-    }
-
-    #[cfg_attr(feature = "node", napi)]
-    pub fn clear_endpoint_caches(&mut self) {
+    fn clear_endpoint_caches(&mut self) {
         self.origin_cache.clear();
         self.origin_cache_order.clear();
         self.origin_cache_bytes = 0;
@@ -5190,8 +5095,8 @@ impl CoordinateKernel {
         )
     }
 
-    #[cfg_attr(feature = "node", napi)]
-    pub fn timed_connectors(
+    #[cfg(feature = "standalone")]
+    pub(crate) fn timed_connectors(
         &mut self,
         mut input: TimedConnectorInput,
     ) -> napi::Result<TimedConnectorResult> {
@@ -5983,12 +5888,6 @@ impl CoordinateKernel {
             relaxed_edges,
             build_ns: started.elapsed().as_nanos() as f64,
         })
-    }
-
-    /// Native retained allocations; mapped files are reported separately.
-    #[cfg_attr(feature = "node", napi)]
-    pub fn memory_usage_json(&self) -> String {
-        self.memory_ledger().to_string()
     }
 
     #[cfg_attr(feature = "node", napi)]
@@ -8036,11 +7935,13 @@ fn directed_node_path_distance_m(snapshot: &Snapshot, nodes: &[u32]) -> napi::Re
 }
 
 struct CchCoordinateTargets {
+    #[cfg_attr(feature = "node", allow(dead_code))]
     attachments: Vec<Option<edge_attachment::EdgeAttachment>>,
     coordinates: Vec<(f64, f64)>,
     nodes: Vec<u32>,
     snap_units: Vec<u32>,
     offsets: Vec<usize>,
+    #[cfg_attr(feature = "node", allow(dead_code))]
     snapped_targets: u32,
 }
 
@@ -8051,6 +7952,7 @@ fn cch_distance_units(distance_m: f64) -> u32 {
         .clamp(0.0, (cch::INF_WEIGHT - 1) as f64) as u32
 }
 
+#[cfg(feature = "standalone")]
 fn prepare_cch_coordinate_targets(
     snapshot: &Snapshot,
     reciprocal_edge_flags: &[u8],
@@ -8205,6 +8107,7 @@ fn cch_distances_to_coordinate_targets(
     distances_m
 }
 
+#[cfg(feature = "standalone")]
 #[allow(clippy::too_many_arguments)]
 fn run_cch_coordinate_distances(
     snapshot: &Snapshot,
@@ -8281,6 +8184,7 @@ fn coordinate_matrix_buckets(
     .map(Some)
 }
 
+#[cfg(feature = "standalone")]
 fn run_cch_coordinate_distance_matrix(
     snapshot: &Snapshot,
     index: &mut StreetCchIndex,
@@ -8876,11 +8780,6 @@ mod paged_scratch_tests;
 
 #[cfg(all(feature = "standalone", not(feature = "node")))]
 mod endpoint_batch;
-
-#[cfg(feature = "node")]
-mod studio_choices;
-#[cfg(feature = "node")]
-pub use studio_choices::select_studio_journey_indices;
 
 #[cfg(test)]
 mod tile_range_tests {

@@ -1045,7 +1045,6 @@ async function computePreparedMatrix(
   return payload
 }
 
-
 async function runMatrix(args: CliArguments) {
   const request = await readStructuredRequest(args, 'matrix')
   const paths = resolveRuntimePaths(args)

@@ -347,10 +347,6 @@ pub mod node {
     pub fn network_overview(path: String, scope: String) -> AsyncTask<NetworkOverviewTask> {
         AsyncTask::new(NetworkOverviewTask { path, scope })
     }
-    #[napi]
-    pub fn network_overview_sync(path: String, scope: String) -> Result<String> {
-        super::read(&path, &scope).map_err(|e| Error::new(Status::GenericFailure, e))
-    }
 }
 #[cfg(test)]
 mod tests {

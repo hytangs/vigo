@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the engine OpenAPI document and native field reference using only the standard library."""
+"""Generate the engine OpenAPI document, the public API schema reference and the native field reference using only the standard library."""
 import argparse
 import json
 from pathlib import Path
@@ -224,7 +224,7 @@ def native_contracts():
         register(request, False)
         register(response, True)
     lines = ['# Native Rust field reference', '', f'Generated for VIGO {VERSION} from public Rust structs. Regenerate with `npm run docs:standalone`.', '',
-             'Use the [native operation reference](../guides/rust-standalone.md#18-native-operation-reference) for units, index domains, and examples. In requests, an optional field accepts omission or null. Result objects include every listed field; an unavailable optional value is null. Native arrays become JSON arrays, and non-finite result numbers become null. The runtime also checks compatible array lengths, indices, and values.', '',
+             'Native operations are diagnostic tools outside the public stability policy. See [native operations](../guides/rust-standalone.md#native-operations) for units, index domains and examples. In requests, an optional field accepts omission or null. Result objects include every listed field; an unavailable optional value is null. Native arrays become JSON arrays, and non-finite result numbers become null. The runtime also checks compatible array lengths, indices, and values.', '',
              '| Operation | Input | Result |', '| --- | --- | --- |', '| `timetable.identifiers` | No input object | Active identifier arrays |', '| `timetable.prepare` | Service date and query settings; no input object | Ready state and preparation timing; no search |', '| `street.prepare`, `bike.prepare`, `drive.prepare` | No input object | Ready state; loads the mode without routing |']
     for op, (request, response) in OPERATIONS.items():
         lines.append(f'| `{op}` | [{request}](#{request.lower()}) | [{response}](#{response.lower()}) |')
@@ -275,11 +275,166 @@ def specification(native):
 
 
 
+PUBLIC_GROUPS = [
+    ('Request schemas', 'Request bodies for `POST /v1/route`, `/v1/matrix`, `/v1/reach` (and `/v1/isochrone`) and `/v1/compare`, the same objects the command line and the resident stream accept, and the types they use.',
+     ['RouteRequest', 'MatrixRequest', 'ReachRequest', 'CompareRequest']),
+    ('Result schemas', 'Documents the engine writes for a query, keyed by their `schema` field, and the types they use. A required field is always present, although its value can be `null`.',
+     ['Response', 'RouteResult', 'MatrixResult', 'ReachResult', 'CompareResult', 'DistributionResult', 'ErrorResult', 'StreamDetail']),
+    ('Service schemas', '`GET /v1/capabilities` and `GET /v1/info`.', ['Capabilities', 'InfoResult', 'CollectionInfoResult']),
+]
+
+
+def _cell(text):
+    return ' '.join(str(text).split()).replace('|', '\\|')
+
+
+def _ref_name(value):
+    return value['$ref'].rsplit('/', 1)[-1]
+
+
+def _type(schema):
+    """A compact, linked Markdown description of a JSON Schema type."""
+    if schema is True or schema == {}:
+        return 'any'
+    if not isinstance(schema, dict):
+        return 'any'
+    if '$ref' in schema:
+        name = _ref_name(schema)
+        return f'[{name}](#{name.lower()})'
+    for key in ('oneOf', 'anyOf'):
+        if key in schema:
+            parts = []
+            for option in schema[key]:
+                rendered = _type(option)
+                if rendered not in parts:
+                    parts.append(rendered)
+            return ' or '.join(parts)
+    if 'const' in schema:
+        return f'`{json.dumps(schema["const"])}`'
+    if 'enum' in schema:
+        return ', '.join(f'`{json.dumps(value)}`' for value in schema['enum'])
+    kind = schema.get('type')
+    if isinstance(kind, list):
+        names = [k for k in kind if k != 'null']
+        rendered = ' or '.join(names) or 'null'
+        return rendered + (' or null' if 'null' in kind else '')
+    if kind == 'array':
+        return f'array of {_type(schema.get("items", {}))}'
+    if kind == 'object' and 'properties' not in schema:
+        return 'object'
+    if kind == 'object':
+        return 'object with ' + ', '.join(f'`{name}`' for name in schema['properties'])
+    return kind or 'any'
+
+
+def _limits(schema):
+    if not isinstance(schema, dict):
+        return ''
+    notes = []
+    low, high = schema.get('minimum'), schema.get('maximum')
+    if low is not None and high is not None:
+        notes.append(f'{low}–{high}')
+    elif low is not None:
+        notes.append(f'≥ {low}')
+    elif high is not None:
+        notes.append(f'≤ {high}')
+    few, many = schema.get('minItems'), schema.get('maxItems')
+    if few is not None and many is not None:
+        notes.append(f'{few}–{many} items')
+    elif many is not None:
+        notes.append(f'≤ {many} items')
+    elif few:
+        notes.append(f'≥ {few} items')
+    if schema.get('format') in ('date', 'date-time'):
+        notes.append(schema['format'])
+    return ', '.join(notes)
+
+
+def _references(schema, found):
+    if isinstance(schema, dict):
+        if '$ref' in schema:
+            name = _ref_name(schema)
+            if name not in found:
+                found.append(name)
+        for value in schema.values():
+            _references(value, found)
+    elif isinstance(schema, list):
+        for value in schema:
+            _references(value, found)
+
+
+def public_schema_reference(model):
+    """Markdown tables for every public schema, generated from vigo-model."""
+    schemas = model['components']['schemas']
+    assigned = {}
+    order = []
+    for title, _, roots in PUBLIC_GROUPS:
+        queue = list(roots)
+        while queue:
+            name = queue.pop(0)
+            if name in assigned:
+                continue
+            assigned[name] = title
+            order.append(name)
+            found = []
+            _references(schemas[name], found)
+            queue.extend(found)
+    rest = sorted(name for name in schemas if name not in assigned)
+    groups = [(title, intro, [n for n in order if assigned[n] == title]) for title, intro, _ in PUBLIC_GROUPS]
+    if rest:
+        groups.append(('Other schemas', 'Types not reachable from the documents above.', rest))
+    lines = ['# API schema', '',
+             f'Generated for VIGO {VERSION} from `crates/vigo-model`, the types that read every public request and write every public Result. Regenerate with `npm run docs:standalone`; the documentation check fails when this page is stale.', '',
+             'Use it to look up a field. The [engine reference](../guides/rust-standalone.md) explains how requests behave, and [public results](results.md) explains how to read answers. The same definitions are in the [OpenAPI document](../standalone-openapi.json). The engine also validates what a schema cannot express, such as combinations of fields, and accepts a few fields the typed model does not list yet; the engine reference documents every accepted field.', '',
+             '| Endpoint | Request | Response |', '| --- | --- | --- |']
+    for path, operations in model['paths'].items():
+        for method, operation in operations.items():
+            request = operation.get('requestBody', {}).get('content', {}).get('application/json', {}).get('schema')
+            response = operation.get('responses', {}).get('200', {}).get('content', {}).get('application/json', {}).get('schema')
+            if not (request and '$ref' in json.dumps(request)) and not (response and '$ref' in json.dumps(response)):
+                continue
+            lines.append(f'| `{method.upper()} {path}` | {_cell(_type(request)) if request else "—"} | {_cell(_type(response)) if response else "—"} |')
+    for title, intro, names in groups:
+        lines += ['', f'## {title}', '', intro]
+        for name in names:
+            schema = schemas[name]
+            lines += ['', f'### {name}', '']
+            if schema.get('description'):
+                lines += [' '.join(schema['description'].split()), '']
+            properties = schema.get('properties')
+            if properties:
+                required = set(schema.get('required', []))
+                lines += ['| Field | Type | Required | Default | Notes |', '| --- | --- | --- | --- | --- |']
+                for field, value in properties.items():
+                    value = value if isinstance(value, dict) else {}
+                    default = f'`{json.dumps(value["default"])}`' if 'default' in value else ''
+                    notes = '. '.join(part for part in [_limits(value), ' '.join((value.get('description') or '').split())] if part)
+                    lines.append(f'| `{field}` | {_cell(_type(value))} | {"Yes" if field in required else ""} | {_cell(default)} | {_cell(notes)} |')
+            else:
+                values = schema.get('oneOf') or schema.get('anyOf')
+                described = [v for v in values or [] if isinstance(v, dict) and v.get('description') and ('const' in v or 'enum' in v)]
+                if described:
+                    lines += ['| Value | Meaning |', '| --- | --- |']
+                    for option in values:
+                        meaning = ' '.join((option.get('description') or '').split()) if isinstance(option, dict) else ''
+                        lines.append(f'| {_cell(_type(option))} | {_cell(meaning)} |')
+                else:
+                    limits = _limits(schema)
+                    lines.append(f'Type: {_type(schema)}' + (f' ({limits}).' if limits else '.'))
+                discriminator = schema.get('discriminator')
+                if discriminator:
+                    lines += ['', f'Selected by `{discriminator["propertyName"]}`: ' + ', '.join(
+                        f'`{key}` → [{_ref_name({"$ref": target})}](#{_ref_name({"$ref": target}).lower()})'
+                        for key, target in discriminator['mapping'].items()) + '.']
+    return '\n'.join(lines) + '\n'
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__); parser.add_argument('--check',action='store_true'); args=parser.parse_args()
     native,native_md=native_contracts()
     # The HTML guide that embeds these contracts is built by scripts/build-docs.py.
-    products={'docs/reference/rust-standalone-native.md':native_md,'docs/standalone-openapi.json':json.dumps(specification(native),indent=2,ensure_ascii=False)+'\n'}
+    model=json.loads((ROOT/'crates/vigo-model/generated/openapi.json').read_text(encoding='utf-8'))
+    products={'docs/reference/rust-standalone-native.md':native_md,'docs/reference/api-schema.md':public_schema_reference(model),'docs/standalone-openapi.json':json.dumps(specification(native),indent=2,ensure_ascii=False)+'\n'}
     for name,body in products.items():
         path=ROOT/name
         if args.check:
