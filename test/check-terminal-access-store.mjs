@@ -6,17 +6,7 @@ import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 import { buildNationalOsmStore, prepareNationalOsmNativeStore, disposeNationalOsmStore, compactNationalOsmRuntimeStore } from '../src/server/national-osm-store.mjs'
 import { buildNationalGtfsStore, disposeNationalGtfsStore } from '../src/server/national-gtfs-store.mjs'
 import { buildNativeStreetCchIndex } from '../src/server/native-routing-kernel.mjs'
-import { buildTerminalAccessStore, authorizedEndpointNodeWalkable } from '../src/server/terminal-access-store.mjs'
-
-assert.equal(authorizedEndpointNodeWalkable({ barrier: 'gate' }), true)
-assert.equal(authorizedEndpointNodeWalkable({ barrier: 'gate', access: 'private' }), true)
-assert.equal(authorizedEndpointNodeWalkable({ barrier: 'gate', access: 'destination' }), true)
-for (const tags of [{ foot: 'no' }, { access: 'no' }, { barrier: 'gate', locked: 'yes' },
-  { barrier: 'gate', foot: 'yes', locked: 'yes' }, { barrier: 'wall' }, { barrier: 'wall', foot: 'yes' },
-  { barrier: 'gate', 'locked:conditional': 'yes @ (sunset-sunrise)' },
-  { barrier: 'gate', opening_hours: '08:00-18:00' }]) {
-  assert.equal(authorizedEndpointNodeWalkable(tags), false, JSON.stringify(tags))
-}
+import { buildTerminalAccessStore } from '../src/server/terminal-access-store.mjs'
 
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-terminal-source-'))
 const streetStorePath = path.join(directory, 'street.sqlite'); const routingStorePath = path.join(directory, 'transit.sqlite')

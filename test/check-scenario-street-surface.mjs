@@ -3,7 +3,8 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { buildNationalOsmWalkStore, disposeNationalOsmStore } from '../src/server/national-osm-store.mjs'
+import { disposeNationalOsmStore } from '../src/server/national-osm-store.mjs'
+import { buildWalkSnapshot } from './helpers/street-snapshots.mjs'
 import { disposeNativeRoutingKernel } from '../src/server/native-routing-kernel.mjs'
 
 const size = 14
@@ -40,7 +41,7 @@ function writeGraph() {
   db.prepare('INSERT INTO metadata VALUES (?,?)').run('nodeCount', String(size * size))
   db.prepare('INSERT INTO metadata VALUES (?,?)').run('edgeCount', String(edges))
   db.exec('COMMIT'); db.close()
-  assert.equal(buildNationalOsmWalkStore(store, { force: true, persist: true }).ready, true)
+  assert.equal(buildWalkSnapshot(store).ready, true)
 }
 try {
   writeGraph()

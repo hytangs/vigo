@@ -6,17 +6,3 @@ export const pathwayCostModel = Object.freeze({
   secondsPerStair: 1,
   gateSeconds: 5,
 })
-
-export function estimatedPathwaySeconds(row) {
-  const mode = Number(row.pathway_mode)
-  const text = String(row.stair_count ?? '').trim()
-  if (mode === 2 && text) {
-    const count = Number(text)
-    if (!Number.isSafeInteger(count) || count === 0) {
-      throw new Error(`Invalid GTFS pathway stair_count: ${row.pathway_id}`)
-    }
-    return Math.ceil(Math.abs(count) * pathwayCostModel.secondsPerStair)
-  }
-  if (mode === 6 || mode === 7) return pathwayCostModel.gateSeconds
-  return null
-}

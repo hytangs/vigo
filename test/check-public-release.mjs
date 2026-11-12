@@ -175,7 +175,7 @@ const [releaseBuildSection, releaseAttestationSection = ''] = releaseWorkflow.sp
 assert(!releaseBuildSection.includes('id-token: write'), 'The release build job must not receive an OIDC token.')
 assert(!releaseBuildSection.includes('attestations: write'), 'The release build job must not receive attestation write access.')
 const attestationDependencies = releaseAttestationSection.match(/^    needs: \[([^\]]+)\]/mu)?.[1].split(',').map(value => value.trim()) ?? []
-for (const job of ['build', 'docs', 'deployment']) {
+for (const job of ['checks', 'build', 'deployment']) {
   assert(attestationDependencies.includes(job), `Attestation must wait for ${job} verification.`)
 }
 assert(releaseAttestationSection.includes('id-token: write'), 'The isolated attestation job requires OIDC access.')

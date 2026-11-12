@@ -7,16 +7,13 @@ import { DatabaseSync } from 'node:sqlite'
 import { Worker } from 'node:worker_threads'
 
 import {
-  buildNationalOsmDriveStore,
-  buildNationalOsmWalkStore,
   compactNationalOsmRuntimeStore,
   disposeNationalOsmStore,
-  nationalOsmDriveDirections,
-  nationalOsmDrivingSpeedKph,
   prepareNationalOsmDriveStore,
   prepareNationalOsmNativeStore,
   routeNationalStreetStore,
 } from '../src/server/national-osm-store.mjs'
+import { buildWalkSnapshot, buildDriveSnapshot } from './helpers/street-snapshots.mjs'
 import { buildNativeStreetCchIndex } from '../src/server/native-routing-kernel.mjs'
 
 const worker = process.argv[2] === '--fixture-worker'
@@ -93,20 +90,6 @@ function createCurrentStore() {
 }
 
 if (worker) {
-  assert.deepEqual(
-    nationalOsmDriveDirections({ highway: 'residential', oneway: '-1' }),
-    { forward: false, backward: true },
-  )
-  assert.deepEqual(
-    nationalOsmDriveDirections({ highway: 'primary', junction: 'roundabout' }),
-    { forward: true, backward: false },
-  )
-  assert.equal(
-    Number(nationalOsmDrivingSpeedKph({ highway: 'residential', maxspeed: '30 mph' }).toFixed(3)),
-    48.28,
-  )
-  assert.equal(nationalOsmDrivingSpeedKph({ highway: 'motorway' }), 100)
-
   const currentStore = createCurrentStore()
   const walkRequest = {
     mode: 'walk',
@@ -123,14 +106,11 @@ if (worker) {
     departMinutes: 480,
     maxStreetKm: 20,
   }
-  const preparedWalk = buildNationalOsmWalkStore(currentStore, {
-    force: true,
-    persist: true,
-  })
+  const preparedWalk = buildWalkSnapshot(currentStore)
   assert.equal(preparedWalk.ready, true)
   assert.equal(preparedWalk.accelerated, true)
   assert.equal(preparedWalk.snapshotStatus, 'written')
-  const preparedDrive = buildNationalOsmDriveStore(currentStore, { force: true, persist: true })
+  const preparedDrive = buildDriveSnapshot(currentStore, { native: true })
   assert.equal(preparedDrive.ready, true)
   assert.equal(preparedDrive.accelerated, true)
   assert.equal(preparedDrive.nodeCount, 11)

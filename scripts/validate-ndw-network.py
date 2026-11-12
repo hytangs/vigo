@@ -14,10 +14,10 @@ inputs={k:pathlib.Path(getattr(a,k)).resolve() for k in ['osm','configuration','
 for k in ['configuration','measurements']:
  data=inputs[k].read_bytes();(out/(k+'.xml')).write_bytes(gzip.decompress(data) if data[:2]==b'\x1f\x8b' else data)
 subprocess.run(['osmium','cat',str(inputs['osm']),'-o',str(out/'roads.osm.pbf'),'--overwrite'],check=True)
-js="""import {buildNationalOsmStore,buildNationalOsmDriveStore,disposeNationalOsmStore} from './src/server/national-osm-store.mjs';
+js="""import {buildNationalOsmStore,disposeNationalOsmStore} from './src/server/national-osm-store.mjs';
 const d=process.env.VIGO_AUDIT_OUTPUT;
-await buildNationalOsmStore({pbfPath:d+'/roads.osm.pbf',outputPath:d+'/roads.sqlite'});
-const result=buildNationalOsmDriveStore(d+'/roads.sqlite');disposeNationalOsmStore(d+'/roads.sqlite');console.log(JSON.stringify(result));"""
+const result=await buildNationalOsmStore({pbfPath:d+'/roads.osm.pbf',outputPath:d+'/roads.sqlite',buildDrivingProfile:true});
+disposeNationalOsmStore(d+'/roads.sqlite');console.log(JSON.stringify(result.driveAccelerator));"""
 with (out/'build.log').open('w') as log:subprocess.run(['node','--input-type=module','-'],input=js,text=True,cwd=root,env={**os.environ,'VIGO_AUDIT_OUTPUT':str(out)},stdout=log,stderr=log,check=True)
 cargo=os.environ.get('CARGO',str(pathlib.Path.home()/'.cargo/bin/cargo'))
 with (out/'matches.json').open('w') as log:

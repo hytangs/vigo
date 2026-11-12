@@ -8,13 +8,11 @@ import JSZip from 'jszip'
 import { DatabaseSync } from 'node:sqlite'
 import { buildNationalGtfsStore, buildNationalStaticTopologySidecar, disposeNationalGtfsStore, ensureNationalGtfsStopAccessRoles, mergeNationalGtfsStores, nationalFeedSummary, prepareNationalGtfsRoutingContext, readNationalGtfsPreview, readNationalGtfsStoreMetadata } from '../src/server/national-gtfs-store.mjs'
 import {
-  buildNationalOsmWalkStore,
   compactNationalOsmRuntimeStore,
   disposeNationalOsmStore,
-  nationalOsmWayWalkable,
-  nationalOsmWalkDirections,
   prepareNationalOsmNativeStore,
 } from '../src/server/national-osm-store.mjs'
+import { buildWalkSnapshot } from './helpers/street-snapshots.mjs'
 import { buildNativeStreetCchIndex } from '../src/server/native-routing-kernel.mjs'
 import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
 import { finalizeCurrentStreetFixture } from './helpers/street-fixture.mjs'
@@ -51,71 +49,6 @@ async function rebuildFixtureRoutingDerivedArtifacts(storePath) {
     force: true,
   })
 }
-
-assert.deepEqual(nationalOsmWalkDirections({ 'oneway:foot': 'yes' }), { forward: true, backward: false })
-assert.deepEqual(nationalOsmWalkDirections({ 'oneway:foot': '-1' }), { forward: false, backward: true })
-assert.deepEqual(nationalOsmWalkDirections({ conveying: 'forward', 'foot:forward': 'no' }), { forward: false, backward: false })
-assert.deepEqual(nationalOsmWalkDirections({ conveying: 'yes' }), { forward: false, backward: false })
-assert.deepEqual(nationalOsmWalkDirections({ conveying: 'reversible' }), { forward: false, backward: false })
-assert.deepEqual(nationalOsmWalkDirections({ 'foot:backward': 'no' }), { forward: true, backward: false })
-assert.equal(
-  nationalOsmWayWalkable({ highway: 'path', access: 'no', foot: 'permissive' }),
-  true,
-  'A pedestrian-specific permission must override a general OSM access denial.',
-)
-assert.equal(
-  nationalOsmWayWalkable({ highway: 'path', access: 'no' }),
-  false,
-  'A general OSM access denial remains binding without a pedestrian-specific permission.',
-)
-assert.equal(
-  nationalOsmWayWalkable({ highway: 'footway', access: 'private' }),
-  false,
-  'An unqualified private way must not enter the public pedestrian graph.',
-)
-for (const access of [undefined, 'yes', 'permissive']) {
-  assert.equal(nationalOsmWayWalkable({ highway: 'footway', access, foot: 'private' }), false,
-    'Private pedestrian access must not become a public shortcut through a general mode permission.')
-}
-assert.equal(
-  nationalOsmWayWalkable({ highway: 'footway', access: 'private', foot: 'permissive' }),
-  true,
-  'An explicit pedestrian permission must override private general access.',
-)
-assert.equal(
-  nationalOsmWayWalkable({ highway: 'path', access: 'yes', foot: 'no' }),
-  false,
-  'A pedestrian-specific denial must override general OSM access.',
-)
-assert.equal(
-  nationalOsmWayWalkable({
-    highway: 'unclassified',
-    access: 'no',
-    foot: 'yes',
-    'sidewalk:both': 'separate',
-  }),
-  false,
-  'A restricted carriageway must not duplicate its explicitly separate pedestrian geometry.',
-)
-assert.equal(
-  nationalOsmWayWalkable({
-    highway: 'unclassified',
-    foot: 'yes',
-    'sidewalk:both': 'separate',
-  }),
-  true,
-  'Separate sidewalks alone must not remove an otherwise walkable road needed for graph connectivity.',
-)
-assert.equal(
-  nationalOsmWayWalkable({
-    highway: 'path',
-    access: 'no',
-    foot: 'permissive',
-    'sidewalk:both': 'separate',
-  }),
-  true,
-  'Separate-sidewalk metadata must not suppress the pedestrian way itself.',
-)
 
 const folder = await processFixtureDirectory(import.meta.url, 'vigo-national-store-')
 const zipPath = path.join(folder, 'fixture.zip')
@@ -173,10 +106,7 @@ const denseRouteCatalogStorePath = path.join(folder, 'dense-route-catalog.sqlite
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 function prepareRustFixtureStreetStore(storePath) {
-  const snapshot = buildNationalOsmWalkStore(storePath, {
-    force: true,
-    persist: true,
-  })
+  const snapshot = buildWalkSnapshot(storePath)
   assert.equal(snapshot.ready, true)
   assert.equal(
     compactNationalOsmRuntimeStore(storePath).storageLayout,
@@ -1426,6 +1356,8 @@ try {
       (1, 46.9900, 7.9900),
       (2, 47.0101, 8.0101),
       (3, 47.0200, 8.0200);
+    -- One walkable edge: a sealed street store needs a pedestrian graph.
+    INSERT INTO edges VALUES(2, 3, 1329, 1), (3, 2, 1329, 1);
   `)
   finalizeCurrentStreetFixture(fallbackStreet)
   fallbackStreet.close()

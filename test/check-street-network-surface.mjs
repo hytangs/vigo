@@ -4,10 +4,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import {
-  buildNationalOsmWalkStore,
   compactNationalOsmRuntimeStore,
   disposeNationalOsmStore,
 } from '../src/server/national-osm-store.mjs'
+import { buildWalkSnapshot } from './helpers/street-snapshots.mjs'
 
 const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'vigo-street-surface-'))
 const storePath = path.join(folder, 'street.sqlite')
@@ -59,7 +59,7 @@ function buildFixture() {
 
 try {
   buildFixture()
-  const nativeStore = buildNationalOsmWalkStore(storePath, { force: true, persist: true })
+  const nativeStore = buildWalkSnapshot(storePath)
   assert.equal(nativeStore.ready, true, nativeStore.error)
   assert.equal(nativeStore.snapshotStatus, 'written')
   assert.equal(

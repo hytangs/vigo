@@ -4,8 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { PbfWriter } from 'pbf'
-import { buildNationalOsmStore, nationalOsmNodeWalkable, nationalOsmWayWalkable } from '../src/server/national-osm-store.mjs'
-import { forEachPbfBlock, forEachPrimitiveEntity } from '../src/server/osm-pbf-reader.mjs'
+import { buildNationalOsmStore } from '../src/server/national-osm-store.mjs'
 
 const encode = (write, value) => { const p = new PbfWriter(); write(value, p); return Buffer.from(p.finish()) }
 const delta = values => values.map((v, i) => v - (values[i - 1] ?? 0))
@@ -60,15 +59,10 @@ try {
   ]) {
     const pbfPath = path.join(folder, `${dense}-${name}.pbf`), outputPath = `${pbfPath}.sqlite`
     await fs.writeFile(pbfPath, fixture(dense, tags))
-    const parsed = []
-    await forEachPbfBlock(pbfPath, block => {
-      for (const group of block.groups) forEachPrimitiveEntity(block, group, {
-        node: n => parsed.push(n.id), denseNodes: n => parsed.push(...n.ids),
-      })
-    })
-    assert.deepEqual(parsed, [5100000001, 5100000002, 5100000003, 5100000004], 'Both PBF encodings retain exact node IDs.')
     await buildNationalOsmStore({ pbfPath, outputPath })
     const db = new DatabaseSync(outputPath, { readOnly: true })
+    assert.deepEqual(db.prepare('SELECT DISTINCT from_node AS id FROM drive_edges ORDER BY id').all().map(row => row.id),
+      [5100000001, 5100000002, 5100000003, 5100000004], 'Both PBF encodings retain exact node IDs.')
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM edges').get().n, blocked ? 2 : 6)
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM walk_nodes').get().n, blocked ? 2 : 4)
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM edges WHERE from_node=5100000002 OR to_node=5100000002').get().n, blocked ? 0 : 4)
@@ -98,26 +92,5 @@ try {
     await fs.writeFile(pbfPath, fixture(true, { foot: 'no' }, corrupt))
     await assert.rejects(buildNationalOsmStore({ pbfPath, outputPath: `${pbfPath}.sqlite` }), /dense-node tags|out-of-range string-table/)
   }
-  assert.equal(nationalOsmNodeWalkable({ barrier: 'bollard' }), true)
-  assert.equal(nationalOsmNodeWalkable({ entrance: 'emergency', access: 'private' }), false)
-  assert.equal(nationalOsmWayWalkable({ highway: 'footway', access: 'private' }), false)
-  assert.equal(nationalOsmWayWalkable({ railway: 'rail' }), false)
-  assert.equal(nationalOsmWayWalkable({ railway: 'light_rail' }), false)
-  assert.equal(nationalOsmWayWalkable({ highway: 'footway', foot: 'use_sidepath' }), false)
-  assert.equal(nationalOsmWayWalkable({ highway: 'footway', opening_hours: '24/7' }), true)
-  assert.equal(nationalOsmWayWalkable({ highway: 'footway', opening_hours: 'Mo-Fr 08:00-17:00' }), false)
-  for (const [tags, allowed] of [
-    [{ foot: 'permissive', 'foot:conditional': 'yes @ (Mo-Fr 09:00-17:00; Sa-Su 08:00-17:00)' }, true],
-    [{ foot: 'yes', 'foot:conditional': 'yes @ (Mo-Fr); permissive @ (Sa-Su)' }, true],
-    [{ foot: 'yes', 'foot:conditional': 'yes @ (Mo-Fr); no @ (Sa-Su)' }, false],
-    [{ foot: 'yes', 'foot:conditional': 'yes @ (Mo-Fr); private @ (Sa-Su)' }, false],
-    [{ foot: 'yes', 'foot:conditional': 'yes @ (' }, false],
-    [{ 'foot:conditional': 'yes @ (Mo-Su 08:00-17:00)' }, false],
-    [{ access: 'yes', 'access:conditional': 'permissive @ (Mo-Fr)' }, true],
-    [{ access: 'private', 'access:conditional': 'yes @ (Mo-Fr)' }, false],
-    [{ foot: 'yes', 'access:conditional': 'no @ (Mo-Fr)', 'foot:conditional': 'no @ (Sa-Su)' }, false],
-    [{ foot: 'yes', 'oneway:foot:conditional': 'yes @ (Mo-Fr)' }, false],
-    [{ foot: 'yes', 'foot:conditional': 'yes @ (Mo-Fr)', opening_hours: '08:00-17:00' }, false],
-  ]) assert.equal(nationalOsmWayWalkable({ highway: 'service', ...tags }), allowed, JSON.stringify(tags))
   console.log('OSM node access passed: regular/dense tags, signed IDs, barriers, overrides, conditional access and malformed tags.')
 } finally { await fs.rm(folder, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }) }

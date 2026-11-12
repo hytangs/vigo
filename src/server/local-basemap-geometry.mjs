@@ -3,7 +3,7 @@ export const coastGeometryLimits = Object.freeze({ pieces: 4_096, vertices: 80_0
 const pointKey = (point) => `${point[0].toFixed(8)},${point[1].toFixed(8)}`
 const samePoint = (left, right) => pointKey(left) === pointKey(right)
 
-export function signedArea(ring) {
+function signedArea(ring) {
   let area = 0
   for (let i = 1; i < ring.length; i += 1) area += ring[i - 1][0] * ring[i][1] - ring[i][0] * ring[i - 1][1]
   return area / 2
@@ -25,27 +25,7 @@ function segmentDistance(point, start, end) {
   return (point[0] - start[0] - t * dx) ** 2 + (point[1] - start[1] - t * dy) ** 2
 }
 
-export function simplifyLine(points, tolerance) {
-  if (points.length <= 2) return points
-  const keep = new Uint8Array(points.length)
-  keep[0] = keep[points.length - 1] = 1
-  const stack = [0, points.length - 1]
-  while (stack.length) {
-    const end = stack.pop(), start = stack.pop()
-    let maximum = tolerance * tolerance, selected = -1
-    for (let i = start + 1; i < end; i += 1) {
-      const distance = segmentDistance(points[i], points[start], points[end])
-      if (distance > maximum) { maximum = distance; selected = i }
-    }
-    if (selected !== -1) { keep[selected] = 1; stack.push(start, selected, selected, end) }
-  }
-  const result = points.filter((_, i) => keep[i])
-  return samePoint(points[0], points.at(-1)) && result.length < 4 ? points : result
-}
-
-// OSM multipolygon members can arrive unordered and reversed. Coastlines must
-// retain their direction: land on the left, sea on the right.
-export function joinLines(lines, directed = false) {
+function joinLines(lines, directed = false) {
   const endpoints = new Map()
   for (let i = 0; i < lines.length; i += 1) {
     for (const point of [lines[i][0], lines[i].at(-1)]) {
@@ -82,7 +62,7 @@ export function joinLines(lines, directed = false) {
   return result
 }
 
-export function polygonWithHoles(outers, inners, maximumWork = Infinity) {
+function polygonWithHoles(outers, inners, maximumWork = Infinity) {
   const polygons = outers.map((ring) => [signedArea(ring) < 0 ? [...ring].reverse() : ring])
   const candidates = polygons.map((polygon) => ({ polygon, area: Math.abs(signedArea(polygon[0])) }))
   let work = 0

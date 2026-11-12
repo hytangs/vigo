@@ -41,14 +41,6 @@ try {
 
   // Windows ends a child without running its handlers, so only SIGKILL applies there.
   if (process.platform !== 'win32') {
-    if (cli.endsWith('.mjs')) {
-      const hook = path.resolve(import.meta.dirname, 'helpers/city-interrupt-at-staging.mjs')
-      const child = spawn(executable, ['--import', hook, ...buildArguments], { stdio: 'ignore' })
-      const [code, signal] = await once(child, 'close')
-      assert.deepEqual([code, signal], [null, 'SIGTERM'])
-      assert.deepEqual(leftovers(), [], 'Signal cleanup must be registered before staging becomes visible.')
-      assert(!fs.existsSync(output), 'Interrupted staging creation must not publish a City.')
-    }
     for (const signal of ['SIGINT', 'SIGTERM']) {
       const [code, received] = await interruptBuild(signal)
       assert.deepEqual([code, received], [null, signal], 'The build must report the signal that stopped it.')

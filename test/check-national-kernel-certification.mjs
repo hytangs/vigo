@@ -10,11 +10,11 @@ import {
   prepareNationalGtfsRoutingContext,
 } from '../src/server/national-gtfs-store.mjs'
 import {
-  buildNationalOsmWalkStore,
   compactNationalOsmRuntimeStore,
   disposeNationalOsmStore,
   prepareNationalOsmNativeStore,
 } from '../src/server/national-osm-store.mjs'
+import { buildWalkSnapshot } from './helpers/street-snapshots.mjs'
 import { buildNativeStreetCchIndex } from '../src/server/native-routing-kernel.mjs'
 import { processFixtureDirectory } from './helpers/fixture-process.mjs'
 
@@ -122,10 +122,7 @@ function buildStreetFixture() {
       (5, 4, 445, 3);
   `)
   db.close()
-  assert.equal(buildNationalOsmWalkStore(streetStorePath, {
-    force: true,
-    persist: true,
-  }).ready, true)
+  assert.equal(buildWalkSnapshot(streetStorePath).ready, true)
   assert.equal(
     compactNationalOsmRuntimeStore(streetStorePath).storageLayout,
     'runtime-snapshots-v1',

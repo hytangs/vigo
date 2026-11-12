@@ -59,7 +59,7 @@ if (!packagedDocs) {
     .flatMap(directory => fs.readdirSync(path.join(root, directory), { recursive: true }).filter(file => file.endsWith('.rs')).map(file => path.join(root, directory, file)))
     .map(file => fs.readFileSync(file, 'utf8'))
   const variables = new Set(engineSources.flatMap(text => [...text.matchAll(/env::var(?:_os)?\("([A-Z0-9_]+)"\)/g)].map(m => m[1])))
-  for (const system of ['HOME', 'XDG_CACHE_HOME', 'LOCALAPPDATA', 'PATH']) variables.delete(system)
+  for (const system of ['HOME', 'XDG_CACHE_HOME', 'LOCALAPPDATA', 'PATH', 'COMPUTERNAME']) variables.delete(system)
   assert(variables.has('VIGO_PREPARE') && variables.has('VIGO_API_TOKEN'), 'Engine environment variables were not found')
   for (const variable of variables) assert(manual.includes(`\`${variable}\``), `Undocumented environment variable ${variable}`)
   const validation = fs.readFileSync(path.join(root, 'crates/vigo-runtime/src/standalone/query.rs'), 'utf8')

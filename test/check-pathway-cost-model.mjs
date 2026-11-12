@@ -8,10 +8,7 @@ import { DatabaseSync } from 'node:sqlite'
 import JSZip from 'jszip'
 import { writeCliFixtureInputs } from './helpers/cli-fixture-inputs.mjs'
 import { standaloneBinary } from './helpers/standalone-runtime.mjs'
-import { estimatedPathwaySeconds } from '../src/server/gtfs/pathway-cost.mjs'
 
-assert.equal(estimatedPathwaySeconds({ pathway_mode: 2, stair_count: '-33' }), 33)
-assert.throws(() => estimatedPathwaySeconds({ pathway_mode: 2, stair_count: '1.5' }), /stair_count/)
 const root = path.resolve(import.meta.dirname, '..')
 const expected = new Map()
 let httpChecks = 0

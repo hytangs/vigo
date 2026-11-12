@@ -1,16 +1,9 @@
-import path from 'node:path'
-import { buildTerminalAccessStore } from './terminal-access-store.mjs'
 import { preparationInput, publishPreparation } from './runtime/preparation-channel.mjs'
-import {
-  buildNationalOsmStore,
-  compactNationalOsmRuntimeStore,
-  prepareNationalOsmNativeStore,
-} from './national-osm-store.mjs'
-import {
-  buildNativeStreetCchIndex,
-  normalizeNativeMilliseconds,
-} from './native-routing-kernel.mjs'
+import { runCityCompiler } from './runtime/city-compiler.mjs'
 
+// The `vigo` executable compiles, seals and indexes the street store; this
+// worker relays its progress. Progress stays monotone across the sealing
+// and hierarchy phases that follow the source graph build.
 const workerData = await preparationInput()
 let lastPublishedProgress = 0
 
@@ -27,87 +20,19 @@ function publishProgress(update) {
       : Math.min(0.96, Math.max(0, rawProgress) * 0.96),
   )
   lastPublishedProgress = progress
-  publishPreparation({
-    type: 'progress',
-    progress: {
-      ...update,
-      // The source graph build is followed by publication-only sealing and
-      // CCH work. Keep the visible progress monotone across those phases.
-      progress,
-    },
-  })
-}
-
-function compactCch(result) {
-  const loaded = result.loaded ?? result
-  return {
-    ready: loaded?.ready === true || Number(loaded?.cchArcCount ?? result?.cchArcCount ?? 0) > 0,
-    format: result.format,
-    orderStrategy: result.orderStrategy ?? 'inertial',
-    nodeCount: Number(result.nodeCount ?? loaded?.nodeCount ?? 0),
-    edgeCount: Number(result.edgeCount ?? loaded?.edgeCount ?? 0),
-    cchArcCount: Number(result.cchArcCount ?? loaded?.cchArcCount ?? 0),
-    distanceUnitsPerMeter: Number(loaded?.distanceUnitsPerMeter ?? result.distanceUnitsPerMeter ?? 0),
-    ...(result.structurePath ? { structureFile: path.basename(result.structurePath) } : {}),
-    ...(result.metricPath ? { metricFile: path.basename(result.metricPath) } : {}),
-    orderMs: normalizeNativeMilliseconds(result.orderNs),
-    buildMs: normalizeNativeMilliseconds(result.structureNs),
-    customizeMs: normalizeNativeMilliseconds(result.customizationNs),
-    persistMs: normalizeNativeMilliseconds(result.persistenceNs),
-  }
+  publishPreparation({ type: 'progress', progress: { ...update, progress } })
 }
 
 try {
-  const result = await buildNationalOsmStore({
-    ...workerData,
-    includeBiking: workerData.includeBiking !== false && !workerData.wheelchair,
-    // A project street import is an interactive prerequisite for both walk
-    // access and route-edit geometry. Persist the compact drive snapshot now
-    // so the first route query does not pay the profile-build cost.
-    buildDrivingProfile: workerData.buildDrivingProfile !== false,
-    onProgress: publishProgress,
-  })
-  publishProgress({
-    phase: 'Sealing runtime street snapshots',
-    progress: 0.975,
-    detail: 'Removing compiler-only street tables before publication',
-  })
-  const runtimeCompaction = compactNationalOsmRuntimeStore(workerData.outputPath, { requireDrive: true })
-  if (!runtimeCompaction.ready) {
-    throw new Error(`The OSM street store could not be sealed: ${runtimeCompaction.reason ?? 'unknown reason'}`)
-  }
-
-  const native = prepareNationalOsmNativeStore(workerData.outputPath)
-  if (!native.ready || !native.accelerated) {
-    throw new Error(`The sealed OSM street snapshot is unavailable: ${native.error ?? native.reason ?? 'unknown reason'}`)
-  }
-  publishProgress({
-    phase: 'Building Rust pedestrian CCH',
-    progress: 0.99,
-    detail: 'Preparing exact directed walking access for routing',
-  })
-  const cch = compactCch(buildNativeStreetCchIndex(workerData.outputPath))
-  if (!cch.ready) throw new Error('The Rust pedestrian CCH did not load after it was built.')
-  let terminalAccess = { model: 'public' }
-  if (workerData.privateAccess === 'endpoints') {
-    publishProgress({ phase: 'Preparing authorized endpoint access', progress: 0.99,
-      detail: 'Linking mapped private paths and gates to the public network' })
-    terminalAccess = await buildTerminalAccessStore({ pbfPath: workerData.pbfPath,
-      streetStorePath: workerData.outputPath, routingStorePath: workerData.routingStorePath })
-  }
-
-  publishPreparation({
-    type: 'complete',
-    result: {
-      ...result,
-      bytes: runtimeCompaction.afterBytes,
-      storageLayout: runtimeCompaction.storageLayout,
-      runtimeCompaction,
-      driveSnapshot: runtimeCompaction.drive,
-      cch,
-      terminalAccess,
-    },
-  })
+  const result = await runCityCompiler('_build-street-store', [
+    `--osm=${workerData.pbfPath}`, `--output-store=${workerData.outputPath}`, '--studio',
+    ...(workerData.wheelchair ? ['--wheelchair', `--wheelchair-streets=${workerData.wheelchairStreets ?? 'inferred'}`] : []),
+    ...(workerData.privateAccess === 'endpoints'
+      ? ['--private-access=endpoints', `--routing-store=${workerData.routingStorePath}`]
+      : []),
+    '--progress=json',
+  ], { label: 'OSM compiler', onProgress: publishProgress })
+  publishPreparation({ type: 'complete', result })
 } catch (error) {
   publishPreparation({ type: 'failed', error: error instanceof Error ? error.stack || error.message : String(error) })
 }

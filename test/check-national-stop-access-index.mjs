@@ -11,10 +11,10 @@ import {
   prepareNationalGtfsRoutingContext,
 } from '../src/server/national-gtfs-store.mjs'
 import {
-  buildNationalOsmWalkStore,
   compactNationalOsmRuntimeStore,
   disposeNationalOsmStore,
 } from '../src/server/national-osm-store.mjs'
+import { buildWalkSnapshot } from './helpers/street-snapshots.mjs'
 import { buildNativeStreetCchIndex, disposeNativeRoutingKernel } from '../src/server/native-routing-kernel.mjs'
 import { processFixtureDirectory } from './helpers/fixture-process.mjs'
 
@@ -158,9 +158,9 @@ try {
   usefulPrimaryStreet.prepare('INSERT INTO edges VALUES(?,?,?,?)').run(100, 1, firstDisconnectedDistanceM, 2)
   usefulPrimaryStreet.prepare('UPDATE metadata SET value=? WHERE key=?').run('4', 'edgeCount')
   usefulPrimaryStreet.close()
-  const streetPreparation = buildNationalOsmWalkStore(streetPath, { force: true })
+  const streetPreparation = buildWalkSnapshot(streetPath)
   assert.equal(streetPreparation.ready, true)
-  const usefulPrimaryPreparation = buildNationalOsmWalkStore(usefulPrimaryStreetPath, { force: true })
+  const usefulPrimaryPreparation = buildWalkSnapshot(usefulPrimaryStreetPath)
   assert.equal(usefulPrimaryPreparation.ready, true)
   assert.equal(
     compactNationalOsmRuntimeStore(streetPath).storageLayout,

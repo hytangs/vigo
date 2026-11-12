@@ -15,9 +15,9 @@ import {
 import {
   compactNationalOsmRuntimeStore,
   disposeNationalOsmStore,
-  buildNationalOsmWalkStore,
   prepareNationalOsmNativeStore,
 } from '../src/server/national-osm-store.mjs'
+import { buildWalkSnapshot } from './helpers/street-snapshots.mjs'
 import { finalizeCurrentStreetFixture } from './helpers/street-fixture.mjs'
 import { normalizeRoutingPointIdentities } from '../src/server/routing-point-identity.mjs'
 import { startInMemoryVigoApi } from './helpers/in-memory-vigo-api.mjs'
@@ -123,7 +123,7 @@ async function createRoutingFixture() {
   finalizeCurrentStreetFixture(street)
   street.close()
   assert.equal(
-    buildNationalOsmWalkStore(streetStorePath, { force: true, persist: true }).ready,
+    buildWalkSnapshot(streetStorePath).ready,
     true,
   )
   assert.equal(
