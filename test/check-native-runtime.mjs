@@ -312,6 +312,27 @@ try {
   runtime.retire('/cities/boston')
   await assert.rejects(retiring, error => error.retryable === false)
   assert.equal(runtime.snapshot().residentCities.some(city => city.root === boston.root), false)
+
+  // A nested City's files belong to it alone: retiring Studio's wheelchair
+  // store must not close the City around it, resident or not.
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-nested-city-'))
+  fs.mkdirSync(path.join(parent, 'wheelchair'))
+  fs.writeFileSync(path.join(parent, 'wheelchair', 'network.json'), '{}')
+  const outer = nativeLayout(parent)
+  const wheelchair = nativeLayout(path.join(parent, 'wheelchair'))
+  const wheelchairStore = path.join(parent, 'wheelchair', 'routing', 'project.sqlite')
+  await runtime.query(outer, { id: 'outer' })
+  runtime.retire(wheelchairStore)
+  assert(runtime.snapshot().residentCities.some(city => city.root === outer.root), 'A non-resident nested City leaves its parent open')
+  await runtime.query(wheelchair, { id: 'wheelchair' })
+  const answering = runtime.query(outer, { id: 'outer-busy', delayMs: 50 })
+  runtime.retire(wheelchairStore)
+  assert.equal((await answering).id, 'outer-busy')
+  const residents = runtime.snapshot().residentCities.map(city => city.root)
+  assert(residents.includes(outer.root) && !residents.includes(wheelchair.root), JSON.stringify(residents))
+  runtime.retire(path.join(parent, 'routing', 'project.sqlite'))
+  fs.rmSync(parent, { recursive: true, force: true })
+  assert.equal(runtime.snapshot().residentCities.some(city => city.root === outer.root), false)
   console.log(`Native runtime passed (${spawned.length} fake processes).`)
 } finally {
   runtime.closeAll()
