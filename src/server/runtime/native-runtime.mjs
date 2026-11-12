@@ -1043,13 +1043,13 @@ export class NativeRuntime {
    * replaced its files and calls it, or until the hold limit passes; without,
    * they take work again as soon as the processes have exited.
    */
-  retire(file, { hold = false } = {}) {
+  retire(file, { hold = false, holdMs } = {}) {
     const target = ownerKey(file)
     const cities = [...this.cities.values()]
     const known = cities.map(city => city.root)
     const owner = owningCity(target, known)
     const affected = cities.filter(city => city.root === owner || within(city.root, target))
-    return this.#retireCities(affected, [owner, ...affected.map(city => city.root)].filter(Boolean), { transparent: true, hold })
+    return this.#retireCities(affected, [owner, ...affected.map(city => city.root)].filter(Boolean), { transparent: true, hold, holdMs })
   }
 
   /**
@@ -1058,10 +1058,10 @@ export class NativeRuntime {
    * inferred from the path: a parent City is never touched, even when the
    * City at `root` has not been published yet.
    */
-  retireCity(root, { hold = false } = {}) {
+  retireCity(root, { hold = false, holdMs } = {}) {
     const target = ownerKey(root)
     const affected = [...this.cities.values()].filter(city => within(city.root, target))
-    return this.#retireCities(affected, [target, ...affected.map(city => city.root)], { transparent: true, hold })
+    return this.#retireCities(affected, [target, ...affected.map(city => city.root)], { transparent: true, hold, holdMs })
   }
 
   /**
@@ -1093,7 +1093,9 @@ export class NativeRuntime {
     return this.reset()
   }
 
-  async #retireCities(cities, roots, { transparent = false, hold = false } = {}) {
+  // `holdMs` overrides the hold limit for one fence; Infinity is for a fence
+  // whose owner always releases it (an import job, on every way it ends).
+  async #retireCities(cities, roots, { transparent = false, hold = false, holdMs = this.limits.retireHoldMs } = {}) {
     const marker = { transparent }
     for (const root of new Set(roots)) {
       this.retiring.set(root, marker)
@@ -1143,11 +1145,13 @@ export class NativeRuntime {
       release()
       return () => {}
     }
-    holdTimer = setTimeout(() => {
-      this.counters.retireHoldsExpired += 1
-      release(true)
-    }, this.limits.retireHoldMs)
-    holdTimer.unref?.()
+    if (Number.isFinite(holdMs)) {
+      holdTimer = setTimeout(() => {
+        this.counters.retireHoldsExpired += 1
+        release(true)
+      }, holdMs)
+      holdTimer.unref?.()
+    }
     return () => release()
   }
 

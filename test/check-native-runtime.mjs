@@ -580,6 +580,29 @@ try {
     } finally { clearInterval(keepAlive); await pool.closeAll() }
   }
 
+  // A fence owned by long work (a street import rewriting files in place)
+  // has no hold limit: nothing reopens the City, however long the work runs,
+  // until its owner releases; then the held work runs on the new files.
+  {
+    const pool = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fakeSpawn, maxCities: 2, limits: { retireHoldMs: 80 } })
+    const importing = nativeLayout('/cities/importing')
+    const keepAlive = setInterval(() => {}, 1000)
+    try {
+      await pool.query(importing, { id: 'warm' })
+      const release = await pool.retire(importing.root, { hold: true, holdMs: Infinity })
+      const before = spawned.length
+      let settled = false
+      const waiting = pool.query(importing, { id: 'after-import' }).finally(() => { settled = true })
+      await new Promise(resolve => setTimeout(resolve, 300))
+      assert.equal(settled, false, 'Work waits past the hold limit while the owner rewrites the files')
+      assert.equal(spawned.length, before, 'Nothing reopens the City during the import')
+      assert.equal(pool.snapshot().residentCities.some(city => city.root === importing.root), false)
+      assert.equal(pool.snapshot().counters.retireHoldsExpired, 0)
+      release()
+      assert.equal((await waiting).id, 'after-import')
+    } finally { clearInterval(keepAlive); await pool.closeAll() }
+  }
+
   // R4: a request cancelled before admission opens, evicts and starts nothing.
   {
     const pool = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: fakeSpawn, maxCities: 1 })

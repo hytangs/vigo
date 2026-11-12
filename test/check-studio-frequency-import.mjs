@@ -73,7 +73,24 @@ try {
         manifest.nodeCount += 1
         await fs.writeFile(file, JSON.stringify(manifest))
       }
-      await wait((await request(`${base}/national-osm-import`, 'POST', { sourcePath: inputs.osmPath }, 202)).job)
+      // The reimport rewrites the street files in place. Nothing may map them
+      // until it ends (Windows refuses to replace mapped files): while the job
+      // runs the City is never resident in the native runtime, and no
+      // preparation worker (whose routing-access warm-up maps the street
+      // hierarchy) runs for it.
+      const cityRoot = path.join(directory, 'cities', project.id, '.vigo')
+      let reimport = (await request(`${base}/national-osm-import`, 'POST', { sourcePath: inputs.osmPath }, 202)).job
+      const reimportDeadline = Date.now() + 60_000
+      while (['running', 'queued'].includes(reimport.status) && Date.now() < reimportDeadline) {
+        const health = await request('/api/health')
+        const resident = health.nativeRuntime.residentCities.map(city => city.root)
+        assert(!resident.some(root => root === cityRoot || root.startsWith(`${cityRoot}${path.sep}`)),
+          `The City reopened while its streets were being replaced: ${JSON.stringify(resident)}`)
+        assert.equal(health.routingRuntime.workerCount, 0, 'A preparation worker ran while the streets were being replaced')
+        await new Promise(resolve => setTimeout(resolve, 10))
+        reimport = (await request(`${base}/national-gtfs-job?jobId=${reimport.id}`)).job
+      }
+      assert.equal(reimport.status, 'complete', JSON.stringify(reimport))
       const retainedProfile = await fs.readFile(access.snapshotPath).catch(error => {
         if (error.code !== 'ENOENT') throw error
         return null

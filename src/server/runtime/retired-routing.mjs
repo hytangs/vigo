@@ -10,17 +10,39 @@
  * nothing is replaced and the call rejects.
  */
 export function createRetiredRouting(nativeRuntime, routeWorkerPool) {
-  return async function withRetiredRouting({ files = [], cities = [] }, mutate = async () => {}) {
+  async function retain({ files = [], cities = [] }, holdMs) {
+    const options = holdMs === undefined ? { hold: true } : { hold: true, holdMs }
     const fences = await Promise.allSettled([
-      ...files.flatMap(file => [nativeRuntime.retire(file, { hold: true }), routeWorkerPool.retire(file, { hold: true })]),
-      ...cities.flatMap(root => [nativeRuntime.retireCity(root, { hold: true }), routeWorkerPool.retire(root, { hold: true })]),
+      ...files.flatMap(file => [nativeRuntime.retire(file, options), routeWorkerPool.retire(file, options)]),
+      ...cities.flatMap(root => [nativeRuntime.retireCity(root, options), routeWorkerPool.retire(root, options)]),
     ])
-    try {
-      const failure = fences.find(fence => fence.status === 'rejected')
-      if (failure) throw failure.reason
-      return await mutate()
-    } finally {
+    let released = false
+    const release = () => {
+      if (released) return
+      released = true
       for (const fence of fences) if (fence.status === 'fulfilled') fence.value()
     }
+    const failure = fences.find(fence => fence.status === 'rejected')
+    if (failure) {
+      release()
+      throw failure.reason
+    }
+    return release
   }
+  async function withRetiredRouting(scope, mutate = async () => {}) {
+    const release = await retain(scope)
+    try {
+      return await mutate()
+    } finally {
+      release()
+    }
+  }
+  /**
+   * Hold the fence for work that outlives one call, such as an import that
+   * rewrites the files in place for minutes: resolves to an idempotent
+   * release the owner must call on every way the work ends. It has no hold
+   * limit, so nothing reopens the files before the owner is done.
+   */
+  withRetiredRouting.retain = scope => retain(scope, Infinity)
+  return withRetiredRouting
 }
