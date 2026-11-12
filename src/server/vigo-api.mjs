@@ -2216,7 +2216,16 @@ function reserveNationalImportProject(projectId, kind, { duringMaintenance = fal
   nationalImportProjects.set(projectId, activeKinds)
 }
 
+// A street import rewrites the City's street files in place; its fence holds
+// both runtimes off them from launch until the job ends, however it ends.
+const streetImportFences = new Map()
+
 function releaseNationalImportProject(projectId, kind) {
+  if (kind === 'osm') {
+    const release = streetImportFences.get(projectId)
+    streetImportFences.delete(projectId)
+    release?.()
+  }
   const activeKinds = nationalImportProjects.get(projectId)
   if (!activeKinds) return
   activeKinds.delete(kind)
@@ -2236,13 +2245,16 @@ async function launchNationalImportWorker(projectId, kind, job, workerUrl, worke
   try {
     if (kind === 'osm') {
       streetPreparationManager.invalidate(streetStoreFile(projectId))
-      // Timetable workers also map this City's street files. Release every
-      // owner before replacement, including on Windows where mapped files
-      // cannot be atomically overwritten by the import process.
-      // The import then rewrites them while its reservation refuses routing
-      // (Street data is being replaced), so the fence releases at once.
+      // Timetable workers also map this City's street files. Every owner is
+      // released before the import rewrites them in place, and nothing may
+      // reopen them until the job ends: work held by the fence (a resident
+      // City's warm routes, an interrupted request, a preparation warm-up)
+      // would otherwise map files the compiler is replacing, which Windows
+      // refuses. releaseNationalImportProject lifts it on every outcome.
       const project = await readProjectMetadata(projectId)
-      await withRetiredRouting({ files: [streetStoreFile(projectId), ...projectNationalRoutingStorePaths(projectId, project)] })
+      streetImportFences.set(projectId, await withRetiredRouting.retain({
+        files: [streetStoreFile(projectId), ...projectNationalRoutingStorePaths(projectId, project)],
+      }))
     }
     await persistNationalJob(projectId, job)
     return new PreparationProcess(workerUrl, { workerData })
@@ -2737,9 +2749,10 @@ async function startNationalOsmImport(projectId, body) {
         })
         if (job.cancelRequested) return
         // Reimport can change the CCH even when the source PBF is unchanged.
-        // Remove the stores' derived access profiles before opening the new streets.
+        // Remove the stores' derived access profiles before opening the new
+        // streets, still inside the import's fence.
         const storePaths = projectNationalRoutingStorePaths(projectId, project)
-        await withRetiredRouting({ files: storePaths }, () => Promise.all(storePaths.map(async (storePath) => {
+        await Promise.all(storePaths.map(async (storePath) => {
           const directory = path.dirname(storePath)
           const prefix = `${path.basename(storePath)}.native-access-profile.`
           for (const name of await fs.readdir(directory)) {
@@ -2747,7 +2760,7 @@ async function startNationalOsmImport(projectId, body) {
               await fs.rm(path.join(directory, name), { force: true })
             }
           }
-        })))
+        }))
         await removeUploadedSource()
         Object.assign(job, { status: 'complete', phase: 'Street index ready', progress: 1, detail: `${message.result.edgeCount.toLocaleString()} walk + ${message.result.driveEdgeCount.toLocaleString()} drive edges`, result: { ...message.result, sourceFile: sourceName }, finishedAt: now(), updatedAt: now() })
         // The import worker exits with its memory. Warm pedestrian access;

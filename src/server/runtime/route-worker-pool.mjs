@@ -818,6 +818,8 @@ export class NationalRouteWorkerPool {
       maxPendingRequests,
       maxQueuedJobs,
       workerCount: workers.length,
+      // Store file names only, never paths: which stores have a live worker.
+      workerStores: workers.map((worker) => worker.storeFile).sort(),
       residentStoreCount: this.clients.size,
       idleTimeoutMs: nationalRouteWorkerIdleMs,
       prewarmIdleTimeoutMs: nationalRoutePrewarmIdleMs,
@@ -862,7 +864,7 @@ export class NationalRouteWorkerPool {
    * the caller has replaced its files and calls it (or the hold limit passes,
    * when it fails as being updated).
    */
-  async retire(storePath, { idleOnly = false, hold = false } = {}) {
+  async retire(storePath, { idleOnly = false, hold = false, holdMs = this.holdMs } = {}) {
     if (idleOnly) {
       await this.#withLock(async () => {
         const client = this.clients.get(storePath)
@@ -913,8 +915,11 @@ export class NationalRouteWorkerPool {
       release()
       return () => {}
     }
-    holdTimer = setTimeout(() => release(true), this.holdMs)
-    holdTimer.unref?.()
+    // Infinity is for a fence whose owner always releases it.
+    if (Number.isFinite(holdMs)) {
+      holdTimer = setTimeout(() => release(true), holdMs)
+      holdTimer.unref?.()
+    }
     return () => release()
   }
 
