@@ -1,0 +1,15 @@
+[package]
+name = "vigo-osm"
+description = "VIGO OpenStreetMap street-store compiler."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+flate2 = "1.1"
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+serde_json.workspace = true
+sha2 = "0.10"
+vigo-format = { path = "../vigo-format" }

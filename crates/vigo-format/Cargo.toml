@@ -14,3 +14,7 @@ memmap2 = "0.9"
 flate2 = "1.1"
 vigo-route = { path = "../vigo-route" }
 rusqlite = { version = "0.41.1", features = ["bundled"] }
+# JavaScript String.prototype.localeCompare order (ICU root/en collation).
+icu_collator = "2.4"
+# Exact reductions for arguments beyond any coordinate in radians.
+libm = "0.2.16"
