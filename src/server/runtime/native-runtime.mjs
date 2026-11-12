@@ -20,6 +20,8 @@ const queryTimeoutMs = boundedInteger(process.env.VIGO_NATIVE_QUERY_TIMEOUT_MS, 
 const cancelGraceMs = boundedInteger(process.env.VIGO_NATIVE_CANCEL_GRACE_MS, 1500, 0, 600_000)
 // A City that keeps stopping must not spend its time reloading.
 const rewarmSpacingMs = 30_000
+// Retirement waits this long for stopped processes to exit before failing.
+const retireTimeoutMs = boundedInteger(process.env.VIGO_NATIVE_RETIRE_TIMEOUT_MS, 15_000, 100, 600_000)
 const maxResponseBytes = 256 * 1024 * 1024
 // Each process loads a mode when it is first asked for it (modePreparation), so
 // an opening process activates only the timetable. The engine default, all
@@ -127,6 +129,9 @@ class StreamProcess {
     this.bufferedBytes = 0
     this.responseLimitBytes = responseLimitBytes
     this.onExit = onExit
+    // Settles once the child has exited and released its files: retirement
+    // waits on it before a City's files are replaced.
+    this.exited = new Promise(resolve => { this.markExited = resolve })
     const args = ['stream', '--stream-output=detailed', `--city=${layout.root}`]
     if (layout.routingStore) args.push(`--routing-store=${path.basename(layout.routingStore)}`)
     this.child = spawnProcess(executable, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: streamEnvironment(process.env) })
@@ -135,10 +140,15 @@ class StreamProcess {
     this.child.stdout.on('data', chunk => this.receive(chunk))
     this.child.stderr.on('data', chunk => { this.stderr = (this.stderr + chunk.toString()).slice(-8_000) })
     this.child.stdin.on('error', () => {})
-    this.child.on('error', error => this.fail(new NativeCityUnavailableError(`VIGO could not start its runtime: ${error.message}`)))
+    this.child.on('error', error => {
+      this.fail(new NativeCityUnavailableError(`VIGO could not start its runtime: ${error.message}`))
+      // A child that never started holds no files and may not report close.
+      if (this.child.pid === undefined) this.markExited()
+    })
     // exit can precede the last stderr chunk. Wait for closed streams so a
     // repairable missing/stale City is not reduced to an opaque exit code.
     this.child.on('close', (code, signal) => {
+      this.markExited()
       const detail = this.lastError() || `exit ${code ?? signal}`
       // A process that opened its City, or was killed, can be replaced; one
       // that could not open it reports why.
@@ -300,6 +310,7 @@ class StreamProcess {
     this.onExit?.(this, error)
   }
 
+  /** Stop the process; the result settles once it has exited. */
   stop(error = new NativeCityUnavailableError('The VIGO runtime was closed.'), culprit = null) {
     this.stopping = true
     // Settle waiting requests before the exit event can.
@@ -308,6 +319,30 @@ class StreamProcess {
       this.child.stdin.end()
       this.child.kill('SIGKILL')
     }
+    return this.exited
+  }
+}
+
+// Windows paths compare case-insensitively; a missed City would keep a file open.
+function ownerKey(value) {
+  const resolved = path.resolve(value)
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+}
+
+function within(inner, outer) {
+  return inner === outer || inner.startsWith(`${outer}${path.sep}`)
+}
+
+/**
+ * The City that owns `target`: the nearest directory, the target itself
+ * included, that is a resident City root or holds a published City's
+ * network.json. Null when `target` lies inside no City.
+ */
+function owningCity(target, knownRoots) {
+  for (let directory = target; ; directory = path.dirname(directory)) {
+    if (knownRoots.includes(directory) || fs.existsSync(path.join(directory, 'network.json'))) return directory
+    const parent = path.dirname(directory)
+    if (parent === directory) return null
   }
 }
 
@@ -328,8 +363,9 @@ class CityProcesses {
     return Math.max(0, ...this.processes.map(stream => stream.lastUsed))
   }
 
+  /** Stop every process; the result settles once all have exited. */
   stop(error) {
-    for (const stream of [...this.processes]) stream.stop(error)
+    return Promise.all([...this.processes].map(stream => stream.stop(error)))
   }
 }
 
@@ -353,6 +389,8 @@ export class NativeRuntime {
     this.cities = new Map()
     this.leases = new Map()
     this.idleTimer = null
+    // Roots whose processes are exiting before their files are replaced.
+    this.retiring = new Map()
   }
 
   get available() {
@@ -391,10 +429,21 @@ export class NativeRuntime {
 
   /** Open `layout` ahead of its first query; a failure reappears on that query. */
   open(layout) {
-    if (this.executable) this.#city(layout, true)
+    if (!this.executable) return
+    try {
+      this.#city(layout, true)
+    } catch (error) {
+      // A City being updated opens on its next query instead.
+      if (!(error instanceof NativeCityUnavailableError && error.retryable)) throw error
+    }
   }
 
   #city(layout, create) {
+    // A City being retired takes no new work until its processes have exited:
+    // its files are about to be replaced. The caller may retry afterwards.
+    if (create && this.retiring.has(ownerKey(layout.root))) {
+      throw new NativeCityUnavailableError('The City is being updated. Retry shortly.', { retryable: true })
+    }
     let city = this.cities.get(layout.key)
     if (!city && create) {
       this.evict()
@@ -535,32 +584,50 @@ export class NativeRuntime {
     }
   }
 
-  /** Release every City that contains or lies under `file` before it is replaced or removed. */
+  /**
+   * Release the Cities that read `file` before it is replaced or removed, and
+   * settle once their processes have exited. A file or directory inside a
+   * nested City (Studio's wheelchair City under its parent) belongs to that
+   * City alone; a directory also releases every City beneath it. Dispatch to
+   * a retiring City stops at once; the result rejects if a process outlives
+   * the retirement deadline, so files are never replaced under it.
+   */
   retire(file) {
-    // Windows paths compare case-insensitively; a missed City would keep the file open.
-    const key = value => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value)
-    const resolved = key(file)
-    const within = (inner, outer) => inner === outer || inner.startsWith(`${outer}${path.sep}`)
-    const roots = [...this.cities.values()].map(city => key(city.layout.root))
-    // A file inside a nested City, such as Studio's wheelchair City under its
-    // parent, belongs to that City alone: retiring it must not close the City
-    // around it while that City answers queries.
-    const nested = root => {
-      for (let directory = path.dirname(resolved); directory !== root && within(directory, root); directory = path.dirname(directory)) {
-        if (roots.includes(directory) || fs.existsSync(path.join(directory, 'network.json'))) return true
-      }
-      return false
-    }
-    for (const city of [...this.cities.values()]) {
-      const root = key(city.layout.root)
-      if ((within(resolved, root) && !nested(root)) || within(root, resolved)) city.stop()
-    }
+    const target = ownerKey(file)
+    const cities = [...this.cities.values()]
+    const known = cities.map(city => ownerKey(city.layout.root))
+    const owner = owningCity(target, known)
+    const affected = cities.filter(city => {
+      const root = ownerKey(city.layout.root)
+      return root === owner || within(root, target)
+    })
+    return this.#retireCities(affected, [owner, ...affected.map(city => ownerKey(city.layout.root))].filter(Boolean))
   }
 
+  /** Stop every City; settles once every process has exited. */
   closeAll() {
-    for (const city of [...this.cities.values()]) city.stop()
+    const cities = [...this.cities.values()]
     this.cities.clear()
     this.leases.clear()
     this.warmRoutes.clear()
+    return this.#retireCities(cities, cities.map(city => ownerKey(city.layout.root)))
+  }
+
+  async #retireCities(cities, roots) {
+    const marker = Symbol('retirement')
+    for (const root of roots) this.retiring.set(root, marker)
+    let timer
+    try {
+      const exited = Promise.all(cities.map(city => city.stop()))
+      const deadline = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new NativeCityUnavailableError(
+          `VIGO runtime processes did not exit within ${retireTimeoutMs} ms; their City files were not replaced.`,
+        )), retireTimeoutMs)
+      })
+      await Promise.race([exited, deadline])
+    } finally {
+      clearTimeout(timer)
+      for (const root of roots) if (this.retiring.get(root) === marker) this.retiring.delete(root)
+    }
   }
 }

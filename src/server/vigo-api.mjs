@@ -173,10 +173,13 @@ const nationalRouteWorkerPool = new NationalRouteWorkerPool(
 // Studio's queries run in the native runtime; the worker pool prepares City artifacts.
 const nativeRuntime = new NativeRuntime()
 
-/** Release every runtime reading `file` before it is replaced or removed. */
-function retireRouting(file) {
-  nativeRuntime.retire(file)
-  return nationalRouteWorkerPool.retire(file)
+/**
+ * Release every runtime reading `file` before it is replaced or removed.
+ * Settles only after the native processes and preparation workers that read
+ * it have exited; it rejects rather than let a file be replaced under them.
+ */
+async function retireRouting(file) {
+  await Promise.all([nativeRuntime.retire(file), nationalRouteWorkerPool.retire(file)])
 }
 
 const streetPreparationManager = createStreetPreparationManager({
@@ -370,8 +373,7 @@ async function updateRuntimeConfig(body = {}) {
   }
   const openingLibrary = storageAccessRequired || requestedStorageRoot !== storageRoot
   if (requestedStorageRoot !== storageRoot) {
-    nativeRuntime.closeAll()
-    await nationalRouteWorkerPool.closeAll()
+    await Promise.all([nativeRuntime.closeAll(), nationalRouteWorkerPool.closeAll()])
     nationalRoutingServiceCoverageCache.clear()
     nationalPreviewRefreshes.clear()
     gtfsRouteAnalysisCache.clear()
