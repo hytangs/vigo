@@ -5,11 +5,16 @@ on:
     branches: [main, 'release/**']
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      release:
+        description: Called by Release, which runs the engine checks on every platform itself.
+        type: boolean
+        default: false
 
 concurrency:
-  # Branch protection can require both the head and test-merge checks. A PR
-  # must not cancel the push run for its own head commit.
-  group: ci-${{ github.event_name }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
+  # A PR must not cancel the push run for its own head commit.
+  group: ${{ github.workflow }}-ci-${{ github.event_name }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 permissions:
@@ -17,86 +22,80 @@ permissions:
   actions: read
 
 jobs:
-  source-and-native-safety:
+  source:
+    name: Source, dependencies and Rust workspace
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: rust-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            rust-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-
-      # check:public, typecheck, check:security and Rust routing targets run in
-      # the engine job's check:release.
+      - uses: ./.github/actions/setup
       - run: npm audit --audit-level=high
       - run: cargo install cargo-audit --locked --version 0.22.2
       - run: cargo audit
       - run: npm run format:check
       - run: npm run check:package-publication
+      - run: npm run check:docs
       - run: npm run check:rust-workspace
-      - run: cargo test --no-default-features --features standalone --manifest-path crates/vigo-runtime/Cargo.toml
+      - uses: ./.github/actions/save-rust-cache
       - run: cargo clippy --all-targets --no-default-features --features standalone --manifest-path crates/vigo-runtime/Cargo.toml -- -D warnings
 
-  engine:
-    name: Complete engine (${{ matrix.os }})
-    timeout-minutes: 60
+  python:
+    name: Python ${{ matrix.python-version }} (${{ matrix.os }})
+    timeout-minutes: 30
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04]
-    runs-on: ${{ matrix.os }}
+        python-version: ['3.10', '3.11', '3.12', '3.13']
+        include:
+          - { os: macos-15, python-version: '3.12' }
+          - { os: windows-2022, python-version: '3.12' }
+    defaults:
+      run:
+        working-directory: python
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: rust-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            rust-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-
-      - run: npm run build:cli-runtime
-      - name: Reuse this job's compiled runtime
-        run: echo "VIGO_USE_BUILT_RUNTIME=1" >> "$GITHUB_ENV"
-        shell: bash
-      - name: Install pinned Electron runtime
-        shell: bash
+          python-version: ${{ matrix.python-version }}
+      # Pinned so a new linter release cannot fail an unchanged release.
+      - run: python -m pip install mypy==2.4.1 pytest ruff==0.17.4 tqdm
+      - run: python -m ruff check vigo tests scripts examples
+      - run: python -m mypy vigo
+      - run: python -m pytest -q
         env:
-          GH_TOKEN: ${{ github.token }}
+          PYTHONDONTWRITEBYTECODE: '1'
+      - name: Check accelerated decoding
         run: |
-          for attempt in 1 2 3; do
-            node scripts/install-electron.mjs && exit 0
-            sleep 2
-          done
-          exit 1
+          python -m pip install ".[speed]"
+          python -m pytest -q
+      - run: python scripts/build-docs.py --check
+      - run: python scripts/check-notebooks.py
+      - run: python scripts/check-public-release.py
+      - run: python -m pip wheel --no-deps --wheel-dir dist .
+      - run: python scripts/check-wheel.py dist
+
+  engine:
+    name: Engine, compiler, Studio and Python live
+    if: ${{ !inputs.release }}
+    timeout-minutes: 60
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - run: npm run build:cli-runtime
+      - uses: ./.github/actions/save-rust-cache
+      - run: |
+          echo "VIGO_USE_BUILT_RUNTIME=1" >> "$GITHUB_ENV"
+          node scripts/install-electron.mjs
+      - run: cargo test --no-default-features --features standalone --manifest-path crates/vigo-runtime/Cargo.toml
       - run: xvfb-run -a npm run check:release
-        if: runner.os == 'Linux'
-      - run: npm run check:release
-        if: runner.os != 'Linux'
       - run: npm run build:studio-assets
       - run: xvfb-run -a npm run check:studio-runtime
-        if: runner.os == 'Linux'
-      - run: npm run check:studio-runtime
-        if: runner.os != 'Linux'
       - run: npm run check:corpus
       - run: npm run check:standalone
-        env:
-          GH_TOKEN: ${{ github.token }}
       - run: npm run package:cli
       - run: npm run check:cli-package
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -104,7 +103,7 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install './python[progress,speed]' pytest
       - run: node python/scripts/prepare-integration.mjs
-      - name: Check Python against the already built engine
+      - name: Check Python against the built engine
         run: python -m pytest python/tests/test_live_runtime.py -q
         env:
           VIGO_RUNTIME: ${{ github.workspace }}/public/vigo.mjs
