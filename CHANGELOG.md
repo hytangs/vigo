@@ -105,6 +105,8 @@ API 1.0, City format 1 and Result schema 1 keep their meanings, and compatible p
 - Keep keyboard focus in Studio search while moving through results, and announce an empty search outside the listbox.
 - Studio opens the wheelchair City only once wheelchair routing is selected, then keeps it ready while Route stays open. An unselected profile no longer repeats every date's preparation or holds a second City in memory.
 - Studio leases the wheelchair City that answers wheelchair routes, and releasing it no longer fails when that profile was rebuilt or removed.
+- Studio's routing workers open with only the timetable prepared and load walking, driving and cycling when one is first selected, as before background preparation. Each worker no longer holds the bicycle hierarchy and street networks for modes nobody has asked for. `VIGO_PREPARE` still overrides this.
+- Studio's full-day vehicle schedules start once a feed's timetable store is ready, instead of failing every route while a City is still importing and waiting for a retry. A failed load names its first error.
 
 ### Public route planner
 

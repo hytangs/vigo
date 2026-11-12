@@ -339,13 +339,14 @@ function NetworkRuntime() {
       updatePendingPreparations((current) => ({ ...current, [taskKey]: { ...task, status: 'failed', error } }))
     }
     worker.onerror = () => fail('The background schedule worker could not finish. Retry loading.')
-    worker.onmessage = (event: MessageEvent<{ type: string; completed: number; failures: number; results?: NetworkScheduleResult[]; error?: string }>) => {
+    worker.onmessage = (event: MessageEvent<{ type: string; completed: number; failures: number; firstError?: string; results?: NetworkScheduleResult[]; error?: string }>) => {
       if (controller.signal.aborted) return
-      const { type, completed, failures, results } = event.data
+      const { type, completed, failures, firstError, results } = event.data
       if (type === 'error') { fail(event.data.error || 'Could not load vehicle schedules.'); return }
       const done = type === 'complete'
       const phase = !done ? 'Loading full-day schedules'
-        : failures ? `${failures} route schedules unavailable; ${completed - failures} loaded` : `Full-day schedule ready · ${completed} routes`
+        : failures ? `${failures} route schedules unavailable; ${completed - failures} loaded${firstError ? `. ${firstError}` : ''}`
+          : `Full-day schedule ready · ${completed} routes`
       // No partial timetable enters project/map state. Publish the entire day once.
       if (done && results) {
         startTransition(() => updateProjects((current) => controller.signal.aborted ? current : current.map((project) => project.id === requestProjectId
