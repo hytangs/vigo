@@ -118,7 +118,7 @@ Other controls, such as transfer buffers, realtime snapshots, scenarios, via poi
 | `--max-body-bytes N` | 8388608 | 1024–8388608 |
 | `--request-timeout-ms N` | 10000 | 50–60000; deadline for reading a request and writing its response |
 | `--query-timeout-ms N` | 30000 | 1–600000; queueing plus computation |
-| `--max-connections N` | 32 | 2–256 open connections |
+| `--max-connections N` | 32 | 2–256 data requests in progress; four further connections stay open to health, readiness, status and cancellation |
 | `--max-queue N` | 8 | 0–128 waiting queries |
 | `--realtime-poll FILE` | None | Poll GTFS-Realtime feeds; see [automatic GTFS-RT polling](#automatic-gtfs-rt-polling) |
 | `--ndw-poll FILE` | None | Poll NDW traffic; see [automatic NDW polling](#automatic-ndw-polling) |
@@ -1362,16 +1362,20 @@ The service runs an HTTP front end and one supervised worker process that keeps 
 
 Server flags set the main limits; see [Server flags](#server-flags). Beyond them:
 
-- Uploads and queued requests share a 64 MiB admission budget, and pending responses a 128 MiB budget. Exhaustion returns 503, before `100 Continue` for uploads.
+- Uploads and queued requests share a 64 MiB admission budget, and pending responses a 128 MiB budget. A worker result counts against the response budget while it is read, not after it is buffered, so a large result never exceeds it. Exhaustion returns 503, before `100 Continue` for uploads.
 - Headers are limited to 16 KiB and 64 entries. A worker result is limited to 64 MiB; split large matrices or rasters.
 - Writing a response has a 10-second deadline. A worker may take up to 60 seconds to open the City.
 - Waiting routes and matrices of up to 1,024 cells get up to 32 turns or 250 ms of worker time before the oldest waiting analytical request, so a batch of Reach jobs cannot starve point queries. The running query always finishes first.
+- `GET /healthz`, `/readyz`, `/v1/capabilities`, `/v1/realtime`, `/v1/traffic` and `DELETE /v1/requests/{id}` may use four connections beyond `--max-connections`, so a service saturated by data requests still reports its health and accepts cancellations.
+- A client that closes its connection while its query waits or runs cancels the query, as `DELETE /v1/requests/{id}` does. A client that half-closes its sending side counts as gone.
+
+One worker answers one query at a time: `--max-connections` and `--max-queue` bound waiting work, they do not add parallel computation, and a long Reach or Matrix delays the queries behind it. To serve more queries at once, run several services, each with its own worker and City, behind a load balancer that bounds its own queue, and keep expensive analysis on separate instances when interactive latency matters. Each instance holds its own City in memory. Request IDs are per instance, so send `DELETE /v1/requests/{id}` to the instance that received the request. Measure throughput with an open-loop load such as `scripts/stress-http.py` (see [Reproduce a service workload](../developer.md#reproduce-a-service-workload)).
 
 These limits bound transport buffers, not process memory. See [Resource limits](../guides/resource-limits.md).
 
 ### Cancel a request
 
-Give a request an `id` of up to 128 letters, digits, hyphens, underscores or periods. `DELETE /v1/requests/{id}` returns 202, and the original request returns 499. Running work is stopped and its worker replaced; queued work is skipped. Reusing an active ID returns 409.
+Give a request an `id` of up to 128 letters, digits, hyphens, underscores or periods. `DELETE /v1/requests/{id}` returns 202, and the original request returns 499. Running work is stopped and its worker replaced; queued work is skipped. Reusing an active ID returns 409. Closing the client connection cancels a query the same way, with or without an `id`.
 
 ### Status codes
 
@@ -1388,7 +1392,7 @@ Give a request an `id` of up to 128 letters, digits, hyphens, underscores or per
 | 413 | Body over the limit |
 | 417 | Unsupported `Expect` header |
 | 431 | Headers too large |
-| 499 | Canceled through `DELETE /v1/requests/{id}` |
+| 499 | Canceled through `DELETE /v1/requests/{id}`, or by the client closing its connection |
 | 503 | Connection, queue or buffer capacity exhausted, or worker unavailable; readiness uses it too |
 | 504 | Query deadline, worker failure or response failure |
 

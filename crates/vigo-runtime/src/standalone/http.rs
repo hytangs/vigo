@@ -5,7 +5,7 @@ use serde_json::{Value, json, value::RawValue};
 use std::{
     collections::{HashMap, VecDeque},
     env,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, ErrorKind, Read, Write},
     net::{IpAddr, TcpListener, TcpStream},
     process::{Child, Command, Stdio},
     sync::{
@@ -25,6 +25,12 @@ const RESPONSE_BYTES: usize = 128 * 1024 * 1024;
 const WORKER_LINE_BYTES: usize = 8 * 1024 * 1024;
 // Live snapshots come from the server's own poller, never from a client body.
 pub(crate) const WORKER_INSTALL_BYTES: usize = 64 * 1024 * 1024;
+// Connections beyond --max-connections reserved for health, readiness,
+// status and cancellation, so they answer while data requests saturate.
+const CONTROL_CONNECTIONS: usize = 4;
+// How often a request waiting for its query checks that its client is still
+// connected; a client that went away cancels its query.
+const DISCONNECT_POLL: Duration = Duration::from_millis(25);
 #[derive(Default)]
 struct ByteBudget(AtomicUsize);
 struct ByteLease {
@@ -42,6 +48,28 @@ impl ByteBudget {
             budget: self.clone(),
             bytes,
         })
+    }
+}
+impl ByteLease {
+    /// Extend this lease to cover `bytes` in total, within `limit`.
+    fn cover(&mut self, bytes: usize, limit: usize) -> bool {
+        let Some(extra) = bytes.checked_sub(self.bytes) else {
+            return true;
+        };
+        if extra == 0 {
+            return true;
+        }
+        let grown = self
+            .budget
+            .0
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |used| {
+                used.checked_add(extra).filter(|&total| total <= limit)
+            })
+            .is_ok();
+        if grown {
+            self.bytes = bytes;
+        }
+        grown
     }
 }
 impl Drop for ByteLease {
@@ -185,6 +213,10 @@ struct EncodedOutput {
     bytes: Vec<u8>,
     failed: bool,
     compute_us: Option<f64>,
+    /// The retained-response lease that covered this line while it was read.
+    lease: Option<ByteLease>,
+    /// The line did not fit the retained-response budget and was discarded.
+    over_budget: bool,
 }
 impl EncodedOutput {
     fn read(bytes: Vec<u8>) -> std::result::Result<Self, String> {
@@ -208,8 +240,89 @@ impl EncodedOutput {
             bytes,
             failed: envelope.error,
             compute_us: envelope.meta.and_then(|v| v.compute_us),
+            lease: None,
+            over_budget: false,
         })
     }
+}
+
+/// The retained-response budget a worker's output lines are read against.
+#[derive(Clone)]
+struct ResponseBudget {
+    budget: Arc<ByteBudget>,
+    limit: usize,
+}
+
+/// Read one worker output line. With a budget, every allocation the line
+/// grows into is leased first, so a large response can never be held beyond
+/// the budget even transiently; a line that does not fit is drained and
+/// reported as over budget, keeping the stream aligned.
+fn read_worker_line(
+    reader: &mut impl BufRead,
+    budget: Option<&ResponseBudget>,
+) -> std::io::Result<Option<std::result::Result<EncodedOutput, String>>> {
+    const MAXIMUM: usize = 64 * 1024 * 1024;
+    let mut line = Vec::new();
+    let mut lease: Option<ByteLease> = None;
+    let mut total = 0usize;
+    let (mut over_budget, mut too_long) = (false, false);
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            return Ok((total > 0).then(|| Err("City worker output ended mid-line".into())));
+        }
+        let (take, done) = match available.iter().position(|&b| b == b'\n') {
+            Some(i) => (i + 1, true),
+            None => (available.len(), false),
+        };
+        total += take;
+        if !over_budget && !too_long {
+            if total > MAXIMUM {
+                too_long = true;
+                line = Vec::new();
+                lease = None;
+            } else {
+                line.extend_from_slice(&available[..take]);
+                if let Some(budget) = budget {
+                    let covered = match lease.as_mut() {
+                        Some(lease) => lease.cover(line.capacity(), budget.limit),
+                        None => match budget.budget.reserve(line.capacity(), budget.limit) {
+                            Some(reserved) => {
+                                lease = Some(reserved);
+                                true
+                            }
+                            None => false,
+                        },
+                    };
+                    if !covered {
+                        over_budget = true;
+                        line = Vec::new();
+                        lease = None;
+                    }
+                }
+            }
+        }
+        reader.consume(take);
+        if done {
+            break;
+        }
+    }
+    Ok(Some(if too_long {
+        Err("Worker output exceeds 64 MiB".into())
+    } else if over_budget {
+        Ok(EncodedOutput {
+            bytes: Vec::new(),
+            failed: true,
+            compute_us: None,
+            lease: None,
+            over_budget: true,
+        })
+    } else {
+        EncodedOutput::read(line).map(|mut output| {
+            output.lease = lease;
+            output
+        })
+    }))
 }
 enum BodyData {
     Json(Value),
@@ -247,14 +360,19 @@ impl Drop for Worker {
     }
 }
 impl Worker {
-    fn open(city: &str, timeout: Duration) -> Result<(Self, Value)> {
-        Self::open_with(city, timeout, |task| {
+    fn open(
+        city: &str,
+        timeout: Duration,
+        budget: Option<ResponseBudget>,
+    ) -> Result<(Self, Value)> {
+        Self::open_with(city, timeout, budget, |task| {
             thread::Builder::new().spawn(task).map(|_| ())
         })
     }
     fn open_with(
         city: &str,
         timeout: Duration,
+        budget: Option<ResponseBudget>,
         mut spawn: impl FnMut(Box<dyn FnOnce() + Send>) -> std::io::Result<()>,
     ) -> Result<(Self, Value)> {
         let child = Command::new(env::current_exe()?)
@@ -290,20 +408,14 @@ impl Worker {
         }))?;
         let stdout = worker.child.stdout.take().ok_or("Missing worker output")?;
         spawn(Box::new(move || {
-            let mut reader = BufReader::new(stdout);
+            let mut reader = BufReader::with_capacity(64 * 1024, stdout);
             loop {
-                let mut line = Vec::new();
-                let message = match reader
-                    .by_ref()
-                    .take(64 * 1024 * 1024 + 1)
-                    .read_until(b'\n', &mut line)
-                {
-                    Ok(0) => break,
-                    Ok(n) if n <= 64 * 1024 * 1024 => EncodedOutput::read(line),
-                    Ok(_) => Err("Worker output exceeds 64 MiB".into()),
-                    Err(e) => Err(e.to_string()),
+                let (message, ended) = match read_worker_line(&mut reader, budget.as_ref()) {
+                    Ok(None) => break,
+                    Ok(Some(message)) => (message, false),
+                    Err(e) => (Err(e.to_string()), true),
                 };
-                if sender.send(message).is_err() {
+                if sender.send(message).is_err() || ended {
                     break;
                 }
             }
@@ -477,9 +589,10 @@ fn restart(
     city: &str,
     timeout: Duration,
     ready: &AtomicBool,
+    budget: &ResponseBudget,
 ) {
     if worker.is_none() && backoff.ready(Instant::now()) {
-        match Worker::open(city, timeout) {
+        match Worker::open(city, timeout, Some(budget.clone())) {
             Ok((replacement, _)) => {
                 let failures = backoff.succeed();
                 if failures > 0 {
@@ -517,6 +630,11 @@ struct State {
     response_bytes: Arc<ByteBudget>,
     request_capacity: usize,
     response_capacity: usize,
+    /// Data requests in progress, bounded by --max-connections. Further
+    /// connections stay available to health, readiness, status and
+    /// cancellation requests while data requests saturate the server.
+    data_active: Arc<AtomicUsize>,
+    data_limit: usize,
 }
 fn setting(
     o: &HashMap<String, String>,
@@ -561,7 +679,15 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
     let startup_timeout = Duration::from_secs(60);
     let traffic = super::traffic_poll::Poller::start(city, o)?;
     let realtime = super::realtime_poll::Poller::start(city, o)?;
-    let (worker, info) = Worker::open(city, startup_timeout)?;
+    let response_bytes = Arc::<ByteBudget>::default();
+    let response_capacity =
+        crate::resources::cache_budget(RESPONSE_BYTES, 16).max(WORKER_LINE_BYTES);
+    // Worker output is leased while it is read, not after it is buffered.
+    let response_budget = ResponseBudget {
+        budget: response_bytes.clone(),
+        limit: response_capacity,
+    };
+    let (worker, info) = Worker::open(city, startup_timeout, Some(response_budget.clone()))?;
     let (sender, receiver) = mpsc::sync_channel::<Job>(queue);
     let state = Arc::new(State {
         traffic,
@@ -576,10 +702,11 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
         ready: AtomicBool::new(true),
         requests: Mutex::new(HashMap::new()),
         request_bytes: Arc::default(),
-        response_bytes: Arc::default(),
+        response_bytes,
         request_capacity: crate::resources::cache_budget(REQUEST_BYTES, 32).max(maximum + 1024),
-        response_capacity: crate::resources::cache_budget(RESPONSE_BYTES, 16)
-            .max(WORKER_LINE_BYTES),
+        response_capacity,
+        data_active: Arc::default(),
+        data_limit: connections,
     });
     let supervisor = state.clone();
     let city = city.to_owned();
@@ -609,6 +736,7 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
                                 &city,
                                 startup_timeout,
                                 &supervisor.ready,
+                                &response_budget,
                             );
                         }
                         // Idle: install a new live snapshot now and derive
@@ -652,6 +780,7 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
                     &city,
                     startup_timeout,
                     &supervisor.ready,
+                    &response_budget,
                 );
             }
             if let (Some(poller), Some(w)) = (&supervisor.traffic, worker.as_mut())
@@ -689,10 +818,12 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
                     job.deadline.saturating_duration_since(Instant::now()),
                     &job.canceled,
                 ) {
-                    Ok(v) => match supervisor
-                        .response_bytes
-                        .reserve(v.bytes.capacity(), supervisor.response_capacity)
-                    {
+                    Ok(v) if v.over_budget => (503, error("Response memory capacity reached")),
+                    Ok(mut v) => match v.lease.take().or_else(|| {
+                        supervisor
+                            .response_bytes
+                            .reserve(v.bytes.capacity(), supervisor.response_capacity)
+                    }) {
                         Some(lease) => (
                             if v.failed { 400 } else { 200 },
                             Body {
@@ -735,6 +866,7 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
                     &city,
                     startup_timeout,
                     &supervisor.ready,
+                    &response_budget,
                 );
             }
         }
@@ -778,7 +910,7 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
         }
         if active
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
-                (n < connections).then_some(n + 1)
+                (n < connections + CONTROL_CONNECTIONS).then_some(n + 1)
             })
             .is_err()
         {
@@ -799,7 +931,8 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
         let state = state.clone();
         let spawned = thread::Builder::new().spawn(move || {
             let _lease = lease;
-            let result = handle(&mut stream, &state);
+            let mut data_slot = None;
+            let result = handle(&mut stream, &state, &mut data_slot);
             let response = result.unwrap_or_else(|e| {
                 Response::Json((
                     if matches!(
@@ -819,7 +952,8 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
                     respond_bytes(&mut stream, 200, content_type, bytes)
                 }
             };
-            // The slot is free once the response is written.
+            // The slots are free once the response is written.
+            drop(data_slot);
             drop(_lease);
             linger_close(stream);
         });
@@ -918,7 +1052,33 @@ enum Response {
     Json((u16, Body)),
     Static(&'static str, &'static [u8]),
 }
-fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
+/// A data request's share of --max-connections, held until its response is
+/// written.
+struct DataSlot(Arc<AtomicUsize>);
+impl Drop for DataSlot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+/// Health, readiness, status and cancellation: cheap requests that may use
+/// the reserved connections.
+fn control_request(method: &str, path: &str) -> bool {
+    (method == "GET"
+        && [
+            "/healthz",
+            "/readyz",
+            "/v1/capabilities",
+            "/v1/realtime",
+            "/v1/traffic",
+        ]
+        .contains(&path))
+        || (method == "DELETE" && path.starts_with("/v1/requests/"))
+}
+fn handle(
+    stream: &mut TcpStream,
+    state: &State,
+    data_slot: &mut Option<DataSlot>,
+) -> std::io::Result<Response> {
     let deadline = Instant::now() + state.io_timeout;
     let mut bytes = Vec::new();
     let header_end = loop {
@@ -958,6 +1118,18 @@ fn handle(stream: &mut TcpStream, state: &State) -> std::io::Result<Response> {
     };
     if request.version == Some(1) && get("Host")?.is_none() {
         return Err(invalid());
+    }
+    if !control_request(method, path) {
+        if state
+            .data_active
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                (n < state.data_limit).then_some(n + 1)
+            })
+            .is_err()
+        {
+            return Ok(Response::Json((503, error("Connection capacity reached"))));
+        }
+        *data_slot = Some(DataSlot(state.data_active.clone()));
     }
     // These immutable assets contain no City, query, or authentication data.
     // Embedding them keeps both the local and deployed manual fully standalone.
@@ -1062,6 +1234,7 @@ fn handle_api(
             state,
             Request::read(b"{}", "info", "").map_err(|_| invalid())?,
             None,
+            Some(&*stream),
         );
     }
     if method == "DELETE" && path.starts_with("/v1/requests/") {
@@ -1189,12 +1362,31 @@ fn handle_api(
         Err(e) => return Ok((400, error(e))),
     };
     drop(body);
-    dispatch(state, query, Some(lease))
+    dispatch(state, query, Some(lease), Some(&*stream))
 }
+
+/// Whether the client has closed or reset its connection. Bytes it already
+/// sent (a pipelined request) are only peeked, never consumed. A client that
+/// half-closes its sending side counts as gone, as in most HTTP servers.
+fn client_gone(stream: &TcpStream) -> bool {
+    if stream.set_nonblocking(true).is_err() {
+        return false;
+    }
+    let mut probe = [0u8; 1];
+    let gone = match stream.peek(&mut probe) {
+        Ok(0) => true,
+        Ok(_) => false,
+        Err(e) => !matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::Interrupted),
+    };
+    let _ = stream.set_nonblocking(false);
+    gone
+}
+
 fn dispatch(
     state: &State,
     query: Request,
     lease: Option<ByteLease>,
+    client: Option<&TcpStream>,
 ) -> std::io::Result<(u16, Body)> {
     if !state.ready.load(Ordering::Acquire) {
         return Ok((503, error("City worker is recovering")));
@@ -1239,12 +1431,30 @@ fn dispatch(
                 TrySendError::Disconnected(_) => (503, error("Query worker is unavailable")),
             };
         }
-        receiver
-            .recv_timeout(state.query_timeout + Duration::from_millis(100))
-            .unwrap_or_else(|_| {
+        // A client that disconnects cancels its query as the request-ID
+        // endpoint does: removed while queued, the worker stopped and
+        // replaced while it runs.
+        let give_up = Instant::now() + state.query_timeout + Duration::from_millis(100);
+        loop {
+            let left = give_up.saturating_duration_since(Instant::now());
+            if left.is_zero() {
                 canceled.store(true, Ordering::Release);
-                (504, error("Query deadline exceeded"))
-            })
+                break (504, error("Query deadline exceeded"));
+            }
+            match receiver.recv_timeout(left.min(DISCONNECT_POLL)) {
+                Ok(result) => break result,
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    canceled.store(true, Ordering::Release);
+                    break (504, error("Query deadline exceeded"));
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if client.is_some_and(client_gone) {
+                        canceled.store(true, Ordering::Release);
+                        break (499, error("Client disconnected; query canceled"));
+                    }
+                }
+            }
+        }
     };
     let result = run();
     if let Some(id) = id {
@@ -1428,8 +1638,11 @@ mod scheduling_tests {
     fn worker_thread_refusal_returns_an_error_at_either_startup_stage() {
         for failed_stage in [1, 2] {
             let mut attempts = 0;
-            let result =
-                Worker::open_with("missing-test-city", Duration::from_millis(100), |task| {
+            let result = Worker::open_with(
+                "missing-test-city",
+                Duration::from_millis(100),
+                None,
+                |task| {
                     attempts += 1;
                     if attempts == failed_stage {
                         Err(std::io::Error::new(
@@ -1439,7 +1652,8 @@ mod scheduling_tests {
                     } else {
                         thread::Builder::new().spawn(task).map(|_| ())
                     }
-                });
+                },
+            );
             assert_eq!(attempts, failed_stage);
             assert!(
                 result
@@ -1586,6 +1800,84 @@ mod scheduling_tests {
         assert!(Request::read(b"[]", "route", "").is_err());
     }
     #[test]
+    fn worker_lines_are_leased_while_read_and_never_exceed_the_budget() {
+        let budget = ResponseBudget {
+            budget: Arc::default(),
+            limit: 64 * 1024,
+        };
+        let small = format!("{{\"result\":\"{}\"}}\n", "a".repeat(1000));
+        let large = format!("{{\"result\":\"{}\"}}\n", "b".repeat(200 * 1024));
+        let input = [
+            small.as_bytes(),
+            large.as_bytes(),
+            small.as_bytes(),
+            b"{\"partial\"",
+        ]
+        .concat();
+        // A small buffer makes every line arrive in many pieces.
+        let mut reader = BufReader::with_capacity(4096, std::io::Cursor::new(input));
+        let first = read_worker_line(&mut reader, Some(&budget))
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(!first.over_budget && !first.failed);
+        assert_eq!(first.bytes, small.as_bytes());
+        let held = first.lease.as_ref().map_or(0, |lease| lease.bytes);
+        assert!(held >= small.len());
+        assert_eq!(budget.budget.0.load(Ordering::Acquire), held);
+        // Larger than the whole budget: drained, never retained, and the
+        // next line is still read intact.
+        let refused = read_worker_line(&mut reader, Some(&budget))
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(refused.over_budget && refused.bytes.is_empty() && refused.lease.is_none());
+        assert_eq!(budget.budget.0.load(Ordering::Acquire), held);
+        drop(first);
+        assert_eq!(budget.budget.0.load(Ordering::Acquire), 0);
+        let third = read_worker_line(&mut reader, Some(&budget))
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(third.bytes, small.as_bytes());
+        drop(third);
+        assert!(
+            read_worker_line(&mut reader, Some(&budget))
+                .unwrap()
+                .unwrap()
+                .is_err()
+        );
+        assert!(
+            read_worker_line(&mut reader, Some(&budget))
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(budget.budget.0.load(Ordering::Acquire), 0);
+    }
+    #[test]
+    fn control_requests_are_the_cheap_status_and_cancel_endpoints() {
+        for (method, path) in [
+            ("GET", "/healthz"),
+            ("GET", "/readyz"),
+            ("GET", "/v1/capabilities"),
+            ("GET", "/v1/realtime"),
+            ("GET", "/v1/traffic"),
+            ("DELETE", "/v1/requests/abc"),
+        ] {
+            assert!(control_request(method, path), "{method} {path}");
+        }
+        for (method, path) in [
+            ("POST", "/v1/route"),
+            ("GET", "/v1/info"),
+            ("GET", "/"),
+            ("GET", "/docs"),
+            ("POST", "/healthz"),
+            ("GET", "/v1/requests/abc"),
+        ] {
+            assert!(!control_request(method, path), "{method} {path}");
+        }
+    }
+    #[test]
     fn tokenless_loopback_accepts_only_local_host_and_same_origin() {
         let allowed = |host: Option<&str>, origin: Option<&str>| {
             local_request_access(host.map(str::as_bytes), origin.map(str::as_bytes)).is_ok()
@@ -1674,6 +1966,10 @@ mod scheduling_tests {
             "/nonexistent-city",
             Duration::from_secs(5),
             &ready,
+            &ResponseBudget {
+                budget: Arc::default(),
+                limit: usize::MAX,
+            },
         );
         assert!(worker.is_none());
         assert!(!ready.load(Ordering::Acquire));
@@ -1686,6 +1982,10 @@ mod scheduling_tests {
             "/nonexistent-city",
             Duration::from_secs(5),
             &ready,
+            &ResponseBudget {
+                budget: Arc::default(),
+                limit: usize::MAX,
+            },
         );
         assert_eq!(backoff.failures, 1);
         assert!(!ready.load(Ordering::Acquire));
