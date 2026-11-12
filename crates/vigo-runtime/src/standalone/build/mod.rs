@@ -637,6 +637,7 @@ pub fn main(command: &str, mut argv: Vec<String>) -> i32 {
     match result {
         Ok(()) => 0,
         Err(error) => {
+            signals::await_termination();
             // A refused store keeps the machine-readable code and reason the
             // calling process reports (`{"error":{"code","reason"}}`).
             if command.starts_with('_')

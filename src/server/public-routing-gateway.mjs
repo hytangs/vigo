@@ -164,7 +164,10 @@ function createCityGateway({ upstream, publicOrigin, cityId, staticRoot, maxActi
   const remoteGeocoder = Boolean(geocoderEndpoint) || !addressIndex
   const serviceClock = new Intl.DateTimeFormat('en-CA', { timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
   const prefix = `/api/projects/${cityId}`
-  const rootPath = fs.realpath(staticRoot)
+  // Resolved on the first file request: an eager promise nobody awaits would
+  // reject unhandled if the root disappears before the gateway serves a file.
+  let rootPath
+  const staticRootPath = () => (rootPath ??= fs.realpath(staticRoot))
   let catalog, catalogPending
   const json = (res, status, value) => { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)) }
   const local = async (pathname, init = {}) => {
@@ -290,7 +293,7 @@ function createCityGateway({ upstream, publicOrigin, cityId, staticRoot, maxActi
         if (!allowed) throw reject('Not found.', 404)
         const file = path.resolve(staticRoot, pathname === '/' ? 'index.html' : `.${pathname}`)
         const real = await fs.realpath(file)
-        if (!real.startsWith(await rootPath + path.sep)) throw reject('Not found.', 404)
+        if (!real.startsWith(await staticRootPath() + path.sep)) throw reject('Not found.', 404)
         let bytes = await fs.readFile(real)
         if (pathname === '/') bytes = Buffer.from(bytes.toString().replace('<html', `<html data-vigo-public-city="${cityId}"`).replace('<title>VIGO Studio</title>', '<title>VIGO · Route your city</title>').replace('VIGO Studio turns GTFS and OSM into a city you can explore, route, and analyze.', 'Find transit, walking, cycling, and driving routes in your city.').replace(/<meta\s+http-equiv="Content-Security-Policy"[^>]*>\s*/i, ''))
         const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff' }

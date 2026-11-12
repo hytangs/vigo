@@ -51,7 +51,12 @@ export async function published050(directory) {
     )
     const extracted = path.join(directory, 'reference')
     fs.mkdirSync(extracted)
-    execFileSync('tar', ['-xzf', archive, '-C', extracted, '--strip-components=1'])
+    // Relative paths: GNU tar on Windows reads "C:" as a remote host.
+    execFileSync(
+      'tar',
+      ['-xzf', path.basename(archive), '-C', 'reference', '--strip-components=1'],
+      { cwd: directory },
+    )
     binary = path.join(extracted, process.platform === 'win32' ? 'vigo.exe' : 'vigo')
   }
   const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(binary), 'manifest.json')))
