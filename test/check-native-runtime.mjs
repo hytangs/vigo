@@ -9,6 +9,8 @@ import os from 'node:os'
 import path from 'node:path'
 // A short grace makes a cancelled query's process stop within the test.
 process.env.VIGO_NATIVE_CANCEL_GRACE_MS = '20'
+// A short deadline lets the test observe a process that never exits.
+process.env.VIGO_NATIVE_RETIRE_TIMEOUT_MS = '400'
 const { NativeCityUnavailableError, NativeRuntime, nativeLayout, nativeExecutable } = await import('../src/server/runtime/native-runtime.mjs')
 
 // Source, bundled CLI and bundled server all resolve the same native runtime.
@@ -313,27 +315,105 @@ try {
   await assert.rejects(retiring, error => error.retryable === false)
   assert.equal(runtime.snapshot().residentCities.some(city => city.root === boston.root), false)
 
-  // A nested City's files belong to it alone: retiring Studio's wheelchair
-  // store must not close the City around it, resident or not.
+  // Retirement is a process-exit barrier: it settles only after every
+  // affected child has closed, and the City takes no new work meanwhile.
+  let holding = false
+  const held = []
+  const holdingSpawn = (...args) => {
+    const child = fakeSpawn(...args)
+    const emit = child.emit.bind(child)
+    child.emit = (event, ...rest) => {
+      if (event === 'close' && holding) {
+        held.push(() => emit(event, ...rest))
+        return true
+      }
+      return emit(event, ...rest)
+    }
+    return child
+  }
+  const releaseClose = () => { holding = false; for (const close of held.splice(0)) close() }
+  const barrier = new NativeRuntime({ executable: '/fake/vigo', spawnProcess: holdingSpawn, maxCities: 4 })
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'vigo-nested-city-'))
-  fs.mkdirSync(path.join(parent, 'wheelchair'))
-  fs.writeFileSync(path.join(parent, 'wheelchair', 'network.json'), '{}')
-  const outer = nativeLayout(parent)
-  const wheelchair = nativeLayout(path.join(parent, 'wheelchair'))
-  const wheelchairStore = path.join(parent, 'wheelchair', 'routing', 'project.sqlite')
-  await runtime.query(outer, { id: 'outer' })
-  runtime.retire(wheelchairStore)
-  assert(runtime.snapshot().residentCities.some(city => city.root === outer.root), 'A non-resident nested City leaves its parent open')
-  await runtime.query(wheelchair, { id: 'wheelchair' })
-  const answering = runtime.query(outer, { id: 'outer-busy', delayMs: 50 })
-  runtime.retire(wheelchairStore)
-  assert.equal((await answering).id, 'outer-busy')
-  const residents = runtime.snapshot().residentCities.map(city => city.root)
-  assert(residents.includes(outer.root) && !residents.includes(wheelchair.root), JSON.stringify(residents))
-  runtime.retire(path.join(parent, 'routing', 'project.sqlite'))
-  fs.rmSync(parent, { recursive: true, force: true })
-  assert.equal(runtime.snapshot().residentCities.some(city => city.root === outer.root), false)
+  try {
+    fs.mkdirSync(path.join(parent, 'wheelchair'))
+    fs.writeFileSync(path.join(parent, 'wheelchair', 'network.json'), '{}')
+    const outer = nativeLayout(parent)
+    const wheelchair = nativeLayout(path.join(parent, 'wheelchair'))
+    const wheelchairStore = path.join(parent, 'wheelchair', 'routing', 'project.sqlite')
+    const roots = () => barrier.snapshot().residentCities.map(city => city.root)
+
+    // A publisher renames files only after retirement settles; while the
+    // stopped child has not closed, retirement and the rename both wait.
+    await barrier.query(wheelchair, { id: 'wheelchair' })
+    holding = true
+    let renamed = false
+    const publishing = (async () => { await barrier.retire(wheelchairStore); renamed = true })()
+    await new Promise(resolve => setTimeout(resolve, 60))
+    assert.equal(renamed, false, 'Files must not be replaced before the process exits')
+    assert.equal(held.length, 1, 'The stopped process has not closed yet')
+    await assert.rejects(barrier.query(wheelchair, { id: 'during-retirement' }),
+      error => error instanceof NativeCityUnavailableError && error.retryable === true && /being updated/.test(error.message))
+    releaseClose()
+    await publishing
+    assert.equal(renamed, true)
+    assert.equal((await barrier.query(wheelchair, { id: 'after-retirement' })).id, 'after-retirement')
+
+    // A process that never exits makes retirement fail loudly, not succeed.
+    holding = true
+    await assert.rejects(barrier.retire(wheelchairStore), /did not exit within 400 ms/)
+    releaseClose()
+    assert.equal((await barrier.query(wheelchair, { id: 'after-timeout' })).id, 'after-timeout')
+
+    // Ownership. A file or the root of the nested City retires it alone, even
+    // while the parent answers; a parent file retires the parent alone; the
+    // parent root retires both. A nested City that is not resident still owns
+    // its files through its published network.json.
+    await barrier.query(outer, { id: 'outer' })
+    const answering = barrier.query(outer, { id: 'outer-busy', delayMs: 50 })
+    await barrier.retire(wheelchairStore)
+    assert.equal((await answering).id, 'outer-busy')
+    assert.deepEqual(roots(), [outer.root])
+    await barrier.query(wheelchair, { id: 'nested-root' })
+    await barrier.retire(path.join(parent, 'wheelchair'))
+    assert.deepEqual(roots(), [outer.root], 'Retiring the nested root leaves its parent open')
+    await barrier.retire(wheelchairStore)
+    assert.deepEqual(roots(), [outer.root], 'A non-resident nested City leaves its parent open')
+    await barrier.query(wheelchair, { id: 'parent-file' })
+    await barrier.retire(path.join(parent, 'routing', 'project.sqlite'))
+    assert.deepEqual(roots(), [wheelchair.root], 'A parent file retires the parent alone')
+    await barrier.query(outer, { id: 'parent-root' })
+    await barrier.retire(parent)
+    assert.deepEqual(roots(), [], 'The parent root retires the City and every City beneath it')
+    if (process.platform === 'win32') {
+      await barrier.query(wheelchair, { id: 'case' })
+      await barrier.retire(path.join(parent, 'WHEELCHAIR'))
+      assert.deepEqual(roots(), [], 'Windows paths compare case-insensitively')
+    }
+
+    // Cancelling one request stops only that work: the City stays open and
+    // takes new requests at once, unlike a retirement.
+    await barrier.query(outer, { id: 'warm' })
+    const cancelled = new AbortController()
+    const dropped = barrier.query(outer, { id: 'dropped', delayMs: 40 }, cancelled.signal)
+    cancelled.abort()
+    await assert.rejects(dropped, { name: 'AbortError' })
+    assert.equal((await barrier.query(outer, { id: 'still-open' })).id, 'still-open')
+
+    // closeAll is a barrier as well.
+    holding = true
+    let closed = false
+    const closing = barrier.closeAll().then(() => { closed = true })
+    await new Promise(resolve => setTimeout(resolve, 30))
+    assert.equal(closed, false)
+    releaseClose()
+    await closing
+    assert.deepEqual(roots(), [])
+  } finally {
+    releaseClose()
+    await barrier.closeAll().catch(() => {})
+    fs.rmSync(parent, { recursive: true, force: true })
+  }
   console.log(`Native runtime passed (${spawned.length} fake processes).`)
 } finally {
-  runtime.closeAll()
+  await runtime.closeAll()
 }

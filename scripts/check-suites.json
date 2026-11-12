@@ -50,6 +50,7 @@
   ],
   "check:national-choices": [
     "test/check-shared-legs.mjs",
+    "test/check-shared-legs-expanded-walk.mjs",
     "test/check-bounded-search.mjs",
     "test/check-equal-time-routing.mjs"
   ],

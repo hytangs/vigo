@@ -1,4 +1,4 @@
-use super::walking::MISSING_ACCESS_WITNESS;
+use super::walking::MissingAccessWitness;
 use super::{
     City, Result,
     materialize::MatrixMaterializationCache,
@@ -30,6 +30,52 @@ pub(super) struct SharedLegsContext {
 
 /// A journey whose shared services wait, with the options of the clock it
 /// was searched at.
+/// Options a journey's shared legs list at most.
+const MAXIMUM_OPTIONS: usize = 32;
+
+#[derive(Debug, Default, PartialEq)]
+struct Acceptance {
+    /// Substitutions not rebuildable from the supplied endpoint evidence.
+    omitted: usize,
+    /// The option bound was reached.
+    truncated: bool,
+}
+
+/// Accept materialized substitutions in candidate order, at most one per
+/// route and `MAXIMUM_OPTIONS` in all. A route is taken only by a
+/// substitution that materializes, so a later departure of the same route
+/// stays eligible after an earlier one fails. A substitution whose endpoint
+/// walk has no witness in the supplied evidence is counted and skipped,
+/// never failing the journey it would only annotate; other errors propagate.
+fn accept_substitutions<R: Eq + std::hash::Hash, J>(
+    eligible: Vec<(R, J)>,
+    routes: &mut HashSet<R>,
+    options: &mut Vec<Value>,
+    mut materialize: impl FnMut(J) -> Result<Value>,
+) -> Result<Acceptance> {
+    let mut accepted = Acceptance::default();
+    for (route, journey) in eligible {
+        if routes.contains(&route) {
+            continue;
+        }
+        if options.len() >= MAXIMUM_OPTIONS {
+            accepted.truncated = true;
+            continue;
+        }
+        match materialize(journey) {
+            Ok(option) => {
+                routes.insert(route);
+                options.push(option);
+            }
+            Err(error) if error.downcast_ref::<MissingAccessWitness>().is_some() => {
+                accepted.omitted += 1;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(accepted)
+}
+
 pub(super) struct DeferredSharedLegs {
     pub journey: TimetableMatrixJourney,
     pub opt: Options,
@@ -237,6 +283,9 @@ impl City {
         let mut options = vec![];
         let mut frequencies = vec![];
         let mut truncated = false;
+        // Substitutions found but not rebuildable from the supplied endpoint
+        // evidence; reported, never silently dropped.
+        let mut omitted = 0usize;
         let mut cache = MatrixMaterializationCache::default();
         for (index, leg) in journey.legs.iter().enumerate() {
             let Some(trip) = leg.trip else { continue };
@@ -311,6 +360,7 @@ impl City {
             let own = (vehicle, vehicle_board.to_bits());
             let mut seen = HashSet::new();
             let mut departures = vec![];
+            let mut eligible = vec![];
             for (candidate_key, candidate) in candidates {
                 if !seen.insert(candidate_key) {
                     continue;
@@ -347,11 +397,7 @@ impl City {
                     continue;
                 }
                 departures.push(candidate.departure);
-                if !feasible.contains(&candidate_key) || !routes.insert(route) {
-                    continue;
-                }
-                if options.len() == 32 {
-                    truncated = true;
+                if !feasible.contains(&candidate_key) {
                     continue;
                 }
                 let mut end = candidate.arrival;
@@ -371,25 +417,24 @@ impl City {
                     - replacement.walking_seconds
                     - replacement.ride_seconds)
                     .max(0.);
-                // A window sample can carry a final walk from a stop its
-                // endpoint evidence does not list; the substitution then has
-                // no priced walk to reconstruct. Omit that one substitution
-                // instead of failing the journey it would only annotate.
-                let mut value = match self.materialize(
-                    &replacement,
-                    endpoints,
-                    true,
-                    opt,
-                    access,
-                    Some(&mut cache),
-                ) {
-                    Err(error) if error.to_string() == MISSING_ACCESS_WITNESS => continue,
-                    result => result?,
-                };
-                value["status"] = json!("ready");
-                value["mode"] = json!("transit");
-                options.push(json!({"legIndex":leg_index,"plan":value}));
+                eligible.push((route, replacement));
             }
+            let accepted =
+                accept_substitutions(eligible, &mut routes, &mut options, |replacement| {
+                    let mut value = self.materialize(
+                        &replacement,
+                        endpoints,
+                        true,
+                        opt,
+                        access,
+                        Some(&mut cache),
+                    )?;
+                    value["status"] = json!("ready");
+                    value["mode"] = json!("transit");
+                    Ok(json!({"legIndex":leg_index,"plan":value}))
+                })?;
+            omitted += accepted.omitted;
+            truncated |= accepted.truncated;
             let mut frequency = serde_json::to_value(shared_departure_frequency(
                 departures,
                 leg.departure,
@@ -399,9 +444,87 @@ impl City {
             frequency["legIndex"] = json!(leg_index);
             frequencies.push(frequency);
         }
-        Ok(
-            json!({"coverage":"single_leg_substitutions","windowMinutes":30,
-            "truncated":truncated,"frequency":"active_departures","frequencies":frequencies,"options":options}),
-        )
+        let mut result = json!({"coverage":"single_leg_substitutions","windowMinutes":30,
+            "truncated":truncated,"frequency":"active_departures","frequencies":frequencies,"options":options});
+        if omitted > 0 {
+            result["omitted"] = json!({"count":omitted,"reason":"access_evidence_unavailable"});
+        }
+        Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn witness_missing() -> Result<Value> {
+        Err(Box::new(MissingAccessWitness))
+    }
+
+    #[test]
+    fn a_failed_substitution_leaves_its_route_to_a_later_departure() {
+        let mut routes = HashSet::from(["own"]);
+        let mut options = vec![];
+        let eligible = vec![("R", 1), ("R", 2), ("S", 3), ("own", 4)];
+        let accepted = accept_substitutions(eligible, &mut routes, &mut options, |n| {
+            if n == 1 {
+                witness_missing()
+            } else {
+                Ok(json!(n))
+            }
+        })
+        .unwrap();
+        // R's first departure cannot be rebuilt; its second is offered.
+        assert_eq!(options, vec![json!(2), json!(3)]);
+        assert_eq!(
+            accepted,
+            Acceptance {
+                omitted: 1,
+                truncated: false
+            }
+        );
+        assert!(routes.contains("R") && routes.contains("S"));
+    }
+
+    #[test]
+    fn omissions_are_reported_and_other_failures_propagate() {
+        let mut routes = HashSet::new();
+        let mut options = vec![];
+        let accepted =
+            accept_substitutions(vec![("R", 1), ("S", 2)], &mut routes, &mut options, |_| {
+                witness_missing()
+            })
+            .unwrap();
+        assert!(options.is_empty() && routes.is_empty());
+        assert_eq!(
+            accepted,
+            Acceptance {
+                omitted: 2,
+                truncated: false
+            }
+        );
+        let failed = accept_substitutions(vec![("R", 1)], &mut routes, &mut options, |_| {
+            Err("Timetable not active".into())
+        });
+        assert!(failed.is_err());
+    }
+
+    #[test]
+    fn the_option_bound_is_truncation_not_omission() {
+        let mut routes = HashSet::new();
+        let mut options = vec![json!(0); MAXIMUM_OPTIONS - 1];
+        let accepted =
+            accept_substitutions(vec![("R", 1), ("S", 2)], &mut routes, &mut options, |n| {
+                Ok(json!(n))
+            })
+            .unwrap();
+        assert_eq!(options.len(), MAXIMUM_OPTIONS);
+        assert_eq!(
+            accepted,
+            Acceptance {
+                omitted: 0,
+                truncated: true
+            }
+        );
     }
 }

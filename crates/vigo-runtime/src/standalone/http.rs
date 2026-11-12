@@ -784,6 +784,7 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
         {
             let _ = stream.set_write_timeout(Some(Duration::from_millis(50)));
             let _ = respond(&mut stream, 503, error("Connection capacity reached"));
+            close_after_response(stream);
             continue;
         }
         struct Lease(Arc<AtomicUsize>);
@@ -818,6 +819,9 @@ pub(crate) fn serve(city: &str, o: &HashMap<String, String>) -> Result<()> {
                     respond_bytes(&mut stream, 200, content_type, bytes)
                 }
             };
+            // The slot is free once the response is written.
+            drop(_lease);
+            linger_close(stream);
         });
         match spawned {
             Ok(_) => {
@@ -1247,6 +1251,56 @@ fn dispatch(
         state.requests.lock().map_err(|_| invalid())?.remove(&id);
     }
     Ok(result)
+}
+
+/// Close a connection without resetting the response just written. A request
+/// can still be arriving (an early 413, 431 or 503 is sent before its body
+/// is read), and closing a socket with unread input sends a TCP reset that
+/// can discard the response in flight. Shut down the write side, discard
+/// what the client still sends for a short, bounded time, then close.
+fn linger_close(mut stream: TcpStream) {
+    let _ = stream.shutdown(std::net::Shutdown::Write);
+    let deadline = Instant::now() + Duration::from_millis(500);
+    let mut sink = [0u8; 8192];
+    let mut drained = 0usize;
+    while drained < 1 << 20 {
+        let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+            break;
+        };
+        if stream
+            .set_read_timeout(Some(left.max(Duration::from_millis(1))))
+            .is_err()
+        {
+            break;
+        }
+        match stream.read(&mut sink) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => drained += n,
+        }
+    }
+}
+
+/// Linger-close a refused connection off the accept thread; past a small
+/// bound of concurrent closers, close it at once.
+fn close_after_response(stream: TcpStream) {
+    static CLOSING: AtomicUsize = AtomicUsize::new(0);
+    if CLOSING
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+            (n < 32).then_some(n + 1)
+        })
+        .is_err()
+    {
+        return;
+    }
+    let spawned = thread::Builder::new()
+        .name("vigo-http-close".into())
+        .spawn(move || {
+            linger_close(stream);
+            CLOSING.fetch_sub(1, Ordering::AcqRel);
+        });
+    if spawned.is_err() {
+        CLOSING.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 fn respond(stream: &mut TcpStream, status: u16, body: Body) -> std::io::Result<()> {

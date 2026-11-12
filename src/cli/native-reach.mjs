@@ -27,7 +27,8 @@ export async function queryNativeCity(cityPath, request) {
 }
 
 export function closeNativeCity() {
-  runtime?.closeAll()
+  // The CLI exits next; it does not wait for the City's process to exit.
+  runtime?.closeAll().catch(() => {})
   runtime = null
 }
 
