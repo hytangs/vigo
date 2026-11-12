@@ -17,8 +17,10 @@ try {
   const libraries = { a: path.join(directory, 'library-a'), b: path.join(directory, 'library-b') }
   for (const library of [configDirectory, ...Object.values(libraries)]) await fs.mkdir(library, { recursive: true })
   await fs.writeFile(path.join(configDirectory, 'config.json'), JSON.stringify({ storageRoot: libraries.a }))
+  const barrier = path.join(directory, 'route-barrier')
   api = await startInMemoryVigoApi({ repositoryRoot: path.resolve(import.meta.dirname, '..'), environment: {
     VIGO_CONFIG_DIR: configDirectory, VIGO_PROJECTS_DIR: '', VIGO_ROUTE_PROJECT_PREWARM: '0',
+    VIGO_TEST_ROUTE_BARRIER: barrier,
   } })
   const request = async (url, method = 'GET', body, status = 200) => {
     const response = await api.requestJson(url, { method, ...(body === undefined ? {} : { body }) })
@@ -49,11 +51,12 @@ try {
     }, 202)).job)
     return { base, feedId: imported.result.feedId }
   }
-  const route = base => request(`${base}/national-route`, 'POST', { mode: 'transit', feedId: '__project__',
+  const routeBody = { mode: 'transit', feedId: '__project__',
     origin: { source: 'map', coordinate: [-77.05, 38.9], label: 'Alpha' },
     destination: { source: 'map', coordinate: [-77.03, 38.91], label: 'Bravo' },
     serviceDate: '2026-07-15', serviceDay: 'weekday', routingDataMode: 'scheduled',
-    timePreference: 'depart', departMinutes: 475, maxWalkKm: 0.6, allowLongWalk: false })
+    timePreference: 'depart', departMinutes: 475, maxWalkKm: 0.6, allowLongWalk: false }
+  const route = base => request(`${base}/national-route`, 'POST', routeBody)
   const analyze = (city) => request(`${city.base}/gtfs-route-analysis`, 'POST', { feedId: city.feedId, routeId: 'R1', serviceDate: '2026-07-15' })
   const resident = async () => (await request('/api/health')).nativeRuntime.residentCities.map(city => city.root)
 
@@ -63,12 +66,21 @@ try {
   await analyze(a)
   assert((await resident()).some(root => root.startsWith(libraries.a)), 'Library A is open before the switch')
 
-  // A route of library A still in flight when the library changes either
-  // finishes or is refused; it never reopens A afterwards.
-  const inFlight = route(a.base).then(() => 'answered', () => 'refused')
+  // A route of library A that has selected its City but not yet reached the
+  // native runtime when the library changes is refused when it gets there;
+  // it never reopens A. The barrier holds it across the switch.
+  await fs.writeFile(barrier, '')
+  const inFlight = api.requestJson(`${a.base}/national-route`, { method: 'POST', body: routeBody })
+  const reached = Date.now() + 30_000
+  while (!(await fs.access(`${barrier}.reached`).then(() => true, () => false))) {
+    assert(Date.now() < reached, 'The in-flight route reached the barrier')
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
   await switchTo(libraries.b)
-  await inFlight
-  await new Promise(resolve => setTimeout(resolve, 100))
+  await fs.rm(barrier)
+  const refused = await inFlight
+  assert.notEqual(refused.status, 200, 'Work begun under library A is refused after the switch')
+  assert.match(JSON.stringify(refused.body), /library changed/)
   assert(!(await resident()).some(root => root.startsWith(libraries.a)), 'No work of library A reopened it after the switch')
 
   // The preparation pool and the native runtime serve library B without a restart.

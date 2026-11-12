@@ -581,11 +581,23 @@ Each native request follows one serving contract:
   times. A request waits up to `VIGO_NATIVE_AFFINITY_WAIT_MS` for a process
   that has its travel mode loaded, then takes any idle process, which loads
   it first.
-- **Generations.** Retiring a City's files, or switching library, refuses
-  the City's waiting work, stops its running work and starts a new
-  generation: no earlier request is retried into it or answered from it.
-  Switching library resets the native runtime and the preparation pool; both
-  keep serving the new library without a restart.
+- **Generations.** Replacing a City's files in the same library is a
+  two-phase fence (`withRetiredRouting`): the City starts a new generation and
+  its processes exit, then the files are replaced, then the City is released.
+  Admitted work does not fail: waiting requests, and requests arriving
+  meanwhile, wait until the release and then run on the new generation; a
+  request the retirement stopped mid-computation runs once more there. Each
+  stays within its own deadline. A failed replacement or its rollback releases
+  too, and a release that never comes ends after `VIGO_RETIRE_HOLD_MS`, when
+  the held work fails as being updated. The preparation pool follows the same
+  rule for its route analysis and preparation jobs. A caller that knows which
+  City it replaces (the wheelchair City's publish) names it by root, so its
+  parent City is never stopped.
+  Switching library instead resets the native runtime and the preparation
+  pool: everything admitted before is refused, and work begun under the old
+  library (a request still on its way, an import, a warm-up) is refused when
+  it reaches either runtime, so it never reopens an old City. Both keep
+  serving the new library without a restart.
 
 | Control | Default | Supported range |
 | --- | --- | --- |
@@ -596,6 +608,7 @@ Each native request follows one serving contract:
 | `VIGO_NATIVE_RESPONSE_BUDGET_BYTES` | Capacity ÷ 8, between 256 MiB and 2 GiB | 1 MiB–16 GiB; never below one response line |
 | `VIGO_NATIVE_AFFINITY_WAIT_MS` | 500 | 1–60,000 |
 | `VIGO_NATIVE_RESTART_BUDGET` | 6 process starts per City in 30 seconds | 1–100 |
+| `VIGO_RETIRE_HOLD_MS` | 300,000 ms a City or store waits for its replacement to finish | 1,000–3,600,000 |
 
 The response budget counts native answers being received and decoded across
 every process. The first answer being received always finishes; others pause
