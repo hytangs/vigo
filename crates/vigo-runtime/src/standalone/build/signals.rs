@@ -103,6 +103,9 @@ mod unix {
                     action.sa_sigaction =
                         notify as extern "C" fn(libc::c_int) as libc::sighandler_t;
                     libc::sigemptyset(&mut action.sa_mask);
+                    // Blocking reads and writes elsewhere resume after the
+                    // handler instead of failing with EINTR.
+                    action.sa_flags = libc::SA_RESTART;
                     libc::sigaction(signal, &action, std::ptr::null_mut());
                 }
             }
