@@ -382,3 +382,34 @@ fn row_and_total_row_budgets_are_enforced() {
         "GTFS ZIP exceeds the total-row limit (1 rows)."
     );
 }
+
+/// A quoted field holding thousands of short lines, doubled quotes and CRLF
+/// endings, spread across inflate chunks, reads as one field in linear time.
+#[test]
+fn newline_dense_quoted_records_stream_in_one_pass() {
+    let directory = scratch("csv-multiline");
+    let lines = 300_000;
+    let mut field = String::new();
+    for index in 0..lines {
+        if index > 0 {
+            field.push('\n');
+        }
+        field.push_str(if index % 7 == 0 { "\"\"q\"\"" } else { "x" });
+    }
+    let content = format!("stop_id,stop_name\r\nA,\"{field}\"\r\nB,\"tail\"\"\"\r\n");
+    let path = write_zip(
+        &directory,
+        "multiline.zip",
+        &[entry("stops.txt", content.as_bytes())],
+    );
+    let archive = Archive::inspect_with(&path, Limits::default()).unwrap();
+    let started = std::time::Instant::now();
+    let (_, rows, values) = read_table(&archive, "stops.txt", &mut Budget::default()).unwrap();
+    assert_eq!(rows, 2);
+    let expected = field.replace("\"\"", "\"");
+    assert_eq!(values[0]["stop_name"], expected);
+    assert_eq!(values[1]["stop_name"], "tail\"");
+    // The old whole-record rescan took minutes here; one pass takes well
+    // under a second even in a debug build.
+    assert!(started.elapsed().as_secs() < 20, "{:?}", started.elapsed());
+}
