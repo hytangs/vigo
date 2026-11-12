@@ -662,6 +662,49 @@ pub struct TableProfile {
     pub rows: u64,
 }
 
+/// The quote state of one logical CSV record, assembled from physical lines.
+/// Each byte is scanned once as its line arrives. Lines are joined by `\n`,
+/// which is never a quote, so whether a line's final `"` closes a field or
+/// starts a doubled `""` never depends on a later line: scanning line by line
+/// decides exactly as scanning the whole record would.
+#[derive(Default)]
+struct RecordQuotes {
+    /// Inside a quoted field at the end of the scanned lines.
+    open: bool,
+    /// The record has a quote, so its fields need quote-aware parsing.
+    seen: bool,
+    /// Bytes examined, for the linear-work regression.
+    #[cfg(test)]
+    scanned: usize,
+}
+
+impl RecordQuotes {
+    fn push(&mut self, line: &[u8]) {
+        #[cfg(test)]
+        {
+            self.scanned += line.len();
+        }
+        if !line.contains(&b'"') {
+            return;
+        }
+        self.seen = true;
+        let mut index = 0;
+        while index < line.len() {
+            if line[index] == b'"' {
+                if self.open && line.get(index + 1) == Some(&b'"') {
+                    index += 1;
+                } else {
+                    self.open = !self.open;
+                }
+            }
+            index += 1;
+        }
+    }
+}
+
+/// Whether a whole record's quotes are balanced: the reference the
+/// incremental scanner is tested against.
+#[cfg(test)]
 fn complete_csv_record(value: &str) -> bool {
     let bytes = value.as_bytes();
     let mut quoted = false;
@@ -762,9 +805,12 @@ pub fn stream_csv(
     let mut expanded = 0u64;
     let mut line_buffer: Vec<u8> = Vec::new();
     let mut pending = String::new();
+    let mut quotes = RecordQuotes::default();
     let mut header: Option<Header> = None;
     let mut rows = 0u64;
     let mut stream_start = true;
+    // Bytes at the front of `line_buffer` already searched for a newline.
+    let mut searched = 0usize;
     let record_limit = limits.max_logical_record_bytes;
     let too_long = || {
         Error::new(format!(
@@ -774,13 +820,29 @@ pub fn stream_csv(
     };
 
     let mut buffer: Vec<String> = Vec::new();
+    let mut lines_since_clock = 0u32;
+    let runtime_exceeded = || {
+        Error::new(format!(
+            "GTFS {table} extraction exceeded {} ms.",
+            limits.max_table_runtime_ms
+        ))
+    };
     // Returns the parsed record once a quoted record is complete.
     let mut consume_line = |line: &[u8],
                             pending: &mut String,
+                            quotes: &mut RecordQuotes,
                             header: &mut Option<Header>,
                             rows: &mut u64,
                             budget: &mut Budget|
      -> Result<()> {
+        // A chunk holds many lines; check the runtime budget within it too.
+        lines_since_clock += 1;
+        if lines_since_clock >= 4096 {
+            lines_since_clock = 0;
+            if started.elapsed().as_millis() as u64 > limits.max_table_runtime_ms {
+                return Err(runtime_exceeded());
+            }
+        }
         let line = line.strip_suffix(b"\r").unwrap_or(line);
         let line = std::str::from_utf8(line)
             .map_err(|_| Error::new(format!("GTFS {table} is not valid UTF-8.")))?;
@@ -793,10 +855,12 @@ pub fn stream_csv(
         if pending.len() as u64 > record_limit {
             return Err(too_long());
         }
-        let quoted = pending.as_bytes().contains(&b'"');
-        if quoted && !complete_csv_record(pending) {
+        quotes.push(line.as_bytes());
+        let quoted = quotes.seen;
+        if quotes.open {
             return Ok(());
         }
+        *quotes = RecordQuotes::default();
         let record = std::mem::take(pending);
         let Some(names) = header.as_ref() else {
             let record = record.strip_prefix('\u{FEFF}').unwrap_or(&record);
@@ -921,18 +985,24 @@ pub fn stream_csv(
             line_buffer.extend_from_slice(data);
             let mut start = 0;
             if !stream_start {
-                while let Some(position) = line_buffer[start..].iter().position(|b| *b == b'\n') {
-                    let end = start + position;
+                // The unfinished tail kept from earlier chunks has no newline;
+                // search only the bytes this chunk added.
+                let mut search = searched.min(line_buffer.len());
+                while let Some(position) = line_buffer[search..].iter().position(|b| *b == b'\n') {
+                    let end = search + position;
                     consume_line(
                         &line_buffer[start..end],
                         &mut pending,
+                        &mut quotes,
                         &mut header,
                         &mut rows,
                         budget,
                     )?;
                     start = end + 1;
+                    search = start;
                 }
                 line_buffer.drain(..start);
+                searched = line_buffer.len();
                 let open = if pending.is_empty() {
                     line_buffer.len()
                 } else {
@@ -943,10 +1013,7 @@ pub fn stream_csv(
                 }
             }
             if started.elapsed().as_millis() as u64 > limits.max_table_runtime_ms {
-                return Err(Error::new(format!(
-                    "GTFS {table} extraction exceeded {} ms.",
-                    limits.max_table_runtime_ms
-                )));
+                return Err(runtime_exceeded());
             }
             if let Some(callback) = on_progress.as_deref_mut()
                 && (last_progress.is_none_or(|at| at.elapsed().as_millis() >= 200)
@@ -965,7 +1032,14 @@ pub fn stream_csv(
         }
         if !line_buffer.is_empty() {
             let line = std::mem::take(&mut line_buffer);
-            consume_line(&line, &mut pending, &mut header, &mut rows, budget)?;
+            consume_line(
+                &line,
+                &mut pending,
+                &mut quotes,
+                &mut header,
+                &mut rows,
+                budget,
+            )?;
         }
         if !pending.is_empty() {
             return Err(Error::new(format!(
@@ -995,6 +1069,62 @@ pub fn stream_csv(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Line-by-line quote state decides every record prefix exactly as a
+    /// whole-record scan does, including doubled quotes and quotes at line
+    /// ends and starts.
+    #[test]
+    fn incremental_quotes_match_whole_record_scan() {
+        let mut seed = 0x9e37_79b9_u32;
+        let mut next = |n: u32| {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (seed >> 8) % n.max(1)
+        };
+        let alphabet = *b"a,\"\"\n\r";
+        for _ in 0..20_000 {
+            let length = next(40) as usize;
+            let text: Vec<u8> = (0..length)
+                .map(|_| alphabet[next(alphabet.len() as u32) as usize])
+                .collect();
+            let mut quotes = RecordQuotes::default();
+            let mut joined = String::new();
+            for (index, line) in text.split(|b| *b == b'\n').enumerate() {
+                let line = line.strip_suffix(b"\r").unwrap_or(line);
+                let line = std::str::from_utf8(line).unwrap();
+                if index > 0 {
+                    joined.push('\n');
+                }
+                joined.push_str(line);
+                quotes.push(line.as_bytes());
+                assert_eq!(quotes.seen, joined.contains('"'), "{joined:?}");
+                assert_eq!(
+                    quotes.seen && quotes.open,
+                    joined.contains('"') && !complete_csv_record(&joined),
+                    "{joined:?}"
+                );
+            }
+        }
+    }
+
+    /// A quoted field of many short lines is scanned once: doubling the
+    /// record doubles the work instead of quadrupling it.
+    #[test]
+    fn multiline_records_are_scanned_in_linear_work() {
+        let work = |lines: usize| {
+            let mut quotes = RecordQuotes::default();
+            quotes.push(b"a,\"");
+            for _ in 0..lines {
+                quotes.push(b"x");
+                assert!(quotes.open);
+            }
+            quotes.push(b"\"");
+            assert!(!quotes.open);
+            quotes.scanned
+        };
+        let small = work(100_000);
+        let large = work(200_000);
+        assert!(large <= small * 2 + 16, "{small} -> {large}");
+    }
 
     #[test]
     fn csv_records_follow_the_published_reader() {

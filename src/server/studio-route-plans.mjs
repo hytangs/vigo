@@ -503,6 +503,9 @@ function blockedPlan(raw, trace, body, context, failure) {
       methodState: category === 'unsupported_feature' ? 'unsupported' : 'failed',
       failureCode: code, failureCategory: category,
       failure: { code, category, retryable: false, message: detail },
+      // A drive blocked by supplied traffic still reports that traffic, so
+      // closures are visible rather than reading as a plain missing path.
+      ...(body.mode === 'drive' && raw?.diagnostics?.traffic ? { traffic: raw.diagnostics.traffic } : {}),
       ...(availability.length ? { accessAvailability: availability } : {}),
     },
   }
@@ -588,6 +591,8 @@ function streetFailure(raw, trace, body, context) {
       walkingNetwork: mode === 'walk' ? 'osm' : 'direct',
       algorithm: mode === 'drive' ? 'rust_exact_drive_search' : 'rust_cch_walk_exact',
       routingStatus: 'blocked', failureCode,
+      // Supplied traffic that closes every path is reported, not hidden.
+      ...(mode === 'drive' && raw.diagnostics?.traffic ? { traffic: raw.diagnostics.traffic } : {}),
     },
   }
 }
