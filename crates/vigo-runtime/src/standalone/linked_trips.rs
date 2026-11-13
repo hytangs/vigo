@@ -586,9 +586,12 @@ pub(super) fn compile(
         .saturating_add(retained.saturating_mul(2 * std::mem::size_of::<Part>()))
         .saturating_add(chains.len().saturating_mul(256))
         .saturating_add(name_bytes.saturating_mul(2));
-    let budget = crate::resources::memory_capacity().map_or(128 * 1024 * 1024, |capacity| {
-        (capacity / 8).min(128 * 1024 * 1024)
-    });
+    // An eighth of a known memory limit, up to 512 MiB; 512 MiB where the
+    // limit is unknown (macOS, Windows). A large bus network with many
+    // block-linked trips (LA Metro, 2.2 million connections) needs ~146 MB.
+    const CEILING: usize = 512 * 1024 * 1024;
+    let budget =
+        crate::resources::memory_capacity().map_or(CEILING, |capacity| (capacity / 8).min(CEILING));
     if estimated_bytes > budget {
         return fail(format!(
             "GTFS linked-trip expansion needs an estimated {estimated_bytes} additional bytes, exceeding its {budget}-byte preparation budget"

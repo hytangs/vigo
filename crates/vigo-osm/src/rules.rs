@@ -164,7 +164,10 @@ pub fn platform_area_has_walking_junctions(
 /// `(?:yes|designated|permissive|official)` case-insensitively at `at`.
 fn permissive_word(text: &str, at: usize) -> Option<usize> {
     for word in EXPLICIT_PEDESTRIAN {
-        if text.len() >= at + word.len() && text[at..at + word.len()].eq_ignore_ascii_case(word) {
+        if text
+            .get(at..at + word.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(word))
+        {
             return Some(at + word.len());
         }
     }
@@ -710,6 +713,9 @@ mod tests {
         assert!(!only_permissive_conditions(Some("yes @ (Mo")));
         assert!(!only_permissive_conditions(Some("yes @")));
         assert!(only_permissive_conditions(None));
+        // A word that would end inside a multi-byte character is no match.
+        assert!(!only_permissive_conditions(Some("ye\u{a0}@ (Mo)")));
+        assert!(!only_permissive_conditions(Some("y\u{e9}s @ (Mo)")));
     }
 
     #[test]
