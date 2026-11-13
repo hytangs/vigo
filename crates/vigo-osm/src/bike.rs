@@ -1022,9 +1022,9 @@ fn conditional_turn_rules(text: &str) -> Vec<String> {
     while at < bytes.len() {
         let boundary = at == 0 || !word(bytes[at - 1]);
         let prefix = if boundary {
-            if text[at..].starts_with("no_") {
+            if bytes[at..].starts_with(b"no_") {
                 Some(3)
-            } else if text[at..].starts_with("only_") {
+            } else if bytes[at..].starts_with(b"only_") {
                 Some(5)
             } else {
                 None
@@ -1040,7 +1040,7 @@ fn conditional_turn_rules(text: &str) -> Vec<String> {
             if body > 0 {
                 let end = at + prefix + body;
                 let after = skip_spaces(text, end);
-                if text[after..].starts_with('@') {
+                if bytes.get(after) == Some(&b'@') {
                     rules.push(text[at..end].to_owned());
                     at = after + 1;
                     continue;
@@ -1567,6 +1567,13 @@ mod tests {
             conditional_turn_rules("no_left_turn @ (Mo); only_straight_on@x; xno_u_turn @ y"),
             vec!["no_left_turn", "only_straight_on"]
         );
+        // Multi-byte text before or around a rule (a no-break space here)
+        // must not split a character.
+        assert_eq!(
+            conditional_turn_rules("Calle\u{a0}Ñ no_left_turn\u{a0}@ (Mo); é@x"),
+            vec!["no_left_turn"]
+        );
+        assert!(conditional_turn_rules("only\u{a0}no_é").is_empty());
     }
 
     // Ported from test/check-bike-profile.mjs.
