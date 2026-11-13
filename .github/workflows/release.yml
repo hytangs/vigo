@@ -10,7 +10,7 @@ on:
         type: boolean
         default: false
       release_tag:
-        description: Existing release tag matching package.json (original assets are preserved)
+        description: Release tag matching package.json; it must be unpublished or already published by this same commit
         type: string
         default: v1.0.0
 
@@ -23,15 +23,31 @@ permissions:
   actions: read
 
 jobs:
+  # One version is one build. A published version never takes a second build,
+  # so a version number names exactly one set of behaviour and files; fixes
+  # ship under a new version. Checked first, before the platform builds.
+  version-identity:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Refuse a second build of a published version
+        if: github.event_name == 'push' || inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
+        run: bash scripts/check-release-identity.sh "$RELEASE_TAG" "build-${GITHUB_SHA::12}"
+
   # Engine and Python ship together: one tag, one verified asset set. CI's
   # source, Rust workspace, documentation and Python package checks run once;
   # this workflow runs the engine checks on every platform it publishes.
   checks:
+    needs: version-identity
     uses: ./.github/workflows/ci.yml
     with:
       release: true
 
   build:
+    needs: version-identity
     strategy:
       fail-fast: false
       matrix:
@@ -249,8 +265,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.inputs.release_tag || github.ref_name }}
         run: |
+          manifest=(release/release-manifest-build-*.json)
+          build="$(basename "${manifest[0]}" .json)"; build="${build#release-manifest-}"
+          bash scripts/check-release-identity.sh "$RELEASE_TAG" "$build"
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" release/*
+            gh release upload "$RELEASE_TAG" release/* --clobber
           else
             flags=()
             if [[ "$RELEASE_TAG" == *-* ]]; then flags+=(--prerelease); fi
