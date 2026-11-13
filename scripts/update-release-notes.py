@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepend download links for the newly published immutable runtime revision."""
+"""Write download links for a version's one published build."""
 import argparse
 import json
 from pathlib import Path
@@ -16,8 +16,10 @@ release = json.loads(subprocess.check_output(["gh", "release", "view", args.tag,
 marker = f"<!-- vigo-release:{manifest['sourceCommit']} -->"
 if marker not in release["body"]:
     base = release["url"].replace("/tag/", "/download/") + "/"
-    lines = [marker, f"## Latest {manifest['version']} build: {manifest['build']}", "",
-             f"VIGO **{manifest['version']}**, source `{manifest['sourceCommit']}`. "
+    lines = [marker, f"## VIGO {manifest['version']} is {manifest['build']}", "",
+             f"VIGO **{manifest['version']}**, source `{manifest['sourceCommit']}` (tag `{args.tag}`). "
+             f"This is the one build of {manifest['version']}: the tag does not move, and fixes ship under a new version. "
+             f"Quote `{manifest['build']}` in bug reports, reproduction steps and deployment logs. "
              "Updated Studio, CLI, native runtimes and bundled Python wheels include the integrated offline documentation, "
              "device-aware native parallelism and memory budgets. Revision-named downloads are recorded in the build manifest.", "",
              "Every platform archive passed the release verification workflow before publication. "
